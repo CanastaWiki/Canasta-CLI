@@ -63,6 +63,36 @@
           {{ (_mycnf_missing_raw | default('', true) | string).split('\n')
              | map('trim') | reject('equalto', '') | list | unique }}
 
+    - name: Stat the my.cnf currently on disk
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/my.cnf"
+      register: _mycnf_existing
+
+    # Falling back to the existing file assumes there is one. After the
+    # untrack is committed, a host pulling that commit has my.cnf removed
+    # from its working tree before this runs — so with no value here there
+    # is nothing to keep, and skipping would leave the host with no my.cnf
+    # at all and MariaDB back at 128 MB. Refuse instead, as render_compose
+    # does for a missing wiki_url_<id>.
+    - name: Fail when there is no value and no my.cnf to fall back on
+      ansible.builtin.fail:
+        msg: |-
+          Refusing to leave this host without a my.cnf. No value for
+          {{ _mycnf_missing | join(', ') }} in hosts/{{ _render_hostname
+          | default('<host>') }}/vars.yaml or hosts/_shared/vars.yaml, and
+          my.cnf is not on disk to fall back on — so MariaDB would start at
+          its 128 MB compiled default (CanastaWiki/Canasta-CLI#1455).
+
+          Set a value sized for THIS host's RAM (roughly a quarter of it is
+          a common starting point) in hosts/<host>/vars.yaml:
+
+            innodb_buffer_pool_size: 2G
+
+          then run 'canasta gitops pull' again.
+      when:
+        - _mycnf_missing | length > 0
+        - not (_mycnf_existing.stat.exists | default(false))
+
     - name: Warn and keep the existing my.cnf when a setting has no value here
       ansible.builtin.debug:
         msg: |-
@@ -76,7 +106,9 @@
 
           sized for THIS host's RAM (roughly a quarter of it is a common
           starting point), then run 'canasta gitops pull'.
-      when: _mycnf_missing | length > 0
+      when:
+        - _mycnf_missing | length > 0
+        - _mycnf_existing.stat.exists | default(false)
 
     - name: Install the rendered my.cnf
       when: _mycnf_missing | length == 0

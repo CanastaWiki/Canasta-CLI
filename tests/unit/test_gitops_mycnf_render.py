@@ -117,6 +117,22 @@ class TestMissingValueLeavesMycnfAlone:
         src = _read(RENDER_MYCNF)
         assert "_mycnf_missing | length > 0" in src
 
+    def test_fails_when_no_value_and_no_file_to_fall_back_on(self):
+        """After the untrack is committed, a host pulling that commit has
+        my.cnf removed from its working tree before the render runs. With
+        no value for that host there is nothing to keep, so skipping would
+        leave it with no my.cnf and MariaDB back at 128 MB. Refuse instead.
+        """
+        fails = []
+        for t in _load_tasks(RENDER_MYCNF):
+            f = t.get("ansible.builtin.fail") or t.get("fail") or {}
+            if isinstance(f, dict) and f.get("msg"):
+                fails.append(str(f["msg"]))
+        assert any("Refusing to leave this host without a my.cnf" in m
+                   for m in fails), (
+            "the no-value, no-file case must fail loudly"
+        )
+
 
 class TestMycnfWrittenInPlace:
     def test_installed_with_cp_not_an_atomic_write(self):
@@ -166,12 +182,49 @@ class TestBackfillIsCreateOnly:
             "default instead"
         )
 
-    def test_stages_nothing(self):
-        """The backfill must not commit the untrack itself.
+    def test_untracks_my_cnf_with_cached_only(self):
+        """The migration untracks my.cnf itself rather than telling the
+        operator to run raw git. --cached only: the file stays on disk so
+        this host keeps serving from it until the render replaces it."""
+        rms = [_cmd(t) for t in _load_tasks(BACKFILL) if "git rm" in _cmd(t)]
+        assert rms, "the migration must untrack my.cnf itself"
+        for cmd in rms:
+            assert "--cached" in cmd, (
+                "must not delete my.cnf from disk: %s" % cmd
+            )
 
-        Committing `git rm --cached my.cnf` records a deletion, so every
-        other host loses my.cnf on its next pull. That is only safe once
-        each host has its own value, which is an operator step.
+    def test_stages_but_does_not_commit(self):
+        """Staged for 'canasta gitops push', consistent with the other
+        gitops migrations. Committing here would push without review."""
+        cmds = [_cmd(t) for t in _load_tasks(BACKFILL) if "git" in _cmd(t)]
+        assert any("git add" in c for c in cmds), "the migration must stage"
+        assert not any("git commit" in c or "git push" in c for c in cmds), (
+            "push is a separate, deliberate step"
+        )
+
+    def test_records_the_value_as_a_shared_default(self):
+        """The value goes in hosts/_shared/vars.yaml, not this host's.
+
+        Shared vars merge with the host winning, so every host inherits a
+        working value the moment the untrack lands. Writing it per-host
+        would leave every other host with no value and — after the untrack
+        — no my.cnf either.
         """
-        offenders = [_cmd(t) for t in _load_tasks(BACKFILL) if "git" in _cmd(t)]
-        assert not offenders, f"backfill must not touch git: {offenders}"
+        dests = []
+        for t in _load_tasks(BACKFILL):
+            c = t.get("ansible.builtin.copy") or t.get("copy") or {}
+            if isinstance(c, dict) and c.get("dest"):
+                dests.append(str(c["dest"]))
+        assert any("hosts/_shared/vars.yaml" in d for d in dests), (
+            "the buffer pool must be recorded as the shared default: %s"
+            % dests
+        )
+
+    def test_skips_when_git_crypt_is_locked(self):
+        """hosts/** is encrypted; a locked checkout cannot be read or
+        written. Skip with a warning rather than failing the upgrade."""
+        src = _read(BACKFILL)
+        assert "_bmt_locked" in src
+        assert "00474954435259505400" in src, (
+            "must detect the git-crypt header"
+        )
