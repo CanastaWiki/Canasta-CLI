@@ -170,6 +170,15 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/backfill_wikis_template.yml
 
+# Create my.cnf.template for a gitops instance that lacks it. my.cnf is
+# host-specific (innodb_buffer_pool_size must fit the host's RAM), so a
+# repo spanning hosts of different sizes cannot share one. Create-only,
+# and stages nothing — the operator finishes the migration. No-ops on
+# non-gitops instances and when the template already exists.
+- name: Backfill gitops my.cnf.template if missing
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/backfill_mycnf_template.yml
+
 # --- Bump configured image tag (orchestrator-specific) ---
 # K8s updates values.yaml image.tag; Compose updates CANASTA_IMAGE in .env.
 - name: Update configured image tag
