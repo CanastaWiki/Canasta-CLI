@@ -114,17 +114,28 @@
     src: "{{ key }}"
     dest: "/tmp/canasta-gitcrypt-key"
     mode: "0600"
+  when: not git_crypt_gpg_user | default('')
 
-- name: Unlock git-crypt with provided key
+- name: Unlock git-crypt with provided key (symmetric mode)
   ansible.builtin.command:
     cmd: "git-crypt unlock /tmp/canasta-gitcrypt-key"
     chdir: "{{ _join_tmpdir.path }}"
   changed_when: true
+  when: not git_crypt_gpg_user | default('')
 
 - name: Remove temp key from remote
   ansible.builtin.file:
     path: "/tmp/canasta-gitcrypt-key"
     state: absent
+  when: not git_crypt_gpg_user | default('')
+
+# GPG mode: unlock via the forwarded GPG agent, no symmetric key file.
+- name: Unlock git-crypt with GPG agent (GPG mode)
+  ansible.builtin.command:
+    cmd: "git-crypt unlock"
+    chdir: "{{ _join_tmpdir.path }}"
+  changed_when: true
+  when: git_crypt_gpg_user | default('')
 
 # --- Step 4: Validate host name not already in config ---
 - name: Read hosts.yaml from cloned repo
