@@ -2762,20 +2762,12 @@ commands:
         description: "Git repository URL"
       - name: key
         type: path
-        required: true
         description: >-
-          Path basename for the gitops keys, same as `gitops init`.
-          On Compose, `<key>` is the git-crypt symmetric key. On K8s,
-          only `<key>.ssh` (the SSH deploy key) is used — git-crypt
-          is not part of the K8s gitops flow.
-      - name: git_crypt_gpg_user
-        type: string
-        description: >-
-          Compose only. GPG recipient (email or key id) for git-crypt GPG
-          mode. When set, `gitops join` unlocks git-crypt with `git-crypt
-          unlock` (forwarded GPG agent) instead of `git-crypt unlock <key>`;
-          the symmetric git-crypt key is not used. --key is still required
-          for the SSH deploy key (`<key>.ssh`).
+          Compose only, and only for symmetric git-crypt repos: path to the
+          git-crypt symmetric key file exported by `canasta gitops init`.
+          GPG-initialized repos unlock automatically via a forwarded GPG
+          agent (auto-detected from the cloned repo), so --key is not needed
+          for them. On K8s, git-crypt is not part of the gitops flow.
       - name: ssh_key
         type: path
         description: >-
