@@ -106,8 +106,45 @@
   register: _pull_new_commit
   changed_when: false
 
-- name: Skip rendering if no changes
-  when: _pull_prev_commit.stdout == _pull_new_commit.stdout
+# What matters is whether the commit now at HEAD has been *applied*, not
+# whether this pull moved HEAD. A pull that fetched and then failed before
+# rendering leaves HEAD on the new commit with the rendered files still
+# holding the old values; comparing HEAD against the pre-pull HEAD would
+# find them equal and skip rendering forever, with no way back that does
+# not involve raw git against the instance. .gitops-applied records what
+# was last rendered, so compare against that.
+- name: Read the last applied commit
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-applied"
+  register: _pull_applied_raw
+  failed_when: false
+
+- name: Set the last applied commit
+  ansible.builtin.set_fact:
+    _pull_applied: >-
+      {{ (_pull_applied_raw.content | default('') | b64decode | trim)
+         if (_pull_applied_raw.content is defined) else '' }}
+
+# A rebased or rewritten repo can leave .gitops-applied naming a commit
+# that no longer exists, which would break the diff below.
+- name: Check the applied commit still exists
+  ansible.builtin.command:
+    cmd: "git cat-file -e {{ _pull_applied }}^{commit}"
+    chdir: "{{ instance_path }}"
+  register: _pull_applied_exists
+  changed_when: false
+  failed_when: false
+  when: _pull_applied != ''
+
+- name: Choose the base to diff against
+  ansible.builtin.set_fact:
+    _pull_diff_base: >-
+      {{ _pull_applied
+         if (_pull_applied != '' and (_pull_applied_exists.rc | default(1)) == 0)
+         else _pull_prev_commit.stdout }}
+
+- name: Skip rendering when this commit is already applied
+  when: _pull_applied == _pull_new_commit.stdout
   block:
     - name: Report no changes
       ansible.builtin.debug:
@@ -260,7 +297,7 @@
 # --- Step 9: Detect what changed ---
 - name: Get list of changed files
   ansible.builtin.command:
-    cmd: "git diff --name-only {{ _pull_prev_commit.stdout }}"
+    cmd: "git diff --name-only {{ _pull_diff_base }}"
     chdir: "{{ instance_path }}"
   register: _pull_changed_files
   changed_when: false
@@ -327,5 +364,9 @@
 - name: Report pull results
   ansible.builtin.debug:
     msg: >-
-      Pulled {{ _pull_prev_commit.stdout[:7] }}..{{ _pull_new_commit.stdout[:7] }}.
+      {{ ('Re-applied ' ~ _pull_new_commit.stdout[:7] ~ ' (the previous pull
+      did not finish).')
+      if _pull_prev_commit.stdout == _pull_new_commit.stdout
+      else ('Pulled ' ~ _pull_prev_commit.stdout[:7] ~ '..'
+      ~ _pull_new_commit.stdout[:7] ~ '.') }}
       {{ _pull_followup | join(' ') }}

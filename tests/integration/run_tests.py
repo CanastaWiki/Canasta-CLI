@@ -4072,6 +4072,92 @@ def test_gitops_renders_mycnf(inst):
     )
 
 
+def test_gitops_pull_reapplies_unfinished(inst):
+    """A pull whose render never ran must re-render on the next pull.
+
+    Simulates the field failure: HEAD is moved to a fetched commit while
+    .gitops-applied still names the old one, which is exactly the state a
+    pull that died after the merge leaves behind. Deciding on "did HEAD
+    move" would skip rendering forever.
+    """
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir, "-e", inst.env_file,
+    )
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo], capture_output=True, check=True,
+    )
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "testhost",
+        "--repo", bare_repo, "--key", key_file,
+    )
+    inst.run_ok("gitops", "push", "-i", inst.id)
+
+    ipath = inst.instance_path()
+    applied_file = os.path.join(ipath, ".gitops-applied")
+    before = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=ipath,
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    print("Pushing a remote change...")
+    clone_dir = os.path.join(inst.work_dir, "gitops-clone")
+    subprocess.run(
+        ["git", "clone", "-b", "main", bare_repo, clone_dir],
+        capture_output=True, check=True,
+    )
+    settings_dir = os.path.join(clone_dir, "config", "settings", "global")
+    os.makedirs(settings_dir, exist_ok=True)
+    marker = os.path.join(settings_dir, "PullReapply.php")
+    with open(marker, "w") as f:
+        f.write("<?php\n$wgPullReapply = true;\n")
+    for cmd in (["git", "add", "."],
+                ["git", "commit", "-m", "remote change"],
+                ["git", "push", "origin", "main"]):
+        subprocess.run(cmd, cwd=clone_dir, capture_output=True, check=True)
+
+    print("Simulating a pull that fetched but never rendered...")
+    subprocess.run(
+        ["git", "fetch", "origin", "main"], cwd=ipath,
+        capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "merge", "--ff-only", "origin/main"], cwd=ipath,
+        capture_output=True, check=True,
+    )
+    # .gitops-applied is written only after a successful render, so a pull
+    # that died before that leaves it naming the previous commit.
+    with open(applied_file, "w") as f:
+        f.write(before)
+
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=ipath,
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert head != before, "fixture should have moved HEAD"
+
+    print("Pulling: HEAD has not moved, but nothing was applied...")
+    output = inst.run_ok("gitops", "pull", "-i", inst.id)
+    assert "Already up to date" not in output, (
+        "an unapplied commit must not be reported as up to date:\n%s" % output
+    )
+
+    with open(applied_file) as f:
+        assert f.read().strip() == head, (
+            ".gitops-applied should advance to the rendered commit"
+        )
+
+
 def test_gitops_add_wiki_tracked(inst):
     """A wiki added after gitops init must have its tracked files captured
     into gitops by 'canasta add' (settings, public_assets logos, and the
@@ -4336,6 +4422,7 @@ ALL_TESTS = {
     "upgrade-backfills-wikis-template": test_upgrade_backfills_wikis_template,
     "upgrade-backfills-mycnf-template": test_upgrade_backfills_mycnf_template,
     "gitops-renders-mycnf": test_gitops_renders_mycnf,
+    "gitops-pull-reapplies": test_gitops_pull_reapplies_unfinished,
     "upgrade-backfill-hosts-yaml": test_upgrade_backfill_hosts_yaml,
     "backup": test_backup,
     "backup-advanced": test_backup_advanced,
