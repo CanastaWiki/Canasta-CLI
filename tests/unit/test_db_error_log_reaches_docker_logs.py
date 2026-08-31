@@ -147,3 +147,55 @@ class TestBothWaysAStartFailsReachIt:
         conds = [str(c) for c in _named(START, "Fail when web never reported healthy")["when"]]
         assert any("_start_web_cid.stdout" in c for c in conds)
         assert any("!= 'healthy'" in c for c in conds)
+
+
+class TestTheFastPathCapturesItToo:
+    """`canasta restart`/`start` on Compose never reach start.yml.
+
+    direct_commands handles them, with its own copy of the readiness gate, so
+    the Ansible-side capture alone would almost never run.
+    """
+
+    def _helpers(self):
+        import sys
+        sys.path.insert(0, REPO_ROOT)
+        from direct_commands import _helpers
+        return _helpers
+
+    def test_a_failed_compose_up_dumps_the_database_log(self):
+        import inspect
+        src = inspect.getsource(self._helpers()._dump_compose_failure)
+        assert "_dump_db_error_log(inst)" in src
+
+    def test_an_unhealthy_web_dumps_both_logs(self):
+        import inspect
+        src = inspect.getsource(self._helpers()._wait_web_ready)
+        assert "_dump_db_error_log(inst)" in src
+        assert "_dump_web_logs(inst)" in src
+
+    def test_the_health_timeout_names_the_database_as_a_cause(self):
+        import inspect
+        src = inspect.getsource(self._helpers()._wait_web_ready)
+        assert "the database web waits" in src, (
+            "the message blamed composer alone for a gate a dead database "
+            "also fails"
+        )
+
+    def test_the_volume_must_exist_before_it_is_mounted(self):
+        import inspect
+        src = inspect.getsource(self._helpers()._dump_db_error_log)
+        assert 'volume", "inspect"' in src.replace("'", '"')
+        assert "if rc != 0:\n        return" in src
+
+    def test_the_volume_name_matches_the_ansible_side(self):
+        import inspect
+        src = inspect.getsource(self._helpers()._dump_db_error_log)
+        assert '"%s_mysql-logs" % _compose_project(path)' in src
+
+    def test_it_is_read_read_only(self):
+        import inspect
+        src = inspect.getsource(self._helpers()._dump_db_error_log)
+        assert '"%s:/l:ro" % volume' in src
+
+    def test_a_pathless_instance_is_not_probed(self):
+        assert self._helpers()._dump_db_error_log({"path": ""}) is None
