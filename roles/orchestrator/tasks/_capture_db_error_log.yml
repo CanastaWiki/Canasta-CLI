@@ -1,0 +1,56 @@
+---
+# Read the tail of MariaDB's error log from its volume into
+# `_start_db_log_text`, or a sentence saying why there is none.
+#
+# A container restarting every couple of seconds may hold nothing useful in
+# its stdout by the time a failure path runs, and an instance started before
+# the db service teed its error log has none there at all. The volume-backed
+# copy outlives both.
+
+# Compose v2 derives the project name by lowercasing the instance directory
+# name and stripping characters outside [a-z0-9_-], then prefixes the volume.
+# Match that exactly or the volume is not found.
+- name: Resolve the database log volume name
+  ansible.builtin.set_fact:
+    _start_db_log_volume: >-
+      {{ (instance_path | basename | lower
+          | regex_replace('[^a-z0-9_-]', '')) }}_mysql-logs
+
+# `run -v` auto-creates a missing named volume, so an external-database
+# instance would collect a stray empty one on every failure.
+- name: Check whether the database log volume exists
+  ansible.builtin.command:
+    argv:
+      - "{{ inspect_command | default('docker') }}"
+      - volume
+      - inspect
+      - "{{ _start_db_log_volume }}"
+  register: _start_db_log_vol
+  changed_when: false
+  failed_when: false
+
+- name: Read the database error log
+  ansible.builtin.command:
+    argv:
+      - "{{ inspect_command | default('docker') }}"
+      - run
+      - --rm
+      - -v
+      - "{{ _start_db_log_volume }}:/l:ro"
+      - docker.io/library/mariadb:11.4
+      - tail
+      - -n
+      - "100"
+      - /l/error.log
+  register: _start_db_log
+  changed_when: false
+  failed_when: false
+  when: _start_db_log_vol.rc == 0
+
+- name: Record the database error log
+  ansible.builtin.set_fact:
+    _start_db_log_text: >-
+      {{ _start_db_log.stdout
+         if (_start_db_log.rc | default(1)) == 0 and
+            (_start_db_log.stdout | default('') | trim) != ''
+         else '(no error log; external database, or the volume is absent)' }}

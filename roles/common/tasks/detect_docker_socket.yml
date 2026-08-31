@@ -1,34 +1,87 @@
 ---
-# Probe the current target for a rootless container socket and set
-# `_detected_docker_host` accordingly. Empty string when nothing
-# rootless was found — caller treats that as "stick with the default
-# /var/run/docker.sock". See #479.
+# Probe the current target for the container runtime and its socket, setting
+# `_detected_container_runtime` and `_detected_docker_host`. An empty docker
+# host means "stick with the default /var/run/docker.sock". See #479.
 #
-# We look for podman first (the common rootless setup) and fall back
-# to rootless Docker. Both put their socket under
-# $XDG_RUNTIME_DIR (typically /run/user/<uid>/), so a single shell
-# probe that prefers podman is enough.
+# Docker is probed first. Podman is not a supported runtime yet, so a host
+# that has one installed for unrelated reasons must not be routed onto it
+# without the operator ever choosing it.
+#
+# `container_runtime` (CANASTA_CONTAINER_RUNTIME) settles the question
+# outright: the named runtime is the only one probed, and a run that cannot
+# find it fails rather than quietly using the other.
 
-- name: Probe target for rootless container socket
+- name: Reject an unrecognized container runtime
+  ansible.builtin.fail:
+    msg: >-
+      CANASTA_CONTAINER_RUNTIME is '{{ container_runtime }}'.
+      Valid values are 'docker' and 'podman'.
+  when:
+    - (container_runtime | default('')) != ''
+    - container_runtime not in ['docker', 'podman']
+
+# Two space-separated fields, runtime and socket, with '-' standing in for
+# "the runtime's own default socket" — a tab or an empty second field would
+# have to survive both YAML and Jinja unescaping to be read back correctly.
+- name: Probe target for a container runtime
   ansible.builtin.shell:
     cmd: |
       set -eu
       uid=$(id -u)
-      runtime="${XDG_RUNTIME_DIR:-/run/user/$uid}"
-      for sock in "$runtime/podman/podman.sock" "$runtime/docker.sock"; do
-          if [ -S "$sock" ]; then
-              echo "unix://$sock"
-              exit 0
+      xdg="${XDG_RUNTIME_DIR:-/run/user/$uid}"
+      want="{{ container_runtime | default('') }}"
+
+      try_docker() {
+          # Existence is not enough: an operator outside the docker group
+          # sees the socket and cannot use it, and that host really does
+          # belong on its rootless runtime.
+          if [ -S /var/run/docker.sock ] \
+             && docker -H unix:///var/run/docker.sock info >/dev/null 2>&1; then
+              printf 'docker -\n'
+              return 0
           fi
-      done
-      # System docker is the implicit default; no override needed.
-      echo ""
+          if [ -S "$xdg/docker.sock" ]; then
+              printf 'docker unix://%s/docker.sock\n' "$xdg"
+              return 0
+          fi
+          return 1
+      }
+
+      try_podman() {
+          if [ -S "$xdg/podman/podman.sock" ]; then
+              printf 'podman unix://%s/podman/podman.sock\n' "$xdg"
+              return 0
+          fi
+          return 1
+      }
+
+      case "$want" in
+          docker) try_docker || printf 'none -\n' ;;
+          podman) try_podman || printf 'none -\n' ;;
+          # Nothing found leaves docker to its compiled-in default, which is
+          # what this probe did before it could name a runtime.
+          *)      try_docker || try_podman || printf 'docker -\n' ;;
+      esac
   register: _detect_docker_sock_probe
   changed_when: false
   # The shell is intentionally cheap and idempotent; even on a
   # locked-down target a `id -u` + a couple of `[ -S … ]` succeed
   # without privilege.
 
-- name: Capture detected docker host
+- name: Capture the detected runtime and socket
   ansible.builtin.set_fact:
-    _detected_docker_host: "{{ _detect_docker_sock_probe.stdout | trim }}"
+    _detected_container_runtime: >-
+      {{ (_detect_docker_sock_probe.stdout | trim).split(' ') | first }}
+    _detected_docker_host: >-
+      {{ '' if ((_detect_docker_sock_probe.stdout | trim).split(' ') | last) == '-'
+         else ((_detect_docker_sock_probe.stdout | trim).split(' ') | last) }}
+
+- name: Fail when the declared runtime is not on this host
+  ansible.builtin.fail:
+    msg: >-
+      CANASTA_CONTAINER_RUNTIME requests {{ container_runtime }}, but no
+      {{ container_runtime }} socket was found on this host
+      {{ '(and /var/run/docker.sock did not answer)'
+         if container_runtime == 'docker' else '' }}.
+      Install it, or unset CANASTA_CONTAINER_RUNTIME to probe for either.
+  when: _detected_container_runtime == 'none'

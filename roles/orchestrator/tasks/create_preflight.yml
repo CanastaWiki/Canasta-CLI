@@ -48,6 +48,18 @@
         - not (compose_command | default('docker compose') is search('podman'))
         - _preflight_docker_host is search('podman')
 
+    # An instance's runtime was only ever visible after the fact, by noticing
+    # `docker ps` was empty. Say it while the operator is still watching.
+    - name: Report the container runtime this instance will use
+      ansible.builtin.debug:
+        msg: >-
+          Container runtime: {{ 'podman' if (compose_command
+            | default('docker compose') is search('podman')) else 'docker' }}
+          ({{ 'declared by CANASTA_CONTAINER_RUNTIME'
+              if (container_runtime | default('')) != ''
+              else 'detected' }}){{ ', socket ' ~ _preflight_docker_host
+              if _preflight_docker_host != '' else '' }}
+
     # Probe the target's runtime before any state mutation. This is the
     # only place detection happens — the CLI never guesses, so the
     # set_fact below is what makes a Podman-only host work, local or
