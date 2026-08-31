@@ -29,6 +29,45 @@
       it completes.
   when: _restore_prior_marker.content is defined
 
+# MariaDB only applies the root password when the data directory is first
+# initialized, so the volume keeps this host's. A restore killed between
+# replacing .env with the snapshot's and writing that password back leaves
+# .env holding the source's, and nothing else on disk still holds the right
+# one — the next restore would then faithfully preserve the wrong value and
+# make the loss permanent. Finish that write before reading .env below.
+- name: Check for a database password an unfinished restore parked
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ canasta_restore_dbpass_stash }}"
+  register: _restore_dbpass_stash_stat
+
+- name: Complete an unfinished restore's database-password write
+  when: _restore_dbpass_stash_stat.stat.exists
+  block:
+    - name: Read the parked database password
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/{{ canasta_restore_dbpass_stash }}"
+      register: _restore_dbpass_stash
+      no_log: true
+
+    - name: Put the parked database password back in .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: MYSQL_PASSWORD
+        value: "{{ _restore_dbpass_stash.content | b64decode | trim }}"
+      no_log: true
+      when: (_restore_dbpass_stash.content | b64decode | trim) != ''
+
+    - name: Report the recovered database password
+      when: (_restore_dbpass_stash.content | b64decode | trim) != ''
+      ansible.builtin.debug:
+        msg: >-
+          Recovered this instance's database password: a previous restore was
+          interrupted after it replaced .env and before it wrote the password
+          back, so .env held the snapshot's. If you set a different password
+          by hand since then, re-apply it with 'canasta config set
+          MYSQL_PASSWORD=... -i {{ instance_id }}'.
+
 - name: Save current DB password before restore
   canasta_env:
     path: "{{ instance_path }}/.env"
@@ -120,6 +159,19 @@
   vars:
     restore_marker_phase: starting
 
+# Outside config/, which the restore replaces wholesale, and outside the set
+# of names the snapshot carries — so the copy that overwrites .env cannot
+# reach it. Single-wiki restore leaves .env alone and needs no stash.
+- name: Park this host's database password for the span .env is the snapshot's
+  ansible.builtin.copy:
+    content: "{{ _restore_dbpass.value }}"
+    dest: "{{ instance_path }}/{{ canasta_restore_dbpass_stash }}"
+    mode: "0600"
+  no_log: true
+  when:
+    - wiki is not defined
+    - (_restore_dbpass.value | default('', true)) != ''
+
 # The orchestrator owns the restore mechanics (Compose volume restore +
 # file copy + DB import, or the K8s pod-based restore); dispatch
 # unconditionally.
@@ -179,6 +231,11 @@
   ansible.builtin.include_tasks: _restore_marker.yml
   vars:
     restore_marker_clear: true
+
+- name: Remove the parked database password
+  ansible.builtin.file:
+    path: "{{ instance_path }}/{{ canasta_restore_dbpass_stash }}"
+    state: absent
 
 - name: Display result
   ansible.builtin.debug:
