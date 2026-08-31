@@ -113,6 +113,28 @@ canasta_known_keys:
     group: Caddy / TLS
     description: Use Let's Encrypt staging CA (untrusted, but avoids rate limits)
     default: "false"
+  - name: CADDY_TLS_MODE
+    group: Caddy / TLS
+    description: >-
+      How Caddy obtains its certificate. "acme" (default) uses Let's Encrypt.
+      "internal" issues from Caddy's own CA and never contacts ACME — correct
+      behind a CDN that terminates public TLS and does not validate the origin
+      certificate. "custom" serves CADDY_TLS_CERT and CADDY_TLS_KEY from
+      config/certs/.
+    default: "acme"
+  - name: CADDY_TLS_CERT
+    group: Caddy / TLS
+    description: >-
+      Certificate filename within config/certs/, used when CADDY_TLS_MODE is
+      "custom". config/certs/ is gitignored, so a private key placed there
+      never reaches the gitops repository.
+    default: "origin.crt"
+  - name: CADDY_TLS_KEY
+    group: Caddy / TLS
+    description: >-
+      Private key filename within config/certs/, used when CADDY_TLS_MODE is
+      "custom".
+    default: "origin.key"
   - name: CADDY_TRUSTED_PROXIES
     group: Caddy / TLS
     description: >-
