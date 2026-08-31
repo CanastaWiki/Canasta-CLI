@@ -1,0 +1,7 @@
+---
+# The file a restore leaves behind while it is in flight, at the instance root
+# so the restore's own wholesale replacement of config/ cannot remove it.
+# Written by roles/backup/tasks/_restore_marker.yml and read by
+# direct_commands/_helpers.py, which cannot see Ansible vars — the two are
+# kept in step by tests/unit/test_restore_marker.py.
+canasta_restore_marker: ".canasta-restore-in-progress"

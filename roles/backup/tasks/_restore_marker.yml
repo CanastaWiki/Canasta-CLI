@@ -1,0 +1,31 @@
+---
+# Record how far a restore has got, in a file on the instance's own host.
+#
+# A restore mutates an instance in stages — config files, then databases, then
+# a restart, then the backup schedule. A process killed partway (both observed
+# cases died on a dropped SSH connection) never reaches any rescue, so nothing
+# said it was interrupted or where it stopped, and `canasta list` reported the
+# half-restored instance as healthy.
+#
+# The file is removed on success, so its presence is the record.
+#
+# Input: restore_marker_phase, or restore_marker_clear to remove it.
+
+- name: Clear the restore marker
+  ansible.builtin.file:
+    path: "{{ instance_path }}/{{ canasta_restore_marker }}"
+    state: absent
+  when: restore_marker_clear | default(false)
+
+- name: Record the restore phase
+  ansible.builtin.copy:
+    content: |
+      # An interrupted 'canasta backup restore'. Removed when one completes.
+      snapshot: {{ _resolved_snapshot | default('(unresolved)') }}
+      wiki: {{ wiki | default('(all wikis)') }}
+      phase: {{ restore_marker_phase }}
+      started: {{ _restore_started_at }}
+      updated: {{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}
+    dest: "{{ instance_path }}/{{ canasta_restore_marker }}"
+    mode: "0644"
+  when: not (restore_marker_clear | default(false))
