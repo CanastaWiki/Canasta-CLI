@@ -187,6 +187,32 @@
           - "--target"
           - "/"
 
+    # Whether this snapshot came from another host decides two things below:
+    # which my.cnf survives, and how loudly the result is reported. Read it
+    # from the snapshot before the copy overwrites the .env being compared
+    # against. A prior identity that matches is an in-place rollback — the
+    # genuinely safe case, which must stay quiet.
+    - name: Read the site identity held in the snapshot
+      when: wiki is not defined
+      ansible.builtin.shell:
+        cmd: >-
+          {{ inspect_command }} run --rm
+          -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro"
+          docker.io/library/alpine
+          sh -c 'sed -n "s/^MW_SITE_FQDN=//p" /currentsnapshot/.env 2>/dev/null'
+      register: _restore_snapshot_fqdn
+      changed_when: false
+      failed_when: false
+
+    - name: Note whether this restore crossed hosts
+      ansible.builtin.set_fact:
+        _restore_crossed_hosts: >-
+          {{ (_restore_prior_fqdn.value | default('', true)) != ''
+             and (_restore_snapshot_fqdn.stdout | default('', true) | trim) != ''
+             and (_restore_prior_fqdn.value | default('', true))
+                 != (_restore_snapshot_fqdn.stdout | default('', true) | trim) }}
+      when: wiki is not defined
+
     - name: Report the copy phase
       ansible.builtin.debug:
         msg: "Copying the restored files onto the host..."
@@ -206,6 +232,12 @@
     # container side needs no numeric uid: the web entrypoint's
     # make_dir_writable chgrps to www-data and sets g=rwX, which is how
     # MediaWiki keeps write access to content it does not own.
+    #
+    # my.cnf is the one file that is tuning for a host rather than state of an
+    # instance: innodb_buffer_pool_size is chosen against the host's RAM, and
+    # a pool the destination cannot allocate makes mariadbd exit 1. Across
+    # hosts this host's own is kept. In place it is restored like everything
+    # else, since there the two hosts are the same host.
     - name: Copy files from volume to host
       when: wiki is not defined
       ansible.builtin.shell:
@@ -215,6 +247,7 @@
             -v "{{ instance_path }}:/install" \
             docker.io/library/alpine sh -c '
             std="config extensions images skins public_assets";
+            keep_mycnf={{ (_restore_crossed_hosts | default(false)) | ternary(1, 0) }};
             for d in $std; do
               if [ -d /currentsnapshot/$d ]; then
                 mkdir -p /install/$d &&
@@ -227,12 +260,25 @@
               name=$(basename "$e");
               skip=0;
               for d in $std; do [ "$name" = "$d" ] && skip=1; done;
+              if [ "$name" = "my.cnf" ] && [ "$keep_mycnf" = "1" ] \
+                 && [ -e /install/my.cnf ]; then skip=1; fi;
               [ "$skip" = "1" ] && continue;
               [ -d "$e" ] && rm -rf "/install/$name";
               cp -a "$e" "/install/$name";
             done;
             chown -R "$(stat -c "%u:%g" /install)" /install'
       changed_when: true
+
+    - name: Report that this host's my.cnf was kept
+      ansible.builtin.debug:
+        msg: >-
+          Kept this host's my.cnf rather than the snapshot's. Its
+          innodb_buffer_pool_size was sized for {{ _restore_snapshot_fqdn.stdout
+          | default('the source host', true) | trim }}, and a pool this host
+          cannot allocate makes MariaDB exit 1 with an empty log.
+      when:
+        - wiki is not defined
+        - _restore_crossed_hosts | default(false)
 
     # Single-wiki restore (-w) brings back only the target wiki's per-wiki
     # files (settings, images, public assets) and its DB dump. Shared state —
@@ -414,6 +460,75 @@
         - wiki is not defined
         - _restore_gitops_stat.stat.exists | default(false)
         - not (_restore_gitcrypt_locked | default(false))
+
+    - name: Read the backup repository the restore installed
+      when: wiki is not defined
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: RESTIC_REPOSITORY
+      register: _restore_new_repo
+
+    # The re-render above is the only thing that replaces the snapshot's
+    # host-specific values, and it is reachable only on a gitops instance
+    # whose checkout is unlocked. `clone onto a fresh host` is therefore
+    # precisely the case that got no remediation, and no warning either.
+    - name: Note whether host-specific files were re-rendered
+      ansible.builtin.set_fact:
+        _restore_rerendered: >-
+          {{ (_restore_gitops_stat.stat.exists | default(false))
+             and not (_restore_gitcrypt_locked | default(false)) }}
+
+    - name: Report the re-render of a cross-host restore
+      ansible.builtin.debug:
+        msg: >-
+          This snapshot came from {{ _restore_snapshot_fqdn.stdout | trim }}.
+          Its host-specific values were re-rendered from this host's gitops
+          vars, so .env, config/wikis.yaml and the Caddyfile address this host.
+      when:
+        - wiki is not defined
+        - _restore_crossed_hosts | default(false)
+        - _restore_rerendered | bool
+
+    # Named individually because each is live the moment the instance starts,
+    # and restore starts it as part of its own run.
+    - name: Warn that a cross-host restore kept the source host's identity
+      ansible.builtin.debug:
+        msg: |-
+          WARNING: this snapshot was taken on {{ _restore_snapshot_fqdn.stdout
+            | trim }}, and nothing re-rendered its host-specific files for this
+          host{{ ' (git-crypt is locked, see above)'
+                 if (_restore_gitcrypt_locked | default(false))
+                 else ' (this instance is not gitops-managed)' }}. It is now
+          serving as {{ _restore_snapshot_fqdn.stdout | trim }}, not
+          {{ _restore_prior_fqdn.value }}.
+
+          RESTIC_REPOSITORY is {{ _restore_new_repo.value
+            | default('(unset)', true) }} — the source instance's backup
+          repository. This restore also re-materialized the backup schedule,
+          so a scheduled run on this host would write into it. Point it at
+          this host's own before the next run:
+
+            canasta config set RESTIC_REPOSITORY=... -i {{ instance_id }}
+
+          Media bucket names in config/settings and the Caddy site blocks are
+          the source's too. This host's my.cnf was kept.
+      when:
+        - wiki is not defined
+        - _restore_crossed_hosts | default(false)
+        - not (_restore_rerendered | bool)
+
+    - name: Warn that host-specific config came from the snapshot
+      ansible.builtin.debug:
+        msg: |-
+          WARNING: this instance is not gitops-managed, so nothing re-rendered
+          its host-specific files for this host. .env, config/wikis.yaml and
+          config/Caddyfile.* are the source host's, as captured in the
+          snapshot. Review them before the instance serves traffic.
+      when:
+        - wiki is not defined
+        - not (_restore_gitops_stat.stat.exists | default(false))
+        - not (_restore_crossed_hosts | default(false))
 
 # --- Kubernetes restore path ---
 - name: Restore (Kubernetes)
