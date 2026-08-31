@@ -620,6 +620,66 @@ def _dump_compose_failure(inst, include_sidecars=False):
         print("--- %s ---" % label, file=sys.stderr)
         print(output.strip() if output else "(empty)", file=sys.stderr)
 
+    _dump_db_error_log(inst)
+
+
+def _dump_web_logs(inst, tail=60):
+    """Print web's own logs. Composer failing is the other common cause."""
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+    if not path:
+        return
+    compose_cmd = _resolve_compose_cmd(inst)
+    file_args = _compose_file_args(path, host, inst.get("devMode", False))
+    action = ["logs", "--tail=%d" % tail, "--no-color", "web"]
+    if _is_localhost(host):
+        try:
+            result = subprocess.run(
+                compose_cmd + file_args + action,
+                cwd=path, capture_output=True, text=True, timeout=30,
+            )
+            output = result.stdout or result.stderr
+        except (subprocess.TimeoutExpired, OSError) as e:
+            output = "(failed to capture: %s)" % e
+    else:
+        _rc, output = _ssh_run(host, "cd %s && %s %s %s" % (
+            _shell_quote(path), " ".join(compose_cmd),
+            " ".join(file_args), " ".join(action),
+        ))
+    print("--- web logs (last %d) ---" % tail, file=sys.stderr)
+    print(output.strip() if output else "(empty)", file=sys.stderr)
+
+
+def _dump_db_error_log(inst):
+    """Print the tail of MariaDB's error log after a failed start.
+
+    Mirrors roles/orchestrator/tasks/_capture_db_error_log.yml. The db service
+    tees its log to stdout, but a container restarting every couple of seconds
+    may hold nothing useful there by the time this runs, and an instance
+    started before that change has none there at all. The volume-backed copy
+    outlives both.
+    """
+    path = inst.get("path", "")
+    if not path:
+        return
+    runtime = _resolve_inspect_cmd(inst)
+    volume = "%s_mysql-logs" % _compose_project(path)
+
+    # `run -v` auto-creates a missing named volume, so an external-database
+    # instance would collect a stray empty one on every failed start.
+    rc, _out = _runtime_capture(inst, [runtime, "volume", "inspect", volume])
+    if rc != 0:
+        return
+
+    rc, output = _runtime_capture(inst, [
+        runtime, "run", "--rm", "-v", "%s:/l:ro" % volume,
+        "docker.io/library/mariadb:11.4", "tail", "-n", "100", "/l/error.log",
+    ], timeout=60)
+    if rc != 0 or not (output or "").strip():
+        return
+    print("--- database error log (last 100) ---", file=sys.stderr)
+    print(output.strip(), file=sys.stderr)
+
 
 # Readiness gate after `up -d`. Mirrors roles/orchestrator/tasks/start.yml:
 # 60 x 10s = 10 min, comfortably above the CanastaBase healthcheck's 5 min
@@ -725,11 +785,17 @@ def _wait_web_ready(inst_id, inst):
             "healthy within %d minutes; its last status was '%s'. The image's "
             "healthcheck probes /server-status, which answers only once "
             "composer and apache have both finished — so this usually means "
-            "composer is still running, or failed. Check the container logs."
+            "composer is still running or failed, or the database web waits "
+            "on never came up."
             % (inst_id, _WEB_HEALTH_RETRIES * _WEB_HEALTH_DELAY // 60,
                status or "(none)"),
             file=sys.stderr,
         )
+        # `up` returning 0 while the database crash-loops is the commoner
+        # failure, and the one no diagnostic covered: compose reports every
+        # container started, so nothing before this point failed.
+        _dump_web_logs(inst)
+        _dump_db_error_log(inst)
         return 1
 
     runtime = _resolve_inspect_cmd(inst)

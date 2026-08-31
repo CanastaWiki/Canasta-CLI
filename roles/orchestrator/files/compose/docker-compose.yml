@@ -22,9 +22,16 @@ services:
       - internal-db
     image: docker.io/library/mariadb:11.4
     <<: *default-network
+    # --log-error sends MariaDB's log to the volume instead of stderr, so
+    # `docker logs` carried only the entrypoint's notes and a startup failure
+    # left no trace anywhere an operator or the CLI looks. tail -F follows by
+    # name, so it survives the rotation below and retries until the file
+    # exists. The volume-backed file is kept: docker logs does not survive the
+    # container recreation `canasta restart` performs.
     command: >
       bash -c "
         chown -R mysql:mysql /var/log/mysql &&
+        tail -F /var/log/mysql/error.log 2>/dev/null &
         (while sleep 86400; do LOG=/var/log/mysql/error.log; test -f $$LOG && test $$(wc -c <$$LOG) -gt 10485760 && mv $$LOG $$LOG.1 && mariadb-admin -u root -p$$MYSQL_ROOT_PASSWORD flush-logs 2>/dev/null; done) &
         exec docker-entrypoint.sh mariadbd --expire_logs_days=3 --secure-file-priv='' --log-error=/var/log/mysql/error.log
       "
