@@ -56,28 +56,51 @@
           {{ ((_mh_content | from_yaml) | default({}, true)).media_hosts
              | default([], true) }}
 
-    - name: Note which fields rendered empty
+    # An entry with no hostname is one this host does not serve — the usual
+    # case being a host that has just joined, since `gitops join` rebuilds
+    # hosts/<host>/vars.yaml from the instance's .env and so drops any media
+    # vars prepared for it in the repo. Skipping keeps the join working; the
+    # operator adds the vars and pulls, and the host appears then.
+    #
+    # A hostname with no bucket or endpoint is different: that is a broken
+    # entry, and rendering it would proxy a live hostname at the wrong
+    # upstream. That still refuses.
+    - name: Sort media hosts into complete, unset and broken
       ansible.builtin.set_fact:
-        _mh_empty_fields: >-
-          {{ (['hostname'] if (_mh_entries | rejectattr('hostname') | list | length) > 0 else [])
-             + (['bucket'] if (_mh_entries | rejectattr('bucket') | list | length) > 0 else [])
-             + (['endpoint'] if (_mh_entries | rejectattr('endpoint') | list | length) > 0 else []) }}
+        _mh_complete: >-
+          {{ _mh_entries | selectattr('hostname') | selectattr('bucket')
+             | selectattr('endpoint') | list }}
+        _mh_unset: "{{ _mh_entries | rejectattr('hostname') | list }}"
+        _mh_broken: >-
+          {{ (_mh_entries | selectattr('hostname') | rejectattr('bucket') | list)
+             + (_mh_entries | selectattr('hostname') | selectattr('bucket')
+                | rejectattr('endpoint') | list) }}
 
-    # Refuse rather than write. An empty hostname yields a site block with no
-    # address, and Caddy rejects the whole configuration — taking the wiki down
-    # as well as the media host.
-    - name: Fail if any media host field rendered empty
+    - name: Refuse to write a media host with no bucket or endpoint
       ansible.builtin.fail:
         msg: >-
-          Refusing to write config/media-hosts.yaml: {{ _mh_empty_fields | join(', ') }}
-          rendered empty because a placeholder in media-hosts.yaml.template has
-          no value in this host's vars.yaml or hosts/_shared/vars.yaml. An empty
-          hostname makes Caddy reject the entire configuration, which takes the
-          wiki down as well as the media hosts.
-      when: _mh_empty_fields | length > 0
+          Refusing to write config/media-hosts.yaml:
+          {{ _mh_broken | map(attribute='hostname') | join(', ') }}
+          {{ 'has' if (_mh_broken | length) == 1 else 'have' }} a hostname but no
+          bucket or endpoint, because a placeholder in media-hosts.yaml.template
+          has no value in this host's vars.yaml or hosts/_shared/vars.yaml.
+          Rendering it would point a live hostname at the wrong upstream.
+      when: _mh_broken | length > 0
 
+    - name: Report media hosts this host does not serve
+      ansible.builtin.debug:
+        msg: >-
+          {{ _mh_unset | length }} media host entr{{ 'y' if (_mh_unset | length) == 1 else 'ies' }}
+          in media-hosts.yaml.template resolved to no hostname on this host and
+          {{ 'was' if (_mh_unset | length) == 1 else 'were' }} skipped. Set the
+          hostname placeholders in this host's vars.yaml and run
+          'canasta gitops pull' to serve them.
+      when: _mh_unset | length > 0
+
+    # Written from the filtered structure rather than the rendered text, so a
+    # skipped entry leaves no empty block behind.
     - name: Write config/media-hosts.yaml
       ansible.builtin.copy:
-        content: "{{ _mh_content }}"
+        content: "{{ {'media_hosts': _mh_complete} | to_nice_yaml(indent=2) }}"
         dest: "{{ instance_path }}/config/media-hosts.yaml"
         mode: "0644"

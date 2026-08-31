@@ -245,15 +245,33 @@ class TestGitopsTemplating:
     def test_the_template_itself_is_not_ignored(self):
         assert "media-hosts.yaml.template" not in self._rules()
 
-    def test_refuses_to_write_when_a_placeholder_is_unresolved(self):
-        """An unresolved placeholder leaves the field present but empty, which
-        the missing-key check never sees. An empty hostname makes Caddy reject
-        the whole configuration, taking the wiki down with it."""
+    def test_refuses_a_hostname_with_no_bucket_or_endpoint(self):
+        """A hostname whose bucket or endpoint is empty is a broken entry —
+        rendering it would point a live hostname at the wrong upstream."""
         with open(self.RENDER) as f:
             tasks = list(_walk_tasks(yaml.safe_load(f)))
         msgs = [str((t.get("ansible.builtin.fail") or {}).get("msg", ""))
                 for t in tasks]
-        assert any("Refusing to write config/media-hosts.yaml" in m for m in msgs)
+        assert any("Refusing to write config/media-hosts.yaml" in m
+                   and "no" in m and "bucket or endpoint" in m for m in msgs)
+
+    def test_an_entry_with_no_hostname_is_skipped_not_fatal(self):
+        """`gitops join` rebuilds hosts/<host>/vars.yaml from the instance's
+        .env, dropping media vars prepared for that host in the repo. Failing
+        there makes the join impossible; the entry simply is not served yet.
+        Observed in an end-to-end run.
+        """
+        with open(self.RENDER) as f:
+            tasks = list(_walk_tasks(yaml.safe_load(f)))
+        names = [t.get("name", "") for t in tasks]
+        assert any("does not serve" in n for n in names), (
+            "an unset entry must be reported, not fatal"
+        )
+        # and the write must use the filtered list, so no empty block remains
+        writes = [t for t in tasks
+                  if isinstance(t.get("ansible.builtin.copy"), dict)
+                  and "media-hosts.yaml" in str(t["ansible.builtin.copy"].get("dest"))]
+        assert writes and "_mh_complete" in str(writes[0]["ansible.builtin.copy"])
 
     def test_empty_field_detection_parses_yaml_rather_than_matching_text(self):
         """Text-matching the bare "key:" a blank value leaves behind needs a
@@ -265,8 +283,8 @@ class TestGitopsTemplating:
         with open(self.RENDER) as f:
             tasks = list(_walk_tasks(yaml.safe_load(f)))
         guard = [t for t in tasks
-                 if "Note which fields rendered empty" in t.get("name", "")]
-        assert guard, "the empty-field guard task is missing"
+                 if "Sort media hosts into complete" in t.get("name", "")]
+        assert guard, "the entry-sorting task is missing"
         expr = str(guard[0].get("ansible.builtin.set_fact"))
         assert "rejectattr" in expr, "the guard must inspect parsed entries"
         assert "split(" not in expr, (
