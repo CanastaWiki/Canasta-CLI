@@ -1407,6 +1407,27 @@ def _read_wikis(path, host):
         return []
 
 
+def _read_restore_marker(path, host):
+    """The marker an unfinished restore left, or None.
+
+    Its presence is the record: a restore that completes removes it, and a
+    killed process never reaches any rescue that could report itself.
+    """
+    if not path:
+        return None
+    marker = os.path.join(path, RESTORE_MARKER)
+    try:
+        if _is_localhost(host):
+            with open(marker) as f:
+                return f.read().strip() or None
+        rc, stdout = _ssh_run(host, "cat %s 2>/dev/null" % _shell_quote(marker))
+        if rc != 0 or not stdout.strip():
+            return None
+        return stdout.strip()
+    except OSError:
+        return None
+
+
 def _docker_env(docker_host):
     """Process env with DOCKER_HOST set to docker_host, or None to inherit.
 
@@ -1795,6 +1816,11 @@ def _probe_wiki(wiki_url, host, instance_path=""):
 
 _SENTINEL = "---CANASTA_DELIM---"
 
+# Left at the instance root by a restore that has not finished. Kept in step
+# with vars/restore_marker.yml, which Ansible reads, by
+# tests/unit/test_restore_marker.py.
+RESTORE_MARKER = ".canasta-restore-in-progress"
+
 
 def _gather_instance_info(inst_id, inst):
     """Gather dir existence, wikis, and running status in one operation.
@@ -1833,7 +1859,9 @@ def _gather_instance_info(inst_id, inst):
         "cat %(p)s/config/wikis.yaml 2>/dev/null || echo WIKIS_MISSING; "
         "echo '%(d)s'; "
         + compose_ps
-    ) % {"p": qpath, "d": _SENTINEL}
+        + "; echo '%(d)s'; "
+        "test -f %(p)s/%(m)s && echo RESTORE_INTERRUPTED || true"
+    ) % {"p": qpath, "d": _SENTINEL, "m": RESTORE_MARKER}
 
     rc, stdout = _ssh_run(host, script)
     if rc != 0 and not stdout.strip():
@@ -1843,6 +1871,8 @@ def _gather_instance_info(inst_id, inst):
     dir_ok = parts[0].strip() == "DIR_OK" if len(parts) > 0 else False
     wikis_raw = parts[1] if len(parts) > 1 else ""
     running_raw = parts[2].strip() if len(parts) > 2 else ""
+    interrupted = (parts[3].strip() == "RESTORE_INTERRUPTED"
+                   if len(parts) > 3 else False)
 
     wikis = []
     if dir_ok and wikis_raw.strip() != "WIKIS_MISSING":
@@ -1859,7 +1889,8 @@ def _gather_instance_info(inst_id, inst):
     else:
         status = "STOPPED"
 
-    return _make_detail(inst_id, host, path, orchestrator, status, wikis)
+    return _make_detail(inst_id, host, path, orchestrator, status, wikis,
+                       interrupted)
 
 
 def _gather_local(inst_id, path, orchestrator, host, docker_host=None,
@@ -1875,7 +1906,10 @@ def _gather_local(inst_id, path, orchestrator, host, docker_host=None,
     else:
         status = "STOPPED"
 
-    return _make_detail(inst_id, host, path, orchestrator, status, wikis)
+    interrupted = dir_exists and os.path.exists(
+        os.path.join(path, RESTORE_MARKER))
+    return _make_detail(inst_id, host, path, orchestrator, status, wikis,
+                       interrupted)
 
 
 def _gather_k8s(inst_id, path, host):
@@ -1889,16 +1923,21 @@ def _gather_k8s(inst_id, path, host):
     else:
         status = "STOPPED"
 
-    return _make_detail(inst_id, host, path, "kubernetes", status, wikis)
+    return _make_detail(inst_id, host, path, "kubernetes", status, wikis,
+                       dir_exists and _read_restore_marker(path, host) is not None)
 
 
-def _make_detail(inst_id, host, path, orchestrator, status, wikis):
+def _make_detail(inst_id, host, path, orchestrator, status, wikis,
+                 interrupted_restore=False):
     return {
         "id": inst_id,
         "host": host,
         "path": path,
         "orchestrator": orchestrator.upper(),
-        "status": status,
+        # An interrupted restore leaves the instance running on half-applied
+        # config, which otherwise reads here as plain RUNNING.
+        "status": ("%s  [RESTORE INTERRUPTED]" % status
+                   if interrupted_restore else status),
         "wikis": wikis,
     }
 
