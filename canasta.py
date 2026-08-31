@@ -1594,15 +1594,12 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     # Declaring the runtime takes it out of the hands of the socket probe,
     # which can only report what it finds. A host carrying both runtimes has
     # no way to express which one its instances belong to otherwise.
+    #
+    # Only create reads this: every later command resolves the runtime from
+    # the registry entry create wrote. main() has already rejected a value
+    # that is neither runtime.
     runtime = os.environ.get("CANASTA_CONTAINER_RUNTIME", "").strip()
     if runtime:
-        if runtime not in ("docker", "podman"):
-            print(
-                "Error: CANASTA_CONTAINER_RUNTIME is '%s'. "
-                "Valid values are 'docker' and 'podman'." % runtime,
-                file=sys.stderr,
-            )
-            sys.exit(1)
         extra_vars["container_runtime"] = runtime
 
     if args.verbose:
@@ -1878,7 +1875,28 @@ def split_passthrough(remaining):
     return remaining, []
 
 
+CONTAINER_RUNTIMES = ("docker", "podman")
+
+
+def validate_container_runtime():
+    """Reject an unrecognized CANASTA_CONTAINER_RUNTIME.
+
+    In main() rather than on the Ansible dispatch: direct_commands never
+    build extra vars, so a value checked there was accepted or rejected
+    depending on which command happened to read it.
+    """
+    runtime = os.environ.get("CANASTA_CONTAINER_RUNTIME", "").strip()
+    if runtime and runtime not in CONTAINER_RUNTIMES:
+        print(
+            "Error: CANASTA_CONTAINER_RUNTIME is '%s'. Valid values are %s."
+            % (runtime, " and ".join("'%s'" % r for r in CONTAINER_RUNTIMES)),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def main():
+    validate_container_runtime()
     data = load_definitions()
     parser = build_parser(data)
 
