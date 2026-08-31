@@ -200,6 +200,58 @@
     # re-evaluated.
     _caddyfile_global_content: "{{ _caddy_global_raw.content | default('') | b64decode | caddy_unsafe }}"
 
+# Media hosts: object-storage-backed image/thumbnail hostnames, declared in
+# config/media-hosts.yaml and rendered as site blocks. Absent file = feature
+# off, so this is inert on every existing instance.
+- name: Stat media-hosts.yaml
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/media-hosts.yaml"
+  register: _media_hosts_stat
+
+- name: Read media-hosts.yaml
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/media-hosts.yaml"
+  register: _media_hosts_raw
+  when: _media_hosts_stat.stat.exists | default(false)
+
+- name: Parse media hosts
+  ansible.builtin.set_fact:
+    _media_hosts: >-
+      {{ ((_media_hosts_raw.content | default('') | b64decode | from_yaml)
+          | default({}, true)).media_hosts | default([], true) }}
+
+- name: Reject media hosts missing a required field
+  ansible.builtin.fail:
+    msg: >-
+      config/media-hosts.yaml entry {{ item | to_json }} is missing
+      {{ ['hostname', 'bucket', 'endpoint'] | reject('in', item.keys() | list) | join(', ') }}.
+      Each entry needs hostname, bucket and endpoint — without the bucket and
+      endpoint the upstream cannot be addressed, and object storage selects the
+      bucket from the Host header rather than the path.
+  loop: "{{ _media_hosts }}"
+  loop_control:
+    label: "{{ item.hostname | default('(no hostname)') }}"
+  when: >-
+    ['hostname', 'bucket', 'endpoint'] | reject('in', item.keys() | list) | list | length > 0
+
+# Caddy refuses to load a config that claims one hostname twice, so an operator
+# who declares a media host here while still hand-maintaining the equivalent
+# block in Caddyfile.global would get a caddy that will not start. Name the
+# collision instead of rendering it.
+- name: Refuse to claim a hostname Caddyfile.global already serves
+  ansible.builtin.fail:
+    msg: >-
+      {{ item.hostname }} is declared in config/media-hosts.yaml and also
+      appears as a site block in config/Caddyfile.global. Caddy refuses to load
+      a configuration that claims a hostname twice. Remove the hand-written
+      block from Caddyfile.global — that is what this declaration replaces.
+  loop: "{{ _media_hosts }}"
+  loop_control:
+    label: "{{ item.hostname | default('') }}"
+  when:
+    - item.hostname | default('') | length > 0
+    - _caddyfile_global_content is search('(?m)^\s*' ~ (item.hostname | default('x') | regex_escape) ~ '\s*\{')
+
 # Names the generated redirect server claims from Caddy's automatic one (see
 # Caddyfile.j2). Names the user's Caddyfile.global already serves over http://
 # are left to it — Caddy refuses to load a config that claims one twice.

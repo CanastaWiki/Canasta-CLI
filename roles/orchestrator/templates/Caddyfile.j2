@@ -140,3 +140,39 @@
         output file /var/log/caddy/access.log
     }
 }
+
+{% for _mh in (_media_hosts | default([])) %}
+
+{{ _mh.hostname }} {
+{% if not (_http_only | default(false)) %}
+{% if _tls_mode | default('acme') == 'internal' %}
+    tls internal
+{% elif _tls_mode | default('acme') == 'custom' %}
+    tls /etc/caddy/certs/{{ _tls_cert }} /etc/caddy/certs/{{ _tls_key }}
+{% endif %}
+{% endif %}
+{# MultimediaViewer requests images with crossOrigin="anonymous", so a media
+   host that omits this fails every load in the viewer while ordinary <img>
+   loads keep working. The value must be constant, not reflected: a CDN caches
+   the response, and a per-request origin is then wrong for the next requester. #}
+    header Access-Control-Allow-Origin "*"
+
+    reverse_proxy https://{{ _mh.bucket }}.{{ _mh.endpoint }} {
+{# Object storage selects the bucket from the Host header, not the path;
+   without this rewrite it returns NoSuchBucket. #}
+        header_up Host {{ _mh.bucket }}.{{ _mh.endpoint }}
+{# Never forward the wiki session cookie or Authorization to the provider. #}
+        header_up -Cookie
+        header_up -Authorization
+        transport http {
+            tls
+{# SNI must match the provider, not the public hostname. #}
+            tls_server_name {{ _mh.bucket }}.{{ _mh.endpoint }}
+        }
+    }
+
+    log {
+        output file /var/log/caddy/media.log
+    }
+}
+{% endfor %}
