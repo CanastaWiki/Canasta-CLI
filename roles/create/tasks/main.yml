@@ -106,6 +106,10 @@
     - { dir: public_assets }
     - { dir: config/settings/global }
     - { dir: config/settings/wikis }
+    # Bind-mounted into caddy unconditionally. Created here so Docker does not
+    # create it as a root-owned directory on first start, which would leave the
+    # operator unable to place a certificate without sudo.
+    - { dir: config/certs, mode: "0700" }
 
 # --- Step 6: Generate passwords ---
 - name: Resolve passwords (root DB, wiki DB, admin)

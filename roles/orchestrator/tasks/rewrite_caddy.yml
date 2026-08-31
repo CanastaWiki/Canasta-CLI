@@ -29,6 +29,12 @@
     _observable: "{{ _env_caddy.variables.CANASTA_ENABLE_OBSERVABILITY | default('false', true) | lower == 'true' }}"
     _varnish_enabled: "{{ _env_caddy.variables.CANASTA_ENABLE_VARNISH | default('true', true) | lower == 'true' }}"
     _staging_certs: "{{ _env_caddy.variables.CANASTA_STAGING_CERTS | default('false') | lower == 'true' }}"
+    # acme (default, unchanged behaviour) | internal | custom.
+    # default(x, true) because canasta_env returns "" for an absent key, and a
+    # plain default() does not fire on an empty string.
+    _tls_mode: "{{ _env_caddy.variables.CADDY_TLS_MODE | default('acme', true) | lower }}"
+    _tls_cert: "{{ _env_caddy.variables.CADDY_TLS_CERT | default('origin.crt', true) }}"
+    _tls_key: "{{ _env_caddy.variables.CADDY_TLS_KEY | default('origin.key', true) }}"
     _os_user: "{{ _env_caddy.variables.OS_USER | default('admin') }}"
     _os_password_hash: "{{ _env_caddy.variables.OS_PASSWORD_HASH | default('') }}"
     _is_k8s: "{{ instance_orchestrator | default('compose') in ['kubernetes', 'k8s'] }}"
@@ -60,6 +66,41 @@
   when:
     - _observable | bool
     - _os_password_hash | length == 0
+
+- name: Reject an unrecognised CADDY_TLS_MODE
+  ansible.builtin.fail:
+    msg: >-
+      CADDY_TLS_MODE is '{{ _tls_mode }}'. Valid values are 'acme' (default),
+      'internal' and 'custom'. A typo would otherwise fall through to ACME and
+      look like a certificate failure rather than a configuration error.
+  when: _tls_mode not in ['acme', 'internal', 'custom']
+
+# Caddy exits at startup when a tls directive names a file it cannot read, so
+# an absent certificate would take the site down on the next restart rather
+# than at the point the operator made the change. Fail here instead.
+- name: Stat the custom certificate and key
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/certs/{{ item }}"
+  loop:
+    - "{{ _tls_cert }}"
+    - "{{ _tls_key }}"
+  loop_control:
+    label: "{{ item }}"
+  register: _tls_files
+  when: _tls_mode == 'custom'
+
+- name: Refuse to render a custom TLS Caddyfile without the certificate files
+  ansible.builtin.fail:
+    msg: >-
+      CADDY_TLS_MODE is 'custom' but
+      {{ _tls_files.results | rejectattr('stat.exists') | map(attribute='item') | join(' and ') }}
+      {{ 'is' if (_tls_files.results | rejectattr('stat.exists') | list | length) == 1 else 'are' }}
+      missing from {{ instance_path }}/config/certs/. Caddy would fail to start.
+      Place the certificate and key there, or set CADDY_TLS_MODE back to 'acme'
+      or 'internal'.
+  when:
+    - _tls_mode == 'custom'
+    - _tls_files.results | rejectattr('stat.exists') | list | length > 0
 
 - name: Determine reverse proxy backend
   ansible.builtin.set_fact:

@@ -157,6 +157,11 @@ services:
       - caddy-data:/data
       - ./config/Caddyfile:/etc/caddy/Caddyfile
       - ./config/Caddyfile.site:/etc/caddy/Caddyfile.site
+      # Certificates for CADDY_TLS_MODE=custom. Gitignored, so a private
+      # key placed here never reaches the gitops repository. Mounted
+      # read-only and always present, so switching modes needs no
+      # compose change.
+      - ./config/certs:/etc/caddy/certs:ro
       - caddy-logs:/var/log/caddy
 
   varnish:

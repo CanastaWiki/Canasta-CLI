@@ -88,6 +88,17 @@
 {{ _site_address }} {
     import /etc/caddy/Caddyfile.site
 
+{# CADDY_TLS_MODE. Nothing is emitted for 'acme': Caddy's automatic HTTPS is
+   the default and adding a directive would change long-standing behaviour.
+   Skipped entirely on K8s, where the ingress terminates TLS and Caddy serves
+   plain HTTP — a tls directive there would be inert at best. #}
+{% if not (_http_only | default(false)) %}
+{% if _tls_mode | default('acme') == 'internal' %}
+    tls internal
+{% elif _tls_mode | default('acme') == 'custom' %}
+    tls /etc/caddy/certs/{{ _tls_cert }} /etc/caddy/certs/{{ _tls_key }}
+{% endif %}
+{% endif %}
 {% if _crowdsec_active | default(false) %}
     crowdsec
 {% endif %}
