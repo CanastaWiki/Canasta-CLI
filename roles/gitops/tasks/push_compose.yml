@@ -124,12 +124,31 @@
       {{ (_push_shared_stat.stat.exists
           | ternary(_push_shared_vars_raw.content | b64decode | from_yaml, {})) }}
 
+# An empty value means this host has no opinion, not "erase this everywhere".
+# Migrating one would replace every other host's credential with "", which is
+# invisible here and only surfaces on another host's next pull as a rendered
+# .env missing the key. The .env render already treats an unset placeholder the
+# same way, by omitting the line rather than writing KEY=.
 - name: Identify keys to migrate
   ansible.builtin.set_fact:
     _push_keys_to_migrate: >-
       {{ _push_host_vars | dict2items
          | selectattr('key', 'in', gitops_shared_keys)
+         | rejectattr('value', 'none')
+         | rejectattr('value', 'equalto', '')
          | list }}
+
+# Entries already in the shared file under a migrating key, minus the exact
+# pairs being written: what remains is a key whose shared value this push
+# replaces.
+- name: Identify shared values this push replaces
+  ansible.builtin.set_fact:
+    _push_keys_overwriting: >-
+      {{ (_push_shared_vars | dict2items
+          | selectattr('key', 'in', _push_keys_to_migrate | map(attribute='key') | list)
+          | list)
+         | difference(_push_keys_to_migrate)
+         | map(attribute='key') | list }}
 
 - name: Defer the migration while this host is behind
   ansible.builtin.debug:
@@ -147,6 +166,15 @@
     - _push_keys_to_migrate | length > 0
     - not (_push_is_behind | bool)
   block:
+    - name: Report shared values this push replaces
+      ansible.builtin.debug:
+        msg: >-
+          Replacing the shared value of {{ _push_keys_overwriting | join(', ') }}
+          in hosts/_shared/vars.yaml with this host's. Every other host picks
+          {{ 'it' if (_push_keys_overwriting | length) == 1 else 'them' }} up on
+          its next 'canasta gitops pull'.
+      when: _push_keys_overwriting | length > 0
+
     - name: Create _shared directory
       ansible.builtin.file:
         path: "{{ instance_path }}/hosts/_shared"
@@ -167,11 +195,13 @@
         mode: "0644"
       no_log: true
 
+    # Only what was migrated. A shared key left behind because its value is
+    # empty stays here, where host-wins lets it mean "no value on this host".
     - name: Remove migrated keys from host vars
       ansible.builtin.copy:
         content: >-
           {{ _push_host_vars | dict2items
-             | rejectattr('key', 'in', gitops_shared_keys)
+             | rejectattr('key', 'in', _push_keys_to_migrate | map(attribute='key') | list)
              | items2dict
              | to_nice_yaml(indent=2) }}
         dest: "{{ instance_path }}/hosts/{{ _push_hostname }}/vars.yaml"
