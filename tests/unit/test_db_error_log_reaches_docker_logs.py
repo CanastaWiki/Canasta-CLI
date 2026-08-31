@@ -20,6 +20,9 @@ COMPOSE = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "files", "compose", "docker-compose.yml",
 )
 START = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks", "start.yml")
+CAPTURE = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "tasks", "_capture_db_error_log.yml",
+)
 
 
 def _db_command():
@@ -74,8 +77,8 @@ class TestTheErrorLogIsTeedToStdout:
 
 
 class TestTheFailurePathReadsTheVolume:
-    def test_the_error_log_is_captured_when_start_fails(self):
-        task = _named(START, "Read the database error log")
+    def test_the_error_log_is_captured(self):
+        task = _named(CAPTURE, "Read the database error log")
         assert task, (
             "a container restarting every couple of seconds may hold nothing "
             "in stdout by the time the compose-logs capture runs"
@@ -87,27 +90,60 @@ class TestTheFailurePathReadsTheVolume:
         # `run -v` auto-creates a missing named volume, so an
         # external-database instance would collect a stray empty one on
         # every failed start.
-        check = _named(START, "Check whether the database log volume exists")
+        check = _named(CAPTURE, "Check whether the database log volume exists")
         assert check, "expected an existence check before the mount"
         assert check["ansible.builtin.command"]["argv"][1:3] == ["volume", "inspect"]
-        read = _named(START, "Read the database error log")
+        read = _named(CAPTURE, "Read the database error log")
         assert "_start_db_log_vol.rc == 0" in str(read["when"])
 
     def test_the_volume_name_matches_compose_project_derivation(self):
-        task = _named(START, "Resolve the database log volume name")
+        task = _named(CAPTURE, "Resolve the database log volume name")
         assert task
         expr = str(task["ansible.builtin.set_fact"]["_start_db_log_volume"])
         assert "instance_path | basename | lower" in expr
         assert "regex_replace('[^a-z0-9_-]', '')" in expr
         assert expr.rstrip().endswith("_mysql-logs")
 
-    def test_the_captured_log_reaches_the_failure_message(self):
-        msg = str(_named(START, "Fail with full output if docker compose up failed")
-                  ["ansible.builtin.fail"]["msg"])
-        assert "_start_db_log.stdout" in msg
+    def test_a_skipped_read_does_not_raise(self):
         # Skipped leaves a dict with no rc, so a bare .rc raises.
-        assert "_start_db_log.rc | default(1)" in msg
+        expr = str(_named(CAPTURE, "Record the database error log")
+                   ["ansible.builtin.set_fact"]["_start_db_log_text"])
+        assert "_start_db_log.rc | default(1)" in expr
 
     def test_it_is_read_read_only(self):
-        argv = _named(START, "Read the database error log")["ansible.builtin.command"]["argv"]
+        argv = _named(CAPTURE, "Read the database error log")["ansible.builtin.command"]["argv"]
         assert any(str(a).endswith(":/l:ro") for a in argv)
+
+
+class TestBothWaysAStartFailsReachIt:
+    """`up` failing and the health gate timing out are different paths."""
+
+    def test_a_failed_compose_up_captures_it(self):
+        task = _named(START, "Capture the database error log on failure")
+        assert task["ansible.builtin.include_tasks"] == "_capture_db_error_log.yml"
+        assert "_start_result.rc | default(0) != 0" in str(task["when"])
+        msg = str(_named(START, "Fail with full output if docker compose up failed")
+                  ["ansible.builtin.fail"]["msg"])
+        assert "_start_db_log_text" in msg
+
+    def test_an_unhealthy_web_captures_it_too(self):
+        # The commoner failure: an unallocatable buffer pool leaves the
+        # database crash-looping while compose reports every container
+        # started, so `up` succeeds and only this gate fails.
+        task = _named(START, "Capture the database error log for the health-gate failure")
+        assert task, (
+            "the health-gate failure said 'check the container logs' and "
+            "printed none"
+        )
+        assert task["ansible.builtin.include_tasks"] == "_capture_db_error_log.yml"
+
+    def test_the_health_gate_failure_prints_both_logs(self):
+        msg = str(_named(START, "Report that web never reported healthy")
+                  ["ansible.builtin.fail"]["msg"])
+        assert "_start_db_log_text" in msg
+        assert "_start_web_logs.stdout" in msg
+
+    def test_the_health_gate_conditions_are_unchanged(self):
+        conds = [str(c) for c in _named(START, "Fail when web never reported healthy")["when"]]
+        assert any("_start_web_cid.stdout" in c for c in conds)
+        assert any("!= 'healthy'" in c for c in conds)
