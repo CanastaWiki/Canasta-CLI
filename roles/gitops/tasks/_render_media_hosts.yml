@@ -43,16 +43,25 @@
           {% endfor %}
 
     # An unresolved placeholder leaves the field present but empty, so the
-    # missing-key check in rewrite_caddy never sees it. Detected by the bare
-    # "key:" a blank value leaves behind — no regex, because a backslash class
-    # inside a folded scalar is read literally and the match silently never
-    # fires.
-    - name: List fields that rendered empty
+    # missing-key check in rewrite_caddy never sees it.
+    #
+    # Parsed rather than text-matched. Matching on the bare "key:" a blank value
+    # leaves behind needs a newline split, and inside a folded scalar the '\n'
+    # is read literally — the expression then silently yields nothing and the
+    # guard never fires. Parsing also catches the first field of a list entry,
+    # which carries a "- " prefix and so never matches a bare "key:" anyway.
+    - name: Parse the rendered media hosts
+      ansible.builtin.set_fact:
+        _mh_entries: >-
+          {{ ((_mh_content | from_yaml) | default({}, true)).media_hosts
+             | default([], true) }}
+
+    - name: Note which fields rendered empty
       ansible.builtin.set_fact:
         _mh_empty_fields: >-
-          {{ _mh_content.split('\n') | map('trim')
-             | select('in', ['hostname:', 'bucket:', 'endpoint:'])
-             | map('regex_replace', ':$', '') | unique | list }}
+          {{ (['hostname'] if (_mh_entries | rejectattr('hostname') | list | length) > 0 else [])
+             + (['bucket'] if (_mh_entries | rejectattr('bucket') | list | length) > 0 else [])
+             + (['endpoint'] if (_mh_entries | rejectattr('endpoint') | list | length) > 0 else []) }}
 
     # Refuse rather than write. An empty hostname yields a site block with no
     # address, and Caddy rejects the whole configuration — taking the wiki down

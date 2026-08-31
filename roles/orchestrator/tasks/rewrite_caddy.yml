@@ -220,19 +220,33 @@
       {{ ((_media_hosts_raw.content | default('') | b64decode | from_yaml)
           | default({}, true)).media_hosts | default([], true) }}
 
+# Checks for an empty value, not merely a missing key. A hand-written file may
+# omit the key; a rendered one leaves it present but null when a placeholder has
+# no value on this host. `default('')` does not fire on null — only
+# `default('', true)` does — so a null field would otherwise reach `| length`
+# and fail with "object of type 'NoneType' has no len()" rather than the
+# explanation below.
 - name: Reject media hosts missing a required field
   ansible.builtin.fail:
     msg: >-
-      config/media-hosts.yaml entry {{ item | to_json }} is missing
-      {{ ['hostname', 'bucket', 'endpoint'] | reject('in', item.keys() | list) | join(', ') }}.
+      config/media-hosts.yaml entry {{ item | to_json }} has no
+      {{ ['hostname', 'bucket', 'endpoint']
+         | reject('in', item | dict2items | rejectattr('value', 'none')
+                        | rejectattr('value', 'equalto', '')
+                        | map(attribute='key') | list)
+         | join(', ') }}.
       Each entry needs hostname, bucket and endpoint — without the bucket and
       endpoint the upstream cannot be addressed, and object storage selects the
       bucket from the Host header rather than the path.
   loop: "{{ _media_hosts }}"
   loop_control:
-    label: "{{ item.hostname | default('(no hostname)') }}"
+    label: "{{ item.hostname | default('', true) | default('(no hostname)', true) }}"
   when: >-
-    ['hostname', 'bucket', 'endpoint'] | reject('in', item.keys() | list) | list | length > 0
+    ['hostname', 'bucket', 'endpoint']
+    | reject('in', item | dict2items | rejectattr('value', 'none')
+                   | rejectattr('value', 'equalto', '')
+                   | map(attribute='key') | list)
+    | list | length > 0
 
 # Caddy refuses to load a config that claims one hostname twice, so an operator
 # who declares a media host here while still hand-maintaining the equivalent
@@ -249,7 +263,7 @@
   loop_control:
     label: "{{ item.hostname | default('') }}"
   when:
-    - item.hostname | default('') | length > 0
+    - item.hostname | default('', true) | length > 0
     - _caddyfile_global_content is search('(?m)^\s*' ~ (item.hostname | default('x') | regex_escape) ~ '\s*\{')
 
 # Names the generated redirect server claims from Caddy's automatic one (see

@@ -147,7 +147,7 @@ class TestFailsClosed:
     def test_missing_required_fields_are_rejected(self):
         msgs = [str((t.get("ansible.builtin.fail") or {}).get("msg", ""))
                 for t in _tasks()]
-        assert any("is missing" in m and "hostname, bucket and endpoint" in m
+        assert any("has no" in m and "hostname, bucket and endpoint" in m
                    for m in msgs)
 
     def test_a_hostname_already_in_caddyfile_global_is_refused(self):
@@ -255,10 +255,24 @@ class TestGitopsTemplating:
                 for t in tasks]
         assert any("Refusing to write config/media-hosts.yaml" in m for m in msgs)
 
-    def test_empty_field_detection_avoids_regex(self):
-        """A backslash class inside a folded scalar is read literally, so the
-        match silently never fires — the bug that made an earlier my.cnf guard
-        inert."""
+    def test_empty_field_detection_parses_yaml_rather_than_matching_text(self):
+        """Text-matching the bare "key:" a blank value leaves behind needs a
+        newline split, and inside a folded scalar the '\n' is read literally —
+        the expression then yields nothing and the guard never fires. It also
+        misses the first field of a list entry, which carries a "- " prefix.
+        Both were observed in an end-to-end run before this was parsed instead.
+        """
         with open(self.RENDER) as f:
-            src = f.read()
-        assert "'hostname:', 'bucket:', 'endpoint:'" in src
+            tasks = list(_walk_tasks(yaml.safe_load(f)))
+        guard = [t for t in tasks
+                 if "Note which fields rendered empty" in t.get("name", "")]
+        assert guard, "the empty-field guard task is missing"
+        expr = str(guard[0].get("ansible.builtin.set_fact"))
+        assert "rejectattr" in expr, "the guard must inspect parsed entries"
+        assert "split(" not in expr, (
+            "a newline split inside a folded scalar is read literally, so the "
+            "expression silently yields nothing and the guard never fires"
+        )
+        parse = [t for t in tasks
+                 if "Parse the rendered media hosts" in t.get("name", "")]
+        assert parse and "from_yaml" in str(parse[0])
