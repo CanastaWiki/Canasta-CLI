@@ -59,7 +59,12 @@ class TestStartResultGuards:
             for t in _all_tasks()
             if "_start_result.rc" in str(t.get("when", ""))
         ]
-        assert len(guarded) == 3, (
-            "expected the ps capture, the logs capture, and the explicit "
-            f"fail to remain gated on rc; found {guarded}"
-        )
+        for name in (
+            "Capture compose state on failure",
+            "Capture compose logs on failure",
+            "Capture the database error log on failure",
+            "Fail with full output if docker compose up failed",
+        ):
+            assert name in guarded, (
+                f"'{name}' must stay gated on rc; found {guarded}"
+            )
