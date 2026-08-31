@@ -83,8 +83,8 @@ def test_the_overwrite_list_excludes_unchanged_values():
     assert "difference(_push_keys_to_migrate)" in expr
 
 
-RENDER_COMPOSE = os.path.join(
-    REPO_ROOT, "roles", "gitops", "tasks", "render_compose.yml",
+RENDER_ENV = os.path.join(
+    REPO_ROOT, "roles", "gitops", "tasks", "_render_env.yml",
 )
 
 
@@ -94,7 +94,7 @@ def test_a_null_var_renders_as_unset_not_as_blank():
     # `| default('')` does not fire on None, and Ansible prints None as the
     # empty string, so without the explicit test the line is written blank —
     # the state the surrounding comment exists to prevent.
-    with open(RENDER_COMPOSE) as fh:
+    with open(RENDER_ENV) as fh:
         tasks = yaml.safe_load(fh)
     task = next(
         t for t in _walk(tasks)
