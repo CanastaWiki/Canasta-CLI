@@ -32,7 +32,9 @@
   register: _dr_docker
   changed_when: false
   failed_when: false
-  when: not _dr_podman_socket
+  when:
+    - (container_runtime | default('')) == ''
+    - not _dr_podman_socket
 
 # Asked when Docker came up short, and when the socket said Podman so
 # Docker was never asked at all. On a Docker host neither holds and this
@@ -43,12 +45,23 @@
   register: _dr_podman
   changed_when: false
   failed_when: false
-  when: _dr_docker.rc | default(1) != 0
-
-- name: Use Podman when Docker is absent
   when:
+    - (container_runtime | default('')) == ''
     - _dr_docker.rc | default(1) != 0
-    - _dr_podman.rc | default(1) == 0
+
+# A declared runtime is the answer, not a hint to be weighed against the
+# probes — a host carrying both would otherwise record the one the operator
+# did not ask for.
+- name: Decide the runtime for this instance
+  ansible.builtin.set_fact:
+    _dr_use_podman: >-
+      {{ (container_runtime == 'podman')
+         if (container_runtime | default('')) != ''
+         else ((_dr_docker.rc | default(1)) != 0
+               and (_dr_podman.rc | default(1)) == 0) }}
+
+- name: Use Podman when it is this instance's runtime
+  when: _dr_use_podman | bool
   block:
     - name: Set the Podman runtime for this instance
       ansible.builtin.set_fact:

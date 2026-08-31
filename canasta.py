@@ -1591,6 +1591,20 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     if cli_bin:
         extra_vars["canasta_cli_bin"] = cli_bin
 
+    # Declaring the runtime takes it out of the hands of the socket probe,
+    # which can only report what it finds. A host carrying both runtimes has
+    # no way to express which one its instances belong to otherwise.
+    runtime = os.environ.get("CANASTA_CONTAINER_RUNTIME", "").strip()
+    if runtime:
+        if runtime not in ("docker", "podman"):
+            print(
+                "Error: CANASTA_CONTAINER_RUNTIME is '%s'. "
+                "Valid values are 'docker' and 'podman'." % runtime,
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        extra_vars["container_runtime"] = runtime
+
     if args.verbose:
         extra_vars["verbose"] = "true"
     else:
