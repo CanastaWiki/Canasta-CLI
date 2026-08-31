@@ -1,0 +1,83 @@
+---
+# Render config/media-hosts.yaml from media-hosts.yaml.template + host vars.
+# Any field may be a literal or a {{placeholder}} resolved from host vars.
+#
+# Input: instance_path, media_hosts_vars (host vars, shared merged in).
+
+- name: Check if media-hosts.yaml.template exists
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/media-hosts.yaml.template"
+  register: _mh_template_stat
+
+- name: Render media-hosts.yaml from template
+  when: _mh_template_stat.stat.exists
+  block:
+    - name: Read media-hosts.yaml.template
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/media-hosts.yaml.template"
+      register: _mh_template_raw
+
+    # Rendered to a fact first so an unresolved placeholder can be caught
+    # before it replaces the live file.
+    - name: Render media-hosts.yaml content from template
+      ansible.builtin.set_fact:
+        _mh_content: |
+          {% for line in (_mh_template_raw.content | b64decode).split('\n') %}
+          {% if '{{' in line and '}}' in line %}
+          {% set before = line.split('{{', 1)[0] %}
+          {% set placeholder = line.split('{{', 1)[1].split('}}', 1)[0] %}
+          {% set after = line.split('}}', 1)[1] if '}}' in line else '' %}
+          {{ before }}{{ media_hosts_vars[placeholder] | default('') }}{{ after }}
+          {% else %}
+          {{ line }}
+          {% endif %}
+          {% endfor %}
+
+    # An unresolved placeholder leaves the field present but empty, which the
+    # missing-key check in rewrite_caddy does not see.
+    - name: Parse the rendered media hosts
+      ansible.builtin.set_fact:
+        _mh_entries: >-
+          {{ ((_mh_content | from_yaml) | default({}, true)).media_hosts
+             | default([], true) }}
+
+    # No hostname: this host does not serve that entry — skip it.
+    # Hostname but no bucket or endpoint: broken entry — refuse, or it would
+    # point a live hostname at the wrong upstream.
+    - name: Sort media hosts into complete, unset and broken
+      ansible.builtin.set_fact:
+        _mh_complete: >-
+          {{ _mh_entries | selectattr('hostname') | selectattr('bucket')
+             | selectattr('endpoint') | list }}
+        _mh_unset: "{{ _mh_entries | rejectattr('hostname') | list }}"
+        _mh_broken: >-
+          {{ (_mh_entries | selectattr('hostname') | rejectattr('bucket') | list)
+             + (_mh_entries | selectattr('hostname') | selectattr('bucket')
+                | rejectattr('endpoint') | list) }}
+
+    - name: Refuse to write a media host with no bucket or endpoint
+      ansible.builtin.fail:
+        msg: >-
+          Refusing to write config/media-hosts.yaml:
+          {{ _mh_broken | map(attribute='hostname') | join(', ') }}
+          {{ 'has' if (_mh_broken | length) == 1 else 'have' }} a hostname but no
+          bucket or endpoint, because a placeholder in media-hosts.yaml.template
+          has no value in this host's vars.yaml or hosts/_shared/vars.yaml.
+          Rendering it would point a live hostname at the wrong upstream.
+      when: _mh_broken | length > 0
+
+    - name: Report media hosts this host does not serve
+      ansible.builtin.debug:
+        msg: >-
+          {{ _mh_unset | length }} media host entr{{ 'y' if (_mh_unset | length) == 1 else 'ies' }}
+          in media-hosts.yaml.template resolved to no hostname on this host and
+          {{ 'was' if (_mh_unset | length) == 1 else 'were' }} skipped. Set the
+          hostname placeholders in this host's vars.yaml and run
+          'canasta gitops pull' to serve them.
+      when: _mh_unset | length > 0
+
+    - name: Write config/media-hosts.yaml
+      ansible.builtin.copy:
+        content: "{{ {'media_hosts': _mh_complete} | to_nice_yaml(indent=2) }}"
+        dest: "{{ instance_path }}/config/media-hosts.yaml"
+        mode: "0644"

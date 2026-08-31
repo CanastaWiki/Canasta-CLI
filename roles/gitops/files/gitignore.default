@@ -4,6 +4,7 @@ config/secrets.env
 config/certs/
 config/secrets-web
 config/wikis.yaml
+config/media-hosts.yaml
 admin-password_*
 my.cnf
 
