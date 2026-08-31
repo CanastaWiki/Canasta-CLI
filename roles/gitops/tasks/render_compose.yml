@@ -122,6 +122,11 @@
         dest: "{{ instance_path }}/config/wikis.yaml"
         mode: "0644"
 
+- name: Render media-hosts.yaml from template
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_render_media_hosts.yml"
+  vars:
+    media_hosts_vars: "{{ _render_vars }}"
+
 - name: Render my.cnf from template
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_render_mycnf.yml"
   vars:

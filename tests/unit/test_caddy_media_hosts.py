@@ -190,3 +190,75 @@ class TestShippedScaffold:
         mh = [c for c in copies if "media-hosts.yaml" in str(c.get("dest", ""))]
         assert mh, "media-hosts.yaml is not scaffolded by init_config"
         assert mh[0].get("force") is False
+
+
+class TestGitopsTemplating:
+    """Media hostnames and buckets are per-host, exactly as wiki URLs are.
+
+    A single shared file gives every host every other environment's blocks.
+    So config/media-hosts.yaml is rendered from media-hosts.yaml.template,
+    joining .env, wikis.yaml and my.cnf as a per-host rendered file.
+    """
+
+    RENDER = os.path.join(
+        REPO_ROOT, "roles", "gitops", "tasks", "_render_media_hosts.yml")
+    RENDER_COMPOSE = os.path.join(
+        REPO_ROOT, "roles", "gitops", "tasks", "render_compose.yml")
+    PULL_COMPOSE = os.path.join(
+        REPO_ROOT, "roles", "gitops", "tasks", "pull_compose.yml")
+    GITIGNORE = os.path.join(
+        REPO_ROOT, "roles", "gitops", "files", "gitignore.default")
+
+    def _include(self, path):
+        with open(path) as f:
+            for t in _walk_tasks(yaml.safe_load(f)):
+                inc = t.get("ansible.builtin.include_tasks")
+                target = inc.get("file", "") if isinstance(inc, dict) else str(inc or "")
+                if "_render_media_hosts.yml" in target:
+                    return t
+        return None
+
+    def _rules(self):
+        with open(self.GITIGNORE) as f:
+            return [ln.strip() for ln in f
+                    if ln.strip() and not ln.strip().startswith("#")]
+
+    def test_rendered_by_render_compose(self):
+        assert self._include(self.RENDER_COMPOSE) is not None
+
+    def test_rendered_by_pull_compose(self):
+        """pull_compose does not delegate to render_compose — each renders
+        independently, so a change to one silently misses the other."""
+        assert self._include(self.PULL_COMPOSE) is not None
+
+    def test_each_path_passes_its_own_vars(self):
+        """render_compose builds _render_vars, pull_compose builds _pull_vars.
+        Passing the wrong one renders every placeholder empty."""
+        assert "_render_vars" in str(self._include(self.RENDER_COMPOSE)["vars"])
+        assert "_pull_vars" in str(self._include(self.PULL_COMPOSE)["vars"])
+
+    def test_rendered_output_is_gitignored(self):
+        """Generated per host now, so tracking it would reintroduce the shared
+        file this change exists to remove."""
+        assert "config/media-hosts.yaml" in self._rules()
+
+    def test_the_template_itself_is_not_ignored(self):
+        assert "media-hosts.yaml.template" not in self._rules()
+
+    def test_refuses_to_write_when_a_placeholder_is_unresolved(self):
+        """An unresolved placeholder leaves the field present but empty, which
+        the missing-key check never sees. An empty hostname makes Caddy reject
+        the whole configuration, taking the wiki down with it."""
+        with open(self.RENDER) as f:
+            tasks = list(_walk_tasks(yaml.safe_load(f)))
+        msgs = [str((t.get("ansible.builtin.fail") or {}).get("msg", ""))
+                for t in tasks]
+        assert any("Refusing to write config/media-hosts.yaml" in m for m in msgs)
+
+    def test_empty_field_detection_avoids_regex(self):
+        """A backslash class inside a folded scalar is read literally, so the
+        match silently never fires — the bug that made an earlier my.cnf guard
+        inert."""
+        with open(self.RENDER) as f:
+            src = f.read()
+        assert "'hostname:', 'bucket:', 'endpoint:'" in src

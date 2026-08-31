@@ -278,6 +278,12 @@
   vars:
     mycnf_vars: "{{ _pull_vars }}"
 
+# --- Step 7d: Render media-hosts.yaml from template + vars (if it exists) ---
+- name: Render media-hosts.yaml from template
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_render_media_hosts.yml"
+  vars:
+    media_hosts_vars: "{{ _pull_vars }}"
+
 # --- Step 8: Write admin password files ---
 - name: Write admin password files from vars
   ansible.builtin.copy:
