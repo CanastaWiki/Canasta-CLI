@@ -130,6 +130,13 @@ class TestDeclaredRuntime:
         assert task, "an unvalidated value is templated into a shell command"
         assert "docker" in str(task["ansible.builtin.fail"]["msg"])
 
+    def test_the_failure_message_reads_as_a_sentence(self):
+        # The parenthetical rendered empty for podman and left a space
+        # before the period.
+        task = _named(DETECT_SOCKET, "Fail when the declared runtime is not on this host")
+        msg = str(task["ansible.builtin.fail"]["msg"])
+        assert " ." not in msg.replace("\n", " ")
+
     def test_a_declared_runtime_that_is_absent_fails_the_run(self):
         task = _named(DETECT_SOCKET, "Fail when the declared runtime is not on this host")
         assert task, "falling through to the other runtime is the bug"
@@ -194,8 +201,42 @@ class TestTheEnvironmentVariableReachesAnsible:
         # Absent means "probe", not "docker" — the probe still has to run.
         assert "container_runtime" not in self._extra_vars(tmp_path, monkeypatch)
 
-    def test_an_unrecognized_value_is_refused_before_ansible_runs(
-            self, tmp_path, monkeypatch):
+    def test_an_unrecognized_value_is_refused_for_every_command(
+            self, monkeypatch, capsys):
+        # In main(), not on the Ansible dispatch: direct_commands never build
+        # extra vars, so a value checked there was accepted or rejected
+        # depending on which command happened to read it.
+        import sys
+
         import pytest
-        with pytest.raises(SystemExit):
-            self._extra_vars(tmp_path, monkeypatch, "containerd")
+
+        sys.path.insert(0, REPO_ROOT)
+        import canasta
+
+        monkeypatch.setenv("CANASTA_CONTAINER_RUNTIME", "containerd")
+        with pytest.raises(SystemExit) as exc:
+            canasta.validate_container_runtime()
+        assert exc.value.code == 1
+        assert "containerd" in capsys.readouterr().err
+
+    def test_main_validates_before_doing_anything(self):
+        import inspect
+        import sys
+
+        sys.path.insert(0, REPO_ROOT)
+        import canasta
+
+        body = inspect.getsource(canasta.main).splitlines()
+        first = next(ln.strip() for ln in body[1:] if ln.strip()
+                     and not ln.strip().startswith(("#", '"""')))
+        assert first == "validate_container_runtime()"
+
+    def test_both_runtimes_are_accepted(self, monkeypatch):
+        import sys
+
+        sys.path.insert(0, REPO_ROOT)
+        import canasta
+
+        for runtime in ("docker", "podman", ""):
+            monkeypatch.setenv("CANASTA_CONTAINER_RUNTIME", runtime)
+            canasta.validate_container_runtime()

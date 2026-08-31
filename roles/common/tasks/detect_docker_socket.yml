@@ -80,8 +80,8 @@
   ansible.builtin.fail:
     msg: >-
       CANASTA_CONTAINER_RUNTIME requests {{ container_runtime }}, but no
-      {{ container_runtime }} socket was found on this host
-      {{ '(and /var/run/docker.sock did not answer)'
-         if container_runtime == 'docker' else '' }}.
+      {{ container_runtime }} socket was found on this host{{
+        ', and /var/run/docker.sock did not answer'
+        if container_runtime == 'docker' else '' }}.
       Install it, or unset CANASTA_CONTAINER_RUNTIME to probe for either.
   when: _detected_container_runtime == 'none'
