@@ -620,6 +620,66 @@ def _dump_compose_failure(inst, include_sidecars=False):
         print("--- %s ---" % label, file=sys.stderr)
         print(output.strip() if output else "(empty)", file=sys.stderr)
 
+    _dump_db_error_log(inst)
+
+
+def _dump_web_logs(inst, tail=60):
+    """Print web's own logs. Composer failing is the other common cause."""
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+    if not path:
+        return
+    compose_cmd = _resolve_compose_cmd(inst)
+    file_args = _compose_file_args(path, host, inst.get("devMode", False))
+    action = ["logs", "--tail=%d" % tail, "--no-color", "web"]
+    if _is_localhost(host):
+        try:
+            result = subprocess.run(
+                compose_cmd + file_args + action,
+                cwd=path, capture_output=True, text=True, timeout=30,
+            )
+            output = result.stdout or result.stderr
+        except (subprocess.TimeoutExpired, OSError) as e:
+            output = "(failed to capture: %s)" % e
+    else:
+        _rc, output = _ssh_run(host, "cd %s && %s %s %s" % (
+            _shell_quote(path), " ".join(compose_cmd),
+            " ".join(file_args), " ".join(action),
+        ))
+    print("--- web logs (last %d) ---" % tail, file=sys.stderr)
+    print(output.strip() if output else "(empty)", file=sys.stderr)
+
+
+def _dump_db_error_log(inst):
+    """Print the tail of MariaDB's error log after a failed start.
+
+    Mirrors roles/orchestrator/tasks/_capture_db_error_log.yml. The db service
+    tees its log to stdout, but a container restarting every couple of seconds
+    may hold nothing useful there by the time this runs, and an instance
+    started before that change has none there at all. The volume-backed copy
+    outlives both.
+    """
+    path = inst.get("path", "")
+    if not path:
+        return
+    runtime = _resolve_inspect_cmd(inst)
+    volume = "%s_mysql-logs" % _compose_project(path)
+
+    # `run -v` auto-creates a missing named volume, so an external-database
+    # instance would collect a stray empty one on every failed start.
+    rc, _out = _runtime_capture(inst, [runtime, "volume", "inspect", volume])
+    if rc != 0:
+        return
+
+    rc, output = _runtime_capture(inst, [
+        runtime, "run", "--rm", "-v", "%s:/l:ro" % volume,
+        "docker.io/library/mariadb:11.4", "tail", "-n", "100", "/l/error.log",
+    ], timeout=60)
+    if rc != 0 or not (output or "").strip():
+        return
+    print("--- database error log (last 100) ---", file=sys.stderr)
+    print(output.strip(), file=sys.stderr)
+
 
 # Readiness gate after `up -d`. Mirrors roles/orchestrator/tasks/start.yml:
 # 60 x 10s = 10 min, comfortably above the CanastaBase healthcheck's 5 min
@@ -725,11 +785,17 @@ def _wait_web_ready(inst_id, inst):
             "healthy within %d minutes; its last status was '%s'. The image's "
             "healthcheck probes /server-status, which answers only once "
             "composer and apache have both finished — so this usually means "
-            "composer is still running, or failed. Check the container logs."
+            "composer is still running or failed, or the database web waits "
+            "on never came up."
             % (inst_id, _WEB_HEALTH_RETRIES * _WEB_HEALTH_DELAY // 60,
                status or "(none)"),
             file=sys.stderr,
         )
+        # `up` returning 0 while the database crash-loops is the commoner
+        # failure, and the one no diagnostic covered: compose reports every
+        # container started, so nothing before this point failed.
+        _dump_web_logs(inst)
+        _dump_db_error_log(inst)
         return 1
 
     runtime = _resolve_inspect_cmd(inst)
@@ -1341,6 +1407,27 @@ def _read_wikis(path, host):
         return []
 
 
+def _read_restore_marker(path, host):
+    """The marker an unfinished restore left, or None.
+
+    Its presence is the record: a restore that completes removes it, and a
+    killed process never reaches any rescue that could report itself.
+    """
+    if not path:
+        return None
+    marker = os.path.join(path, RESTORE_MARKER)
+    try:
+        if _is_localhost(host):
+            with open(marker) as f:
+                return f.read().strip() or None
+        rc, stdout = _ssh_run(host, "cat %s 2>/dev/null" % _shell_quote(marker))
+        if rc != 0 or not stdout.strip():
+            return None
+        return stdout.strip()
+    except OSError:
+        return None
+
+
 def _docker_env(docker_host):
     """Process env with DOCKER_HOST set to docker_host, or None to inherit.
 
@@ -1729,6 +1816,11 @@ def _probe_wiki(wiki_url, host, instance_path=""):
 
 _SENTINEL = "---CANASTA_DELIM---"
 
+# Left at the instance root by a restore that has not finished. Kept in step
+# with vars/restore_marker.yml, which Ansible reads, by
+# tests/unit/test_restore_marker.py.
+RESTORE_MARKER = ".canasta-restore-in-progress"
+
 
 def _gather_instance_info(inst_id, inst):
     """Gather dir existence, wikis, and running status in one operation.
@@ -1767,7 +1859,9 @@ def _gather_instance_info(inst_id, inst):
         "cat %(p)s/config/wikis.yaml 2>/dev/null || echo WIKIS_MISSING; "
         "echo '%(d)s'; "
         + compose_ps
-    ) % {"p": qpath, "d": _SENTINEL}
+        + "; echo '%(d)s'; "
+        "test -f %(p)s/%(m)s && echo RESTORE_INTERRUPTED || true"
+    ) % {"p": qpath, "d": _SENTINEL, "m": RESTORE_MARKER}
 
     rc, stdout = _ssh_run(host, script)
     if rc != 0 and not stdout.strip():
@@ -1777,6 +1871,8 @@ def _gather_instance_info(inst_id, inst):
     dir_ok = parts[0].strip() == "DIR_OK" if len(parts) > 0 else False
     wikis_raw = parts[1] if len(parts) > 1 else ""
     running_raw = parts[2].strip() if len(parts) > 2 else ""
+    interrupted = (parts[3].strip() == "RESTORE_INTERRUPTED"
+                   if len(parts) > 3 else False)
 
     wikis = []
     if dir_ok and wikis_raw.strip() != "WIKIS_MISSING":
@@ -1793,7 +1889,8 @@ def _gather_instance_info(inst_id, inst):
     else:
         status = "STOPPED"
 
-    return _make_detail(inst_id, host, path, orchestrator, status, wikis)
+    return _make_detail(inst_id, host, path, orchestrator, status, wikis,
+                       interrupted)
 
 
 def _gather_local(inst_id, path, orchestrator, host, docker_host=None,
@@ -1809,7 +1906,10 @@ def _gather_local(inst_id, path, orchestrator, host, docker_host=None,
     else:
         status = "STOPPED"
 
-    return _make_detail(inst_id, host, path, orchestrator, status, wikis)
+    interrupted = dir_exists and os.path.exists(
+        os.path.join(path, RESTORE_MARKER))
+    return _make_detail(inst_id, host, path, orchestrator, status, wikis,
+                       interrupted)
 
 
 def _gather_k8s(inst_id, path, host):
@@ -1823,16 +1923,21 @@ def _gather_k8s(inst_id, path, host):
     else:
         status = "STOPPED"
 
-    return _make_detail(inst_id, host, path, "kubernetes", status, wikis)
+    return _make_detail(inst_id, host, path, "kubernetes", status, wikis,
+                       dir_exists and _read_restore_marker(path, host) is not None)
 
 
-def _make_detail(inst_id, host, path, orchestrator, status, wikis):
+def _make_detail(inst_id, host, path, orchestrator, status, wikis,
+                 interrupted_restore=False):
     return {
         "id": inst_id,
         "host": host,
         "path": path,
         "orchestrator": orchestrator.upper(),
-        "status": status,
+        # An interrupted restore leaves the instance running on half-applied
+        # config, which otherwise reads here as plain RUNNING.
+        "status": ("%s  [RESTORE INTERRUPTED]" % status
+                   if interrupted_restore else status),
         "wikis": wikis,
     }
 

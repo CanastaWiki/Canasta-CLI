@@ -159,6 +159,10 @@
       failed_when: false
       when: _start_result.rc | default(0) != 0
 
+    - name: Capture the database error log on failure
+      ansible.builtin.include_tasks: _capture_db_error_log.yml
+      when: _start_result.rc | default(0) != 0
+
     # Ansible's default callback swallows stderr/stdout for failed
     # command modules under the compact "[ERROR]: Task failed: ..."
     # rendering. Register with failed_when: false and fail explicitly
@@ -175,6 +179,8 @@
           {{ _start_ps.stdout | default('(not captured)') }}
           --- docker compose logs (last 200) ---
           {{ _start_logs.stdout | default('(not captured)') }}
+          --- database error log (last 100) ---
+          {{ _start_db_log_text | default('(not captured)') }}
       when: _start_result.rc | default(0) != 0
 
     # `up -d` exiting 0 is not evidence that every service started:
@@ -306,19 +312,44 @@
         - _start_web_cid.stdout | trim != ''
         - _start_web_has_health.stdout | default('') | trim != ''
 
+    # `up` succeeding and the health gate timing out is the other way a start
+    # fails, and it is the more common one: an unallocatable buffer pool
+    # leaves the database crash-looping while compose reports every container
+    # started, so web never reaches a database and the only failure is here.
     - name: Fail when web never reported healthy
-      ansible.builtin.fail:
-        msg: >-
-          The 'web' container for instance '{{ instance_id }}' did not report
-          healthy within 10 minutes; its last status was
-          '{{ _start_web_health.stdout | default('') | trim | default('(none)', true) }}'.
-          The image's healthcheck probes /server-status, which answers only
-          once composer and apache have both finished — so this usually means
-          composer is still running, or failed. Check the container logs.
       when:
         - _start_web_cid.stdout | trim != ''
         - _start_web_has_health.stdout | default('') | trim != ''
         - (_start_web_health.stdout | default('') | trim) != 'healthy'
+      block:
+        - name: Capture the database error log for the health-gate failure
+          ansible.builtin.include_tasks: _capture_db_error_log.yml
+
+        - name: Capture web's logs for the health-gate failure
+          ansible.builtin.command:
+            cmd: >-
+              {{ _compose_cmd }} {{ _compose_files | join(' ') }}
+              {{ _compose_profile_flags | default('') }}
+              logs --tail=60 --no-color web
+            chdir: "{{ instance_path }}"
+          register: _start_web_logs
+          changed_when: false
+          failed_when: false
+
+        - name: Report that web never reported healthy
+          ansible.builtin.fail:
+            msg: |-
+              The 'web' container for instance '{{ instance_id }}' did not
+              report healthy within 10 minutes; its last status was
+              '{{ _start_web_health.stdout | default('') | trim | default('(none)', true) }}'.
+              The image's healthcheck probes /server-status, which answers only
+              once composer and apache have both finished — so this usually
+              means composer is still running or failed, or the database web
+              waits on never came up.
+              --- web logs (last 60) ---
+              {{ _start_web_logs.stdout | default('(not captured)') }}
+              --- database error log (last 100) ---
+              {{ _start_db_log_text | default('(not captured)') }}
 
     # Podman renders an empty status for the stock image, so the wait
     # above skips and the composer race comes back. Two reasons, both

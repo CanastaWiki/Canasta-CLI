@@ -432,6 +432,18 @@ def _kubectl_section(host, ns, cmd_args, label):
     return (label, out.rstrip())
 
 
+def _print_restore_marker(marker):
+    if not marker:
+        return
+    print("Restore:      INTERRUPTED — this instance is running on "
+          "half-applied configuration")
+    for line in marker.splitlines():
+        if line.startswith("#"):
+            continue
+        print("  %s" % line)
+    print("  Re-run 'canasta backup restore' to finish it.")
+
+
 @register("status")
 def cmd_status(args):
     inst_id, inst = _resolve_status_instance(args)
@@ -460,6 +472,7 @@ def cmd_status(args):
     if orchestrator in ("kubernetes", "k8s"):
         running = _helpers._check_running_k8s(inst_id, host)
         print("Status:       %s" % ("RUNNING" if running else "STOPPED"))
+        _print_restore_marker(_helpers._read_restore_marker(path, host))
         ns = "canasta-%s" % inst_id
         sections = [
             ("Pods", "pods -o wide"),
@@ -481,6 +494,7 @@ def cmd_status(args):
     running = _helpers._check_running_compose(
         path, host, compose_cmd=compose_cmd)
     print("Status:       %s" % ("RUNNING" if running else "STOPPED"))
+    _print_restore_marker(_helpers._read_restore_marker(path, host))
     if not path:
         print("\n(no path on file — cannot inspect containers)")
         return 0

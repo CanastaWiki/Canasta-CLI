@@ -9,6 +9,26 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
 
+# A marker left behind means a previous restore never finished. Say what it
+# reached before starting another one over the top of it.
+- name: Check for an interrupted restore
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/{{ canasta_restore_marker }}"
+  register: _restore_prior_marker
+  failed_when: false
+
+- name: Report the interrupted restore this one is resuming from
+  ansible.builtin.debug:
+    msg: |-
+      WARNING: a previous restore of this instance did not finish. It left:
+
+      {{ _restore_prior_marker.content | b64decode | trim }}
+
+      This instance has been running on half-applied configuration since.
+      The restore below replaces it wholesale, and clears the marker when
+      it completes.
+  when: _restore_prior_marker.content is defined
+
 - name: Save current DB password before restore
   canasta_env:
     path: "{{ instance_path }}/.env"
@@ -16,6 +36,18 @@
     key: MYSQL_PASSWORD
   register: _restore_dbpass
   no_log: true
+
+# The snapshot carries the source host's .env, which the restore writes over
+# this host's. Read the identity it is about to replace, so a restore onto a
+# different host can be recognized as one and said out loud. `read` returns ""
+# for a missing key, so a destination with no .env reads as "no prior identity"
+# and nothing is claimed about it.
+- name: Save this host's site identity before restore
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: MW_SITE_FQDN
+  register: _restore_prior_fqdn
 
 # Single-wiki restore (-w) scopes the restore to one wiki's DB and
 # per-wiki files. The wiki must already exist in this instance — a
@@ -79,6 +111,15 @@
     _resolved_snapshot: "{{ snapshot }}"
   when: _resolved_snapshot is not defined
 
+- name: Note when this restore started
+  ansible.builtin.set_fact:
+    _restore_started_at: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+
+- name: Mark the restore as in flight
+  ansible.builtin.include_tasks: _restore_marker.yml
+  vars:
+    restore_marker_phase: starting
+
 # The orchestrator owns the restore mechanics (Compose volume restore +
 # file copy + DB import, or the K8s pod-based restore); dispatch
 # unconditionally.
@@ -93,11 +134,23 @@
 # is the wrong response to it.
 - name: Restart instance after restore
   block:
+    - name: Mark the restart phase
+      ansible.builtin.include_tasks: _restore_marker.yml
+      vars:
+        restore_marker_phase: restart
+
     - name: Start the instance with the restored state
       ansible.builtin.include_role:
         name: instance_lifecycle
         tasks_from: restart.yml
   rescue:
+    # Left in place deliberately: the instance is restored but not running,
+    # and nothing has re-materialized its backup schedule.
+    - name: Mark the restart as the phase that failed
+      ansible.builtin.include_tasks: _restore_marker.yml
+      vars:
+        restore_marker_phase: restart-failed
+
     - name: Report a restore that succeeded with a failed restart
       ansible.builtin.fail:
         msg: >-
@@ -113,9 +166,19 @@
 # The snapshot restored config/backup-schedule.yml (if the instance had a
 # schedule); re-materialize the crontab on the instance's host so the
 # schedule is active again after a restore — including onto a fresh host.
+- name: Mark the backup-schedule phase
+  ansible.builtin.include_tasks: _restore_marker.yml
+  vars:
+    restore_marker_phase: backup-schedule
+
 - name: Re-materialize the backup schedule from restored state
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_rematerialize.yml
+
+- name: Clear the restore marker on success
+  ansible.builtin.include_tasks: _restore_marker.yml
+  vars:
+    restore_marker_clear: true
 
 - name: Display result
   ansible.builtin.debug:

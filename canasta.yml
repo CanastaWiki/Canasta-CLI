@@ -85,6 +85,11 @@
       ansible.builtin.include_vars:
         file: vars/compose_runtime.yml
 
+    # The in-flight restore marker's name, shared with list/status.
+    - name: Load the restore marker name
+      ansible.builtin.include_vars:
+        file: vars/restore_marker.yml
+
     - name: Validate command exists
       ansible.builtin.assert:
         that: command in (canasta_commands.commands | map(attribute='name'))
