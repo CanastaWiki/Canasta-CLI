@@ -117,17 +117,31 @@ class TestTheProbeAsksTheHost:
                 continue
             assert t["failed_when"] is False
             assert t["changed_when"] is False
-        block = _named(DETECT, "Use Podman when Docker is absent")
-        assert all("default(1)" in str(c) for c in block["when"]), (
+        expr = str(_named(DETECT, "Decide the runtime for this instance")
+                   ["ansible.builtin.set_fact"]["_dr_use_podman"])
+        assert expr.count("default(1)") == 2, (
             "the conditions read .rc directly, which is undefined when the "
             "binary is missing — the case this exists to handle"
         )
 
     def test_podman_wins_only_when_docker_is_unavailable(self):
-        conds = [str(c) for c
-                 in _named(DETECT, "Use Podman when Docker is absent")["when"]]
-        assert any("_dr_docker" in c and "!= 0" in c for c in conds)
-        assert any("_dr_podman" in c and "== 0" in c for c in conds)
+        expr = str(_named(DETECT, "Decide the runtime for this instance")
+                   ["ansible.builtin.set_fact"]["_dr_use_podman"])
+        assert "(_dr_docker.rc | default(1)) != 0" in expr
+        assert "(_dr_podman.rc | default(1)) == 0" in expr
+        assert _named(DETECT, "Use Podman when it is this instance's runtime")
+
+    def test_a_declared_runtime_overrides_both_probes(self):
+        # A host carrying both runtimes cannot express which one its
+        # instances belong to through probing alone.
+        for name in ("Probe docker info", "Probe podman info"):
+            conds = [str(c) for c in _named(DETECT, name)["when"]]
+            assert any("container_runtime" in c for c in conds), (
+                "%s must not run once the runtime has been declared" % name
+            )
+        expr = str(_named(DETECT, "Decide the runtime for this instance")
+                   ["ansible.builtin.set_fact"]["_dr_use_podman"])
+        assert "container_runtime == 'podman'" in expr
 
     def test_the_result_is_written_back_to_the_registry(self):
         task = _named(DETECT, "Record the detected runtime")
