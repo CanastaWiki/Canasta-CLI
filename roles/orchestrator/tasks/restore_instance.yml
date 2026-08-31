@@ -206,6 +206,7 @@
 
     - name: Note whether this restore crossed hosts
       ansible.builtin.set_fact:
+        _restore_source_fqdn: "{{ _restore_snapshot_fqdn.stdout | default('', true) | trim }}"
         _restore_crossed_hosts: >-
           {{ (_restore_prior_fqdn.value | default('', true)) != ''
              and (_restore_snapshot_fqdn.stdout | default('', true) | trim) != ''
@@ -273,9 +274,9 @@
       ansible.builtin.debug:
         msg: >-
           Kept this host's my.cnf rather than the snapshot's. Its
-          innodb_buffer_pool_size was sized for {{ _restore_snapshot_fqdn.stdout
-          | default('the source host', true) | trim }}, and a pool this host
-          cannot allocate makes MariaDB exit 1 with an empty log.
+          innodb_buffer_pool_size was sized for
+          {{ _restore_source_fqdn | default('the source host', true) }}, and a
+          pool this host cannot allocate makes MariaDB exit 1 with an empty log.
       when:
         - wiki is not defined
         - _restore_crossed_hosts | default(false)
@@ -482,7 +483,7 @@
     - name: Report the re-render of a cross-host restore
       ansible.builtin.debug:
         msg: >-
-          This snapshot came from {{ _restore_snapshot_fqdn.stdout | trim }}.
+          This snapshot came from {{ _restore_source_fqdn }}.
           Its host-specific values were re-rendered from this host's gitops
           vars, so .env, config/wikis.yaml and the Caddyfile address this host.
       when:
@@ -492,22 +493,28 @@
 
     # Named individually because each is live the moment the instance starts,
     # and restore starts it as part of its own run.
+    # Built as facts so the message below is plain lines: an expression that
+    # expands mid-sentence wraps against the source's line breaks, not the
+    # rendered text's, and the result reads as ragged as it looks here.
+    - name: Compose the cross-host warning
+      ansible.builtin.set_fact:
+        _restore_no_rerender_reason: >-
+          {{ 'git-crypt is locked in this checkout, see above'
+             if (_restore_gitcrypt_locked | default(false))
+             else 'this instance is not gitops-managed' }}
+
     - name: Warn that a cross-host restore kept the source host's identity
       ansible.builtin.debug:
         msg: |-
-          WARNING: this snapshot was taken on {{ _restore_snapshot_fqdn.stdout
-            | trim }}, and nothing re-rendered its host-specific files for this
-          host{{ ' (git-crypt is locked, see above)'
-                 if (_restore_gitcrypt_locked | default(false))
-                 else ' (this instance is not gitops-managed)' }}. It is now
-          serving as {{ _restore_snapshot_fqdn.stdout | trim }}, not
-          {{ _restore_prior_fqdn.value }}.
+          WARNING: this snapshot was taken on {{ _restore_source_fqdn }}, and
+          nothing re-rendered its host-specific files for this host
+          ({{ _restore_no_rerender_reason }}). This instance is now serving as
+          {{ _restore_source_fqdn }}, not {{ _restore_prior_fqdn.value }}.
 
-          RESTIC_REPOSITORY is {{ _restore_new_repo.value
-            | default('(unset)', true) }} — the source instance's backup
-          repository. This restore also re-materialized the backup schedule,
-          so a scheduled run on this host would write into it. Point it at
-          this host's own before the next run:
+          RESTIC_REPOSITORY is {{ _restore_new_repo.value | default('(unset)', true) }}
+          — the source instance's backup repository. This restore also
+          re-materialized the backup schedule, so a scheduled run on this host
+          would write into it. Point it at this host's own before the next run:
 
             canasta config set RESTIC_REPOSITORY=... -i {{ instance_id }}
 
