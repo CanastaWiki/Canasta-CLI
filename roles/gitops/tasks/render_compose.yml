@@ -60,7 +60,7 @@
       {% set key = line.split('=', 1)[0] %}
       {% set placeholder = line.split('={{', 1)[1].split('}}', 1)[0] %}
       {% set value = _render_vars[placeholder] | default('') %}
-      {% if value != '' %}
+      {% if value is not none and value != '' %}
       {{ key }}={{ value }}
       {% endif %}
       {% else %}
