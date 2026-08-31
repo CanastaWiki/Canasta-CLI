@@ -1,15 +1,6 @@
 ---
 # Render config/media-hosts.yaml from media-hosts.yaml.template + host vars.
-#
-# Media hostnames and buckets are per-host in the same way wiki URLs are: an
-# environment serves its own hostnames from its own buckets. A single shared
-# file gives every host every other environment's blocks — harmless while
-# nothing routes to them, but the wrong shape, and it grows per environment.
-#
-# Substitution is the same generic line-based replacement used for env.template
-# and wikis.yaml.template, so any field may be a literal or a placeholder. An
-# endpoint identical across hosts is best written as a placeholder resolved from
-# hosts/_shared/vars.yaml: declared once, still overridable per host.
+# Any field may be a literal or a {{placeholder}} resolved from host vars.
 #
 # Input: instance_path, media_hosts_vars (host vars, shared merged in).
 
@@ -42,29 +33,17 @@
           {% endif %}
           {% endfor %}
 
-    # An unresolved placeholder leaves the field present but empty, so the
-    # missing-key check in rewrite_caddy never sees it.
-    #
-    # Parsed rather than text-matched. Matching on the bare "key:" a blank value
-    # leaves behind needs a newline split, and inside a folded scalar the '\n'
-    # is read literally — the expression then silently yields nothing and the
-    # guard never fires. Parsing also catches the first field of a list entry,
-    # which carries a "- " prefix and so never matches a bare "key:" anyway.
+    # An unresolved placeholder leaves the field present but empty, which the
+    # missing-key check in rewrite_caddy does not see.
     - name: Parse the rendered media hosts
       ansible.builtin.set_fact:
         _mh_entries: >-
           {{ ((_mh_content | from_yaml) | default({}, true)).media_hosts
              | default([], true) }}
 
-    # An entry with no hostname is one this host does not serve — the usual
-    # case being a host that has just joined, since `gitops join` rebuilds
-    # hosts/<host>/vars.yaml from the instance's .env and so drops any media
-    # vars prepared for it in the repo. Skipping keeps the join working; the
-    # operator adds the vars and pulls, and the host appears then.
-    #
-    # A hostname with no bucket or endpoint is different: that is a broken
-    # entry, and rendering it would proxy a live hostname at the wrong
-    # upstream. That still refuses.
+    # No hostname: this host does not serve that entry — skip it.
+    # Hostname but no bucket or endpoint: broken entry — refuse, or it would
+    # point a live hostname at the wrong upstream.
     - name: Sort media hosts into complete, unset and broken
       ansible.builtin.set_fact:
         _mh_complete: >-
@@ -97,8 +76,6 @@
           'canasta gitops pull' to serve them.
       when: _mh_unset | length > 0
 
-    # Written from the filtered structure rather than the rendered text, so a
-    # skipped entry leaves no empty block behind.
     - name: Write config/media-hosts.yaml
       ansible.builtin.copy:
         content: "{{ {'media_hosts': _mh_complete} | to_nice_yaml(indent=2) }}"

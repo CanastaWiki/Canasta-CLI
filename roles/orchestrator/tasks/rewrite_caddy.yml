@@ -29,9 +29,8 @@
     _observable: "{{ _env_caddy.variables.CANASTA_ENABLE_OBSERVABILITY | default('false', true) | lower == 'true' }}"
     _varnish_enabled: "{{ _env_caddy.variables.CANASTA_ENABLE_VARNISH | default('true', true) | lower == 'true' }}"
     _staging_certs: "{{ _env_caddy.variables.CANASTA_STAGING_CERTS | default('false') | lower == 'true' }}"
-    # acme (default, unchanged behaviour) | internal | custom.
-    # default(x, true) because canasta_env returns "" for an absent key, and a
-    # plain default() does not fire on an empty string.
+    # canasta_env returns "" for an absent key, which a plain default() does
+    # not replace.
     _tls_mode: "{{ _env_caddy.variables.CADDY_TLS_MODE | default('acme', true) | lower }}"
     _tls_cert: "{{ _env_caddy.variables.CADDY_TLS_CERT | default('origin.crt', true) }}"
     _tls_key: "{{ _env_caddy.variables.CADDY_TLS_KEY | default('origin.key', true) }}"
@@ -75,9 +74,8 @@
       look like a certificate failure rather than a configuration error.
   when: _tls_mode not in ['acme', 'internal', 'custom']
 
-# Caddy exits at startup when a tls directive names a file it cannot read, so
-# an absent certificate would take the site down on the next restart rather
-# than at the point the operator made the change. Fail here instead.
+# Caddy exits at startup on a tls path it cannot read, so an absent
+# certificate would fail at the next restart rather than here.
 - name: Stat the custom certificate and key
   ansible.builtin.stat:
     path: "{{ instance_path }}/config/certs/{{ item }}"
@@ -200,9 +198,7 @@
     # re-evaluated.
     _caddyfile_global_content: "{{ _caddy_global_raw.content | default('') | b64decode | caddy_unsafe }}"
 
-# Media hosts: object-storage-backed image/thumbnail hostnames, declared in
-# config/media-hosts.yaml and rendered as site blocks. Absent file = feature
-# off, so this is inert on every existing instance.
+# Object-storage-backed media hostnames. Absent file = none declared.
 - name: Stat media-hosts.yaml
   ansible.builtin.stat:
     path: "{{ instance_path }}/config/media-hosts.yaml"
@@ -220,12 +216,8 @@
       {{ ((_media_hosts_raw.content | default('') | b64decode | from_yaml)
           | default({}, true)).media_hosts | default([], true) }}
 
-# Checks for an empty value, not merely a missing key. A hand-written file may
-# omit the key; a rendered one leaves it present but null when a placeholder has
-# no value on this host. `default('')` does not fire on null — only
-# `default('', true)` does — so a null field would otherwise reach `| length`
-# and fail with "object of type 'NoneType' has no len()" rather than the
-# explanation below.
+# Empty value, not merely a missing key: a rendered file leaves the key
+# present but null.
 - name: Reject media hosts missing a required field
   ansible.builtin.fail:
     msg: >-
@@ -248,10 +240,7 @@
                    | map(attribute='key') | list)
     | list | length > 0
 
-# Caddy refuses to load a config that claims one hostname twice, so an operator
-# who declares a media host here while still hand-maintaining the equivalent
-# block in Caddyfile.global would get a caddy that will not start. Name the
-# collision instead of rendering it.
+# Caddy refuses a config that claims one hostname twice.
 - name: Refuse to claim a hostname Caddyfile.global already serves
   ansible.builtin.fail:
     msg: >-

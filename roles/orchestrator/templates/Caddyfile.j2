@@ -88,10 +88,8 @@
 {{ _site_address }} {
     import /etc/caddy/Caddyfile.site
 
-{# CADDY_TLS_MODE. Nothing is emitted for 'acme': Caddy's automatic HTTPS is
-   the default and adding a directive would change long-standing behaviour.
-   Skipped entirely on K8s, where the ingress terminates TLS and Caddy serves
-   plain HTTP — a tls directive there would be inert at best. #}
+{# CADDY_TLS_MODE. 'acme' emits nothing: automatic HTTPS is Caddy's default.
+   Skipped on K8s, where the ingress terminates TLS. #}
 {% if not (_http_only | default(false)) %}
 {% if _tls_mode | default('acme') == 'internal' %}
     tls internal
@@ -151,10 +149,8 @@
     tls /etc/caddy/certs/{{ _tls_cert }} /etc/caddy/certs/{{ _tls_key }}
 {% endif %}
 {% endif %}
-{# MultimediaViewer requests images with crossOrigin="anonymous", so a media
-   host that omits this fails every load in the viewer while ordinary <img>
-   loads keep working. The value must be constant, not reflected: a CDN caches
-   the response, and a per-request origin is then wrong for the next requester. #}
+{# MultimediaViewer requests with crossOrigin="anonymous" and fails without
+   this. Must be constant, not reflected: a CDN caches the response. #}
     header Access-Control-Allow-Origin "*"
 
     reverse_proxy https://{{ _mh.bucket }}.{{ _mh.endpoint }} {

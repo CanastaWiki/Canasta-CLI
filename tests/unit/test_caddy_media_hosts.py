@@ -259,7 +259,6 @@ class TestGitopsTemplating:
         """`gitops join` rebuilds hosts/<host>/vars.yaml from the instance's
         .env, dropping media vars prepared for that host in the repo. Failing
         there makes the join impossible; the entry simply is not served yet.
-        Observed in an end-to-end run.
         """
         with open(self.RENDER) as f:
             tasks = list(_walk_tasks(yaml.safe_load(f)))
@@ -278,7 +277,6 @@ class TestGitopsTemplating:
         newline split, and inside a folded scalar the '\n' is read literally —
         the expression then yields nothing and the guard never fires. It also
         misses the first field of a list entry, which carries a "- " prefix.
-        Both were observed in an end-to-end run before this was parsed instead.
         """
         with open(self.RENDER) as f:
             tasks = list(_walk_tasks(yaml.safe_load(f)))

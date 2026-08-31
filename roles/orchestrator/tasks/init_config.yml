@@ -17,9 +17,7 @@
     force: false
     mode: "0644"
 
-# Ships empty, so an untouched file renders nothing. no-clobber and reached
-# from both create and upgrade, so an existing instance gains the documented
-# schema without an operator's entries ever being overwritten.
+# Ships empty; no-clobber because this runs on upgrade too.
 - name: Create media-hosts.yaml from template (no-clobber)
   ansible.builtin.copy:
     src: "{{ canasta_root }}/instance_template/config/media-hosts.yaml"
