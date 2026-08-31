@@ -37,6 +37,18 @@ def _stub_common(monkeypatch, inst, sent):
         lambda host, cmd, **kw: (sent.append((host, cmd)), (0, ""))[1])
 
 
+def _ps_call(sent):
+    """The ps command, whichever remote call it is.
+
+    cmd_status makes other remote reads (the restore marker), so position
+    is not what identifies it.
+    """
+    for _host, cmd in sent:
+        if " ps" in cmd:
+            return cmd
+    raise AssertionError("no ps command was sent: %r" % (sent,))
+
+
 REMOTE = {
     "path": "/srv/wiki",
     "host": "node1.example.com",
@@ -55,7 +67,7 @@ class TestTheRemoteCommandIsAString:
         capsys.readouterr()
 
         assert sent, "no remote command was sent"
-        _host, cmd = sent[0]
+        cmd = _ps_call(sent)
         # Not "no quotes at all": _shell_quote legitimately quotes the
         # path. These two are the signature of a stringified list.
         assert "['" not in cmd and "', '" not in cmd, (
@@ -70,8 +82,7 @@ class TestTheRemoteCommandIsAString:
         direct_commands.cmd_status(type("Args", (), {"id": "wiki"})())
         capsys.readouterr()
 
-        _host, cmd = sent[0]
-        assert "podman-compose ps" in cmd
+        assert "podman-compose ps" in _ps_call(sent)
 
     def test_the_path_is_quoted_and_present(self, monkeypatch, capsys):
         sent = []
@@ -80,7 +91,7 @@ class TestTheRemoteCommandIsAString:
         direct_commands.cmd_status(type("Args", (), {"id": "wiki"})())
         capsys.readouterr()
 
-        _host, cmd = sent[0]
+        cmd = _ps_call(sent)
         assert cmd.startswith("cd ")
         assert "/srv/wiki" in cmd
 
@@ -96,8 +107,7 @@ class TestTheRemoteCommandIsAString:
         direct_commands.cmd_status(type("Args", (), {"id": "wiki"})())
         capsys.readouterr()
 
-        _host, cmd = sent[0]
-        assert "docker compose ps" in cmd
+        assert "docker compose ps" in _ps_call(sent)
 
 
 class TestTheLocalPathStillPassesAList:

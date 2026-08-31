@@ -186,25 +186,10 @@
          | combine(_pull_vars_raw.content | b64decode | from_yaml) }}
 
 # --- Step 6: Render .env from env.template + vars ---
-- name: Read env.template
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/env.template"
-  register: _pull_env_template_raw
-
 - name: Render .env from template
-  ansible.builtin.copy:
-    content: |
-      {% for line in (_pull_env_template_raw.content | b64decode).split('\n') %}
-      {% if '={{' in line and '}}' in line %}
-      {% set key = line.split('=', 1)[0] %}
-      {% set placeholder = line.split('={{', 1)[1].split('}}', 1)[0] %}
-      {{ key }}={{ _pull_vars[placeholder] | default('') }}
-      {% else %}
-      {{ line }}
-      {% endif %}
-      {% endfor %}
-    dest: "{{ instance_path }}/.env"
-    mode: "0600"
+  ansible.builtin.include_tasks: _render_env.yml
+  vars:
+    env_render_vars: "{{ _pull_vars }}"
 
 # --- Step 7: Render wikis.yaml from template + vars (if template exists) ---
 - name: Check if wikis.yaml.template exists

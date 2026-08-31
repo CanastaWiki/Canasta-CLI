@@ -219,6 +219,12 @@
         msg: "Copying the restored files onto the host..."
       when: wiki is not defined
 
+    - name: Mark the files phase
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/backup/tasks/_restore_marker.yml
+      vars:
+        restore_marker_phase: files
+
     # The standard MediaWiki dirs are replaced wholesale (rm -rf then copy) so a
     # restore doesn't leave stale files behind. Everything else the snapshot holds
     # - .env, docker-compose.override.yml, my.cnf, and any custom build inputs
@@ -362,6 +368,12 @@
     - name: Report the database-import phase
       ansible.builtin.debug:
         msg: "Importing the restored databases..."
+
+    - name: Mark the databases phase
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/backup/tasks/_restore_marker.yml
+      vars:
+        restore_marker_phase: databases
 
     # The dump carries DROP TABLE + CREATE TABLE per table, so tables it
     # contains are replaced wholesale. Tables created after the snapshot
