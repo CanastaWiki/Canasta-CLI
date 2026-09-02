@@ -125,6 +125,51 @@ class TestGitUrlHandling:
         assert "_current_branch.rc" in when and "not" in when, (
             "the probe-failure message must be gated on rc != 0")
 
+    def test_probe_failure_names_non_git_directory(self):
+        # rc != 0 is usually "not a git repository" (a manually copied-in
+        # directory), so the warning must present that diagnosis first —
+        # advising only --branch/--mw-version is the wrong advice there.
+        warns = [t for t in _walk(_load(ADD_ONE))
+                 if (t.get("ansible.builtin.debug") or {}).get("msg")]
+        msg_tasks = [t for t in warns
+                     if "could not determine" in
+                        str((t.get("ansible.builtin.debug") or {}).get("msg"))
+                        .lower()]
+        msg = str(msg_tasks[0]["ansible.builtin.debug"]["msg"]).lower()
+        assert "not a git checkout" in msg, (
+            "the probe-failure warning must name the non-git-directory case")
+
+    def test_detached_pin_is_preserved(self):
+        # A detached HEAD at a commit that is an ancestor of the expected
+        # branch tip is how `extension set-version --ref` (and gitops
+        # submodule checkouts) leave the submodule — a deliberate pin. `add`
+        # must classify it via merge-base --is-ancestor and must not move it.
+        tasks = list(_walk(_load(ADD_ONE)))
+        assert any("merge-base --is-ancestor" in _cmd(t) for t in tasks), (
+            "detached-checkout classification must use merge-base --is-ancestor")
+        realigns = [t for t in tasks
+                    if t.get("block") is not None
+                    and "Re-align" in str(t.get("name", ""))]
+        assert realigns, "the re-align block must exist"
+        when = str(realigns[0].get("when"))
+        assert "_detached_is_pin" in when and "not" in when, (
+            "the re-align must not fire when the detached commit is a "
+            "deliberate pin")
+
+    def test_realign_reports_commit_range(self):
+        # The re-align notification must name the commits it moved between
+        # (old and new short SHAs) so the change is visible and revertible
+        # from the command output alone.
+        tasks = list(_walk(_load(ADD_ONE)))
+        notifies = [t for t in tasks
+                    if (t.get("ansible.builtin.debug") or {}).get("msg")
+                    and "switched to expected" in
+                    str(t["ansible.builtin.debug"]["msg"]).lower()]
+        assert notifies, "there must be a re-aligned notification"
+        msg = str(notifies[0]["ansible.builtin.debug"]["msg"])
+        assert "_pre_switch_sha" in msg and "_post_switch_sha" in msg, (
+            "the re-aligned notification must include the pre/post-switch SHAs")
+
 
 class TestVersionDetection:
     def test_probe_uses_canonical_path(self):

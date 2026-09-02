@@ -44,8 +44,73 @@
     msg: >-
       Could not determine the current branch or commit for {{ _item_type }}
       '{{ item.name }}' (git exited {{ _current_branch.rc | default('?') }}).
-      The checkout was not changed; pass --branch or --mw-version to pin the
-      expected release.
+      This usually means {{ _item_dir }}/{{ item.name }} is not a git checkout
+      at all (e.g. manually copied in) — inspect it and remove it to have this
+      command re-add a clean checkout. The checkout was not changed; pass
+      --branch or --mw-version to pin the expected release.
+
+# A detached HEAD is not always drift to be fixed: `canasta extension
+# set-version <name> --ref <tag|sha>` checks the submodule out at a pinned
+# commit and stages the gitlink, leaving it detached on purpose. Before the
+# re-align moves anything, classify the detached commit: if it is an ancestor
+# of the expected branch's tip, it is a deliberate pin (or a gitops gitlink
+# checkout, which is equally authoritative) and must be left alone.
+- name: "Capture the detached commit of {{ _item_type }} '{{ item.name }}'"
+  when:
+    - _add_existing.stat.exists
+    - _current_branch.rc | default(0) == 0
+    - _current_branch.stdout | default('') | trim == 'HEAD'
+    - item.branch | default('', true) | trim != ''
+  ansible.builtin.command:
+    cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} rev-parse HEAD"
+    chdir: "{{ instance_path }}"
+  register: _pinned_sha
+  changed_when: false
+
+- name: "Fetch {{ item.branch }} to classify the detached {{ _item_type }} '{{ item.name }}'"
+  when:
+    - _add_existing.stat.exists
+    - _current_branch.rc | default(0) == 0
+    - _current_branch.stdout | default('') | trim == 'HEAD'
+    - item.branch | default('', true) | trim != ''
+  ansible.builtin.command:
+    cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} fetch origin {{ item.branch | quote }}"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: "Check whether the detached commit of '{{ item.name }}' is on {{ item.branch }}"
+  when:
+    - _add_existing.stat.exists
+    - _current_branch.rc | default(0) == 0
+    - _current_branch.stdout | default('') | trim == 'HEAD'
+    - item.branch | default('', true) | trim != ''
+  ansible.builtin.command:
+    cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} merge-base --is-ancestor HEAD FETCH_HEAD"
+    chdir: "{{ instance_path }}"
+  register: _pin_ancestor
+  changed_when: false
+  failed_when: false  # rc 1 (not an ancestor) is an answer, not a failure
+
+- name: "Classify the existing {{ _item_type }} checkout '{{ item.name }}'"
+  when: _add_existing.stat.exists
+  ansible.builtin.set_fact:
+    _detached_is_pin: >-
+      {{ (_current_branch.rc | default(0) == 0)
+         and (_current_branch.stdout | default('') | trim == 'HEAD')
+         and (_pin_ancestor.rc | default(1) == 0) }}
+
+- name: "Report the deliberate pin of '{{ item.name }}' and leave it alone"
+  when:
+    - _add_existing.stat.exists
+    - _detached_is_pin | default(false)
+  ansible.builtin.debug:
+    msg: >-
+      {{ _item_type | capitalize }} '{{ item.name }}' is checked out detached
+      at {{ (_pinned_sha.stdout | default('') | trim)[:8] }}, which is on the
+      expected branch {{ item.branch }} — treating it as a deliberate pin
+      (e.g. from `canasta {{ _item_type }} set-version --ref`). The checkout
+      was not changed; to move it to the branch tip, run
+      `canasta {{ _item_type }} set-version {{ item.name }} --ref {{ item.branch }}`.
 
 - name: "Re-align {{ _item_type }} to the expected branch"
   when:
@@ -53,17 +118,30 @@
     - item.branch | default('', true) | trim != ''
     - _current_branch.rc | default(0) == 0
     - _current_branch.stdout | default('') | trim != item.branch | default('', true)
+    - not (_detached_is_pin | default(false))
   block:
     - name: "Fetch expected branch for {{ _item_type }} '{{ item.name }}'"
       ansible.builtin.command:
         cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} fetch origin {{ item.branch | quote }}"
         chdir: "{{ instance_path }}"
       changed_when: true
+    - name: "Capture the pre-switch commit of '{{ item.name }}'"
+      ansible.builtin.command:
+        cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} rev-parse HEAD"
+        chdir: "{{ instance_path }}"
+      register: _pre_switch_sha
+      changed_when: false
     - name: "Switch {{ _item_type }} '{{ item.name }}' to {{ item.branch }}"
       ansible.builtin.command:
         cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} checkout {{ item.branch | quote }}"
         chdir: "{{ instance_path }}"
       changed_when: true
+    - name: "Capture the post-switch commit of '{{ item.name }}'"
+      ansible.builtin.command:
+        cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} rev-parse HEAD"
+        chdir: "{{ instance_path }}"
+      register: _post_switch_sha
+      changed_when: false
     - name: "Record re-aligned {{ _item_type }} gitlink (gitops)"
       when: is_gitops | bool
       ansible.builtin.command:
@@ -85,7 +163,10 @@
           {{ _item_type | capitalize }} '{{ item.name }}' was
           {{ ("on branch '" ~ _current_branch.stdout | trim ~ "'")
              if (_current_branch.stdout | default('') | trim != 'HEAD')
-             else 'detached (HEAD)' }}; switched to expected '{{ item.branch }}'
+             else ('detached at ' ~ (_pre_switch_sha.stdout | default('') | trim)[:8]) }};
+          switched to expected '{{ item.branch }}'
+          ({{ (_pre_switch_sha.stdout | default('') | trim)[:8] }} ->
+           {{ (_post_switch_sha.stdout | default('') | trim)[:8] }})
           {{ ('[gitops: committed; run canasta gitops push to distribute]')
              if (is_gitops | bool) else '' }}.
 
