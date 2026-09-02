@@ -20,15 +20,20 @@
 # the operator as owner, and Kubernetes uses PVCs (no host bind mounts), so
 # both are skipped.
 #
-# Detection is direct (podman info) rather than via a pre-set fact, so the
-# task is self-contained and safe to include from any flow.
+# Detection is gated on the resolved inspect_command (docker vs podman) so
+# we don't probe podman on a Docker instance. The variable used for the
+# orchestrator check is instance_orchestrator (the gitops standard), with
+# a fallback to orchestrator for the create flow.
 
-- name: Detect rootless Podman
+- name: Detect rootless Podman (only when runtime is podman)
   ansible.builtin.command:
     cmd: "podman info --format {% raw %}{{.Host.Security.Rootless}}{% endraw %}"
   register: _rootless_chown_rootless
   changed_when: false
   failed_when: false
+  when:
+    - (instance_orchestrator | default(orchestrator | default('compose'))) == 'compose'
+    - compose_command | default('docker compose') is search('podman')
 
 - name: Fix operator directory ownership for rootless Podman
   ansible.builtin.command:
@@ -50,5 +55,5 @@
     - { path: "{{ instance_path }}/skins", recurse: true }
   changed_when: true
   when:
-    - (orchestrator | default('compose')) == 'compose'
+    - (instance_orchestrator | default(orchestrator | default('compose'))) == 'compose'
     - _rootless_chown_rootless.stdout | default('') | trim == 'true'

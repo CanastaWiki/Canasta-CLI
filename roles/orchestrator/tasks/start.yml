@@ -325,6 +325,15 @@
           on a missing vendor/ file.
       when: (_start_web_podman_ready.rc | default(0)) != 0
 
+    # Rootless Podman: run-all.sh rsyncs with --chown=www-data at container
+    # startup, which resets ownership of config/, extensions/, skins/ to the
+    # container's subuid. Re-apply the operator-writable directory ownership
+    # fix now that the containers have started and run-all.sh has run.
+    - name: Fix operator directory ownership for rootless Podman (post-start)
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/_rootless_operator_chown.yml"
+      when:
+        - _inspect_cmd | default('docker') is search('podman')
+
     # Register CAPI + auto-enroll the bouncer when CrowdSec is on. Shared
     # with the K8s start path and create. crowdsec_autoenroll is false only
     # for create's first start, which defers enrollment until after the
