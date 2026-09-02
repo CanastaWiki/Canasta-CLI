@@ -1,0 +1,54 @@
+---
+# Rootless Podman bind-mount ownership fix (Compose only).
+#
+# In rootless Podman the container's app UID maps to a subuid on the host,
+# so any file or directory a container writes into a bind-mounted instance
+# directory (e.g. config/persistent, or a freshly created config/ entry)
+# ends up owned by that subuid — not by the operator who runs `canasta`.
+# That blocks later operator-side writes such as `gitops pull` re-rendering
+# config/wikis.yaml, which Ansible performs as the operator and needs write
+# access to config/.
+#
+# Fix: chown the operator-writable, container-READ-ONLY directories to the
+# host user. Inside `podman unshare` the namespace root (0) is the operator,
+# so `chown 0:0` lands on the host user regardless of the numeric UID. We
+# deliberately do NOT recurse into container-written runtime directories
+# (images/, config/persistent, config/backup, and any volume-mounted
+# subdirs) so the running containers keep write access there.
+#
+# This is the rootless-only default. Docker and rootful Podman already keep
+# the operator as owner, and Kubernetes uses PVCs (no host bind mounts), so
+# both are skipped.
+#
+# Detection is direct (podman info) rather than via a pre-set fact, so the
+# task is self-contained and safe to include from any flow.
+
+- name: Detect rootless Podman
+  ansible.builtin.command:
+    cmd: "podman info --format {% raw %}{{.Host.Security.Rootless}}{% endraw %}"
+  register: _rootless_chown_rootless
+  changed_when: false
+  failed_when: false
+
+- name: Fix operator directory ownership for rootless Podman
+  ansible.builtin.command:
+    cmd: >-
+      podman unshare chown {{ '-R' if item.recurse | default(false) else '' }}
+      0:0 {{ item.path | quote }}
+    chdir: "/"
+  loop:
+    # config/ (non-recursive): the directory itself must be operator-writable
+    # so wikis.yaml / Caddyfile can be replaced. Its subdirs that containers
+    # write into (config/persistent, config/backup, config/crowdsec,
+    # config/logstash) are intentionally left untouched.
+    - { path: "{{ instance_path }}/config", recurse: false }
+    # config/settings is operator-managed only.
+    - { path: "{{ instance_path }}/config/settings", recurse: true }
+    # public_assets, extensions, skins are operator-managed; containers read them.
+    - { path: "{{ instance_path }}/public_assets", recurse: true }
+    - { path: "{{ instance_path }}/extensions", recurse: true }
+    - { path: "{{ instance_path }}/skins", recurse: true }
+  changed_when: true
+  when:
+    - (orchestrator | default('compose')) == 'compose'
+    - _rootless_chown_rootless.stdout | default('') | trim == 'true'

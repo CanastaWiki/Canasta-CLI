@@ -1,0 +1,9 @@
+---
+# canasta skin remove - Remove a previously added non-bundled skin.
+
+- name: Remove skins
+  ansible.builtin.include_role:
+    name: extensions_skins
+    tasks_from: remove.yml
+  vars:
+    _item_type: skins

@@ -463,6 +463,14 @@
     name: orchestrator
     tasks_from: update_config.yml
 
+# Rootless Podman maps container writes to a host subuid, which would later
+# block operator-side writes (e.g. `gitops pull` re-rendering wikis.yaml).
+# Re-own the operator-writable, container-read-only directories to the host
+# user now, excluding runtime dirs the containers keep writing into.
+- name: Fix operator directory ownership (rootless Podman)
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/_rootless_operator_chown.yml"
+  when: (orchestrator | default('compose')) == 'compose'
+
 # --- Step 10: Update submodules ---
 - name: Update submodules
   ansible.builtin.command:
