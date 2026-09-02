@@ -1,8 +1,9 @@
 ---
-# Backup create - full staging flow.
+# Backup create.
 # 1. Dump DBs via docker compose exec
-# 2. Stage host dirs into backup volume via alpine
-# 3. Run restic/restic container to create snapshot
+# 2. Collect the paths the snapshot covers
+# 3. Run restic/restic container, with those paths mounted read-only, to
+#    create the snapshot
 
 - name: Resolve instance
   ansible.builtin.include_tasks: >-
@@ -18,6 +19,10 @@
 # Compose dumps into the live web container's bind-mounted
 # /mediawiki/config/backup; K8s does it in the restic Job's init
 # container instead (a no-op here). Dispatch unconditionally.
+- name: Report the database-dump phase
+  ansible.builtin.debug:
+    msg: "Dumping databases into the snapshot..."
+
 - name: Stage database dumps for backup
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/backup_stage_db_dumps.yml

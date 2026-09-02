@@ -3885,6 +3885,279 @@ def test_upgrade_backfills_wikis_template(inst):
     )
 
 
+def test_upgrade_backfills_mycnf_template(inst):
+    """canasta upgrade creates my.cnf.template on a gitops instance that
+    lacks it, so a repo spanning hosts of different sizes can hold a
+    per-host innodb_buffer_pool_size instead of one shared value."""
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir, "-e", inst.env_file,
+    )
+
+    # The shipped my.cnf carries only [client], so give it the tuning an
+    # operator would have added (see #1455) — that is what gets templated.
+    my_cnf = os.path.join(inst.instance_path(), "my.cnf")
+    with open(my_cnf, "w") as f:
+        f.write("[client]\n\n[mysqld]\ninnodb_buffer_pool_size = 8G\n"
+                "max_connections = 300\n")
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo], capture_output=True, check=True,
+    )
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "testhost",
+        "--repo", bare_repo, "--key", key_file,
+    )
+
+    template = os.path.join(inst.instance_path(), "my.cnf.template")
+
+    print("Upgrading...")
+    inst.run_ok("upgrade")
+
+    assert os.path.isfile(template), (
+        "upgrade should backfill the missing my.cnf.template"
+    )
+    with open(template) as f:
+        content = f.read()
+    assert "innodb_buffer_pool_size = {{innodb_buffer_pool_size}}" in content, (
+        "the buffer pool should be placeholdered:\n%s" % content
+    )
+    assert "max_connections = 300" in content, (
+        "other directives should be preserved verbatim:\n%s" % content
+    )
+
+    # The backfill must not disturb the live file: my.cnf is bind-mounted
+    # into the db container and read at server start.
+    with open(my_cnf) as f:
+        assert "innodb_buffer_pool_size = 8G" in f.read(), (
+            "the live my.cnf must keep its value"
+        )
+
+    # my.cnf is a rendered file now, so the repo must stop tracking it.
+    with open(os.path.join(inst.instance_path(), ".gitignore")) as f:
+        ignore_rules = [ln.strip() for ln in f]
+    assert "my.cnf" in ignore_rules, "upgrade should ignore my.cnf"
+
+    # The migration must complete itself: no hand-edited vars, no raw git.
+    shared_vars = os.path.join(
+        inst.instance_path(), "hosts", "_shared", "vars.yaml",
+    )
+    with open(shared_vars) as f:
+        shared = f.read()
+    assert "innodb_buffer_pool_size: 8G" in shared, (
+        "the value should be recorded as the shared default so every host "
+        "inherits one:\n%s" % shared
+    )
+
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--", "my.cnf", "my.cnf.template"],
+        cwd=inst.instance_path(), capture_output=True, text=True,
+    ).stdout
+    assert "D  my.cnf" in status, (
+        "my.cnf should be staged as untracked:\n%s" % status
+    )
+    assert "A  my.cnf.template" in status, (
+        "the template should be staged:\n%s" % status
+    )
+    assert os.path.isfile(my_cnf), "my.cnf must stay on disk (--cached only)"
+
+    print("Re-running upgrade (backfill must be create-only)...")
+    with open(template, "a") as f:
+        f.write("# hand-edited\n")
+    inst.run_ok("upgrade")
+    with open(template) as f:
+        assert "# hand-edited" in f.read(), (
+            "backfill must never overwrite an existing template"
+        )
+
+
+def test_gitops_renders_mycnf(inst):
+    """A gitops pull renders my.cnf from my.cnf.template + this host's vars,
+    so hosts of different sizes each get a buffer pool that fits their RAM.
+
+    Also pins that the render keeps my.cnf's inode: it is bind-mounted into
+    the db container as a single file, and an atomic write would strand the
+    container on the old inode (see #1456 for the same bug on the Caddyfile).
+    """
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir, "-e", inst.env_file,
+    )
+
+    my_cnf = os.path.join(inst.instance_path(), "my.cnf")
+    with open(my_cnf, "w") as f:
+        f.write("[client]\n\n[mysqld]\ninnodb_buffer_pool_size = 8G\n")
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo], capture_output=True, check=True,
+    )
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "testhost",
+        "--repo", bare_repo, "--key", key_file,
+    )
+
+    # my.cnf is a rendered file, so init must not have tracked it.
+    tracked = subprocess.run(
+        ["git", "ls-files", "--", "my.cnf"],
+        cwd=inst.instance_path(), capture_output=True, text=True,
+    ).stdout.strip()
+    assert tracked == "", "my.cnf must not be tracked by gitops: %r" % tracked
+
+    print("Adding my.cnf.template and this host's buffer-pool value...")
+    with open(os.path.join(inst.instance_path(), "my.cnf.template"), "w") as f:
+        f.write("[client]\n\n[mysqld]\n"
+                "innodb_buffer_pool_size = {{innodb_buffer_pool_size}}\n")
+    host_vars = os.path.join(
+        inst.instance_path(), "hosts", "testhost", "vars.yaml",
+    )
+    with open(host_vars, "a") as f:
+        f.write("\ninnodb_buffer_pool_size: 2G\n")
+
+    inst.run_ok(
+        "gitops", "add", "-i", inst.id,
+        "my.cnf.template", "hosts/testhost/vars.yaml",
+    )
+    inst.run_ok("gitops", "push", "-i", inst.id)
+
+    # A pull only renders when it brings in a new commit, so make one.
+    print("Making an unrelated remote commit...")
+    clone_dir = os.path.join(inst.work_dir, "gitops-clone")
+    subprocess.run(
+        ["git", "clone", "-b", "main", bare_repo, clone_dir],
+        capture_output=True, check=True,
+    )
+    settings_dir = os.path.join(clone_dir, "config", "settings", "global")
+    os.makedirs(settings_dir, exist_ok=True)
+    with open(os.path.join(settings_dir, "RemoteTest.php"), "w") as f:
+        f.write("<?php\n$wgRemoteTest = true;\n")
+    for cmd in (["git", "add", "."],
+                ["git", "commit", "-m", "Add remote change"],
+                ["git", "push", "origin", "main"]):
+        subprocess.run(cmd, cwd=clone_dir, capture_output=True, check=True)
+
+    inode_before = os.stat(my_cnf).st_ino
+
+    print("Pulling...")
+    inst.run_ok("gitops", "pull", "-i", inst.id)
+
+    with open(my_cnf) as f:
+        rendered = f.read()
+    assert "innodb_buffer_pool_size = 2G" in rendered, (
+        "pull should render my.cnf from the template + this host's vars:\n%s"
+        % rendered
+    )
+    assert "8G" not in rendered, (
+        "the pre-render value should be gone:\n%s" % rendered
+    )
+    assert os.stat(my_cnf).st_ino == inode_before, (
+        "my.cnf is bind-mounted as a file; the render must keep its inode"
+    )
+
+
+def test_gitops_pull_reapplies_unfinished(inst):
+    """A pull whose render never ran must re-render on the next pull.
+
+    Simulates the field failure: HEAD is moved to a fetched commit while
+    .gitops-applied still names the old one, which is exactly the state a
+    pull that died after the merge leaves behind. Deciding on "did HEAD
+    move" would skip rendering forever.
+    """
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir, "-e", inst.env_file,
+    )
+
+    print("Creating bare git repository...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo], capture_output=True, check=True,
+    )
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+
+    print("Initializing gitops...")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "testhost",
+        "--repo", bare_repo, "--key", key_file,
+    )
+    inst.run_ok("gitops", "push", "-i", inst.id)
+
+    ipath = inst.instance_path()
+    applied_file = os.path.join(ipath, ".gitops-applied")
+    before = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=ipath,
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    print("Pushing a remote change...")
+    clone_dir = os.path.join(inst.work_dir, "gitops-clone")
+    subprocess.run(
+        ["git", "clone", "-b", "main", bare_repo, clone_dir],
+        capture_output=True, check=True,
+    )
+    settings_dir = os.path.join(clone_dir, "config", "settings", "global")
+    os.makedirs(settings_dir, exist_ok=True)
+    marker = os.path.join(settings_dir, "PullReapply.php")
+    with open(marker, "w") as f:
+        f.write("<?php\n$wgPullReapply = true;\n")
+    for cmd in (["git", "add", "."],
+                ["git", "commit", "-m", "remote change"],
+                ["git", "push", "origin", "main"]):
+        subprocess.run(cmd, cwd=clone_dir, capture_output=True, check=True)
+
+    print("Simulating a pull that fetched but never rendered...")
+    subprocess.run(
+        ["git", "fetch", "origin", "main"], cwd=ipath,
+        capture_output=True, check=True,
+    )
+    subprocess.run(
+        ["git", "merge", "--ff-only", "origin/main"], cwd=ipath,
+        capture_output=True, check=True,
+    )
+    # .gitops-applied is written only after a successful render, so a pull
+    # that died before that leaves it naming the previous commit.
+    with open(applied_file, "w") as f:
+        f.write(before)
+
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=ipath,
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert head != before, "fixture should have moved HEAD"
+
+    print("Pulling: HEAD has not moved, but nothing was applied...")
+    output = inst.run_ok("gitops", "pull", "-i", inst.id)
+    assert "Already up to date" not in output, (
+        "an unapplied commit must not be reported as up to date:\n%s" % output
+    )
+
+    with open(applied_file) as f:
+        assert f.read().strip() == head, (
+            ".gitops-applied should advance to the rendered commit"
+        )
+
+
 def test_gitops_add_wiki_tracked(inst):
     """A wiki added after gitops init must have its tracked files captured
     into gitops by 'canasta add' (settings, public_assets logos, and the
@@ -4147,6 +4420,9 @@ ALL_TESTS = {
     "reconcile": test_reconcile,
     "upgrade-refreshes-gitignore": test_upgrade_refreshes_gitignore,
     "upgrade-backfills-wikis-template": test_upgrade_backfills_wikis_template,
+    "upgrade-backfills-mycnf-template": test_upgrade_backfills_mycnf_template,
+    "gitops-renders-mycnf": test_gitops_renders_mycnf,
+    "gitops-pull-reapplies": test_gitops_pull_reapplies_unfinished,
     "upgrade-backfill-hosts-yaml": test_upgrade_backfill_hosts_yaml,
     "backup": test_backup,
     "backup-advanced": test_backup_advanced,

@@ -1,15 +1,14 @@
 """Structural tests for `canasta image prune` and the registry GC.
 
-`image prune` was the only command in the tree with neither unit nor
-integration coverage, and it is destructive: it garbage-collects the
-in-cluster image registry. The GC itself lives in the shared
-registry_gc.yml, which `canasta upgrade --purge` also calls, so a
+`image prune` is destructive: it removes images and garbage-collects the
+in-cluster image registry. Both halves live in the shared
+image_reclaim.yml, which `canasta upgrade --purge` also calls, so a
 regression there hits two commands.
 
-These pin the guards that make the command safe to run: it refuses a
-host with no cluster, the GC no-ops when no registry is deployed, and
-the registry is restarted afterward so its in-memory blob cache matches
-the pruned store.
+These pin the guards that make the command safe to run: it reclaims
+whichever runtimes the host actually has rather than demanding a cluster,
+the GC no-ops when no registry is deployed, and the registry is restarted
+afterward so its in-memory blob cache matches the pruned store.
 """
 
 import os
@@ -19,6 +18,9 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 IMAGE_PRUNE = os.path.join(REPO_ROOT, "playbooks", "image_prune.yml")
 PURGE_HOST = os.path.join(REPO_ROOT, "playbooks", "_purge_host.yml")
+IMAGE_RECLAIM = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "tasks", "image_reclaim.yml",
+)
 REGISTRY_GC = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "registry_gc.yml",
 )
@@ -55,71 +57,81 @@ def _cmd(task):
     return ""
 
 
-class TestImagePruneRequiresACluster:
-    """Running this on a Compose-only host is always an operator
-    mistake, so the command says so instead of quietly doing nothing."""
+class TestImagePruneReclaimsOnEitherOrchestrator:
+    """Compose hosts accumulate superseded tags and dangling sidecar
+    layers with nothing to collect them, so the command reclaims what
+    the host has instead of demanding a cluster."""
 
-    def test_probes_for_a_cluster(self):
-        probe = next(
-            (t for t in _load(IMAGE_PRUNE) if "kubectl get nodes" in _cmd(t)),
-            None,
-        )
-        assert probe is not None, "image_prune.yml must probe for a cluster"
-        assert probe.get("failed_when") is False, (
-            "the probe must not fail the play — its rc is what drives the "
-            "friendly error below, so an unguarded probe would abort first "
-            "with a raw kubectl error"
-        )
-        assert probe.get("changed_when") is False
-
-    def test_fails_when_no_cluster_is_present(self):
-        fail = next(
-            (t for t in _load(IMAGE_PRUNE)
-             if "ansible.builtin.fail" in t), None,
-        )
-        assert fail is not None, (
-            "image_prune.yml must fail when the host has no cluster"
-        )
-        assert "_prune_k8s.rc" in str(fail.get("when", "")), (
-            "the failure must be gated on the cluster probe's rc"
-        )
-
-    def test_delegates_to_the_shared_gc(self):
-        """The GC must not be reimplemented here — upgrade --purge calls
-        the same file, and two copies would drift."""
+    def test_delegates_to_the_shared_reclaim(self):
+        """The reclaim must not be reimplemented here — upgrade --purge
+        calls the same file, and two copies would drift."""
         assert any(
-            "registry_gc.yml" in str(t.get("ansible.builtin.include_tasks", ""))
+            "image_reclaim.yml" in str(
+                t.get("ansible.builtin.include_tasks", ""))
             for t in _load(IMAGE_PRUNE)
-        ), "image_prune.yml must include roles/orchestrator/tasks/registry_gc.yml"
+        ), "image_prune.yml must include the shared image_reclaim.yml"
 
-
-class TestUpgradePurgeSkipsInsteadOfFailing:
-    """The other caller runs the same probe and must reach the opposite
-    conclusion: a Compose host legitimately has no cluster, so purge
-    skips the K8s reclaim rather than failing the upgrade."""
-
-    def test_k8s_reclaim_is_skipped_not_fatal(self):
-        tasks = _load(PURGE_HOST)
-        probe = next((t for t in tasks if "kubectl get nodes" in _cmd(t)), None)
-        assert probe is not None
-        assert probe.get("failed_when") is False
-
-        gc_block = next(
-            (t for t in tasks
-             if "registry_gc.yml" in str(
-                 t.get("ansible.builtin.include_tasks", ""))),
-            None,
-        )
-        assert gc_block is not None, (
-            "_purge_host.yml must call the shared registry GC"
-        )
+    def test_a_host_without_a_cluster_is_not_an_error(self):
         assert not any(
-            "ansible.builtin.fail" in t and "_purge_k8s" in str(t.get("when", ""))
-            for t in tasks
+            "ansible.builtin.fail" in t for t in _load(IMAGE_PRUNE)
         ), (
-            "a host with no cluster is normal during upgrade --purge; it "
-            "must not fail the run the way image prune does"
+            "a Compose host is a legitimate target; the command must "
+            "reclaim its Docker images rather than refuse the host"
         )
+
+    def test_dry_run_reaches_the_shared_reclaim(self):
+        include = next(
+            t for t in _load(IMAGE_PRUNE)
+            if "image_reclaim.yml" in str(
+                t.get("ansible.builtin.include_tasks", ""))
+        )
+        assert "reclaim_dry_run" in str(include.get("vars", {}))
+
+    def test_the_reclaim_dispatches_on_what_the_host_runs(self):
+        cmds = [_cmd(t) for t in _load(IMAGE_RECLAIM)]
+        assert any("docker info" in c for c in cmds), (
+            "the Docker path must probe for a daemon"
+        )
+        assert any("kubectl get nodes" in c for c in cmds), (
+            "the Kubernetes path must probe for a cluster"
+        )
+
+
+class TestReclaimSkipsInsteadOfFailing:
+    """Each probe must reach the same conclusion for the runtime it does
+    not find: skip that path, not fail the run. A Compose host has no
+    cluster and a cluster host may have no Docker daemon."""
+
+    def test_probes_are_non_fatal(self):
+        tasks = _load(IMAGE_RECLAIM)
+        for probe_cmd in ("kubectl get nodes", "docker info"):
+            probe = next(
+                (t for t in tasks if probe_cmd in _cmd(t)), None)
+            assert probe is not None, probe_cmd
+            assert probe.get("failed_when") is False, probe_cmd
+            assert probe.get("changed_when") is False, probe_cmd
+
+    def test_missing_runtime_never_fails_the_run(self):
+        assert not any(
+            "ansible.builtin.fail" in t for t in _load(IMAGE_RECLAIM)
+        ), (
+            "upgrade --purge calls this on every host; a host missing one "
+            "runtime must skip that path, not abort the upgrade"
+        )
+
+    def test_the_shared_gc_is_still_reached(self):
+        assert any(
+            "registry_gc.yml" in str(
+                t.get("ansible.builtin.include_tasks", ""))
+            for t in _load(IMAGE_RECLAIM)
+        ), "the Kubernetes path must call the shared registry GC"
+
+    def test_purge_host_delegates_to_the_same_reclaim(self):
+        assert any(
+            "image_reclaim.yml" in str(
+                t.get("ansible.builtin.include_tasks", ""))
+            for t in _load(PURGE_HOST)
+        ), "_purge_host.yml must call the shared reclaim, not its own copy"
 
 
 class TestRegistryGCIsSafeToCallUnconditionally:

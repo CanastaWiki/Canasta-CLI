@@ -4,6 +4,7 @@ Commands registered here run as pure Python, avoiding the ~3-5s
 overhead of ansible-playbook startup for simple operations.
 """
 
+import http.client
 import json
 import os
 import re
@@ -619,6 +620,66 @@ def _dump_compose_failure(inst, include_sidecars=False):
         print("--- %s ---" % label, file=sys.stderr)
         print(output.strip() if output else "(empty)", file=sys.stderr)
 
+    _dump_db_error_log(inst)
+
+
+def _dump_web_logs(inst, tail=60):
+    """Print web's own logs. Composer failing is the other common cause."""
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+    if not path:
+        return
+    compose_cmd = _resolve_compose_cmd(inst)
+    file_args = _compose_file_args(path, host, inst.get("devMode", False))
+    action = ["logs", "--tail=%d" % tail, "--no-color", "web"]
+    if _is_localhost(host):
+        try:
+            result = subprocess.run(
+                compose_cmd + file_args + action,
+                cwd=path, capture_output=True, text=True, timeout=30,
+            )
+            output = result.stdout or result.stderr
+        except (subprocess.TimeoutExpired, OSError) as e:
+            output = "(failed to capture: %s)" % e
+    else:
+        _rc, output = _ssh_run(host, "cd %s && %s %s %s" % (
+            _shell_quote(path), " ".join(compose_cmd),
+            " ".join(file_args), " ".join(action),
+        ))
+    print("--- web logs (last %d) ---" % tail, file=sys.stderr)
+    print(output.strip() if output else "(empty)", file=sys.stderr)
+
+
+def _dump_db_error_log(inst):
+    """Print the tail of MariaDB's error log after a failed start.
+
+    Mirrors roles/orchestrator/tasks/_capture_db_error_log.yml. The db service
+    tees its log to stdout, but a container restarting every couple of seconds
+    may hold nothing useful there by the time this runs, and an instance
+    started before that change has none there at all. The volume-backed copy
+    outlives both.
+    """
+    path = inst.get("path", "")
+    if not path:
+        return
+    runtime = _resolve_inspect_cmd(inst)
+    volume = "%s_mysql-logs" % _compose_project(path)
+
+    # `run -v` auto-creates a missing named volume, so an external-database
+    # instance would collect a stray empty one on every failed start.
+    rc, _out = _runtime_capture(inst, [runtime, "volume", "inspect", volume])
+    if rc != 0:
+        return
+
+    rc, output = _runtime_capture(inst, [
+        runtime, "run", "--rm", "-v", "%s:/l:ro" % volume,
+        "docker.io/library/mariadb:11.4", "tail", "-n", "100", "/l/error.log",
+    ], timeout=60)
+    if rc != 0 or not (output or "").strip():
+        return
+    print("--- database error log (last 100) ---", file=sys.stderr)
+    print(output.strip(), file=sys.stderr)
+
 
 # Readiness gate after `up -d`. Mirrors roles/orchestrator/tasks/start.yml:
 # 60 x 10s = 10 min, comfortably above the CanastaBase healthcheck's 5 min
@@ -724,11 +785,17 @@ def _wait_web_ready(inst_id, inst):
             "healthy within %d minutes; its last status was '%s'. The image's "
             "healthcheck probes /server-status, which answers only once "
             "composer and apache have both finished — so this usually means "
-            "composer is still running, or failed. Check the container logs."
+            "composer is still running or failed, or the database web waits "
+            "on never came up."
             % (inst_id, _WEB_HEALTH_RETRIES * _WEB_HEALTH_DELAY // 60,
                status or "(none)"),
             file=sys.stderr,
         )
+        # `up` returning 0 while the database crash-loops is the commoner
+        # failure, and the one no diagnostic covered: compose reports every
+        # container started, so nothing before this point failed.
+        _dump_web_logs(inst)
+        _dump_db_error_log(inst)
         return 1
 
     runtime = _resolve_inspect_cmd(inst)
@@ -1340,6 +1407,27 @@ def _read_wikis(path, host):
         return []
 
 
+def _read_restore_marker(path, host):
+    """The marker an unfinished restore left, or None.
+
+    Its presence is the record: a restore that completes removes it, and a
+    killed process never reaches any rescue that could report itself.
+    """
+    if not path:
+        return None
+    marker = os.path.join(path, RESTORE_MARKER)
+    try:
+        if _is_localhost(host):
+            with open(marker) as f:
+                return f.read().strip() or None
+        rc, stdout = _ssh_run(host, "cat %s 2>/dev/null" % _shell_quote(marker))
+        if rc != 0 or not stdout.strip():
+            return None
+        return stdout.strip()
+    except OSError:
+        return None
+
+
 def _docker_env(docker_host):
     """Process env with DOCKER_HOST set to docker_host, or None to inherit.
 
@@ -1608,13 +1696,59 @@ def _is_mediawiki_response(body):
     return False
 
 
-def _fetch_is_mediawiki(url, host_header, scheme):
-    req = urllib.request.Request(url)
-    if host_header:
-        req.add_header("Host", host_header)
-    context = ssl._create_unverified_context() if scheme == "https" else None
+def _loopback_opener(port, context):
+    """An opener that connects here while addressing the wiki by name.
+
+    TLS SNI is taken from the URL's hostname, not from the Host header, so
+    a probe rewritten to https://localhost:<port> reaches a server holding
+    no certificate for 'localhost' and the handshake is aborted before any
+    header is read. Keeping the wiki's own domain in the URL leaves SNI,
+    the Host header and redirect resolution all correct, and redirects
+    only the socket to the port published on this machine.
+    """
+    address = ("127.0.0.1", port)
+
+    class _HTTPConnection(http.client.HTTPConnection):
+        def connect(self):
+            self.sock = self._create_connection(
+                address, self.timeout, self.source_address)
+
+    class _HTTPSConnection(http.client.HTTPSConnection):
+        def connect(self):
+            self.sock = self._create_connection(
+                address, self.timeout, self.source_address)
+            self.sock = context.wrap_socket(
+                self.sock, server_hostname=self.host)
+
+    class _HTTPHandler(urllib.request.HTTPHandler):
+        def http_open(self, req):
+            return self.do_open(_HTTPConnection, req)
+
+    class _HTTPSHandler(urllib.request.HTTPSHandler):
+        def https_open(self, req):
+            return self.do_open(_HTTPSConnection, req, context=context)
+
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({}), _HTTPHandler, _HTTPSHandler)
+
+
+def _fetch_is_mediawiki(url, loopback_port=None):
+    """True if url answers with a MediaWiki API reply.
+
+    loopback_port points the TCP connection at that port on this machine;
+    the request still addresses the wiki by name. The probe asks whether
+    MediaWiki is serving, not whether its certificate is trusted here, so
+    the handshake is deliberately unverified.
+    """
+    context = ssl._create_unverified_context()
+    opener = (
+        _loopback_opener(loopback_port, context)
+        if loopback_port
+        else urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=context))
+    )
     try:
-        with urllib.request.urlopen(req, timeout=15, context=context) as resp:
+        with opener.open(url, timeout=15) as resp:
             return _is_mediawiki_response(resp.read())
     except Exception:
         return False
@@ -1624,30 +1758,29 @@ def _probe_wiki_local(url, instance_path):
     """True if the wiki answers from this machine.
 
     An instance published on a non-default port is reached through that
-    port on localhost, carrying the configured domain in the Host header
-    — the instance's own domain need not resolve here.
+    port on this machine — the instance's own domain need not resolve
+    here — while the URL keeps naming the wiki, so the server sees the
+    SNI it holds a certificate for.
     """
     parsed = urllib.parse.urlsplit(url)
-    scheme = parsed.scheme
     domain = parsed.netloc
-    url_path = parsed.path or "/"
 
     # Already a localhost URL with an explicit port: use it as-is.
     if domain.split(":")[0] in _WIKI_LOCAL_DOMAINS and ":" in domain:
-        return _fetch_is_mediawiki(url, None, scheme)
+        return _fetch_is_mediawiki(url)
 
     env = _read_env_file(instance_path, "localhost") if instance_path else {}
     port = (
-        env.get("HTTPS_PORT", "") if scheme == "https" else env.get("HTTP_PORT", "")
+        env.get("HTTPS_PORT", "") if parsed.scheme == "https"
+        else env.get("HTTP_PORT", "")
     )
 
-    if port:
-        query = "?%s" % parsed.query if parsed.query else ""
-        check_url = "%s://localhost:%s%s%s" % (scheme, port, url_path, query)
-    else:
-        check_url = url
+    try:
+        loopback_port = int(str(port).strip())
+    except (TypeError, ValueError):
+        loopback_port = None
 
-    return _fetch_is_mediawiki(check_url, domain, scheme)
+    return _fetch_is_mediawiki(url, loopback_port=loopback_port)
 
 
 def _probe_wiki(wiki_url, host, instance_path=""):
@@ -1682,6 +1815,11 @@ def _probe_wiki(wiki_url, host, instance_path=""):
 
 
 _SENTINEL = "---CANASTA_DELIM---"
+
+# Left at the instance root by a restore that has not finished. Kept in step
+# with vars/restore_marker.yml, which Ansible reads, by
+# tests/unit/test_restore_marker.py.
+RESTORE_MARKER = ".canasta-restore-in-progress"
 
 
 def _gather_instance_info(inst_id, inst):
@@ -1721,7 +1859,9 @@ def _gather_instance_info(inst_id, inst):
         "cat %(p)s/config/wikis.yaml 2>/dev/null || echo WIKIS_MISSING; "
         "echo '%(d)s'; "
         + compose_ps
-    ) % {"p": qpath, "d": _SENTINEL}
+        + "; echo '%(d)s'; "
+        "test -f %(p)s/%(m)s && echo RESTORE_INTERRUPTED || true"
+    ) % {"p": qpath, "d": _SENTINEL, "m": RESTORE_MARKER}
 
     rc, stdout = _ssh_run(host, script)
     if rc != 0 and not stdout.strip():
@@ -1731,6 +1871,8 @@ def _gather_instance_info(inst_id, inst):
     dir_ok = parts[0].strip() == "DIR_OK" if len(parts) > 0 else False
     wikis_raw = parts[1] if len(parts) > 1 else ""
     running_raw = parts[2].strip() if len(parts) > 2 else ""
+    interrupted = (parts[3].strip() == "RESTORE_INTERRUPTED"
+                   if len(parts) > 3 else False)
 
     wikis = []
     if dir_ok and wikis_raw.strip() != "WIKIS_MISSING":
@@ -1747,7 +1889,8 @@ def _gather_instance_info(inst_id, inst):
     else:
         status = "STOPPED"
 
-    return _make_detail(inst_id, host, path, orchestrator, status, wikis)
+    return _make_detail(inst_id, host, path, orchestrator, status, wikis,
+                       interrupted)
 
 
 def _gather_local(inst_id, path, orchestrator, host, docker_host=None,
@@ -1763,7 +1906,10 @@ def _gather_local(inst_id, path, orchestrator, host, docker_host=None,
     else:
         status = "STOPPED"
 
-    return _make_detail(inst_id, host, path, orchestrator, status, wikis)
+    interrupted = dir_exists and os.path.exists(
+        os.path.join(path, RESTORE_MARKER))
+    return _make_detail(inst_id, host, path, orchestrator, status, wikis,
+                       interrupted)
 
 
 def _gather_k8s(inst_id, path, host):
@@ -1777,16 +1923,21 @@ def _gather_k8s(inst_id, path, host):
     else:
         status = "STOPPED"
 
-    return _make_detail(inst_id, host, path, "kubernetes", status, wikis)
+    return _make_detail(inst_id, host, path, "kubernetes", status, wikis,
+                       dir_exists and _read_restore_marker(path, host) is not None)
 
 
-def _make_detail(inst_id, host, path, orchestrator, status, wikis):
+def _make_detail(inst_id, host, path, orchestrator, status, wikis,
+                 interrupted_restore=False):
     return {
         "id": inst_id,
         "host": host,
         "path": path,
         "orchestrator": orchestrator.upper(),
-        "status": status,
+        # An interrupted restore leaves the instance running on half-applied
+        # config, which otherwise reads here as plain RUNNING.
+        "status": ("%s  [RESTORE INTERRUPTED]" % status
+                   if interrupted_restore else status),
         "wikis": wikis,
     }
 

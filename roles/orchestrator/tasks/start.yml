@@ -159,6 +159,10 @@
       failed_when: false
       when: _start_result.rc | default(0) != 0
 
+    - name: Capture the database error log on failure
+      ansible.builtin.include_tasks: _capture_db_error_log.yml
+      when: _start_result.rc | default(0) != 0
+
     # Ansible's default callback swallows stderr/stdout for failed
     # command modules under the compact "[ERROR]: Task failed: ..."
     # rendering. Register with failed_when: false and fail explicitly
@@ -175,7 +179,57 @@
           {{ _start_ps.stdout | default('(not captured)') }}
           --- docker compose logs (last 200) ---
           {{ _start_logs.stdout | default('(not captured)') }}
+          --- database error log (last 100) ---
+          {{ _start_db_log_text | default('(not captured)') }}
       when: _start_result.rc | default(0) != 0
+
+    # `up -d` exiting 0 is not evidence that every service started:
+    # podman-compose reports success while a service it could not create —
+    # an image reference it cannot resolve, say — is simply absent. The
+    # checks below cover `web` alone, so any other service went missing
+    # without a word and the command still reported success.
+    #
+    # Absence, not "not running", is the test: `observable-init` is a
+    # one-shot (restart: "no") and has an exited container by design, so a
+    # service that ran and exited is not a failure. A service with no
+    # container was never created.
+    - name: List the services that have a container
+      ansible.builtin.command:
+        argv:
+          - "{{ _inspect_cmd }}"
+          - ps
+          - "-a"
+          - --filter
+          - "label=com.docker.compose.project={{ instance_path | basename | lower }}"
+          - --format
+          - '{% raw %}{{.Label "com.docker.compose.service"}}{% endraw %}'
+        chdir: "{{ instance_path }}"
+      register: _start_present_services
+      changed_when: false
+      failed_when: false
+
+    # An unreadable expected-service list leaves this empty, matching the
+    # pre-start comparison above: an unknown answer is not a failure.
+    - name: Determine which expected services never started
+      ansible.builtin.set_fact:
+        _start_absent_services: >-
+          {{ ((_expected_services.stdout | default('')).split()
+              if _expected_services.rc | default(1) == 0 else [])
+             | difference((_start_present_services.stdout | default('')).split()) }}
+
+    - name: Fail when an expected service never started
+      ansible.builtin.fail:
+        msg: >-
+          The containers started, but the active profiles select
+          {{ _start_absent_services | join(', ') }}, which
+          {{ 'has' if _start_absent_services | length == 1 else 'have' }}
+          no container on the host for instance '{{ instance_id }}'.
+          The instance is not fully up. The compose command reported
+          success, so the reason is per-service — check the container
+          logs on the host, and confirm the image reference for
+          {{ _start_absent_services | join(', ') }} can be resolved
+          there.
+      when: _start_absent_services | length > 0
 
     # Wait for the web container to finish booting before returning.
     # /run-all.sh in the canasta image runs `composer update`
@@ -258,19 +312,44 @@
         - _start_web_cid.stdout | trim != ''
         - _start_web_has_health.stdout | default('') | trim != ''
 
+    # `up` succeeding and the health gate timing out is the other way a start
+    # fails, and it is the more common one: an unallocatable buffer pool
+    # leaves the database crash-looping while compose reports every container
+    # started, so web never reaches a database and the only failure is here.
     - name: Fail when web never reported healthy
-      ansible.builtin.fail:
-        msg: >-
-          The 'web' container for instance '{{ instance_id }}' did not report
-          healthy within 10 minutes; its last status was
-          '{{ _start_web_health.stdout | default('') | trim | default('(none)', true) }}'.
-          The image's healthcheck probes /server-status, which answers only
-          once composer and apache have both finished — so this usually means
-          composer is still running, or failed. Check the container logs.
       when:
         - _start_web_cid.stdout | trim != ''
         - _start_web_has_health.stdout | default('') | trim != ''
         - (_start_web_health.stdout | default('') | trim) != 'healthy'
+      block:
+        - name: Capture the database error log for the health-gate failure
+          ansible.builtin.include_tasks: _capture_db_error_log.yml
+
+        - name: Capture web's logs for the health-gate failure
+          ansible.builtin.command:
+            cmd: >-
+              {{ _compose_cmd }} {{ _compose_files | join(' ') }}
+              {{ _compose_profile_flags | default('') }}
+              logs --tail=60 --no-color web
+            chdir: "{{ instance_path }}"
+          register: _start_web_logs
+          changed_when: false
+          failed_when: false
+
+        - name: Report that web never reported healthy
+          ansible.builtin.fail:
+            msg: |-
+              The 'web' container for instance '{{ instance_id }}' did not
+              report healthy within 10 minutes; its last status was
+              '{{ _start_web_health.stdout | default('') | trim | default('(none)', true) }}'.
+              The image's healthcheck probes /server-status, which answers only
+              once composer and apache have both finished — so this usually
+              means composer is still running or failed, or the database web
+              waits on never came up.
+              --- web logs (last 60) ---
+              {{ _start_web_logs.stdout | default('(not captured)') }}
+              --- database error log (last 100) ---
+              {{ _start_db_log_text | default('(not captured)') }}
 
     # Podman renders an empty status for the stock image, so the wait
     # above skips and the composer race comes back. Two reasons, both

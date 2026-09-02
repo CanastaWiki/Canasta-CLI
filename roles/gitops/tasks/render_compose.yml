@@ -1,5 +1,5 @@
 ---
-# Render rendered files (.env, wikis.yaml, admin passwords) from the
+# Render rendered files (.env, wikis.yaml, my.cnf, admin passwords) from the
 # current on-disk templates + host vars (+ optional shared vars).
 #
 # Does NOT touch git; safe to call whenever local rendered files have
@@ -41,34 +41,10 @@
           | ternary(_render_shared_vars_raw.content | b64decode | from_yaml, {}))
          | combine(_render_vars_raw.content | b64decode | from_yaml) }}
 
-- name: Read env.template
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/env.template"
-  register: _render_env_template_raw
-
-# A placeholder with no stored value for this host is omitted rather than
-# rendered as "KEY=". A blank is not the same as unset to whoever reads it
-# next: CANASTA_ENABLE_VARNISH= was read as "false" and dropped varnish
-# from COMPOSE_PROFILES while its container kept running, unmanaged.
-# Leaving the key out lets the reader's own default apply, which is what
-# "this host stores no opinion" means.
 - name: Render .env from template
-  ansible.builtin.copy:
-    content: |
-      {% for line in (_render_env_template_raw.content | b64decode).split('\n') %}
-      {% if '={{' in line and '}}' in line %}
-      {% set key = line.split('=', 1)[0] %}
-      {% set placeholder = line.split('={{', 1)[1].split('}}', 1)[0] %}
-      {% set value = _render_vars[placeholder] | default('') %}
-      {% if value != '' %}
-      {{ key }}={{ value }}
-      {% endif %}
-      {% else %}
-      {{ line }}
-      {% endif %}
-      {% endfor %}
-    dest: "{{ instance_path }}/.env"
-    mode: "0600"
+  ansible.builtin.include_tasks: _render_env.yml
+  vars:
+    env_render_vars: "{{ _render_vars }}"
 
 - name: Check if wikis.yaml.template exists
   ansible.builtin.stat:
@@ -121,6 +97,16 @@
         content: "{{ _render_wikis_content }}"
         dest: "{{ instance_path }}/config/wikis.yaml"
         mode: "0644"
+
+- name: Render media-hosts.yaml from template
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_render_media_hosts.yml"
+  vars:
+    media_hosts_vars: "{{ _render_vars }}"
+
+- name: Render my.cnf from template
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_render_mycnf.yml"
+  vars:
+    mycnf_vars: "{{ _render_vars }}"
 
 - name: Write admin password files from vars
   ansible.builtin.copy:

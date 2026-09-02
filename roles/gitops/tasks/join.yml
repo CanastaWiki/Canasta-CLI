@@ -402,12 +402,68 @@
     state: directory
     mode: "0755"
 
+# A host's vars.yaml may already carry keys prepared in the repository before
+# this host existed, and not every per-host var is an .env key —
+# innodb_buffer_pool_size is consumed by my.cnf.template and appears in no
+# .env. Writing only the .env-derived set would drop them. The joining host's
+# own .env still wins on conflict: it describes the instance that is actually
+# here, where a committed value was only a prediction of it.
+- name: Check for committed vars for this host
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/hosts/{{ host_name }}/vars.yaml"
+  register: _join_existing_vars_stat
+
+- name: Read committed vars for this host
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/{{ host_name }}/vars.yaml"
+  register: _join_existing_vars_raw
+  when: _join_existing_vars_stat.stat.exists
+  no_log: true
+
+- name: Parse committed vars for this host
+  ansible.builtin.set_fact:
+    _join_existing_vars: >-
+      {{ (_join_existing_vars_stat.stat.exists
+          | ternary(_join_existing_vars_raw.content | default('') | b64decode
+                    | from_yaml, {})) | default({}, true) }}
+  no_log: true
+
+# Kept: committed keys the .env-derived set has no value for. Replaced:
+# committed entries whose key is in that set but whose pair is not, which is
+# to say the same key carrying a different value.
+- name: Record which committed vars this join keeps and which it replaces
+  ansible.builtin.set_fact:
+    _join_vars_preserved: >-
+      {{ _join_existing_vars | dict2items
+         | rejectattr('key', 'in', _join_vars.keys() | list)
+         | map(attribute='key') | list | sort }}
+    _join_vars_replaced: >-
+      {{ (_join_existing_vars | dict2items
+          | selectattr('key', 'in', _join_vars.keys() | list)
+          | list)
+         | difference(_join_vars | dict2items | list)
+         | map(attribute='key') | list | sort }}
+
 - name: Write host vars
   ansible.builtin.copy:
-    content: "{{ _join_vars | to_nice_yaml(indent=2) }}"
+    content: "{{ _join_existing_vars | combine(_join_vars) | to_nice_yaml(indent=2) }}"
     dest: "{{ instance_path }}/hosts/{{ host_name }}/vars.yaml"
     mode: "0644"
   no_log: true
+
+- name: Report committed vars kept from the repository
+  ansible.builtin.debug:
+    msg: >-
+      Kept from this host's committed vars.yaml, having no counterpart in
+      its .env: {{ _join_vars_preserved | join(', ') }}
+  when: _join_vars_preserved | length > 0
+
+- name: Report committed vars replaced by this host's .env
+  ansible.builtin.debug:
+    msg: >-
+      Replaced with this host's own value, taken from the .env of the
+      instance being joined: {{ _join_vars_replaced | join(', ') }}
+  when: _join_vars_replaced | length > 0
 
 # --- Step 8: Write .gitops-host ---
 - name: Save .gitops-host identity

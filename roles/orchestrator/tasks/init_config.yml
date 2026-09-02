@@ -17,6 +17,14 @@
     force: false
     mode: "0644"
 
+# Ships empty; no-clobber because this runs on upgrade too.
+- name: Create media-hosts.yaml from template (no-clobber)
+  ansible.builtin.copy:
+    src: "{{ canasta_root }}/instance_template/config/media-hosts.yaml"
+    dest: "{{ instance_path }}/config/media-hosts.yaml"
+    force: false
+    mode: "0644"
+
 - name: Generate observability credentials if enabled
   ansible.builtin.include_tasks: ensure_observability_credentials.yml
 

@@ -1,0 +1,155 @@
+---
+# Render my.cnf from my.cnf.template + host vars, when the template exists.
+#
+# my.cnf is host-specific in the same way .env is: innodb_buffer_pool_size
+# has to fit the host's RAM, so a value that is correct on one host cannot
+# be allocated on a smaller one and MariaDB exits 1 at startup. Tracking one
+# shared my.cnf therefore cannot serve a repo that spans hosts of different
+# sizes.
+#
+# A placeholder with no value for this host leaves the existing my.cnf
+# alone rather than writing a file without the setting: that would drop the
+# server to the 128 MB compiled default, which is a silent and severe
+# performance regression rather than a visible failure.
+#
+# Input: instance_path, mycnf_vars (host vars, shared merged in).
+
+- name: Check if my.cnf.template exists
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/my.cnf.template"
+  register: _mycnf_template_stat
+
+- name: Render my.cnf from template
+  when: _mycnf_template_stat.stat.exists
+  block:
+    - name: Read my.cnf.template
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/my.cnf.template"
+      register: _mycnf_template_raw
+
+    # Rendered to a fact first so an unresolved placeholder can be caught
+    # before it replaces the live my.cnf.
+    - name: Render my.cnf content from template
+      ansible.builtin.set_fact:
+        _mycnf_content: |
+          {% for line in (_mycnf_template_raw.content | b64decode).split('\n') %}
+          {% if '{{' in line and '}}' in line %}
+          {% set before = line.split('{{', 1)[0] %}
+          {% set placeholder = line.split('{{', 1)[1].split('}}', 1)[0] %}
+          {% set after = line.split('}}', 1)[1] if '}}' in line else '' %}
+          {{ before }}{{ mycnf_vars[placeholder] | default('') }}{{ after }}
+          {% else %}
+          {{ line }}
+          {% endif %}
+          {% endfor %}
+
+    # Same split as the render above, so detection cannot disagree with
+    # what was actually substituted.
+    - name: List placeholders that have no value on this host
+      ansible.builtin.set_fact:
+        _mycnf_missing_raw: |
+          {% for line in (_mycnf_template_raw.content | b64decode).split('\n') %}
+          {% if '{{' in line and '}}' in line %}
+          {% set placeholder = line.split('{{', 1)[1].split('}}', 1)[0] %}
+          {% if (mycnf_vars[placeholder] | default('')) == '' %}
+          {{ placeholder }}
+          {% endif %}
+          {% endif %}
+          {% endfor %}
+
+    - name: Reduce that to a list
+      ansible.builtin.set_fact:
+        _mycnf_missing: >-
+          {{ (_mycnf_missing_raw | default('', true) | string).split('\n')
+             | map('trim') | reject('equalto', '') | list | unique }}
+
+    - name: Stat the my.cnf currently on disk
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/my.cnf"
+      register: _mycnf_existing
+
+    # Falling back to the existing file assumes there is one. After the
+    # untrack is committed, a host pulling that commit has my.cnf removed
+    # from its working tree before this runs — so with no value here there
+    # is nothing to keep, and skipping would leave the host with no my.cnf
+    # at all and MariaDB back at 128 MB. Refuse instead, as render_compose
+    # does for a missing wiki_url_<id>.
+    - name: Fail when there is no value and no my.cnf to fall back on
+      ansible.builtin.fail:
+        msg: |-
+          Refusing to leave this host without a my.cnf. No value for
+          {{ _mycnf_missing | join(', ') }} in hosts/{{ _render_hostname
+          | default('<host>') }}/vars.yaml or hosts/_shared/vars.yaml, and
+          my.cnf is not on disk to fall back on — so MariaDB would start at
+          its 128 MB compiled default (CanastaWiki/Canasta-CLI#1455).
+
+          Set a value sized for THIS host's RAM (roughly a quarter of it is
+          a common starting point) in hosts/<host>/vars.yaml:
+
+            innodb_buffer_pool_size: 2G
+
+          then run 'canasta gitops pull' again.
+      when:
+        - _mycnf_missing | length > 0
+        - not (_mycnf_existing.stat.exists | default(false))
+
+    - name: Warn and keep the existing my.cnf when a setting has no value here
+      ansible.builtin.debug:
+        msg: |-
+          WARNING: my.cnf was NOT re-rendered. No value for
+          {{ _mycnf_missing | join(', ') }} in this host's vars.yaml or
+          hosts/_shared/vars.yaml, and writing my.cnf without it would drop
+          MariaDB to its 128 MB compiled default. The existing my.cnf is
+          left in place. Set it in hosts/<host>/vars.yaml, e.g.
+
+            innodb_buffer_pool_size: 2G
+
+          sized for THIS host's RAM (roughly a quarter of it is a common
+          starting point), then run 'canasta gitops pull'.
+      when:
+        - _mycnf_missing | length > 0
+        - _mycnf_existing.stat.exists | default(false)
+
+    - name: Install the rendered my.cnf
+      when: _mycnf_missing | length == 0
+      block:
+        # my.cnf is bind-mounted as a single file (./my.cnf:/etc/my.cnf), so
+        # it is installed through a staging file with cp, which truncates the
+        # destination and keeps its inode. An atomic write (temp + rename)
+        # replaces the inode and strands the container's mount on the old one.
+        - name: Render my.cnf to a staging file
+          ansible.builtin.tempfile:
+            state: file
+            suffix: .my.cnf
+          register: _mycnf_staging
+          changed_when: false
+
+        - name: Write the rendered my.cnf to the staging file
+          ansible.builtin.copy:
+            content: "{{ _mycnf_content }}"
+            dest: "{{ _mycnf_staging.path }}"
+            mode: "0644"
+          register: _mycnf_render
+          changed_when: false
+
+        - name: Read the my.cnf currently in place
+          ansible.builtin.stat:
+            path: "{{ instance_path }}/my.cnf"
+            checksum_algorithm: sha1
+          register: _mycnf_current
+
+        - name: Install my.cnf in place
+          ansible.builtin.command:
+            cmd: >-
+              cp {{ _mycnf_staging.path | quote }}
+              {{ (instance_path ~ '/my.cnf') | quote }}
+          when: >-
+            not _mycnf_current.stat.exists
+            or _mycnf_current.stat.checksum != _mycnf_render.checksum
+          changed_when: true
+
+        - name: Remove the my.cnf staging file
+          ansible.builtin.file:
+            path: "{{ _mycnf_staging.path }}"
+            state: absent
+          changed_when: false

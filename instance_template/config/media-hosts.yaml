@@ -1,0 +1,17 @@
+# Object-storage-backed media hosts. Each entry becomes a site block in the
+# generated Caddyfile, proxying a hostname to a bucket.
+#
+# Nothing is rendered while the list is empty.
+#
+#   hostname  the public name Caddy serves
+#   bucket    the bucket name at the provider
+#   endpoint  the provider's regional endpoint, without the bucket
+#
+#   media_hosts:
+#     - hostname: images.example.com
+#       bucket: my-wiki-images
+#       endpoint: nyc3.digitaloceanspaces.com
+#
+# The TLS directive comes from CADDY_TLS_MODE in .env; do not set one here.
+
+media_hosts: []

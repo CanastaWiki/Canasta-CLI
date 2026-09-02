@@ -1,0 +1,11 @@
+---
+# The file a restore leaves behind while it is in flight, at the instance root
+# so the restore's own wholesale replacement of config/ cannot remove it.
+# Written by roles/backup/tasks/_restore_marker.yml and read by
+# direct_commands/_helpers.py, which cannot see Ansible vars — the two are
+# kept in step by tests/unit/test_restore_marker.py.
+canasta_restore_marker: ".canasta-restore-in-progress"
+
+# Where a restore parks this host's database password for the span in which
+# the snapshot's .env has replaced its own. Owner-only, and never printed.
+canasta_restore_dbpass_stash: ".canasta-restore-dbpass"

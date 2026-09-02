@@ -342,6 +342,12 @@
                 envFrom:
                   - secretRef:
                       name: "canasta-{{ instance_id }}-backup-env"
+                # A Job's container has no terminal, so restic prints no
+                # progress at all without this; with it, `kubectl logs -f`
+                # on the Job shows a long backup advancing.
+                env:
+                  - name: RESTIC_PROGRESS_FPS
+                    value: "{{ backup_progress_fps | default('0.05') }}"
                 volumeMounts: "{{ _restic_volume_mounts }}"
             volumes: "{{ _restic_volumes }}"
 

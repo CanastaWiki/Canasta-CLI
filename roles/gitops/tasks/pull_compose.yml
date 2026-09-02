@@ -106,8 +106,45 @@
   register: _pull_new_commit
   changed_when: false
 
-- name: Skip rendering if no changes
-  when: _pull_prev_commit.stdout == _pull_new_commit.stdout
+# What matters is whether the commit now at HEAD has been *applied*, not
+# whether this pull moved HEAD. A pull that fetched and then failed before
+# rendering leaves HEAD on the new commit with the rendered files still
+# holding the old values; comparing HEAD against the pre-pull HEAD would
+# find them equal and skip rendering forever, with no way back that does
+# not involve raw git against the instance. .gitops-applied records what
+# was last rendered, so compare against that.
+- name: Read the last applied commit
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-applied"
+  register: _pull_applied_raw
+  failed_when: false
+
+- name: Set the last applied commit
+  ansible.builtin.set_fact:
+    _pull_applied: >-
+      {{ (_pull_applied_raw.content | default('') | b64decode | trim)
+         if (_pull_applied_raw.content is defined) else '' }}
+
+# A rebased or rewritten repo can leave .gitops-applied naming a commit
+# that no longer exists, which would break the diff below.
+- name: Check the applied commit still exists
+  ansible.builtin.command:
+    cmd: "git cat-file -e {{ _pull_applied }}^{commit}"
+    chdir: "{{ instance_path }}"
+  register: _pull_applied_exists
+  changed_when: false
+  failed_when: false
+  when: _pull_applied != ''
+
+- name: Choose the base to diff against
+  ansible.builtin.set_fact:
+    _pull_diff_base: >-
+      {{ _pull_applied
+         if (_pull_applied != '' and (_pull_applied_exists.rc | default(1)) == 0)
+         else _pull_prev_commit.stdout }}
+
+- name: Skip rendering when this commit is already applied
+  when: _pull_applied == _pull_new_commit.stdout
   block:
     - name: Report no changes
       ansible.builtin.debug:
@@ -149,25 +186,10 @@
          | combine(_pull_vars_raw.content | b64decode | from_yaml) }}
 
 # --- Step 6: Render .env from env.template + vars ---
-- name: Read env.template
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/env.template"
-  register: _pull_env_template_raw
-
 - name: Render .env from template
-  ansible.builtin.copy:
-    content: |
-      {% for line in (_pull_env_template_raw.content | b64decode).split('\n') %}
-      {% if '={{' in line and '}}' in line %}
-      {% set key = line.split('=', 1)[0] %}
-      {% set placeholder = line.split('={{', 1)[1].split('}}', 1)[0] %}
-      {{ key }}={{ _pull_vars[placeholder] | default('') }}
-      {% else %}
-      {{ line }}
-      {% endif %}
-      {% endfor %}
-    dest: "{{ instance_path }}/.env"
-    mode: "0600"
+  ansible.builtin.include_tasks: _render_env.yml
+  vars:
+    env_render_vars: "{{ _pull_vars }}"
 
 # --- Step 7: Render wikis.yaml from template + vars (if template exists) ---
 - name: Check if wikis.yaml.template exists
@@ -235,6 +257,18 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
 
+# --- Step 7c: Render my.cnf from template + vars (if template exists) ---
+- name: Render my.cnf from template
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_render_mycnf.yml"
+  vars:
+    mycnf_vars: "{{ _pull_vars }}"
+
+# --- Step 7d: Render media-hosts.yaml from template + vars (if it exists) ---
+- name: Render media-hosts.yaml from template
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_render_media_hosts.yml"
+  vars:
+    media_hosts_vars: "{{ _pull_vars }}"
+
 # --- Step 8: Write admin password files ---
 - name: Write admin password files from vars
   ansible.builtin.copy:
@@ -254,7 +288,7 @@
 # --- Step 9: Detect what changed ---
 - name: Get list of changed files
   ansible.builtin.command:
-    cmd: "git diff --name-only {{ _pull_prev_commit.stdout }}"
+    cmd: "git diff --name-only {{ _pull_diff_base }}"
     chdir: "{{ instance_path }}"
   register: _pull_changed_files
   changed_when: false
@@ -305,13 +339,25 @@
     | select('search', 'config/backup-schedule.yml') | list | length > 0
 
 # --- Step 11: Report results ---
+# Collected as a list so the report is one sentence per outcome: the
+# ternaries this replaces rendered '' for every outcome that did not
+# apply, and the folded scalar kept the newlines around them — so a pull
+# needing nothing printed a trailing space and a blank line, and a pull
+# needing both printed an empty third line.
+- name: Summarize what the pull requires
+  ansible.builtin.set_fact:
+    _pull_followup: >-
+      {{ ((['Restart needed.'] if _pull_needs_restart | bool else [])
+      + (['Maintenance update needed (extensions/skins changed).']
+      if _pull_needs_maintenance | bool else []))
+      or ['No restart needed.'] }}
+
 - name: Report pull results
   ansible.builtin.debug:
     msg: >-
-      Pulled {{ _pull_prev_commit.stdout[:7] }}..{{ _pull_new_commit.stdout[:7] }}.
-      {{ (_pull_needs_restart | bool)
-         | ternary('Restart needed.', '') }}
-      {{ (_pull_needs_maintenance | bool)
-         | ternary('Maintenance update needed (extensions/skins changed).', '') }}
-      {{ (not _pull_needs_restart | bool and not _pull_needs_maintenance | bool)
-         | ternary('No restart needed.', '') }}
+      {{ ('Re-applied ' ~ _pull_new_commit.stdout[:7] ~ ' (the previous pull
+      did not finish).')
+      if _pull_prev_commit.stdout == _pull_new_commit.stdout
+      else ('Pulled ' ~ _pull_prev_commit.stdout[:7] ~ '..'
+      ~ _pull_new_commit.stdout[:7] ~ '.') }}
+      {{ _pull_followup | join(' ') }}

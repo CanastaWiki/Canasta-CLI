@@ -10,11 +10,20 @@
 # bind-mount directories addressed elsewhere.
 # Input: instance_path, canasta_root
 
+- name: Stat config/crowdsec
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/crowdsec"
+  register: _crowdsec_dir
+
+# Enforcing mode: on an existing directory calls chmod, which only its
+# owner or root may do — and a cross-host restore leaves this tree owned
+# by a uid that need not exist here. The mode applies to a directory this
+# task creates, never to one it finds.
 - name: Ensure config/crowdsec directory exists
   ansible.builtin.file:
     path: "{{ instance_path }}/config/crowdsec"
     state: directory
-    mode: "0755"
+    mode: "{{ omit if _crowdsec_dir.stat.isdir | default(false) else '0755' }}"
 
 # A previous crash-loop (engine started before the files existed) can leave
 # Docker-created directories at the file paths. copy with force:false won't

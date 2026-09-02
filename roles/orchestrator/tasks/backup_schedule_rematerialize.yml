@@ -26,12 +26,22 @@
       {{ (_sched_state_content.content | b64decode | from_yaml)
          if _sched_state.stat.exists else {} }}
 
+# Schedules written before the policy was a mapping carry a single
+# purge_older_than duration, which is what --keep-within has always meant.
+- name: Read the persisted retention policy
+  ansible.builtin.set_fact:
+    _sched_state_retention: >-
+      {{ _sched_state_data.retention
+         | default({'keep-within': _sched_state_data.purge_older_than}
+                   if (_sched_state_data.purge_older_than | default('')) != ''
+                   else {}, true) }}
+
 - name: Re-apply the schedule from instance state
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_apply.yml
   vars:
     cron_expression: "{{ _sched_state_data.cron_expression }}"
-    purge_older_than: "{{ _sched_state_data.purge_older_than | default('') }}"
+    retention: "{{ _sched_state_retention }}"
   when:
     - _sched_state.stat.exists
     - (_sched_state_data.cron_expression | default('')) != ''

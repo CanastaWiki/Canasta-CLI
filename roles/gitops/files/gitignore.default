@@ -1,9 +1,12 @@
 # Generated at deploy time — do not track
 .env
 config/secrets.env
+config/certs/
 config/secrets-web
 config/wikis.yaml
+config/media-hosts.yaml
 admin-password_*
+my.cnf
 
 # Managed by Canasta CLI
 docker-compose.yml

@@ -88,9 +88,24 @@
 {{ _site_address }} {
     import /etc/caddy/Caddyfile.site
 
+{# CADDY_TLS_MODE. 'acme' emits nothing: automatic HTTPS is Caddy's default.
+   Skipped on K8s, where the ingress terminates TLS. #}
+{% if not (_http_only | default(false)) %}
+{% if _tls_mode | default('acme') == 'internal' %}
+    tls internal
+{% elif _tls_mode | default('acme') == 'custom' %}
+    tls /etc/caddy/certs/{{ _tls_cert }} /etc/caddy/certs/{{ _tls_key }}
+{% endif %}
+{% endif %}
 {% if _crowdsec_active | default(false) %}
     crowdsec
 {% endif %}
+{#
+  reverse_proxy appends its immediate peer to X-Forwarded-For, which behind a
+  CDN is the edge address, and trusted_proxies only changes who Caddy considers
+  the client for itself. header_up runs after that automatic handling, so it
+  must sit inside the proxy block to replace the value rather than precede it.
+#}
 {% if _observable %}
     @opensearch path /opensearch /opensearch/*
     handle @opensearch {
@@ -101,13 +116,59 @@
     }
 
     handle {
+{% if _trusted_proxies_enabled | default(false) %}
+        reverse_proxy {{ _backend }} {
+            header_up X-Forwarded-For {client_ip}
+        }
+{% else %}
         reverse_proxy {{ _backend }}
+{% endif %}
+    }
+{% else %}
+{% if _trusted_proxies_enabled | default(false) %}
+    reverse_proxy {{ _backend }} {
+        header_up X-Forwarded-For {client_ip}
     }
 {% else %}
     reverse_proxy {{ _backend }}
+{% endif %}
 {% endif %}
 
     log {
         output file /var/log/caddy/access.log
     }
 }
+
+{% for _mh in (_media_hosts | default([])) %}
+
+{{ _mh.hostname }} {
+{% if not (_http_only | default(false)) %}
+{% if _tls_mode | default('acme') == 'internal' %}
+    tls internal
+{% elif _tls_mode | default('acme') == 'custom' %}
+    tls /etc/caddy/certs/{{ _tls_cert }} /etc/caddy/certs/{{ _tls_key }}
+{% endif %}
+{% endif %}
+{# MultimediaViewer requests with crossOrigin="anonymous" and fails without
+   this. Must be constant, not reflected: a CDN caches the response. #}
+    header Access-Control-Allow-Origin "*"
+
+    reverse_proxy https://{{ _mh.bucket }}.{{ _mh.endpoint }} {
+{# Object storage selects the bucket from the Host header, not the path;
+   without this rewrite it returns NoSuchBucket. #}
+        header_up Host {{ _mh.bucket }}.{{ _mh.endpoint }}
+{# Never forward the wiki session cookie or Authorization to the provider. #}
+        header_up -Cookie
+        header_up -Authorization
+        transport http {
+            tls
+{# SNI must match the provider, not the public hostname. #}
+            tls_server_name {{ _mh.bucket }}.{{ _mh.endpoint }}
+        }
+    }
+
+    log {
+        output file /var/log/caddy/media.log
+    }
+}
+{% endfor %}

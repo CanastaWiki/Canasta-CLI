@@ -304,3 +304,30 @@ class TestHostDirs:
             (instance_dir / "hosts" / d).mkdir()
         result = _run(probe, instance_dir)
         assert result["host_dirs"] == ["host1", "host2"]
+
+
+# --- .env permissions ------------------------------------------------
+
+
+class TestEnvPermissions:
+    """.env holds every secret the instance has, so anything past the
+    owner's own bits is reported for the migration to tighten."""
+
+    def _mode(self, probe, instance_dir, mode):
+        env = instance_dir / ".env"
+        env.write_text("MYSQL_PASSWORD=s3cret\n")
+        env.chmod(mode)
+        return _run(probe, instance_dir)["files"]["env_readable_beyond_owner"]
+
+    def test_world_readable_is_reported(self, probe, instance_dir):
+        assert self._mode(probe, instance_dir, 0o644) is True
+
+    def test_group_readable_is_reported(self, probe, instance_dir):
+        assert self._mode(probe, instance_dir, 0o640) is True
+
+    def test_owner_only_is_not_reported(self, probe, instance_dir):
+        assert self._mode(probe, instance_dir, 0o600) is False
+
+    def test_missing_env_is_not_reported(self, probe, instance_dir):
+        state = _run(probe, instance_dir)
+        assert state["files"]["env_readable_beyond_owner"] is False

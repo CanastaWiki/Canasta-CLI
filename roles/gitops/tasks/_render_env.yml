@@ -1,0 +1,41 @@
+---
+# Render .env from env.template + the host's merged vars.
+#
+# Shared by render_compose.yml and pull_compose.yml, which each had their own
+# copy: only one omitted a placeholder with no value, and pull — the path
+# every host that is not the source takes — was the one that did not.
+#
+# Input: env_render_vars, the placeholder-name-to-value mapping for this host
+#        (hosts/_shared/vars.yaml with the host's own merged over it).
+
+- name: Read env.template
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/env.template"
+  register: _env_render_template_raw
+
+# A placeholder with no stored value for this host is omitted rather than
+# rendered as "KEY=". A blank is not the same as unset to whoever reads it
+# next: CANASTA_ENABLE_VARNISH= was read as "false" and dropped varnish
+# from COMPOSE_PROFILES while its container kept running, unmanaged.
+# Leaving the key out lets the reader's own default apply, which is what
+# "this host stores no opinion" means.
+#
+# `default('')` does not fire on None, and Ansible prints None as the empty
+# string, so a stored null needs its own test or it is written blank.
+- name: Render .env from template
+  ansible.builtin.copy:
+    content: |
+      {% for line in (_env_render_template_raw.content | b64decode).split('\n') %}
+      {% if '={{' in line and '}}' in line %}
+      {% set key = line.split('=', 1)[0] %}
+      {% set placeholder = line.split('={{', 1)[1].split('}}', 1)[0] %}
+      {% set value = env_render_vars[placeholder] | default('') %}
+      {% if value is not none and value != '' %}
+      {{ key }}={{ value }}
+      {% endif %}
+      {% else %}
+      {{ line }}
+      {% endif %}
+      {% endfor %}
+    dest: "{{ instance_path }}/.env"
+    mode: "0600"

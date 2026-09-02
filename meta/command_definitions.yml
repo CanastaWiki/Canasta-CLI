@@ -982,10 +982,11 @@ commands:
       Pass --dev to track the development branch (head of main) instead.
 
       Pass --purge to reclaim disk after the upgrade: each upgraded host has
-      the Canasta images the upgrade superseded removed (only those no
-      container or pod still references), dangling sidecar-rebuild layers
-      pruned, and — on Kubernetes — the in-cluster registry garbage-collected.
-      Volumes are never touched.
+      the Canasta images the upgrade superseded removed (never one an instance
+      on that host is pinned to, running or stopped), dangling sidecar-rebuild
+      layers pruned, and — on Kubernetes — the in-cluster registry
+      garbage-collected. Volumes are never touched. `canasta image prune`
+      runs the same reclaim on one host without upgrading anything.
     examples:
       - "canasta upgrade"
       - "canasta upgrade --allow-major"
@@ -2460,9 +2461,15 @@ commands:
       remote or Kubernetes instance, set it up first with
       `canasta install canasta -H <host>`.
 
-      Use `--purge-older-than` to chain `canasta backup purge
-      --keep-within <duration>` after each backup, so old snapshots are
-      pruned without a separate maintenance run.
+      Give any of the retention flags to chain `canasta backup purge`
+      after each backup, so old snapshots are pruned without a separate
+      maintenance run. They are the flags `canasta backup purge` accepts
+      and mean the same thing, so a policy that can be purged by hand can
+      be scheduled. With no retention flag, nothing is purged and
+      snapshots accumulate.
+
+      `--purge-older-than` is an older spelling of `--keep-within`; give
+      one or the other, not both.
 
       The schedule is persisted to `config/backup-schedule.yml` (captured
       by backups, re-materialized on restore). Setting a new schedule
@@ -2470,7 +2477,8 @@ commands:
       created.
     examples:
       - "canasta backup schedule set '0 2 * * *'"
-      - "canasta backup schedule set '0 3 * * *' --purge-older-than 30d"
+      - "canasta backup schedule set '0 3 * * *' --keep-within 30d"
+      - "canasta backup schedule set '37 3 * * *' --keep-daily 7 --keep-weekly 4"
     playbook: backup_schedule_set.yml
     parameters:
       - name: id
@@ -2482,9 +2490,33 @@ commands:
         positional: true
         required: true
         description: "Cron expression for the schedule"
+      - name: keep_last
+        type: string
+        description: "Number of most recent backups to keep"
+      - name: keep_hourly
+        type: string
+        description: "Number of hourly backups to keep"
+      - name: keep_daily
+        type: string
+        description: "Number of daily backups to keep"
+      - name: keep_weekly
+        type: string
+        description: "Number of weekly backups to keep"
+      - name: keep_monthly
+        type: string
+        description: "Number of monthly backups to keep"
+      - name: keep_yearly
+        type: string
+        description: "Number of yearly backups to keep"
+      - name: keep_within
+        type: string
+        description: "Keep all backups made within this duration (e.g. 30d, 6m)"
+      - name: keep_tag
+        type: string
+        description: "Keep backups that have this tag"
       - name: purge_older_than
         type: string
-        description: "Purge backups older than this on each scheduled run"
+        description: "Older spelling of --keep-within"
 
   - name: backup_schedule_list
     description: "Show the backup schedule"
@@ -2495,8 +2527,9 @@ commands:
       Reads the crontab on the host where the instance runs (the
       control-plane node for Kubernetes) and parses the
       `canasta backup create -i <id>` entry, reporting the schedule
-      expression and whether a `--purge-older-than` is wired in. "No
-      backup schedule found" means no entry exists for this instance.
+      expression and the retention policy of the purge chained after it,
+      if any. "No backup schedule found" means no entry exists for this
+      instance.
     examples:
       - "canasta backup schedule list"
     playbook: backup_schedule_list.yml
@@ -3429,25 +3462,30 @@ commands:
           for a web overlay Dockerfile that derives FROM ${BASE_IMAGE})
 
   - name: image_prune
-    description: "Garbage-collect the in-cluster image registry"
+    description: "Reclaim container image storage on a host"
     long_description: |
-      Reclaim in-cluster registry storage by deleting manifests no tag
-      references anymore, and their orphaned layers. Repeated pushes of the
-      same tag (e.g. the `:local` tags used by `--build-from` and `build:`
-      sidecars) orphan the previous push's layers, and nothing else ever
-      garbage-collects them — the registry volume only grows until this
-      runs.
+      Remove container images the host no longer needs, and their orphaned
+      layers. Upgrades leave superseded Canasta images behind, and repeated
+      pushes of the same tag (e.g. the `:local` tags used by `--build-from`,
+      `build:` sidecars, and `image push`) orphan the previous push's layers.
+      Nothing else ever collects them, so the disk only grows until this runs.
 
-      Runs the registry's garbage collector (with `--delete-untagged`)
-      inside the registry pod, then restarts the registry deployment so
-      its in-memory blob cache matches the pruned store. Avoid pushing
-      images while the prune runs — a push racing the garbage collector
-      can be corrupted (a limitation of the registry itself).
+      On a Docker host, removes the Canasta image tags no instance registered
+      on the host is pinned to, then prunes dangling layers. On a Kubernetes
+      host, prunes containerd images no pod references, then runs the
+      in-cluster registry's garbage collector (with `--delete-untagged`) and
+      restarts the registry so its in-memory blob cache matches the pruned
+      store. A host running both is reclaimed on both paths.
 
-      Kubernetes only. A host with no in-cluster registry reports nothing
-      to prune.
+      Volumes are never touched, and an image an instance on the host is
+      pinned to is kept whether or not that instance is running.
+
+      Avoid pushing images while the prune runs — a push racing the registry
+      garbage collector can be corrupted (a limitation of the registry
+      itself).
     examples:
       - "canasta image prune"
+      - "canasta image prune --dry-run"
       - "canasta image prune -H prod1"
     playbook: image_prune.yml
     parameters:
@@ -3457,3 +3495,7 @@ commands:
         description: >-
           Target host (a saved host name or user@hostname; default:
           localhost)
+      - name: dry_run
+        type: bool
+        default: false
+        description: "Report what would be removed without removing anything"
