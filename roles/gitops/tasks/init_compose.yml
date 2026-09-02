@@ -178,7 +178,8 @@
 # Symmetric mode: export the git-crypt symmetric key to the --key path.
 # Skipped in GPG mode (when --git-crypt-gpg-user is set), which instead
 # registers a GPG recipient and never exports a shared key.
-- block:
+- when: not git_crypt_gpg_user | default('')
+  block:
     - name: Export git-crypt key on remote host
       ansible.builtin.command:
         cmd: "git-crypt export-key /tmp/canasta-gitcrypt-key"
@@ -222,7 +223,6 @@
       ansible.builtin.file:
         path: "/tmp/canasta-gitcrypt-key"
         state: absent
-  when: not git_crypt_gpg_user | default('')
 
 # GPG mode: register the GPG recipient instead of exporting a symmetric key.
 # Later unlock (join/push/pull) happens via `git-crypt unlock` with a
