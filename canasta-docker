@@ -153,6 +153,16 @@ MOUNTS=(
     --user "$(id -u):$(id -g)"
 )
 
+# Mount the host's gpg-agent runtime dir so a ~/.ssh/config RemoteForward
+# pointing at /run/user/<uid>/gnupg/S.gpg-agent can forward the host's GPG
+# agent to remote hosts (enables git-crypt GPG unlock from inside the
+# container). Only mounted when the dir exists, so non-GPG setups are
+# unaffected.
+_GNUPG_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/gnupg"
+if [[ -d "$_GNUPG_DIR" ]]; then
+    MOUNTS+=(-v "$_GNUPG_DIR:$_GNUPG_DIR")
+fi
+
 # Set Ansible temp + home directories to /tmp when running as a non-root user
 # in rootless Docker. On rootless Docker, the UID/GID mapping causes directory
 # ownership to appear as nobody:nogroup to the container process even though

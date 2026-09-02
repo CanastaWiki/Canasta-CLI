@@ -108,23 +108,53 @@
   environment: "{{ gitops_git_env }}"
   changed_when: true
 
-# --- Step 3: Copy key to remote and unlock git-crypt ---
-- name: Copy git-crypt key from controller to remote
+# --- Step 3: Unlock git-crypt (auto-detect GPG vs symmetric) ---
+- name: Detect git-crypt mode in cloned repo
+  ansible.builtin.shell:
+    cmd: "ls .git-crypt/keys/default/0/*.gpg >/dev/null 2>&1 && echo gpg || echo symmetric"
+    chdir: "{{ _join_tmpdir.path }}"
+    executable: /bin/bash
+  register: _join_gitcrypt_mode
+  changed_when: false
+  failed_when: false
+
+# GPG mode: unlock via the forwarded GPG agent, no symmetric key file.
+- name: Unlock git-crypt via GPG agent (GPG mode)
+  ansible.builtin.command:
+    cmd: "git-crypt unlock"
+    chdir: "{{ _join_tmpdir.path }}"
+  changed_when: true
+  when: _join_gitcrypt_mode.stdout | default('') == 'gpg'
+
+- name: Fail if symmetric git-crypt repo but no --key provided
+  ansible.builtin.fail:
+    msg: >-
+      This gitops repo uses a symmetric git-crypt key, but --key was not
+      provided. Re-run with --key /path/to/gitops.key (the symmetric key
+      file exported by `canasta gitops init`).
+  when:
+    - _join_gitcrypt_mode.stdout | default('') == 'symmetric'
+    - not (key is defined and key | default(''))
+
+- name: Copy git-crypt key from controller to remote (symmetric mode)
   ansible.builtin.copy:
     src: "{{ key }}"
     dest: "/tmp/canasta-gitcrypt-key"
     mode: "0600"
+  when: _join_gitcrypt_mode.stdout | default('') == 'symmetric'
 
-- name: Unlock git-crypt with provided key
+- name: Unlock git-crypt with provided key (symmetric mode)
   ansible.builtin.command:
     cmd: "git-crypt unlock /tmp/canasta-gitcrypt-key"
     chdir: "{{ _join_tmpdir.path }}"
   changed_when: true
+  when: _join_gitcrypt_mode.stdout | default('') == 'symmetric'
 
-- name: Remove temp key from remote
+- name: Remove temp key from remote (symmetric mode)
   ansible.builtin.file:
     path: "/tmp/canasta-gitcrypt-key"
     state: absent
+  when: _join_gitcrypt_mode.stdout | default('') == 'symmetric'
 
 # --- Step 4: Validate host name not already in config ---
 - name: Read hosts.yaml from cloned repo
@@ -462,6 +492,14 @@
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: update_config.yml
+
+# Rootless Podman maps container writes to a host subuid, which would later
+# block operator-side writes (e.g. `gitops pull` re-rendering wikis.yaml).
+# Re-own the operator-writable, container-read-only directories to the host
+# user now, excluding runtime dirs the containers keep writing into.
+- name: Fix operator directory ownership (rootless Podman)
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/_rootless_operator_chown.yml"
+  when: (orchestrator | default('compose')) == 'compose'
 
 # --- Step 10: Update submodules ---
 - name: Update submodules

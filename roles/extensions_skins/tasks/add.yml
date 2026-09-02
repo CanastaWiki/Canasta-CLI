@@ -1,0 +1,214 @@
+---
+# Add a user extension/skin that is not bundled with Canasta.
+#
+# Resolves its git URL + branch (REL1_YY for Gerrit remotes) from
+# ExtensionJson.json, adds it as a submodule (gitops) or a plain clone
+# (non-gitops) under extensions/ or skins/, commits it in gitops,
+# registers any composer.json in config/composer.local.json and best-effort
+# installs its non-dev requirements (--no-dev); a resolution failure is reported
+# and the registration reverted rather than aborting, and optionally enables it
+# (write settings + run update.php).
+#
+# Input: id, wiki (optional, passed to enable), names (comma-separated),
+#        mw_version (optional override), repository (optional override),
+#        branch (optional override), skip_enable (bool), skip_update (bool),
+#        _item_type (extensions|skins)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Refuse Kubernetes (unsupported)
+  ansible.builtin.fail:
+    msg: >-
+      'canasta {{ _item_type }} add' is only supported on Compose (including
+      gitops) instances; Kubernetes user extensions live in a PVC and are not
+      managed this way.
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
+- name: Set item directory
+  ansible.builtin.set_fact:
+    _item_dir: "{{ 'skins' if (_item_type == 'skins') else 'extensions' }}"
+
+- name: Detect whether the instance is gitops-managed
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.git"
+  register: _git_dir
+
+- name: Record gitops status
+  ansible.builtin.set_fact:
+    is_gitops: "{{ _git_dir.stat.exists | bool }}"
+
+- name: "Detect MediaWiki version (for REL1_YY) unless overridden"
+  when: mw_version is not defined or mw_version | default('') | trim == ''
+  block:
+    - name: Run maintenance/version.php
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: web
+        exec_command: >-
+          v="";
+          if [ -f /var/www/mediawiki/w/maintenance/version.php ]; then
+          v=$(php /var/www/mediawiki/w/maintenance/version.php | grep -oE "[0-9]+[.][0-9]+[.][0-9]+" | head -n1); fi;
+          if [ -z "$v" ] && [ -f /var/www/mediawiki/w/includes/Defines.php ]; then
+          v=$(grep -oE "MW_VERSION[^0-9]*[0-9.]+" /var/www/mediawiki/w/includes/Defines.php
+          | head -n1 | sed -E "s/.*([0-9]+[.][0-9]+[.][0-9]+).*/\1/"); fi;
+          printf '%s' "$v"
+        exec_long: true
+    - name: Parse MediaWiki version
+      ansible.builtin.set_fact:
+        _mw_version: >-
+          {{ exec_result.stdout | trim | default('', true) }}
+  rescue:
+    - name: Record that version detection failed
+      ansible.builtin.set_fact:
+        _mw_version: ""
+
+- name: Apply MW version override
+  ansible.builtin.set_fact:
+    _mw_version: "{{ mw_version | default(_mw_version | default('')) }}"
+  when: mw_version is defined and mw_version | default('') | trim != ''
+
+- name: Fail loudly if the MediaWiki version could not be detected
+  ansible.builtin.fail:
+    msg: >-
+      Could not detect a valid MediaWiki version
+      (/var/www/mediawiki/w/maintenance/version.php missing, a version that is
+      not 1.x, or the web container is not running). Start the instance first,
+      or pass an explicit version with --mw-version (e.g. --mw-version 1.43.2).
+  when: >
+    _mw_version is not defined
+    or _mw_version | default('', true) | trim == ''
+    or _mw_version | default('', true) | trim is not match('^1\\.\\d+(\\.\\d+)?$')
+
+- name: Set ExtensionJson.json offline snapshot path
+  ansible.builtin.set_fact:
+    _extjson_path: "{{ canasta_root }}/data/ExtensionJson.json"
+
+- name: "Resolve {{ _item_type }} from ExtensionJson.json"
+  canasta_extension_resolve:
+    name: "{{ item | trim }}"
+    item_type: "{{ _item_type }}"
+    mw_version: "{{ _mw_version | default('', true) }}"
+    repository: "{{ repository | default(omit) }}"
+    branch: "{{ branch | default(omit) }}"
+    json_path: "{{ _extjson_path }}"
+  loop: "{{ names.split(',') | map('trim') | list }}"
+  loop_control:
+    label: "{{ item }}"
+  register: _resolved
+
+- name: "Add each {{ _item_type }} to the instance"
+  ansible.builtin.include_tasks: _add_one.yml
+  loop: "{{ _resolved.results }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# Items that ship a composer.json declare PHP package requirements (the
+# non-dev ones matter at runtime). MediaWiki's composer merge plugin picks
+# them up only if the item's composer.json is listed in
+# config/composer.local.json — so register it, then install.
+- name: "Check added {{ _item_type }} for a composer.json"
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ _item_dir }}/{{ item.name }}/composer.json"
+  loop: "{{ _resolved.results }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _composer_probes
+
+- name: "Collect {{ _item_type }} with composer requirements"
+  ansible.builtin.set_fact:
+    # Container-side bind-mount root: instance_path/extensions maps to
+    # w/user-extensions (and skins to user-skins). The w/extensions symlink
+    # only exists after a container start, so composer must reference the
+    # bind-mount path directly.
+    _composer_paths: >-
+      {{ _composer_probes.results
+         | selectattr('stat.exists')
+         | map(attribute='item.name')
+         | map('regex_replace', '^(.*)$', 'user-' ~ _item_dir ~ '/\1/composer.json')
+         | list }}
+
+- name: "Register composer requirements in composer.local.json"
+  when: _composer_paths | length > 0
+  canasta_composer_local:
+    instance_path: "{{ instance_path }}"
+    include: "{{ _composer_paths }}"
+  register: _composer_local
+
+# Best-effort install: run it BEFORE committing config/composer.local.json so
+# a dependency conflict (or a downed web container) cannot leave a broken,
+# committed config that the next container start's run-all.sh would also choke
+# on. On failure we revert the registration and warn instead of aborting.
+- name: "Install composer requirements (--no-dev)"
+  when: _composer_paths | length > 0
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  vars:
+    exec_service: web
+    exec_command: >-
+      cp /mediawiki/config/composer.local.json /var/www/mediawiki/w/composer.local.json &&
+      cd /var/www/mediawiki/w &&
+      composer update --no-dev --no-interaction
+    exec_long: true
+    # Best-effort: a composer dependency conflict must not abort the whole
+    # command. rx_fail only applies while exec_long is true (the command then
+    # runs through resilient_exec.yml, which honors it and still records
+    # exec_result so the caller can revert + warn).
+    rx_fail: false
+
+- name: "Commit composer.local.json (gitops) on successful install"
+  when:
+    - _composer_paths | length > 0
+    - exec_result.rc | default(1) == 0
+    - is_gitops | bool
+  block:
+    - name: "Stage composer.local.json (gitops)"
+      ansible.builtin.command:
+        cmd: "git -C {{ instance_path | quote }} add -- config/composer.local.json"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: "Commit composer.local.json (gitops)"
+      ansible.builtin.command:
+        cmd: >-
+          git -C {{ instance_path | quote }} -c commit.gpgsign=false commit
+          -m 'Add composer requirements for {{ _resolved.results | map(attribute='name') | join(', ') }}'
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      ignore_errors: true  # nothing to commit if the file content was already committed
+
+- name: "Revert composer registration when install failed"
+  when:
+    - _composer_paths | length > 0
+    - exec_result.rc | default(1) != 0
+  block:
+    - name: "Warn that the composer install failed"
+      ansible.builtin.debug:
+        msg: >-
+          Composer could not install the requirements for
+          {{ _resolved.results | map(attribute='name') | join(', ') }}
+          (composer exited {{ exec_result.rc | default('?') }}). The
+          {{ _item_type }} code was added, but its PHP dependencies are NOT
+          installed and were left out of config/composer.local.json to keep the
+          instance's composer config valid. Resolve the conflict — usually a
+          version pin that is incompatible with the instance's existing
+          packages — then re-run the add or register the requirements manually.
+
+    - name: "Unregister composer requirements to keep config clean"
+      canasta_composer_local:
+        instance_path: "{{ instance_path }}"
+        include: "{{ _composer_paths }}"
+        state: absent
+
+- name: "Enable added {{ _item_type }} (after restart so the container sees them)"
+  when: not (skip_enable | default(false) | bool)
+  block:
+    - name: "Restart containers so the monitor symlinks the new {{ _item_type }}"
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: start.yml
+      when: instance_orchestrator | default('compose') not in ['kubernetes', 'k8s']
+
+    - name: "Enable added {{ _item_type }}"
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/enable.yml"
+      vars:
+        _names: "{{ _resolved.results | map(attribute='name') | join(',') }}"

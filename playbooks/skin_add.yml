@@ -1,0 +1,9 @@
+---
+# canasta skin add - Add a non-bundled skin from its git repository.
+
+- name: Add skins
+  ansible.builtin.include_role:
+    name: extensions_skins
+    tasks_from: add.yml
+  vars:
+    _item_type: skins

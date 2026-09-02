@@ -2,8 +2,8 @@
 DOCUMENTATION options block, so `ansible-doc` and readers never miss a param.
 
 Parses source text (not the loaded module) to avoid importing Ansible: the
-argument_spec entries are `name=dict(type=...)` lines and DOCUMENTATION is a
-YAML literal.
+argument_spec entries are either `name=dict(type=...)` lines or
+`"name": {"type": ...}` literals, and DOCUMENTATION is a YAML literal.
 """
 
 import glob
@@ -18,7 +18,9 @@ _MODULES = sorted(glob.glob(os.path.join(_ROOT, "roles", "*", "library", "*.py")
 
 
 def _spec_params(src):
-    return set(re.findall(r"(\w+)=dict\(type", src))
+    return (
+        set(re.findall(r"(\w+)=dict\(type", src))
+        | set(re.findall(r'"(\w+)":\s*\{\s*"type"', src)))
 
 
 def _documented_options(src):
