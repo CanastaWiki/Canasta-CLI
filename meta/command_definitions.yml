@@ -1442,6 +1442,73 @@ commands:
         required: true
         description: "Comma-separated extension names"
 
+  - name: extension_remove
+    description: "Remove a previously added non-bundled extension"
+    long_description: |
+      Undo `canasta extension add`: disables the extension in settings.yaml,
+      deletes its directory from the instance's extensions/ directory (on a
+      gitops instance, deinit and unregister the submodule and clean up
+      .git/modules), unregisters its composer.json from
+      config/composer.local.json and re-runs `composer update --no-dev`,
+      commits the removal (gitops), and restarts the containers so the
+      removal takes effect.
+
+      Names not present under extensions/ are reported and skipped. Database
+      tables created by the removed extension are left in place — MediaWiki
+      does not reverse schema updates. Run `canasta gitops push` afterwards
+      to distribute a gitops removal to other hosts.
+    examples:
+      - "canasta extension remove MyExtension"
+      - "canasta extension remove OAuth,Cite"
+    playbook: extension_remove.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID to disable the extension for (passed to settings)"
+      - name: names
+        type: string
+        positional: true
+        required: true
+        description: "Comma-separated extension names"
+
+  - name: skin_remove
+    description: "Remove a previously added non-bundled skin"
+    long_description: |
+      Undo `canasta skin add`: disables the skin in settings.yaml,
+      deletes its directory from the instance's skins/ directory (on a
+      gitops instance, deinit and unregister the submodule and clean up
+      .git/modules), unregisters its composer.json from
+      config/composer.local.json and re-runs `composer update --no-dev`,
+      commits the removal (gitops), and restarts the containers so the
+      removal takes effect.
+
+      Names not present under skins/ are reported and skipped. Run
+      `canasta gitops push` afterwards to distribute a gitops removal to
+      other hosts.
+    examples:
+      - "canasta skin remove Citizen"
+      - "canasta skin remove Citizen,Columbia"
+    playbook: skin_remove.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID to disable the skin for (passed to settings)"
+      - name: names
+        type: string
+        positional: true
+        required: true
+        description: "Comma-separated skin names"
+
   - name: extension_set_version
     description: "Pin a user extension to a specific version"
     long_description: |
@@ -1469,11 +1536,11 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
-      - name: name
+      - name: extension_name
         type: string
         positional: true
         required: true
-        description: "Extension name (the extensions/<name> submodule)"
+        description: "Extension name (the extensions/<extension_name> submodule)"
       - name: ref
         type: string
         required: true
@@ -1482,6 +1549,69 @@ commands:
         type: bool
         default: false
         description: "Run update.php after pinning to apply DB schema changes"
+
+  - name: extension_add
+    description: "Add a non-bundled extension from its git repository"
+    long_description: |
+      Add a MediaWiki extension that is not bundled with Canasta by cloning
+      its git repository into the instance's extensions/ directory.
+
+      The extension's git URL is resolved from ExtensionJson.json (the
+      extjsonuploader Toolforge dataset); pass `--repository` to override the
+      lookup, or `--branch` to pin a specific branch/tag/commit. The branch is
+      chosen automatically as REL1_YY matching the instance's MediaWiki
+      version (e.g. MediaWiki 1.43 -> REL1_43), tried on every remote (GitHub
+      and GitLab mirrors carry the same REL branches); if the REL branch does
+      not exist there, the default branch is used unless `--branch` is given.
+      Override the detected version with `--mw-version`.
+
+      If the extension ships a composer.json, its non-dev requirements are
+      installed: it is registered in config/composer.local.json (committed in
+      gitops) and `composer update --no-dev` runs in the web container.
+
+      On a gitops instance the extension is added as a submodule and committed
+      (run `canasta gitops push` to distribute it). The extension is then
+      enabled automatically (write settings + run update.php); use
+      `--skip-enable` to add the code only.
+
+      Requires a Compose (including gitops) instance; Kubernetes is not
+      supported.
+    examples:
+      - "canasta extension add OAuth"
+      - "canasta extension add OAuth --mw-version 1.43.2"
+      - "canasta extension add MyExtension --repository https://example.org/MyExtension.git --branch main"
+    playbook: extension_add.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID to enable the extension for (passed to enable)"
+      - name: names
+        type: string
+        positional: true
+        required: true
+        description: "Comma-separated extension names"
+      - name: mw_version
+        type: string
+        description: "MediaWiki version (e.g. 1.43.2); overrides auto-detection for REL1_YY branch selection"
+      - name: repository
+        type: string
+        description: "Git URL to clone (overrides ExtensionJson.json lookup)"
+      - name: branch
+        type: string
+        description: "Branch/tag/commit to check out (overrides auto branch selection)"
+      - name: skip_enable
+        type: bool
+        default: false
+        description: "Add the code only; do not enable the extension"
+      - name: skip_update
+        type: bool
+        default: false
+        description: "Skip running update.php after enabling"
 
   # ---------------------------------------------------------------------------
   # Skins
@@ -1559,6 +1689,68 @@ commands:
         positional: true
         required: true
         description: "Comma-separated skin names"
+
+  - name: skin_add
+    description: "Add a non-bundled skin from its git repository"
+    long_description: |
+      Add a MediaWiki skin that is not bundled with Canasta by cloning its
+      git repository into the instance's skins/ directory.
+
+      The skin's git URL is resolved from ExtensionJson.json (the
+      extjsonuploader Toolforge dataset); pass `--repository` to override the
+      lookup, or `--branch` to pin a specific branch/tag/commit. The branch is
+      chosen automatically as REL1_YY matching the instance's MediaWiki
+      version (e.g. MediaWiki 1.43 -> REL1_43), tried on every remote (GitHub
+      and GitLab mirrors carry the same REL branches); if the REL branch does
+      not exist there, the default branch is used unless `--branch` is given.
+      Override the detected version with `--mw-version`.
+
+      If the skin ships a composer.json, its non-dev requirements are
+      installed: it is registered in config/composer.local.json (committed in
+      gitops) and `composer update --no-dev` runs in the web container.
+
+      On a gitops instance the skin is added as a submodule and committed (run
+      `canasta gitops push` to distribute it). The skin is then enabled
+      automatically (write settings + run update.php); use `--skip-enable` to
+      add the code only.
+
+      Requires a Compose (including gitops) instance; Kubernetes is not
+      supported.
+    examples:
+      - "canasta skin add Citizen"
+      - "canasta skin add Citizen --mw-version 1.43.2"
+    playbook: skin_add.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: wiki
+        short: w
+        type: string
+        description: "Wiki ID to enable the skin for (passed to enable)"
+      - name: names
+        type: string
+        positional: true
+        required: true
+        description: "Comma-separated skin names"
+      - name: mw_version
+        type: string
+        description: "MediaWiki version (e.g. 1.43.2); overrides auto-detection for REL1_YY branch selection"
+      - name: repository
+        type: string
+        description: "Git URL to clone (overrides ExtensionJson.json lookup)"
+      - name: branch
+        type: string
+        description: "Branch/tag/commit to check out (overrides auto branch selection)"
+      - name: skip_enable
+        type: bool
+        default: false
+        description: "Add the code only; do not enable the skin"
+      - name: skip_update
+        type: bool
+        default: false
+        description: "Skip running update.php after enabling"
 
   # ---------------------------------------------------------------------------
   # Maintenance
@@ -2498,6 +2690,16 @@ commands:
           symmetric key for unlocking encrypted vars on other hosts.
           K8s does not use git-crypt; the parameter only affects
           the SSH key path there.
+      - name: git_crypt_gpg_user
+        type: string
+        description: >-
+          Compose only. GPG recipient (email or key id) to encrypt the
+          git-crypt key to, enabling GPG-based unlock instead of a shared
+          symmetric key file. When set, gitops initializes git-crypt with
+          `git-crypt add-gpg-user` and later `gitops pull`/`push` unlock via
+          `git-crypt unlock` (using a forwarded GPG agent). The symmetric
+          git-crypt key is not exported, but --key is still required for the
+          SSH deploy key (`<key>.ssh`).
       - name: ssh_key
         type: path
         description: >-
@@ -2593,12 +2795,12 @@ commands:
         description: "Git repository URL"
       - name: key
         type: path
-        required: true
         description: >-
-          Path basename for the gitops keys, same as `gitops init`.
-          On Compose, `<key>` is the git-crypt symmetric key. On K8s,
-          only `<key>.ssh` (the SSH deploy key) is used — git-crypt
-          is not part of the K8s gitops flow.
+          Compose only, and only for symmetric git-crypt repos: path to the
+          git-crypt symmetric key file exported by `canasta gitops init`.
+          GPG-initialized repos unlock automatically via a forwarded GPG
+          agent (auto-detected from the cloned repo), so --key is not needed
+          for them. On K8s, git-crypt is not part of the gitops flow.
       - name: ssh_key
         type: path
         description: >-
@@ -2696,6 +2898,13 @@ commands:
           set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
           Omit to keep the default: ssh-agent forwarding on Compose,
           or the staged deploy key on Kubernetes.
+      - name: key
+        type: path
+        description: >-
+          Compose only. Path to the git-crypt symmetric key for unlocking
+          encrypted vars when the repo was initialized in symmetric mode
+          (not GPG mode). Not needed for GPG-initialized repos, which
+          unlock via a forwarded GPG agent.
 
   - name: gitops_pull
     description: "Pull latest configuration from the git repository"
@@ -2719,6 +2928,13 @@ commands:
           set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
           Omit to keep the default: ssh-agent forwarding on Compose,
           or the staged deploy key on Kubernetes.
+      - name: key
+        type: path
+        description: >-
+          Compose only. Path to the git-crypt symmetric key for unlocking
+          encrypted vars when the repo was initialized in symmetric mode
+          (not GPG mode). Not needed for GPG-initialized repos, which
+          unlock via a forwarded GPG agent.
 
   - name: gitops_status
     description: "Show gitops status for the instance"

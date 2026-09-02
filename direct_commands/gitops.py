@@ -490,6 +490,23 @@ def _gitops_gitcrypt_locked(path, host, ssh_key=None):
     return rc == 0 and out.strip() == "00474954435259505400"
 
 
+def _gitops_gitcrypt_mode(path, host, ssh_key=None):
+    """Return 'gpg' if the repo has git-crypt GPG recipient keys, else 'symmetric'."""
+    if _helpers._is_localhost(host):
+        import glob as _glob
+        import os
+
+        if _glob.glob(os.path.join(path, ".git-crypt/keys/default/0/*.gpg")):
+            return "gpg"
+        return "symmetric"
+    rc, out = _helpers._ssh_run(
+        host,
+        "ls %s/.git-crypt/keys/default/0/*.gpg >/dev/null 2>&1 && echo gpg || echo symmetric"
+        % _helpers._shell_quote(path),
+    )
+    return out.strip() or "symmetric"
+
+
 @register("gitops_status")
 def cmd_gitops_status(args):
     inst_id, inst = _helpers._resolve_instance(args)
@@ -503,10 +520,20 @@ def cmd_gitops_status(args):
     if orchestrator not in ("kubernetes", "k8s") and _gitops_gitcrypt_locked(
         path, host, getattr(args, "ssh_key", None)
     ):
+        _gc_mode = _gitops_gitcrypt_mode(
+            path, host, getattr(args, "ssh_key", None)
+        )
+        if _gc_mode == "gpg":
+            _gc_hint = (
+                "Run 'git-crypt unlock' in %s (needs the GPG key / forwarded "
+                "GPG agent, e.g. RemoteForward S.gpg-agent) and retry." % path
+            )
+        else:
+            _gc_hint = "Run 'git-crypt unlock <key>' in %s and retry." % path
         print(
             "git-crypt is locked in this checkout: the encrypted host files "
             "(hosts/**) are still ciphertext, so gitops cannot read them.\n"
-            "Run 'git-crypt unlock <key>' in %s and retry." % path,
+            + _gc_hint,
             file=sys.stderr,
         )
         return 1

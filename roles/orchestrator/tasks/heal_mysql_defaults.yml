@@ -1,0 +1,84 @@
+---
+# Backfill MYSQL_HOST, MYSQL_PORT, MYSQL_USER, and MYSQL_SSL in .env
+# for instances created before roles/create/tasks/_env_update.yml began
+# pinning them. podman-compose does not expand ${VAR:-default} in
+# docker-compose.yml's environment list — it passes the literal string
+# through — so without these keys in .env the web container receives
+# MYSQL_HOST=${MYSQL_HOST:-db} and wait-for-it.sh hangs forever waiting
+# for a host literally named "${MYSQL_HOST:-db}".
+#
+# Only sets keys that are absent; never overwrites an operator's value
+# (e.g. an external-DB MYSQL_HOST). Skipped entirely when
+# USE_EXTERNAL_DB=true, since those setups supply their own DB host.
+#
+# Input: instance_path
+
+- name: Read USE_EXTERNAL_DB from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: USE_EXTERNAL_DB
+  register: _backfill_ext_db
+
+- name: Backfill bundled DB MySQL defaults
+  when: not (_backfill_ext_db.found and _backfill_ext_db.value | lower == 'true')
+  block:
+    - name: Read MYSQL_HOST from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: MYSQL_HOST
+      register: _backfill_mysql_host
+
+    - name: Set MYSQL_HOST default
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: MYSQL_HOST
+        value: db
+      when: not _backfill_mysql_host.found or (_backfill_mysql_host.value | default('') | trim) == ''
+
+    - name: Read MYSQL_PORT from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: MYSQL_PORT
+      register: _backfill_mysql_port
+
+    - name: Set MYSQL_PORT default
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: MYSQL_PORT
+        value: "3306"
+      when: not _backfill_mysql_port.found or (_backfill_mysql_port.value | default('') | trim) == ''
+
+    - name: Read MYSQL_USER from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: MYSQL_USER
+      register: _backfill_mysql_user
+
+    - name: Set MYSQL_USER default
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: MYSQL_USER
+        value: root
+      when: not _backfill_mysql_user.found or (_backfill_mysql_user.value | default('') | trim) == ''
+
+    - name: Read MYSQL_SSL from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: MYSQL_SSL
+      register: _backfill_mysql_ssl
+
+    - name: Set MYSQL_SSL default
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: MYSQL_SSL
+        value: "false"
+      when: not _backfill_mysql_ssl.found or (_backfill_mysql_ssl.value | default('') | trim) == ''

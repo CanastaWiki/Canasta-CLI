@@ -1,0 +1,9 @@
+---
+# canasta extension add - Add a non-bundled extension from its git repository.
+
+- name: Add extensions
+  ansible.builtin.include_role:
+    name: extensions_skins
+    tasks_from: add.yml
+  vars:
+    _item_type: extensions

@@ -45,7 +45,8 @@
       are not part of a clone). Unlock with the instance's git-crypt key, then
       retry the push:
 
-        git-crypt unlock /path/to/gitops.key
+        GPG mode:        git-crypt unlock            # needs the GPG key / forwarded agent
+        Symmetric mode:  git-crypt unlock /path/to/gitops.key
 
       Verify with: head -c 20 hosts/hosts.yaml | od -An -c
       (it should read as plaintext YAML, not the GITCRYPT header).
