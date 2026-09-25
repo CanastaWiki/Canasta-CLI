@@ -64,10 +64,19 @@ def _unprotected_templates():
     hits = []
     for rel in _QUERY_FILES:
         text = _read(rel)
+        in_argv = [
+            str(a)
+            for task in _tasks(rel)
+            for mod in _CMD_MODULES
+            if isinstance(task.get(mod), dict) and "argv" in task[mod]
+            for a in task[mod]["argv"]
+        ]
         for m in _RAW_BLOCK.finditer(text):
             body = m.group("body")
             if not re.search(r"\s", body):
                 continue                      # nothing to split
+            if any(body in a for a in in_argv):
+                continue                      # one argv element, no shell
             if body[0] in "'\"" and body[-1] == body[0]:
                 continue                      # quoted inside the raw block
             line_start = text.rfind("\n", 0, m.start()) + 1
@@ -102,6 +111,62 @@ def test_the_service_label_queries_use_argv():
             "%s must query the service label through command: argv:, so the "
             "template is never parsed by a shell" % rel
         )
-        assert any(a.strip().startswith("{{.Label") for a in flat), (
+        assert any("{{.Label" in a and a.strip().startswith("{%")
+                   or a.strip().startswith("{{.Label") for a in flat), (
             "%s: the Go template must be its own argv element" % rel
         )
+
+
+_SERVICE_LABEL_FILES = {
+    "roles/crowdsec/tasks/_preflight.yml": "inspect_command",
+    "roles/orchestrator/tasks/list_running_services.yml": "inspect_command",
+    "roles/orchestrator/tasks/start.yml": "_inspect_cmd",
+}
+
+
+def _service_format_scalars(rel):
+    """The unrendered argv scalars that build the service-label format."""
+    raw = yaml.safe_load(_read(rel))
+    out = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+        elif isinstance(node, str) and "com.docker.compose.service\"}}" in node:
+            out.append(node)
+
+    walk(raw)
+    return out
+
+
+def test_service_label_format_matches_the_runtime():
+    # Podman 4 has no .Label template method; Docker's .Labels is a
+    # string that index cannot read. Each runtime needs its own form.
+    import jinja2
+
+    env = jinja2.Environment()
+    env.filters["basename"] = os.path.basename
+    for rel, var in _SERVICE_LABEL_FILES.items():
+        scalars = _service_format_scalars(rel)
+        assert scalars, "%s: no service-label format found" % rel
+        for scalar in scalars:
+            for runtime, want in (
+                    ("podman", '{{index .Labels "com.docker.compose.service"}}'),
+                    ("/usr/bin/podman",
+                     '{{index .Labels "com.docker.compose.service"}}'),
+                    ("docker", '{{.Label "com.docker.compose.service"}}')):
+                got = env.from_string(scalar).render({var: runtime}).strip()
+                assert got == want, (rel, runtime, got)
+
+
+def test_direct_commands_service_label_format_matches_the_runtime():
+    from direct_commands._helpers import _PS_SERVICE_FORMAT
+
+    assert _PS_SERVICE_FORMAT["podman"] == (
+        '{{index .Labels "com.docker.compose.service"}}')
+    assert _PS_SERVICE_FORMAT["docker"] == (
+        '{{.Label "com.docker.compose.service"}}')

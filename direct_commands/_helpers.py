@@ -1480,6 +1480,14 @@ def _capture_in_instance(path, host, docker_host, argv,
     return stdout if rc == 0 else None
 
 
+# Podman 4 has no .Label template method, and Docker's .Labels is a
+# string that index cannot read.
+_PS_SERVICE_FORMAT = {
+    "podman": '{{index .Labels "com.docker.compose.service"}}',
+    "docker": '{{.Label "com.docker.compose.service"}}',
+}
+
+
 def _missing_profile_services(inst, compose_cmd=None):
     """Services the active COMPOSE_PROFILES imply that are not running.
 
@@ -1512,7 +1520,7 @@ def _missing_profile_services(inst, compose_cmd=None):
         [runtime, "ps", "--filter", "status=running",
          "--filter",
          "label=com.docker.compose.project=%s" % _compose_project(path),
-         "--format", '{{.Label "com.docker.compose.service"}}'],
+         "--format", _PS_SERVICE_FORMAT[runtime]],
     )
     return sorted(set(expected.split()) - set((running or "").split()))
 

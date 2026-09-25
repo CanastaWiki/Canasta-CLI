@@ -14,7 +14,12 @@
       - --filter
       - "label=com.docker.compose.project={{ instance_path | basename | lower }}"
       - --format
-      - '{% raw %}{{.Label "com.docker.compose.service"}}{% endraw %}'
+      - >-
+        {% if 'podman' in (inspect_command | default('docker') | basename) -%}
+        {% raw %}{{index .Labels "com.docker.compose.service"}}{% endraw %}
+        {%- else -%}
+        {% raw %}{{.Label "com.docker.compose.service"}}{% endraw %}
+        {%- endif %}
     chdir: "{{ instance_path }}"
   register: _list_services_compose
   changed_when: false
