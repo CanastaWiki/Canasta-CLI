@@ -1,0 +1,42 @@
+#!/bin/sh
+# Export each share in /etc/canasta/nfs-shares only to the cluster's node
+# addresses and pod networks, as /etc/exports.d/canasta.exports. Run by
+# canasta-nfs-exports-sync.timer so nodes that join or leave the cluster are
+# picked up without re-running `canasta storage setup nfs`.
+set -u
+CONF=/etc/canasta/nfs-exports.env
+SHARES=/etc/canasta/nfs-shares
+OUT=/etc/exports.d/canasta.exports
+OPTS=rw,sync,no_subtree_check,no_root_squash
+
+[ -f "$CONF" ] && . "$CONF"
+if [ -z "${KUBECONFIG:-}" ] && [ -f /etc/rancher/k3s/k3s.yaml ]; then
+    KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+fi
+export KUBECONFIG
+[ -s "$SHARES" ] || exit 0
+
+KUBECTL=kubectl
+command -v kubectl >/dev/null 2>&1 || KUBECTL="k3s kubectl"
+clients=$($KUBECTL get nodes -o jsonpath='{range .items[*]}{range .status.addresses[*]}{.type} {.address}{"\n"}{end}{range .spec.podCIDRs[*]}PodCIDR {@}{"\n"}{end}{end}' 2>/dev/null \
+    | awk '$1 == "InternalIP" || $1 == "ExternalIP" || $1 == "PodCIDR" { print $2 }' \
+    | sort -u)
+# Without an answer from the API server, keep the exports as they are.
+[ -n "$clients" ] || exit 1
+
+tmp=$(mktemp)
+while read -r share; do
+    [ -n "$share" ] || continue
+    printf '%s' "$share"
+    for client in $clients; do
+        printf ' %s(%s)' "$client" "$OPTS"
+    done
+    printf '\n'
+done < "$SHARES" > "$tmp"
+
+if ! cmp -s "$tmp" "$OUT"; then
+    mkdir -p /etc/exports.d
+    install -m 0644 "$tmp" "$OUT"
+    exportfs -ra
+fi
+rm -f "$tmp"
