@@ -1,0 +1,84 @@
+---
+# Move a `canasta storage setup nfs --install-server` export written before
+# the export sync existed (one `<share> *(rw,sync,no_subtree_check,
+# no_root_squash)` line in /etc/exports) onto the sync, which exports only to
+# the cluster's nodes. Also refreshes the sync's script and units where it is
+# already installed. A no-op on hosts that are not Canasta NFS servers.
+
+- name: Read /etc/exports
+  ansible.builtin.slurp:
+    src: /etc/exports
+  register: _nfs_upg_exports
+  failed_when: false
+  become: true
+
+- name: Check for an installed NFS export sync
+  ansible.builtin.stat:
+    path: /etc/canasta/nfs-shares
+  register: _nfs_upg_sync
+  become: true
+
+- name: Find shares exported to any host by an earlier storage setup
+  ansible.builtin.set_fact:
+    _nfs_upg_legacy_shares: >-
+      {{ (_nfs_upg_exports.content | default('') | b64decode).splitlines()
+         | select('match', '^\S+\s+\*\(rw,sync,no_subtree_check,no_root_squash\)\s*$')
+         | map('regex_replace', '^(\S+)\s.*$', '\1')
+         | list }}
+
+- name: Find the kubeconfig for the export sync
+  ansible.builtin.shell:
+    cmd: >-
+      if [ -n "${KUBECONFIG:-}" ]; then echo "$KUBECONFIG";
+      elif [ -f "$HOME/.kube/config" ]; then echo "$HOME/.kube/config"; fi
+  register: _nfs_upg_kubeconfig
+  changed_when: false
+  when: _nfs_upg_legacy_shares | length > 0
+
+# A failed sync must not end the upgrade or drop the old export: that would
+# cut the wiki pods off their volumes. Keep it and warn instead.
+- name: Export those shares to the cluster's nodes only
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/nfs_exports_sync.yml"
+  vars:
+    _nfs_sync_shares: "{{ _nfs_upg_legacy_shares }}"
+    _nfs_sync_kubeconfig: "{{ _nfs_upg_kubeconfig.stdout | default('') | trim }}"
+    _nfs_sync_required: false
+  when: _nfs_upg_legacy_shares | length > 0 or _nfs_upg_sync.stat.exists
+
+- name: Warn that the any-host export was kept
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: NFS share(s) {{ _nfs_upg_legacy_shares | join(', ') }} are
+      still exported to any host: the export sync could not list the
+      cluster's nodes. Run `sudo /usr/local/sbin/canasta-nfs-exports-sync` on
+      this host to see why, then re-run `canasta upgrade`.
+  when:
+    - _nfs_upg_legacy_shares | length > 0
+    - not (_nfs_sync_ok | default(false) | bool)
+
+- name: Remove the any-host exports from /etc/exports
+  ansible.builtin.lineinfile:
+    path: /etc/exports
+    regexp: '^{{ item | regex_escape }}\s+\*\(rw,sync,no_subtree_check,no_root_squash\)\s*$'
+    state: absent
+  loop: "{{ _nfs_upg_legacy_shares }}"
+  register: _nfs_upg_removed
+  when: _nfs_sync_ok | default(false) | bool
+  become: true
+
+- name: Apply the removal
+  ansible.builtin.command:
+    cmd: exportfs -ra
+  when: _nfs_upg_removed.changed | default(false)
+  changed_when: true
+  become: true
+
+- name: Report the export change
+  ansible.builtin.debug:
+    msg: >-
+      NFS share{{ 's' if _nfs_upg_legacy_shares | length != 1 else '' }}
+      {{ _nfs_upg_legacy_shares | join(', ') }} now exported to the cluster's
+      nodes only.
+  when:
+    - _nfs_upg_legacy_shares | length > 0
+    - _nfs_sync_ok | default(false) | bool
