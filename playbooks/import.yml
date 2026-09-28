@@ -4,6 +4,10 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Validate wiki ID
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/validate_wiki_id.yml
+
 - name: Wait for database
   ansible.builtin.include_role:
     name: mediawiki
