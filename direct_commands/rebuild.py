@@ -148,6 +148,7 @@ def cmd_rebuild(args):
     if rc != 0:
         return rc
     _helpers._sync_compose_profiles(inst)
+    _helpers._backfill_db_defaults(inst)
     rc = _helpers._run_compose(
         inst_id, inst, ["up", "-d"], include_sidecars=has_sidecars)
     if rc != 0:

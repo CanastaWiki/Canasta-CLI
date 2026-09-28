@@ -420,6 +420,41 @@ def _missing_db_password(inst, env=None):
     return not (env.get("MYSQL_PASSWORD") or "").strip()
 
 
+# Keep in sync with roles/orchestrator/tasks/heal_mysql_defaults.yml.
+_BUNDLED_DB_DEFAULTS = (
+    ("MYSQL_HOST", "db"),
+    ("MYSQL_PORT", "3306"),
+    ("MYSQL_USER", "root"),
+    ("MYSQL_SSL", "false"),
+)
+
+
+def _backfill_db_defaults(inst):
+    """Add the bundled-DB MYSQL_* defaults missing from .env.
+
+    podman-compose passes ${MYSQL_HOST:-db} through literally instead of
+    expanding it, so an instance whose .env predates create pinning these
+    keys hangs waiting for a host named "${MYSQL_HOST:-db}". Only absent or
+    empty keys are set, and an external-DB instance is left alone.
+    """
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+    content = _read_env_content(path, host)
+    if not content:
+        return
+    env = {k: v for k, v, c in _parse_env_entries(content) if not c and k}
+    if (env.get("USE_EXTERNAL_DB") or "").strip().lower() == "true":
+        return
+    missing = [(k, v) for k, v in _BUNDLED_DB_DEFAULTS
+               if not (env.get(k) or "").strip()]
+    if not missing:
+        return
+    lines = content.rstrip("\n").split("\n")
+    for key, value in missing:
+        lines = _set_env_lines(lines, key, value)
+    _write_env_content(path, host, "\n".join(lines) + "\n")
+
+
 # Profiles that Canasta derives from CANASTA_ENABLE_* feature flags.
 # (profile_name, flag_name, default_when_flag_unset)
 # Matches roles/orchestrator/tasks/sync_compose_profiles.yml.

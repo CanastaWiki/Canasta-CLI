@@ -32,6 +32,7 @@ def cmd_start(args):
     # which services the profiles imply, and the running check below is
     # only meaningful against the reconciled list.
     env = _helpers._sync_compose_profiles(inst)
+    _helpers._backfill_db_defaults(inst)
     if _helpers._check_running_compose(path, host, docker_host, compose_cmd):
         missing = _helpers._missing_profile_services(inst, compose_cmd)
         if not missing:
@@ -95,6 +96,7 @@ def cmd_restart(args):
     # then `up -d` recreated web/caddy on new IPs while the survivor kept stale
     # state — the Varnish stale-backend redirect loop.
     _helpers._sync_compose_profiles(inst)
+    _helpers._backfill_db_defaults(inst)
     # --remove-orphans sweeps a sidecar container left over from a sidecar
     # that was just removed (sidecars.yaml is empty so we take this path, but
     # its docker-compose.sidecars.yml entry and container still linger).
