@@ -167,19 +167,16 @@ class TestHelmChart:
         )
 
     def test_k3s_install_persists_readable_kubeconfig_mode(self):
-        """The control-plane k3s install must pass
-        --write-kubeconfig-mode 0644 in INSTALL_K3S_EXEC so a k3s restart
-        keeps /etc/rancher/k3s/k3s.yaml readable. The one-time chmod only
-        covers the fresh-install window; k3s rewrites the file at its
-        default 0600 on every restart, which then breaks every non-root
+        """The control-plane k3s install must pass the kubeconfig mode and
+        group in INSTALL_K3S_EXEC so a k3s restart keeps
+        /etc/rancher/k3s/k3s.yaml readable by the SSH user. The one-time
+        chmod only covers the fresh-install window; k3s rewrites the file at
+        its default 0600 on every restart, which then breaks every non-root
         kubectl/helm task (preflight, helm_deploy, sync)."""
         with open(os.path.join(ORCHESTRATOR_TASKS, "k8s_install_k3s.yml")) as f:
             content = f.read()
-        assert "--write-kubeconfig-mode 0644" in content, (
-            "k8s_install_k3s.yml must pass --write-kubeconfig-mode 0644 "
-            "in the k3s install exec so the kubeconfig stays readable "
-            "across k3s restarts"
-        )
+        assert "--write-kubeconfig-mode 0640" in content
+        assert "--write-kubeconfig-group" in content
 
 
 class TestExternalDatabase:
