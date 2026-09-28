@@ -26,10 +26,8 @@ backend default {
 #
 # RFC 1918 covers Compose's bridge net (172.17.0.0/16 and similar),
 # k3s's pod CIDR (10.42.0.0/16), EKS / GKE / AKS pod and node CIDRs,
-# and any reasonable on-prem cluster. The Varnish PURGE port isn't
-# internet-reachable in either orchestrator (Compose: bridge-only;
-# K8s: ClusterIP-only), so allowing the full RFC 1918 range doesn't
-# expand the real attack surface. See #443.
+# and any reasonable on-prem cluster. Caddy's address is in these
+# ranges too, so the generated Caddyfile refuses PURGE from clients.
 acl purge {
     "10.0.0.0"/8;
     "172.16.0.0"/12;
@@ -93,11 +91,6 @@ sub vcl_recv {
     if (req.method != "GET" && req.method != "HEAD") {
         return (pass);
     } /* We only deal with GET and HEAD by default */
-
-    # Force lookup if the request is a no-cache request from the client.
-    if (req.http.Cache-Control ~ "no-cache") {
-        ban(req.url);
-    }
 
     # normalize Accept-Encoding to reduce vary
     if (req.http.Accept-Encoding) {

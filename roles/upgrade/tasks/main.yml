@@ -148,6 +148,13 @@
   vars:
     stack_files_force: true
 
+# The Caddyfile is rendered, so a template change reaches existing instances
+# only by re-rendering it.
+- name: Regenerate the Caddyfile
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: update_config.yml
+
 - name: Initialize orchestrator config
   ansible.builtin.include_role:
     name: orchestrator
@@ -252,6 +259,12 @@
     - name: Report instance upgraded
       ansible.builtin.debug:
         msg: "Canasta upgraded successfully!"
+
+# Without a restart, a running Caddy would keep the previous Caddyfile.
+- name: Reload Caddy with the regenerated Caddyfile
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/reload_caddy.yml
+  when: not (_restart_needed | bool and _was_running | bool)
 
 # A stopped instance keeps its refreshed config/image on disk but is left
 # stopped, so upgrade never starts something the operator had brought down.
