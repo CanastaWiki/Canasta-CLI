@@ -7,6 +7,42 @@
     _config_key: "{{ _setting.split('=', 1)[0] }}"
     _config_value: "{{ _setting.split('=', 1)[1] }}"
 
+# The bundled MariaDB reads MYSQL_PASSWORD only when it initializes an empty
+# data directory, so changing it in .env alone locks the wiki out of its
+# database. --force is the second step of the rotation below.
+- name: Read the external database flag
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: USE_EXTERNAL_DB
+  register: _set_ext_db
+  when:
+    - _config_key == 'MYSQL_PASSWORD'
+    - instance_orchestrator | default('compose') == 'compose'
+    - not (force | default(false) | bool)
+
+- name: Require the rotation procedure for the bundled database password
+  ansible.builtin.fail:
+    msg: |
+      Setting MYSQL_PASSWORD does not change the password inside the bundled
+      database, so the wiki would no longer be able to connect to it.
+
+      To rotate it:
+        1. Write the new password into a file, rotate.sql:
+             ALTER USER 'root'@'%' IDENTIFIED BY '<new-password>';
+             ALTER USER 'root'@'localhost' IDENTIFIED BY '<new-password>';
+           and apply it with the current password:
+             canasta maintenance exec -i {{ instance_id | default('<id>') }} -s db --stdin-file rotate.sql -- \
+               sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mariadb -u root'
+        2. Store the new password and restart:
+             canasta config set -i {{ instance_id | default('<id>') }} --force MYSQL_PASSWORD=<new-password>
+        3. Delete rotate.sql.
+  when:
+    - _config_key == 'MYSQL_PASSWORD'
+    - instance_orchestrator | default('compose') == 'compose'
+    - not (force | default(false) | bool)
+    - (_set_ext_db.value | default('', true) | lower) != 'true'
+
 - name: Validate key
   ansible.builtin.include_tasks: _validate_key.yml
 

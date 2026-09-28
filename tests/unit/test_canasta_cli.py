@@ -1650,6 +1650,13 @@ class TestHandleInteractiveExecStdin:
         assert argv[:4] == ["docker", "compose", "exec", "-T"]
         assert calls["redirect"] == "/tmp/page.txt"
 
+    def test_relative_stdin_file_resolves_against_the_callers_directory(
+            self, monkeypatch):
+        """The Compose branch chdirs into the instance before opening the
+        file, so a relative path must already be absolute by then."""
+        calls = self._run(monkeypatch, "rotate.sql")
+        assert calls["redirect"] == os.path.abspath("rotate.sql")
+
     def test_compose_without_stdin_file_stays_interactive(self, monkeypatch):
         calls = self._run(monkeypatch, None)
         _binary, argv = calls["execvp"]
