@@ -235,7 +235,7 @@
     chdir: "{{ instance_path }}"
   environment: "{{ gitops_git_env }}"
   changed_when: true
-  when: git_crypt_gpg_user | default('')
+  when: git_crypt_gpg_user | default('') | length > 0
 
 # --- Step 9: Create env.template and wikis.yaml.template ---
 # env.template replaces secret + host-specific values with {{placeholder}}
