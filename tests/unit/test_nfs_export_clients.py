@@ -77,8 +77,16 @@ class TestSync:
 
     def test_script_keeps_exports_when_api_is_unreachable(self):
         text = open(SCRIPT).read()
-        guard = text.index('[ -n "$clients" ] || exit 1')
-        assert guard < text.index('install -m 0644 "$tmp" "$OUT"')
+        guard = text.index('if [ -z "$clients" ]; then')
+        assert guard < text.index("exit 1") < text.index(
+            'install -m 0644 "$tmp" "$OUT"')
+
+    def test_script_reports_why_it_kept_the_exports(self):
+        text = open(SCRIPT).read()
+        failure = text[text.index('if [ -z "$clients" ]; then'):]
+        failure = failure[:failure.index("exit 1")]
+        assert "could not list the cluster's nodes" in failure
+        assert 'cat "$err" >&2' in failure
 
     def test_timer_is_enabled(self):
         task = _named(SYNC_TASKS, "Enable the NFS exports sync timer")

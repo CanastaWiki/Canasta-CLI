@@ -9,6 +9,7 @@ SHARES=/etc/canasta/nfs-shares
 OUT=/etc/exports.d/canasta.exports
 OPTS=rw,sync,no_subtree_check,no_root_squash
 
+# shellcheck source=/dev/null
 [ -f "$CONF" ] && . "$CONF"
 if [ -z "${KUBECONFIG:-}" ] && [ -f /etc/rancher/k3s/k3s.yaml ]; then
     KUBECONFIG=/etc/rancher/k3s/k3s.yaml
@@ -18,11 +19,18 @@ export KUBECONFIG
 
 KUBECTL=kubectl
 command -v kubectl >/dev/null 2>&1 || KUBECTL="k3s kubectl"
-clients=$($KUBECTL get nodes -o jsonpath='{range .items[*]}{range .status.addresses[*]}{.type} {.address}{"\n"}{end}{range .spec.podCIDRs[*]}PodCIDR {@}{"\n"}{end}{end}' 2>/dev/null \
+err=$(mktemp)
+clients=$($KUBECTL get nodes -o jsonpath='{range .items[*]}{range .status.addresses[*]}{.type} {.address}{"\n"}{end}{range .spec.podCIDRs[*]}PodCIDR {@}{"\n"}{end}{end}' 2>"$err" \
     | awk '$1 == "InternalIP" || $1 == "ExternalIP" || $1 == "PodCIDR" { print $2 }' \
     | sort -u)
 # Without an answer from the API server, keep the exports as they are.
-[ -n "$clients" ] || exit 1
+if [ -z "$clients" ]; then
+    echo "canasta-nfs-exports-sync: could not list the cluster's nodes (KUBECONFIG=${KUBECONFIG:-unset}); exports left unchanged." >&2
+    cat "$err" >&2
+    rm -f "$err"
+    exit 1
+fi
+rm -f "$err"
 
 tmp=$(mktemp)
 while read -r share; do
