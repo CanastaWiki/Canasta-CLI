@@ -1168,6 +1168,11 @@ def handle_interactive_exec(args):
       - -s given, with command -> exec in that service
     """
     import shlex
+    # The local Compose branch chdirs into the instance before the file is
+    # opened, so a relative --stdin-file must be resolved against the
+    # operator's directory now.
+    if getattr(args, "stdin_file", None):
+        args.stdin_file = os.path.abspath(args.stdin_file)
     service = getattr(args, "service", None) or ""
     exec_args = getattr(args, "exec_args", None) or []
     if isinstance(exec_args, list):

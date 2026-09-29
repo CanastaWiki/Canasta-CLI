@@ -7,11 +7,42 @@
     _config_key: "{{ _setting.split('=', 1)[0] }}"
     _config_value: "{{ _setting.split('=', 1)[1] }}"
 
+- name: Read the external database flag
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: USE_EXTERNAL_DB
+  register: _set_ext_db
+  when:
+    - _config_key == 'MYSQL_PASSWORD'
+    - instance_orchestrator | default('compose') == 'compose'
+
+- name: Refuse MYSQL_PASSWORD for an external database without --force
+  ansible.builtin.fail:
+    msg: >-
+      MYSQL_PASSWORD is the external database server's password; setting it
+      here does not change it on that server. Change it there first, then
+      rerun with --force.
+  when:
+    - _config_key == 'MYSQL_PASSWORD'
+    - instance_orchestrator | default('compose') == 'compose'
+    - (_set_ext_db.value | default('', true) | lower) == 'true'
+    - not (force | default(false) | bool)
+
 - name: Validate key
   ansible.builtin.include_tasks: _validate_key.yml
 
 - name: Apply side effects
   ansible.builtin.include_tasks: _side_effects.yml
+
+# Last step before the .env write, so a failed validation or side effect
+# never leaves the database on a password .env does not hold.
+- name: Rotate the bundled database password
+  ansible.builtin.include_tasks: _rotate_db_password.yml
+  when:
+    - _config_key == 'MYSQL_PASSWORD'
+    - instance_orchestrator | default('compose') == 'compose'
+    - (_set_ext_db.value | default('', true) | lower) != 'true'
 
 - name: Set value in .env
   canasta_env:
