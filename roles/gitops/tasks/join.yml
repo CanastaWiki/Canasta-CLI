@@ -143,25 +143,32 @@
   changed_when: true
   when: _join_unlock == 'gpg'
 
-- name: Copy git-crypt key from controller to remote
-  ansible.builtin.copy:
-    src: "{{ key }}"
-    dest: "/tmp/canasta-gitcrypt-key"
-    mode: "0600"
-  when: _join_unlock == 'key'
-
 - name: Unlock git-crypt with provided key
-  ansible.builtin.command:
-    cmd: "git-crypt unlock /tmp/canasta-gitcrypt-key"
-    chdir: "{{ _join_tmpdir.path }}"
-  changed_when: true
   when: _join_unlock == 'key'
+  block:
+    - name: Create temp file for the git-crypt key
+      ansible.builtin.tempfile:
+        state: file
+        prefix: "canasta-gitcrypt-"
+      register: _join_keyfile
 
-- name: Remove temp key from remote
-  ansible.builtin.file:
-    path: "/tmp/canasta-gitcrypt-key"
-    state: absent
-  when: _join_unlock == 'key'
+    - name: Copy git-crypt key from controller to remote
+      ansible.builtin.copy:
+        src: "{{ key }}"
+        dest: "{{ _join_keyfile.path }}"
+        mode: "0600"
+
+    - name: Unlock git-crypt with the key
+      ansible.builtin.command:
+        cmd: "git-crypt unlock {{ _join_keyfile.path | quote }}"
+        chdir: "{{ _join_tmpdir.path }}"
+      changed_when: true
+  always:
+    - name: Remove temp key from remote
+      ansible.builtin.file:
+        path: "{{ _join_keyfile.path }}"
+        state: absent
+      when: _join_keyfile.path is defined
 
 # --- Step 4: Validate host name not already in config ---
 - name: Read hosts.yaml from cloned repo
