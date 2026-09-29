@@ -160,8 +160,8 @@
           ssh-keygen -t ed25519
           -f {{ _ssh_key_path }}
           -N ''
-      changed_when: true
           -C 'canasta-{{ instance_id }}'
+      changed_when: true
       when: not (_existing_is_ssh_key | bool)
 
     - name: Read the SSH deploy private key from controller
