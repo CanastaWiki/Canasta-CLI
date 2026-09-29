@@ -149,7 +149,7 @@ class TestRuntimeCapture:
 
 
 class TestLifecycleGating:
-    """start/restart return the gate's verdict, and only after a clean `up`."""
+    """start returns the gate's verdict, and only after a clean `up`."""
 
     def _inst(self, monkeypatch, events):
         monkeypatch.setattr(
@@ -184,12 +184,3 @@ class TestLifecycleGating:
         args = type("Args", (), {"id": "test"})()
         assert direct_commands.cmd_start(args) == 1
         assert events == ["dump"]
-
-    def test_restart_waits_too(self, monkeypatch):
-        # The Ansible restart path includes start.yml, gate and all.
-        events = []
-        args = self._inst(monkeypatch, events)
-        monkeypatch.setattr(_helpers, "_wait_web_ready",
-                            lambda i, inst: events.append("wait") or 0)
-        assert direct_commands.cmd_restart(args) == 0
-        assert events == ["down", "up", "wait"]

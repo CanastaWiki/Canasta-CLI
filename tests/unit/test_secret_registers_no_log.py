@@ -19,6 +19,7 @@ import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 ROLES = os.path.join(REPO_ROOT, "roles")
+PLAYBOOKS = os.path.join(REPO_ROOT, "playbooks")
 
 # Registered variable names that look like they hold a credential.
 _SECRETISH = re.compile(
@@ -50,9 +51,9 @@ def _walk(tasks):
                 yield from _walk(t[nested])
 
 
-def _all_tasks():
-    """Yield (relative path, task) for every task file under roles/."""
-    for root, _, files in os.walk(ROLES):
+def _all_tasks(dirs=(ROLES,)):
+    """Yield (relative path, task) for every task file under dirs."""
+    for root, _, files in (w for d in dirs for w in os.walk(d)):
         for name in sorted(files):
             if not name.endswith((".yml", ".yaml")):
                 continue
@@ -161,3 +162,109 @@ class TestGeneratedSecretKeysAreNoLog:
         assert checked == 2, (
             "expected both wgSecretKey generators; found %d" % checked
         )
+
+
+# Template expressions in a command line that trip _SECRETISH but expand to
+# no secret. Each entry needs a reason, as in _EXEMPT.
+_CMD_EXEMPT = {
+    "_ssh_key_path": "path of the deploy key file, not its contents",
+}
+
+_TEMPLATE_EXPR = re.compile(r"\{\{(.*?)\}\}", re.S)
+
+_COMMAND_MODULES = (
+    "ansible.builtin.command", "ansible.builtin.shell", "ansible.builtin.raw",
+    "command", "shell", "raw",
+)
+
+
+def _command_lines(task):
+    """Yield (command text, protected) for each command line a task runs:
+    command/shell/raw modules, and the exec.yml / resilient_exec.yml
+    includes, whose own no_log comes from exec_no_log / rx_no_log."""
+    for module in _COMMAND_MODULES:
+        if module in task:
+            args = task[module]
+            if isinstance(args, dict):
+                args = args.get("cmd", args.get("argv", ""))
+            yield str(args), bool(task.get("no_log"))
+    task_vars = task.get("vars")
+    if isinstance(task_vars, dict):
+        for key, flag in (("exec_command", "exec_no_log"),
+                          ("rx_cmd", "rx_no_log")):
+            if key in task_vars:
+                yield (str(task_vars[key]),
+                       bool(task.get("no_log") or task_vars.get(flag)))
+
+
+def _secret_exprs(command):
+    exprs = []
+    for expr in _TEMPLATE_EXPR.findall(command):
+        expr = expr.strip()
+        name = re.split(r"[\s.|(\[]", expr, maxsplit=1)[0]
+        if _SECRETISH.search(expr) and name not in _CMD_EXEMPT:
+            exprs.append(expr)
+    return exprs
+
+
+class TestSecretCommandLinesAreNoLog:
+    """A secret templated into a command line is printed with the command
+    on failure and with --verbose, unless the task sets no_log (or passes
+    exec_no_log / rx_no_log to the exec wrappers)."""
+
+    def test_secret_bearing_commands_set_no_log(self):
+        bare = []
+        for rel, task in _all_tasks((ROLES, PLAYBOOKS)):
+            for command, protected in _command_lines(task):
+                exprs = _secret_exprs(command)
+                if exprs and not protected:
+                    bare.append("%s (%s): %s" % (
+                        rel, task.get("name"), ", ".join(exprs)))
+        assert not bare, (
+            "These tasks put a secret on a command line without no_log "
+            "(exec_no_log / rx_no_log for the exec wrappers). Protect them, "
+            "or add the name to _CMD_EXEMPT with the reason it is not a "
+            "secret:\n  " + "\n  ".join(bare)
+        )
+
+    def test_the_guard_finds_protected_secret_commands(self):
+        """A change to the exec wrappers' variable names would make the
+        check above vacuously pass."""
+        found = [
+            rel for rel, task in _all_tasks((ROLES, PLAYBOOKS))
+            for command, protected in _command_lines(task)
+            if protected and _secret_exprs(command)
+        ]
+        assert len(found) >= 5, found
+        assert os.path.join("playbooks", "add.yml") in found
+
+    def test_command_exemptions_still_exist(self):
+        texts = "\n".join(
+            command for _, task in _all_tasks((ROLES, PLAYBOOKS))
+            for command, _ in _command_lines(task)
+        )
+        stale = sorted(n for n in _CMD_EXEMPT if n not in texts)
+        assert not stale, (
+            "These names are exempted but appear in no command line; drop "
+            "them from _CMD_EXEMPT: %s" % ", ".join(stale)
+        )
+
+
+class TestExecTaskNamesAreRedacted:
+    """exec.yml names its tasks after the command. With exec_no_log set,
+    both the short and the long (detached + polled) paths must show
+    [redacted] instead, since task names are printed even under no_log."""
+
+    def test_exec_names_redact_under_exec_no_log(self):
+        path = os.path.join(ROLES, "orchestrator", "tasks", "exec.yml")
+        with open(path) as f:
+            tasks = yaml.safe_load(f)
+        named = [t for t in tasks
+                 if "exec_command" in str(t.get("name", ""))]
+        long_exec = next(t for t in tasks
+                         if str(t.get("name", "")).startswith("Execute (long"))
+        labels = [t["name"] for t in named]
+        labels.append(long_exec["vars"]["rx_name"])
+        assert len(labels) == 3, labels
+        for label in labels:
+            assert "exec_no_log" in label and "[redacted]" in label, label

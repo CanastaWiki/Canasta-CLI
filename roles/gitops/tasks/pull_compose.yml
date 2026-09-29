@@ -98,6 +98,9 @@
   changed_when: true
   ignore_errors: true  # OK if no submodules configured
 
+- name: Remove submodules the pull dropped
+  ansible.builtin.include_tasks: "_remove_dropped_submodules.yml"
+
 # --- Step 4: Check if anything changed ---
 - name: Get new commit hash
   ansible.builtin.command:

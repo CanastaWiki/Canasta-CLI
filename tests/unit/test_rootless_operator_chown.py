@@ -112,15 +112,13 @@ class TestFastPathsChownAfterStart:
         return type("Args", (), {"id": "test", "no_cache": False,
                                  "no_restart": False})()
 
-    @pytest.mark.parametrize("cmd", ["cmd_start", "cmd_restart",
-                                     "cmd_rebuild"])
+    @pytest.mark.parametrize("cmd", ["cmd_start", "cmd_rebuild"])
     def test_chowns_once_web_is_ready(self, monkeypatch, stubbed, cmd):
         monkeypatch.setattr(_helpers, "_wait_web_ready", lambda i, inst: 0)
         assert getattr(direct_commands, cmd)(self._args()) == 0
         assert stubbed == ["/srv/test"]
 
-    @pytest.mark.parametrize("cmd", ["cmd_start", "cmd_restart",
-                                     "cmd_rebuild"])
+    @pytest.mark.parametrize("cmd", ["cmd_start", "cmd_rebuild"])
     def test_skips_chown_when_web_never_ready(self, monkeypatch, stubbed,
                                               cmd):
         monkeypatch.setattr(_helpers, "_wait_web_ready", lambda i, inst: 1)

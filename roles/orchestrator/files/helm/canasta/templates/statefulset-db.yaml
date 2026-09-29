@@ -29,6 +29,11 @@ spec:
       containers:
         - name: db
           image: {{ .Values.db.image }}
+          # Confine INTO OUTFILE, LOAD DATA INFILE and LOAD_FILE() to an
+          # empty directory; unset, the server reads and writes anywhere the
+          # mysql user can.
+          args:
+            - --secure-file-priv=/var/lib/mysql-files
           ports:
             - name: mysql
               containerPort: 3306
@@ -51,6 +56,8 @@ spec:
               mountPath: /etc/my.cnf
               subPath: my.cnf
               readOnly: true
+            - name: db-files
+              mountPath: /var/lib/mysql-files
           {{- with .Values.db.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -83,6 +90,8 @@ spec:
             periodSeconds: 30
             failureThreshold: 3
       volumes:
+        - name: db-files
+          emptyDir: {}
         - name: db-config
           configMap:
             name: {{ include "canasta.fullname" . }}-db-config
