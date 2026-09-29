@@ -12,10 +12,13 @@
 - name: Install NFS server on target host
   when: install_server | default(false) | bool
   block:
+    - name: Gather the OS family for the NFS server package
+      ansible.builtin.setup:
+        gather_subset: ["!all", "!min", "distribution"]
+
     - name: Install NFS server packages
       ansible.builtin.package:
-        name:
-          - nfs-kernel-server
+        name: "{{ 'nfs-utils' if ansible_os_family == 'RedHat' else 'nfs-kernel-server' }}"
         state: present
       become: true
 
@@ -26,23 +29,9 @@
         mode: "0755"
       become: true
 
-    - name: Configure NFS export
-      ansible.builtin.lineinfile:
-        path: /etc/exports
-        line: "{{ share }} *(rw,sync,no_subtree_check,no_root_squash)"
-        create: true
-        mode: "0644"
-      become: true
-
-    - name: Apply NFS exports
-      ansible.builtin.command:
-        cmd: exportfs -ra
-      become: true
-      changed_when: true
-
     - name: Ensure NFS server is running
       ansible.builtin.service:
-        name: nfs-kernel-server
+        name: nfs-server
         state: started
         enabled: true
       become: true
@@ -64,6 +53,42 @@
         # ansible_default_ipv4.address is missing after the setup
         # task above, fail loudly.
         _nfs_server: "{{ ansible_default_ipv4.address }}"
+
+# The sync runs as root from a systemd timer, so it cannot see this
+# user's environment; record the kubeconfig kubectl is using here.
+- name: Find the kubeconfig for the export sync
+  ansible.builtin.shell:
+    cmd: >-
+      if [ -n "${KUBECONFIG:-}" ]; then echo "$KUBECONFIG";
+      elif [ -f "$HOME/.kube/config" ]; then echo "$HOME/.kube/config"; fi
+  register: _nfs_kubeconfig
+  changed_when: false
+  when: install_server | default(false) | bool
+
+- name: Export the share to the cluster's nodes only
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: nfs_exports_sync.yml
+  vars:
+    _nfs_sync_shares: ["{{ share }}"]
+    _nfs_sync_kubeconfig: "{{ _nfs_kubeconfig.stdout | default('') | trim }}"
+  when: install_server | default(false) | bool
+
+- name: Remove an any-host export of the share from /etc/exports
+  ansible.builtin.lineinfile:
+    path: /etc/exports
+    regexp: '^{{ share | regex_escape }}\s+\*\('
+    state: absent
+  register: _nfs_legacy_export
+  become: true
+  when: install_server | default(false) | bool
+
+- name: Apply the removal
+  ansible.builtin.command:
+    cmd: exportfs -ra
+  when: _nfs_legacy_export.changed | default(false)
+  changed_when: true
+  become: true
 
 - name: Set NFS server from parameter
   ansible.builtin.set_fact:

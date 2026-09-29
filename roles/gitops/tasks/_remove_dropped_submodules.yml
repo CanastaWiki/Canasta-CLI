@@ -1,0 +1,57 @@
+---
+# Remove the working trees of submodules that the pull dropped from the
+# repository. Git takes the gitlink out of the index but leaves the checkout
+# on disk, where it shows as untracked and a later `gitops add` could commit
+# it back. A checkout with local changes, or without its own .git, is kept
+# and reported instead of deleted.
+# Requires: instance_path, _pull_prev_commit (the HEAD before the pull).
+
+- name: Remove submodule checkouts the pull dropped
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      gitlinks_before() {
+        git ls-tree -r --full-tree "$1" |
+          awk -F'\t' '{ split($1, f, " "); if (f[2] == "commit") print $2 }'
+      }
+      gitlinks_now() {
+        git ls-files --stage |
+          awk -F'\t' '{ split($1, f, " "); if (f[1] == "160000") print $2 }'
+      }
+      comm -23 <(gitlinks_before "$PREV" | sort) <(gitlinks_now | sort) |
+      while IFS= read -r path; do
+        [ -e "$path" ] || continue
+        if [ -e "$path/.git" ] && [ -z "$(git -C "$path" status --porcelain)" ]; then
+          rm -rf -- "$path"
+          echo "removed $path"
+        else
+          echo "kept $path"
+        fi
+      done
+    chdir: "{{ instance_path }}"
+    executable: /bin/bash
+  environment:
+    PREV: "{{ _pull_prev_commit.stdout }}"
+  register: _pull_dropped_submodules
+  changed_when: "'removed ' in _pull_dropped_submodules.stdout"
+
+- name: Report submodule checkouts removed with the pull
+  ansible.builtin.debug:
+    msg: "Removed {{ _pull_removed | join(', ') }}, which the pull removed from the repository."
+  vars:
+    _pull_removed: >-
+      {{ _pull_dropped_submodules.stdout_lines | select('match', '^removed ')
+         | map('regex_replace', '^removed ', '') | list }}
+  when: _pull_removed | length > 0
+
+- name: Report dropped submodule checkouts that were kept
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: {{ _pull_kept | join(', ') }} was removed from the repository
+      but left in place, because it has local changes or is not a git
+      checkout. Delete it once anything in it you need is saved elsewhere.
+  vars:
+    _pull_kept: >-
+      {{ _pull_dropped_submodules.stdout_lines | select('match', '^kept ')
+         | map('regex_replace', '^kept ', '') | list }}
+  when: _pull_kept | length > 0
