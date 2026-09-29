@@ -3,8 +3,21 @@
 import json
 import os
 
+import pytest
+
 import canasta_extension_resolve
 from mock_ansible import run_module_with_params
+
+URL = "https://unreachable.example/ExtensionJson.json"
+REAL_GERRIT_PROJECTS = canasta_extension_resolve.gerrit_projects
+
+
+@pytest.fixture(autouse=True)
+def no_gerrit(monkeypatch):
+    """Keep every test off the network: Gerrit reports no matching project
+    unless a test sets its own answer."""
+    monkeypatch.setattr(canasta_extension_resolve, "gerrit_projects",
+                        lambda name: {})
 
 
 class TestMwMinorToRel:
@@ -132,16 +145,17 @@ class TestResolve:
         assert res["repository"] == "ssh://git@github.com/example/Whatever.git"
         assert res["source"] == "explicit"
 
-    def test_lookup_ssh_rejected(self, tmp_dir):
+    def test_lookup_ssh_never_used(self, tmp_dir):
         # The community-supplied ExtensionJson.json value is untrusted and must
-        # remain a plain http(s) remote.
+        # be a plain http(s) remote; anything else is not used at all.
         path = self._json(tmp_dir, {
             "Foo": {"name": "Foo", "repository": "ssh://git@example.com/Foo.git"}})
         res = canasta_extension_resolve.resolve(
             "Foo", "extensions", "1.43.2", None, None, path,
             "https://unreachable.example/ExtensionJson.json")
         assert res.get("failed") is True
-        assert "http(s)" in res["msg"]
+        assert "ssh://" not in res["msg"]
+        assert "not found" in res["msg"]
 
     def test_explicit_leading_dash_rejected(self, tmp_dir):
         # Injection-style URLs are refused even on the trusted override path.
@@ -220,3 +234,164 @@ class TestModuleMain:
              "json_url": "https://unreachable.example/ExtensionJson.json"})
         assert failed is True
         assert "not found" in msg
+
+
+def _json_file(tmp_dir, entries):
+    path = os.path.join(tmp_dir, "ExtensionJson.json")
+    with open(path, "w") as handle:
+        json.dump(entries, handle)
+    return path
+
+
+def _gerrit(monkeypatch, projects):
+    calls = []
+
+    def fake(name):
+        calls.append(name)
+        return projects
+    monkeypatch.setattr(canasta_extension_resolve, "gerrit_projects", fake)
+    return calls
+
+
+@pytest.fixture
+def verified(monkeypatch):
+    monkeypatch.setattr(canasta_extension_resolve, "branch_exists", lambda *a: True)
+
+
+class TestCaseInsensitiveDataset:
+    def test_lowercase_name_resolves_to_the_canonical_key(self, tmp_dir, verified):
+        path = _json_file(tmp_dir, {"SemanticMediaWiki": {
+            "repository": "https://github.com/SemanticMediaWiki/SemanticMediaWiki"}})
+        res = canasta_extension_resolve.resolve(
+            "semanticmediawiki", "extensions", "1.43.2", None, None, path, URL)
+        assert res["name"] == "SemanticMediaWiki"
+        assert res["repository"].endswith("/SemanticMediaWiki")
+
+    def test_ambiguous_case_insensitive_match_is_not_used(self, tmp_dir):
+        path = _json_file(tmp_dir, {
+            "Foo": {"repository": "https://example.com/Foo"},
+            "FOO": {"repository": "https://example.com/FOO"}})
+        res = canasta_extension_resolve.resolve(
+            "foo", "extensions", "1.43.2", None, None, path, URL)
+        assert res.get("failed") is True
+
+
+class TestGerritFallback:
+    def test_phabricator_url_falls_through_to_gerrit(self, tmp_dir, monkeypatch, verified):
+        path = _json_file(tmp_dir, {"Cargo": {
+            "repository": "https://phabricator.wikimedia.org/diffusion/ECRG/"}})
+        _gerrit(monkeypatch, {"mediawiki/extensions/Cargo": {"state": "ACTIVE"}})
+        res = canasta_extension_resolve.resolve(
+            "cargo", "extensions", "1.43.2", None, None, path, URL)
+        assert res["name"] == "Cargo"
+        assert res["repository"] == "https://gerrit.wikimedia.org/r/mediawiki/extensions/Cargo"
+        assert res["source"] == "gerrit"
+
+    def test_missing_dataset_repository_falls_through_to_gerrit(self, tmp_dir, monkeypatch, verified):
+        path = _json_file(tmp_dir, {"PageForms": {"name": "PageForms"}})
+        _gerrit(monkeypatch, {
+            "mediawiki/extensions/BlueSpicePageFormsConnector": {"state": "ACTIVE"},
+            "mediawiki/extensions/PageForms": {"state": "ACTIVE"}})
+        res = canasta_extension_resolve.resolve(
+            "PageForms", "extensions", "1.43.2", None, None, path, URL)
+        assert res["repository"] == "https://gerrit.wikimedia.org/r/mediawiki/extensions/PageForms"
+
+    def test_substring_matches_are_not_accepted(self, tmp_dir, monkeypatch):
+        path = _json_file(tmp_dir, {})
+        _gerrit(monkeypatch, {
+            "mediawiki/extensions/BlueSpicePageFormsConnector": {"state": "ACTIVE"}})
+        res = canasta_extension_resolve.resolve(
+            "PageForms", "extensions", "1.43.2", None, None, path, URL)
+        assert res.get("failed") is True
+        assert "not found in ExtensionJson.json or on Wikimedia Gerrit" in res["msg"]
+
+
+class TestSkins:
+    def test_skin_resolves_from_gerrit_case_insensitively(self, tmp_dir, monkeypatch, verified):
+        path = _json_file(tmp_dir, {})
+        _gerrit(monkeypatch, {"mediawiki/skins/Timeless": {"state": "ACTIVE"}})
+        res = canasta_extension_resolve.resolve(
+            "timeless", "skins", "1.43.2", None, None, path, URL)
+        assert res["name"] == "Timeless"
+        assert res["repository"] == "https://gerrit.wikimedia.org/r/mediawiki/skins/Timeless"
+        assert res["branch"] == "REL1_43"
+
+    def test_skins_never_use_the_extension_dataset(self, tmp_dir, monkeypatch):
+        path = _json_file(tmp_dir, {"Vector": {
+            "repository": "https://example.com/an-extension-named-Vector"}})
+        _gerrit(monkeypatch, {})
+        res = canasta_extension_resolve.resolve(
+            "Vector", "skins", "1.43.2", None, None, path, URL)
+        assert res.get("failed") is True
+        assert "example.com" not in res["msg"]
+
+    def test_archived_skin_is_refused_with_its_new_home(self, tmp_dir, monkeypatch):
+        path = _json_file(tmp_dir, {})
+        _gerrit(monkeypatch, {"mediawiki/skins/chameleon": {
+            "state": "READ_ONLY",
+            "description": "[ARCHIVED] Now maintained at\n https://github.com/ProfessionalWiki/chameleon"}})
+        res = canasta_extension_resolve.resolve(
+            "Chameleon", "skins", "1.43.2", None, None, path, URL)
+        assert res.get("failed") is True
+        assert "archived on Wikimedia Gerrit" in res["msg"]
+        assert "https://github.com/ProfessionalWiki/chameleon" in res["msg"]
+        assert "--repository" in res["msg"]
+
+    def test_unknown_skin_asks_for_repository(self, tmp_dir):
+        path = _json_file(tmp_dir, {})
+        res = canasta_extension_resolve.resolve(
+            "Citizen", "skins", "1.43.2", None, None, path, URL)
+        assert res["msg"] == ("Skin 'Citizen' is not on Wikimedia Gerrit. Pass "
+                              "--repository with its git URL.")
+
+    def test_unreachable_gerrit_asks_for_repository(self, tmp_dir, monkeypatch):
+        path = _json_file(tmp_dir, {})
+        monkeypatch.setattr(canasta_extension_resolve, "gerrit_projects", lambda n: None)
+        res = canasta_extension_resolve.resolve(
+            "Timeless", "skins", "1.43.2", None, None, path, URL)
+        assert "Could not reach Wikimedia Gerrit" in res["msg"]
+
+
+class TestNames:
+    @pytest.mark.parametrize("name", ["../etc", "a/b", "-x", "a b", ""])
+    def test_invalid_names_never_reach_gerrit(self, tmp_dir, monkeypatch, name):
+        calls = _gerrit(monkeypatch, {})
+        res = canasta_extension_resolve.resolve(
+            name, "skins", "1.43.2", None, None, _json_file(tmp_dir, {}), URL)
+        assert res.get("failed") is True
+        assert calls == []
+
+
+class TestGerritProjects:
+    @pytest.mark.parametrize("prefix", [")]}'\n", ""])
+    def test_decodes_the_project_map(self, monkeypatch, prefix):
+        body = (prefix + json.dumps(
+            {"mediawiki/skins/Vector": {"state": "ACTIVE"}})).encode()
+        seen = {}
+
+        class Resp:
+            def read(self):
+                return body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def fake_urlopen(request, timeout):
+            seen["url"] = request.full_url
+            return Resp()
+        import urllib.request
+        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+        projects = REAL_GERRIT_PROJECTS("Vector")
+        assert projects == {"mediawiki/skins/Vector": {"state": "ACTIVE"}}
+        assert seen["url"] == "https://gerrit.wikimedia.org/r/projects/?m=Vector&d"
+
+    def test_unreachable_returns_none(self, monkeypatch):
+        import urllib.request
+
+        def boom(request, timeout):
+            raise OSError("no network")
+        monkeypatch.setattr(urllib.request, "urlopen", boom)
+        assert REAL_GERRIT_PROJECTS("Vector") is None
