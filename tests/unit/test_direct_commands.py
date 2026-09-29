@@ -1511,8 +1511,21 @@ class TestLifecycleCommands:
     def test_stop_registered(self):
         assert direct_commands.is_direct_command("stop")
 
-    def test_restart_registered(self):
-        assert direct_commands.is_direct_command("restart")
+    def test_restart_not_registered(self):
+        # Restart must go through Ansible, which re-renders the Caddyfile
+        # between stop and start so edits to Caddyfile.global, wikis.yaml
+        # and the template reach the instance.
+        assert not direct_commands.is_direct_command("restart")
+
+    def test_ansible_restart_renders_config_between_stop_and_start(self):
+        import yaml
+        path = os.path.join(
+            REPO_ROOT, "roles", "instance_lifecycle", "tasks", "restart.yml")
+        with open(path) as f:
+            tasks = yaml.safe_load(f)
+        steps = [t["ansible.builtin.include_role"]["tasks_from"]
+                 for t in tasks if "ansible.builtin.include_role" in t]
+        assert steps == ["stop.yml", "update_config.yml", "start.yml"]
 
     def test_k8s_start_falls_back(self, monkeypatch):
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
@@ -1523,16 +1536,6 @@ class TestLifecycleCommands:
         )
         args = type("Args", (), {"id": "k8s-site"})()
         assert direct_commands.cmd_start(args) is direct_commands.FALLBACK
-
-    def test_k8s_restart_falls_back(self, monkeypatch):
-        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
-            lambda args: ("k8s-site", {
-                "path": "/srv/k8s-site",
-                "orchestrator": "kubernetes",
-            }),
-        )
-        args = type("Args", (), {"id": "k8s-site"})()
-        assert direct_commands.cmd_restart(args) is direct_commands.FALLBACK
 
     def test_k8s_stop_falls_back(self, monkeypatch):
         # K8s stop must run kubectl on the instance's host (where the
@@ -1556,7 +1559,7 @@ class TestLifecycleCommands:
 
     def test_lifecycle_falls_back_when_sidecars_declared(
             self, tmp_path, monkeypatch):
-        # A compose instance with sidecars must defer start/stop/restart to
+        # A compose instance with sidecars must defer start/stop to
         # Ansible, which renders the sidecar override layer; the fast direct
         # path doesn't render it.
         path = self._compose_inst(
@@ -1567,7 +1570,6 @@ class TestLifecycleCommands:
         args = type("Args", (), {"id": "scsite"})()
         assert direct_commands.cmd_start(args) is direct_commands.FALLBACK
         assert direct_commands.cmd_stop(args) is direct_commands.FALLBACK
-        assert direct_commands.cmd_restart(args) is direct_commands.FALLBACK
 
     def test_no_fallback_when_sidecars_empty(self, tmp_path, monkeypatch):
         # An empty sidecars list keeps the fast direct path.
@@ -1635,78 +1637,6 @@ class TestLifecycleCommands:
         assert "down" in captured_cmds[0]
         # Sweep a sidecar container orphaned by `sidecar remove`.
         assert "--remove-orphans" in captured_cmds[0]
-
-    def test_restart_runs_down_then_up(self, monkeypatch):
-        captured_cmds = []
-
-        def mock_call(cmd, **kw):
-            captured_cmds.append(cmd)
-            return 0
-
-        monkeypatch.setattr(subprocess, "call", mock_call)
-        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
-            lambda args: ("test", {
-                "path": "/srv/test",
-                "orchestrator": "compose",
-            }),
-        )
-        monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
-            lambda *a, **kw: ["-f", "docker-compose.yml"],
-        )
-
-        monkeypatch.setattr(direct_commands._helpers, "_wait_web_ready",
-            lambda i, inst: 0)
-
-        args = type("Args", (), {"id": "test"})()
-        rc = direct_commands.cmd_restart(args)
-        assert rc == 0
-        assert len(captured_cmds) == 2
-        assert "down" in captured_cmds[0]
-        # Sweep a sidecar container orphaned by `sidecar remove`.
-        assert "--remove-orphans" in captured_cmds[0]
-        assert "up" in captured_cmds[1]
-
-    def test_restart_stops_on_down_failure(self, monkeypatch):
-        call_count = [0]
-
-        def mock_call(cmd, **kw):
-            call_count[0] += 1
-            return 1
-
-        monkeypatch.setattr(subprocess, "call", mock_call)
-        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
-            lambda args: ("test", {
-                "path": "/srv/test",
-                "orchestrator": "compose",
-            }),
-        )
-        monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
-            lambda *a, **kw: ["-f", "docker-compose.yml"],
-        )
-
-        args = type("Args", (), {"id": "test"})()
-        rc = direct_commands.cmd_restart(args)
-        assert rc == 1
-        assert call_count[0] == 1
-
-    def test_restart_syncs_profiles_before_down(self, monkeypatch):
-        # The profile sync must run BEFORE `down` so `down` and `up` act on the
-        # same service set. If it ran between down and up (the old order), a
-        # drifted profile set let `down` skip a service that `up` then didn't
-        # recreate — the Varnish stale-backend redirect loop.
-        events = []
-        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
-            lambda args: ("test", {"path": "/srv/test", "orchestrator": "compose"}))
-        monkeypatch.setattr(direct_commands._helpers, "_sync_compose_profiles",
-            lambda inst: events.append("sync"))
-        monkeypatch.setattr(direct_commands._helpers, "_run_compose",
-            lambda inst_id, inst, action: events.append(action[0]) or 0)
-        monkeypatch.setattr(direct_commands._helpers, "_wait_web_ready",
-            lambda i, inst: events.append("wait") or 0)
-        args = type("Args", (), {"id": "test"})()
-        rc = direct_commands.cmd_restart(args)
-        assert rc == 0
-        assert events == ["sync", "down", "up", "wait"]
 
     def test_stop_syncs_profiles_before_down(self, monkeypatch):
         # Standalone stop reconciles too, so `down` tears down the full

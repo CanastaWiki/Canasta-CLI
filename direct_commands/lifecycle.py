@@ -82,37 +82,6 @@ def cmd_stop(args):
     return _helpers._run_compose(inst_id, inst, ["down", "--remove-orphans"])
 
 
-@register("restart")
-def cmd_restart(args):
-    inst_id, inst = _helpers._resolve_instance(args)
-    if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
-        # K8s restart needs Ansible for the start half (helm deploy).
-        return _helpers.FALLBACK
-    if _helpers._instance_has_sidecars(inst):
-        return _helpers.FALLBACK  # Ansible renders + layers the sidecars.
-    # Reconcile COMPOSE_PROFILES BEFORE `down` so `down` and `up` act on the
-    # same service set. Previously the sync ran only between down and up: with a
-    # drifted profile set (e.g. missing varnish), `down` skipped that service,
-    # then `up -d` recreated web/caddy on new IPs while the survivor kept stale
-    # state — the Varnish stale-backend redirect loop.
-    _helpers._sync_compose_profiles(inst)
-    _helpers._backfill_db_defaults(inst)
-    # --remove-orphans sweeps a sidecar container left over from a sidecar
-    # that was just removed (sidecars.yaml is empty so we take this path, but
-    # its docker-compose.sidecars.yml entry and container still linger).
-    rc = _helpers._run_compose(inst_id, inst, ["down", "--remove-orphans"])
-    if rc != 0:
-        return rc
-    rc = _helpers._run_compose(inst_id, inst, ["up", "-d"])
-    if rc != 0:
-        _helpers._dump_compose_failure(inst)
-        return rc
-    rc = _helpers._wait_web_ready(inst_id, inst)
-    if rc == 0:
-        _helpers._rootless_operator_chown(inst)
-    return rc
-
-
 _SCALE_SUPPORTED_COMPONENTS = ("web",)
 
 
