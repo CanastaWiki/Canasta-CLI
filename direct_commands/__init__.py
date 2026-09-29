@@ -9,7 +9,7 @@ This package was split out of a single 2510-line file. Layout:
                       registry helpers, public registry decorator)
   info.py           — list, version, status
   config.py         — config get
-  lifecycle.py      — start, stop, restart, scale
+  lifecycle.py      — start, stop, scale
   maintenance.py    — maintenance script/extension/update
   host.py           — host list/add/remove
   gitops.py         — gitops status/diff
@@ -116,7 +116,7 @@ from .info import (  # noqa: F401
     _resolve_status_instance,
 )
 from .config import cmd_config_get  # noqa: F401
-from .lifecycle import cmd_start, cmd_stop, cmd_restart, cmd_scale  # noqa: F401
+from .lifecycle import cmd_start, cmd_stop, cmd_scale  # noqa: F401
 from .maintenance import (  # noqa: F401
     cmd_maintenance_script,
     cmd_maintenance_extension,

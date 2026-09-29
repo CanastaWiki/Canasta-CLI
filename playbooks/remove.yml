@@ -5,6 +5,24 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Validate wiki ID
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/validate_wiki_id.yml
+
+- name: Read wikis.yaml
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _remove_wikis
+
+- name: Require an existing wiki that is not the last one
+  ansible.builtin.fail:
+    msg: >-
+      {{ ("Wiki ID '%s' not found" % wiki)
+         if wiki not in _remove_wikis.wiki_ids
+         else "Cannot remove the last wiki" }}
+  when: wiki not in _remove_wikis.wiki_ids or _remove_wikis.wiki_ids | length < 2
+
 - name: Require confirmation
   ansible.builtin.fail:
     msg: "Removing wiki '{{ wiki }}' from instance '{{ instance_id }}'. Use --yes to confirm."
@@ -49,7 +67,7 @@
     exec_service: db
     exec_command: >-
       mariadb -u root -p"${MYSQL_ROOT_PASSWORD:-mediawiki}"
-      -e 'DROP DATABASE IF EXISTS {{ wiki | quote }}'
+      -e 'DROP DATABASE IF EXISTS `{{ wiki }}`'
 
 - name: Remove per-wiki settings directory
   ansible.builtin.file:

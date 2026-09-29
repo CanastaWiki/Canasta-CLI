@@ -81,6 +81,11 @@
     {{ canasta_root }}/roles/orchestrator/tasks/k8s_nfs_exports_upgrade.yml
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
 
+- name: Restrict the k3s kubeconfig (Kubernetes)
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/k8s_kubeconfig_mode_upgrade.yml
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
 # --- Rebuild custom image if instance was built from source ---
 - name: Check for BuildFrom in registry
   canasta_registry:
@@ -152,6 +157,13 @@
     tasks_from: write_stack_files.yml
   vars:
     stack_files_force: true
+
+# The Caddyfile is rendered, so a template change reaches existing instances
+# only by re-rendering it.
+- name: Regenerate the Caddyfile
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: update_config.yml
 
 - name: Initialize orchestrator config
   ansible.builtin.include_role:
@@ -257,6 +269,12 @@
     - name: Report instance upgraded
       ansible.builtin.debug:
         msg: "Canasta upgraded successfully!"
+
+# Without a restart, a running Caddy would keep the previous Caddyfile.
+- name: Reload Caddy with the regenerated Caddyfile
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/reload_caddy.yml
+  when: not (_restart_needed | bool and _was_running | bool)
 
 # A stopped instance keeps its refreshed config/image on disk but is left
 # stopped, so upgrade never starts something the operator had brought down.

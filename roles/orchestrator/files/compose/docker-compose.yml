@@ -28,12 +28,16 @@ services:
     # name, so it survives the rotation below and retries until the file
     # exists. The volume-backed file is kept: docker logs does not survive the
     # container recreation `canasta restart` performs.
+    # --secure-file-priv confines INTO OUTFILE, LOAD DATA INFILE and
+    # LOAD_FILE() to an empty directory; unset, the server reads and writes
+    # anywhere the mysql user can.
     command: >
       bash -c "
+        install -d -o mysql -g mysql -m 0750 /var/lib/mysql-files;
         chown -R mysql:mysql /var/log/mysql &&
         tail -F /var/log/mysql/error.log 2>/dev/null &
         (while sleep 86400; do LOG=/var/log/mysql/error.log; test -f $$LOG && test $$(wc -c <$$LOG) -gt 10485760 && mv $$LOG $$LOG.1 && mariadb-admin -u root -p$$MYSQL_ROOT_PASSWORD flush-logs 2>/dev/null; done) &
-        exec docker-entrypoint.sh mariadbd --expire_logs_days=3 --secure-file-priv='' --log-error=/var/log/mysql/error.log
+        exec docker-entrypoint.sh mariadbd --expire_logs_days=3 --secure-file-priv=/var/lib/mysql-files --log-error=/var/log/mysql/error.log
       "
     user: root  # Required so the entrypoint can chown /var/log/mysql before dropping to mysql
     cap_add:

@@ -2,6 +2,15 @@
 # canasta gitops join
 
 - name: Gitops Join
-  ansible.builtin.include_role:
-    name: gitops
-    tasks_from: join.yml
+  block:
+    - name: Join the gitops repository
+      ansible.builtin.include_role:
+        name: gitops
+        tasks_from: join.yml
+  always:
+    # The temp clone holds decrypted files once git-crypt is unlocked.
+    - name: Remove the temp clone directory
+      ansible.builtin.file:
+        path: "{{ _join_tmpdir.path }}"
+        state: absent
+      when: _join_tmpdir.path is defined

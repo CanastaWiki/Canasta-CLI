@@ -109,8 +109,7 @@ class TestFastPathsBackfillBeforeUp:
         return type("Args", (), {"id": "test", "no_cache": False,
                                  "no_restart": False})()
 
-    @pytest.mark.parametrize("cmd", ["cmd_start", "cmd_restart",
-                                     "cmd_rebuild"])
+    @pytest.mark.parametrize("cmd", ["cmd_start", "cmd_rebuild"])
     def test_backfill_runs_before_up(self, calls, cmd):
         assert getattr(direct_commands, cmd)(self._args()) == 0
         assert "backfill" in calls
