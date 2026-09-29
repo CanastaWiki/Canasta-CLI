@@ -32,15 +32,21 @@
     # k3s API server's cert via INSTALL_K3S_EXEC="--tls-san <addr>".
     # Empty string when not provided (k3s uses its default cert SANs:
     # 127.0.0.1, the node's internal IP, kubernetes.default.*).
-    # --write-kubeconfig-mode 0644 persists a readable kubeconfig in the
-    # k3s unit, so a k3s restart doesn't revert /etc/rancher/k3s/k3s.yaml
-    # to root-only 0600 — which breaks every kubectl/helm task that runs
-    # as the non-root SSH user (the one-time chmod below only covers the
-    # fresh-install window, not subsequent restarts).
+    # The kubeconfig holds cluster-admin credentials. k3s rewrites it on
+    # every start, so its mode and group live in the k3s unit: readable by
+    # the SSH user's primary group, which the bundled kubectl needs, and by
+    # no one else.
+    - name: Look up the SSH user's primary group
+      ansible.builtin.command:
+        cmd: id -gn
+      register: _k3s_kubeconfig_group
+      changed_when: false
+
     - name: Build k3s install exec args
       ansible.builtin.set_fact:
         _k3s_install_exec: >-
-          --write-kubeconfig-mode 0644
+          --write-kubeconfig-mode 0640
+          --write-kubeconfig-group {{ _k3s_kubeconfig_group.stdout | quote }}
           {{ (public_ip | default([]))
              | map('regex_replace', '^(.*)$', '--tls-san \1')
              | join(' ') }}
@@ -71,7 +77,8 @@
     - name: Make k3s kubeconfig readable (before verification)
       ansible.builtin.file:
         path: /etc/rancher/k3s/k3s.yaml
-        mode: "0644"
+        group: "{{ _k3s_kubeconfig_group.stdout }}"
+        mode: "0640"
       become: true
       retries: 10
       delay: 3

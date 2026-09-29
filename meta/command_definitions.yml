@@ -3025,6 +3025,12 @@ commands:
       pointing at the cluster — typically the control plane. `--install-server`
       then installs NFS on that same host, and the StorageClass points back
       at it.
+
+      With `--install-server`, the share is exported only to the cluster's
+      node addresses and pod networks, in /etc/exports.d/canasta.exports. A
+      timer (canasta-nfs-exports-sync.timer) refreshes that list every minute,
+      so nodes that join or leave the cluster are picked up automatically.
+      Debian/Ubuntu and RHEL/Fedora hosts are supported.
     examples:
       - "canasta storage setup nfs --host cp --install-server --share /srv/nfs/canasta"
       - "canasta storage setup nfs --host cp --server 192.168.1.10 --share /srv/nfs/canasta"

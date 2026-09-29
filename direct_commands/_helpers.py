@@ -1631,7 +1631,8 @@ def _secret_classification():
             data = {}
         _SECRET_CLASSIFICATION = (
             data.get("canasta_secret_key_pattern")
-            or "(PASSWORD|SECRET|TOKEN|KEY|CREDENTIAL)",
+            or "(PASSWORD|SECRET|TOKEN|KEY|CREDENTIAL"
+               "|(^|_)(PASS|PASSWD|PWD|DSN|PRIVATE)($|_|=))",
             tuple(data.get("canasta_secret_prefixes") or ()),
             tuple(data.get("canasta_secret_explicit") or ()),
         )

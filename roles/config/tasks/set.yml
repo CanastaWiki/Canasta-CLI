@@ -21,6 +21,16 @@
   ansible.builtin.set_fact:
     _config_settings: "{{ config_settings_override | default(settings) }}"
 
+- name: Reject settings that are not KEY=VALUE
+  ansible.builtin.fail:
+    msg: >-
+      Each setting must be written as KEY=VALUE; not valid: {{ _config_bad | join(' ') }}.
+      {% if _config_tokens | length == 2 and _config_bad | length == 2 %}Did you mean {{ _config_tokens | join('=') }}?{% endif %}
+  vars:
+    _config_tokens: "{{ _config_settings.split() }}"
+    _config_bad: "{{ _config_tokens | reject('search', '=') | list }}"
+  when: _config_bad | length > 0
+
 - name: Require --secret with --web
   ansible.builtin.fail:
     msg: "--web only applies to secret values; pass it together with --secret."
