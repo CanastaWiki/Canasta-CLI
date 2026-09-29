@@ -81,6 +81,11 @@
     {{ canasta_root }}/roles/orchestrator/tasks/k8s_nfs_exports_upgrade.yml
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
 
+- name: Restrict the k3s kubeconfig (Kubernetes)
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/k8s_kubeconfig_mode_upgrade.yml
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
 # --- Rebuild custom image if instance was built from source ---
 - name: Check for BuildFrom in registry
   canasta_registry:

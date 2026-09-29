@@ -1,12 +1,17 @@
 """The canonical secret classifier is the single source of truth for
 "this key is a secret". These tests lock the full secret surface (so a
 future key can't silently leak) and the non-secret exclusions."""
+import os
 import re
+import sys
 
 # Render the real classifier regex from the vars file (shared helper), rather
 # than re-mirroring its Jinja construction here where it could drift.
 from _classifier import classifier as _load
 from _classifier import secret_key_regex as _secret_regex
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from direct_commands._helpers import _is_secret_key  # noqa: E402
 
 
 # Genuine secrets — must ALL classify as secret (kept out of ConfigMaps/gitops).
@@ -16,6 +21,8 @@ SECRETS = [
     "AWS_SECRET_ACCESS_KEY", "AZURE_ACCOUNT_KEY", "B2_APPLICATION_KEY",
     "RCLONE_CONFIG_REMOTE_PASS", "SMTP_PASSWORD", "SMTP_USER",
     "CROWDSEC_BOUNCER_API_KEY", "SOME_VENDOR_TOKEN", "PARTNER_CREDENTIAL",
+    "DB_PASS", "PASS", "SMTP_PASSWD", "LDAP_BIND_PWD", "SENTRY_DSN",
+    "SSH_PRIVATE", "SSH_PRIVATE_KEY_PATH", "BACKUP_PASS_FILE",
 ]
 
 # Operational config — must NOT be suppressed/stripped (stays cleartext).
@@ -23,6 +30,8 @@ NON_SECRETS = [
     "MW_SITE_SERVER", "MW_SITE_FQDN", "HTTP_PORT", "HTTPS_PORT",
     "CADDY_AUTO_HTTPS", "CANASTA_ENABLE_CROWDSEC", "PHP_UPLOAD_MAX_FILESIZE",
     "MYSQL_HOST", "MYSQL_USER", "MW_SITEMAP_PAUSE_DAYS",
+    "BYPASS_CACHE", "PASSENGER_COUNT", "COMPASS_URL", "PRIVATEWIKI_MODE",
+    "DSNLOOKUP_HOST",
 ]
 
 
@@ -54,3 +63,12 @@ def test_rclone_covered_but_smtp_excluded_in_backup_backends():
     assert "RCLONE_" in cls["canasta_backup_backend_prefixes"]
     # SMTP is a secret but not a backup backend, so it stays out of backup-env.
     assert "SMTP_" not in cls["canasta_backup_backend_prefixes"]
+
+
+def test_python_masking_agrees_with_the_ansible_classifier():
+    # `config get` masks through direct_commands._helpers, which reads the
+    # same vars file but matches with re.search on the bare key.
+    for key in SECRETS:
+        assert _is_secret_key(key), f"{key} must be masked"
+    for key in NON_SECRETS:
+        assert not _is_secret_key(key), f"{key} must not be masked"
