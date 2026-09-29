@@ -17,12 +17,17 @@ import yaml
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
-WORKFLOW = os.path.join(REPO_ROOT, ".github", "workflows", "tests.yml")
+WORKFLOW = os.path.join(
+    REPO_ROOT, ".github", "workflows", "integration-tests.yml")
+
+
+def _workflow():
+    with open(WORKFLOW) as f:
+        return yaml.safe_load(f)
 
 
 def _jobs():
-    with open(WORKFLOW) as f:
-        return yaml.safe_load(f)["jobs"]
+    return _workflow()["jobs"]
 
 
 def _run_steps(job):
@@ -32,7 +37,7 @@ def _run_steps(job):
 class TestPodmanLane:
     def test_a_podman_integration_job_exists(self):
         assert "integration-podman" in _jobs(), (
-            "tests.yml must carry an integration job that runs against "
+            "integration-tests.yml must carry an integration job that runs against "
             "Podman; without one, a Podman-only regression ships green"
         )
 
@@ -64,10 +69,13 @@ class TestPodmanLane:
             )
 
     def test_podman_lane_does_not_run_on_pull_requests(self):
-        jobs = _jobs()
-        assert jobs["integration-podman"].get("if") == "github.event_name != 'pull_request'", (
-            "the Podman lane must not run on pull requests (see #67), "
-            "so PRs are not slowed by integration tests"
+        # PyYAML reads the bare `on:` key as the boolean True.
+        wf = _workflow()
+        triggers = wf.get("on", wf.get(True))
+        assert "pull_request" not in triggers, (
+            "the integration workflow, Podman lane included, must not run "
+            "on pull requests (see #67), so PRs are not slowed by "
+            "integration tests"
         )
 
 
