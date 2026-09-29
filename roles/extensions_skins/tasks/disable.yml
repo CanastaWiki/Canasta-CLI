@@ -12,6 +12,12 @@
     state: disable
     names: "{{ _names.split(',') | map('trim') | list }}"
     wiki: "{{ wiki | default(omit) }}"
+  register: _settings_change
+
+- name: "Commit {{ _item_type }} disable (gitops)"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/_commit_settings.yml"
+  vars:
+    _settings_action: Disable
 
 - name: "Report {{ _item_type }} disabled"
   ansible.builtin.debug:

@@ -1,0 +1,34 @@
+---
+# On a gitops instance, commit the settings.yaml an enable or disable just
+# changed, so `canasta gitops push` distributes it with the code. The commit
+# is local; nothing is pushed.
+# Input: instance_path, wiki (optional), _item_type, _names,
+#        _settings_action (Enable|Disable), _settings_change (registered result)
+
+- name: Detect whether the instance is gitops-managed
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.git"
+  register: _commit_settings_git
+
+- name: "Commit the {{ _item_type }} settings change (gitops)"
+  when:
+    - _commit_settings_git.stat.exists
+    - _settings_change is changed
+  vars:
+    _commit_settings_path: >-
+      config/settings/{{ ('wikis/' ~ wiki) if (wiki | default('') | length > 0) else 'global' }}/settings.yaml
+  block:
+    - name: "Stage the {{ _item_type }} settings change (gitops)"
+      ansible.builtin.command:
+        cmd: "git -C {{ instance_path | quote }} add -- {{ _commit_settings_path | quote }}"
+      changed_when: true
+
+    # The path limits the commit to this file, leaving anything else that
+    # happens to be staged for its own commit.
+    - name: "Commit the {{ _item_type }} settings change (gitops)"
+      ansible.builtin.command:
+        cmd: >-
+          git -C {{ instance_path | quote }} -c commit.gpgsign=false commit
+          -m {{ (_settings_action ~ ' ' ~ _item_type ~ ': ' ~ _names) | quote }}
+          -- {{ _commit_settings_path | quote }}
+      changed_when: true
