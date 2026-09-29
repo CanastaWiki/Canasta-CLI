@@ -110,10 +110,15 @@
 # and polled so a controller-side SSH reset doesn't abort work still
 # progressing on the target. The result is mapped back to exec_result so
 # callers consume it the same way.
-- name: "Execute (long, detached + polled): {{ exec_command | truncate(60) }}"
+- name: >-
+    Execute (long, detached + polled):
+    {{ (exec_no_log | default(false) | bool)
+       | ternary('[redacted]', exec_command | truncate(60)) }}
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
   vars:
-    rx_name: "{{ exec_command | truncate(60) }}"
+    rx_name: >-
+      {{ (exec_no_log | default(false) | bool)
+         | ternary('[redacted]', exec_command | truncate(60)) }}
     rx_cmd: "{{ _exec_full_cmd }}"
     rx_chdir: "{{ _exec_chdir | default(omit) }}"
     rx_async: "{{ exec_long_async | default(3600) }}"
