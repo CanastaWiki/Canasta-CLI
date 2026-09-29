@@ -88,6 +88,13 @@
 {{ _site_address }} {
     import /etc/caddy/Caddyfile.site
 
+{# Varnish admits PURGE from private addresses, which includes Caddy.
+   MediaWiki purges Varnish directly, so no PURGE needs to pass here. #}
+    @purge method PURGE
+    handle @purge {
+        respond 405
+    }
+
 {# CADDY_TLS_MODE. 'acme' emits nothing: automatic HTTPS is Caddy's default.
    Skipped on K8s, where the ingress terminates TLS. #}
 {% if not (_http_only | default(false)) %}
