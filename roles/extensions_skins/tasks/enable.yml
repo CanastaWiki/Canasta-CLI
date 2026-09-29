@@ -35,6 +35,12 @@
     state: enable
     names: "{{ _names.split(',') | map('trim') | list }}"
     wiki: "{{ wiki | default(omit) }}"
+  register: _settings_change
+
+- name: "Commit {{ _item_type }} enable (gitops)"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/_commit_settings.yml"
+  vars:
+    _settings_action: Enable
 
 - name: Run update.php
   when: not (skip_update | default(false) | bool)
