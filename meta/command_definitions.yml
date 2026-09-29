@@ -1551,7 +1551,9 @@ commands:
       its git repository into the instance's extensions/ directory.
 
       The extension's git URL is resolved from ExtensionJson.json (the
-      extjsonuploader Toolforge dataset); pass `--repository` to override the
+      extjsonuploader Toolforge dataset), or from Wikimedia Gerrit
+      (mediawiki/extensions/<Name>) when the dataset has no usable git URL.
+      Names match case-insensitively. Pass `--repository` to override the
       lookup, or `--branch` to pin a specific branch. The branch is
       chosen automatically as REL1_YY matching the instance's MediaWiki
       version (e.g. MediaWiki 1.43 -> REL1_43), tried on every remote (GitHub
@@ -1594,7 +1596,7 @@ commands:
         description: "MediaWiki version (e.g. 1.43.2); overrides auto-detection for REL1_YY branch selection"
       - name: repository
         type: string
-        description: "Git URL to clone (overrides ExtensionJson.json lookup); only with a single name"
+        description: "Git URL to clone (overrides the name lookup); only with a single name"
       - name: branch
         type: string
         description: "Branch to check out (overrides auto branch selection); only with a single name"
@@ -1690,9 +1692,10 @@ commands:
       Add a MediaWiki skin that is not bundled with Canasta by cloning its
       git repository into the instance's skins/ directory.
 
-      The skin's git URL is resolved from ExtensionJson.json (the
-      extjsonuploader Toolforge dataset); pass `--repository` to override the
-      lookup, or `--branch` to pin a specific branch. The branch is
+      The skin's git URL is resolved from Wikimedia Gerrit
+      (mediawiki/skins/<Name>), matching the name case-insensitively. A skin
+      hosted elsewhere, or archived on Gerrit, needs `--repository`. Pass
+      `--branch` to pin a specific branch. The branch is
       chosen automatically as REL1_YY matching the instance's MediaWiki
       version (e.g. MediaWiki 1.43 -> REL1_43), tried on every remote (GitHub
       and GitLab mirrors carry the same REL branches); if the REL branch does
@@ -1733,7 +1736,7 @@ commands:
         description: "MediaWiki version (e.g. 1.43.2); overrides auto-detection for REL1_YY branch selection"
       - name: repository
         type: string
-        description: "Git URL to clone (overrides ExtensionJson.json lookup); only with a single name"
+        description: "Git URL to clone (overrides the name lookup); only with a single name"
       - name: branch
         type: string
         description: "Branch to check out (overrides auto branch selection); only with a single name"

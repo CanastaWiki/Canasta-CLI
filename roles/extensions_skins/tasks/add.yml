@@ -2,7 +2,7 @@
 # Add a user extension/skin that is not bundled with Canasta.
 #
 # Resolves its git URL + branch (REL1_YY for Gerrit remotes) from
-# ExtensionJson.json, adds it as a submodule (gitops) or a plain clone
+# ExtensionJson.json or Wikimedia Gerrit, adds it as a submodule (gitops) or a plain clone
 # (non-gitops) under extensions/ or skins/, commits it in gitops,
 # registers any composer.json in config/composer.local.json and best-effort
 # installs its non-dev requirements (--no-dev); a resolution failure is reported
@@ -93,7 +93,7 @@
   ansible.builtin.set_fact:
     _extjson_path: "{{ canasta_root }}/data/ExtensionJson.json"
 
-- name: "Resolve {{ _item_type }} from ExtensionJson.json"
+- name: "Resolve {{ _item_type }} git URL and branch"
   canasta_extension_resolve:
     name: "{{ item | trim }}"
     item_type: "{{ _item_type }}"

@@ -3,8 +3,17 @@
 
 """Ansible module to resolve a MediaWiki extension/skin git URL + branch.
 
-Looks an extension/skin up in ExtensionJson.json (extjsonuploader Toolforge
-dataset) to find its git repository URL, then selects the branch to check out:
+Finds the git repository URL of an extension or skin, then selects the branch
+to check out. The URL comes from, in order:
+
+- an explicit ``--repository``;
+- ExtensionJson.json (extjsonuploader Toolforge dataset), matching the name
+  case-insensitively; it covers extensions only, and an entry whose repository
+  is not a usable git remote falls through;
+- Wikimedia Gerrit (``mediawiki/extensions/<Name>`` or ``mediawiki/skins/<Name>``),
+  matched case-insensitively; archived (read-only) projects are refused.
+
+The branch is chosen as follows:
 
 - an explicit ``--branch`` wins;
 - otherwise the branch is ``REL1_YY`` derived from the instance's MediaWiki
@@ -32,7 +41,7 @@ description:
     to check out for a given MediaWiki version.
 options:
   name:
-    description: Extension or skin name (matches an ExtensionJson.json key).
+    description: Extension or skin name, matched case-insensitively.
     type: str
     required: true
   item_type:
@@ -58,7 +67,7 @@ options:
     default: https://extjsonuploader.toolforge.org/ExtensionJson.json
 returns:
   name:
-    description: The extension/skin name as requested.
+    description: The extension/skin name, in its canonical spelling.
     returned: success
     type: str
   item_type:
@@ -86,7 +95,7 @@ returns:
     returned: success
     type: bool
   source:
-    description: Where the data came from ('explicit', 'url:<url>', 'file:<path>').
+    description: Where the data came from ('explicit', 'url:<url>', 'file:<path>', 'gerrit').
     returned: success
     type: str
   url:
@@ -111,6 +120,8 @@ from ansible.module_utils.basic import AnsibleModule
 
 MW_VERSION_RE = re.compile(r"^1\.(\d+)(?:\.\d+)?$")
 DEFAULT_JSON_URL = "https://extjsonuploader.toolforge.org/ExtensionJson.json"
+GERRIT_URL = "https://gerrit.wikimedia.org/r/"
+NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")
 
 
 def mw_minor_to_rel(mw_version):
@@ -213,6 +224,69 @@ def load_json(json_path, json_url):
     return None, None
 
 
+def find_entry(data, name):
+    """Return (key, entry) for ``name``: an exact key, else the one key that
+    matches case-insensitively. (None, None) when absent or ambiguous."""
+    if name in data:
+        return name, data[name]
+    matches = [key for key in data if key.lower() == name.lower()]
+    if len(matches) == 1:
+        return matches[0], data[matches[0]]
+    return None, None
+
+
+def usable_dataset_url(url):
+    """True if a dataset repository value can be cloned: a plain http(s)
+    remote, and not a Phabricator Diffusion URL, which no longer serves
+    clones."""
+    if not url or validate_repository_url(url):
+        return False
+    return "phabricator.wikimedia.org/" not in url.lower()
+
+
+def gerrit_projects(name):
+    """Query Gerrit for projects whose name contains ``name`` (case-insensitive).
+
+    Returns the decoded project map, or None when Gerrit could not be reached.
+    """
+    try:
+        import urllib.parse
+        import urllib.request
+        url = "%sprojects/?m=%s&d" % (GERRIT_URL, urllib.parse.quote(name))
+        request = urllib.request.Request(url, headers={"User-Agent": "canasta-cli"})
+        with urllib.request.urlopen(request, timeout=30) as resp:
+            body = resp.read().decode("utf-8")
+    except Exception:
+        return None
+    # Gerrit prefixes JSON responses with )]}' to defeat XSSI.
+    try:
+        return json.loads(body.split("\n", 1)[1] if body.startswith(")]}'") else body)
+    except ValueError:
+        return None
+
+
+def gerrit_lookup(item_type, name):
+    """Find ``mediawiki/<item_type>/<name>`` on Gerrit, case-insensitively.
+
+    Returns (status, canonical_name, detail) with status 'active' (detail is
+    the clone URL), 'archived' (detail is the project description),
+    'missing', or 'unreachable'.
+    """
+    projects = gerrit_projects(name)
+    if projects is None:
+        return "unreachable", name, None
+    wanted = ("mediawiki/%s/%s" % (item_type, name)).lower()
+    for project, info in projects.items():
+        if project.lower() != wanted:
+            continue
+        canonical = project.rsplit("/", 1)[1]
+        if (info or {}).get("state") == "ACTIVE":
+            return "active", canonical, GERRIT_URL + project
+        return "archived", canonical, " ".join(
+            ((info or {}).get("description") or "").split())
+    return "missing", name, None
+
+
 def resolve(name, item_type, mw_version, repository, branch, json_path, json_url):
     branch_note = None
     branch_unverified = False
@@ -221,31 +295,53 @@ def resolve(name, item_type, mw_version, repository, branch, json_path, json_url
         entry = None
         source = "explicit"
     else:
-        data, source = load_json(json_path, json_url)
-        if data is None:
-            return {
-                "failed": True,
-                "msg": ("Could not load ExtensionJson.json (no local snapshot "
-                        "at %s and the live URL was unreachable). Refresh the "
-                        "snapshot with 'make refresh-extension-json' or pass "
-                        "--repository." % json_path),
-            }
-        entry = data.get(name)
-        if not entry:
-            return {
-                "failed": True,
-                "msg": ("Extension/skin '%s' not found in ExtensionJson.json. "
-                        "Check the spelling, or pass --repository to specify the "
-                        "git URL." % name),
-            }
-        url = entry.get("repository")
-        if not url:
-            return {
-                "failed": True,
-                "msg": ("Extension/skin '%s' has no 'repository' in "
-                        "ExtensionJson.json. Pass --repository to specify the "
-                        "git URL." % name),
-            }
+        if not NAME_RE.match(name or ""):
+            return {"failed": True,
+                    "msg": "Invalid extension/skin name '%s'." % name}
+        kind = "Skin" if item_type == "skins" else "Extension"
+        url = None
+        entry = None
+        # ExtensionJson.json holds extension manifests only.
+        data, source = (load_json(json_path, json_url)
+                        if item_type == "extensions" else (None, None))
+        if data is not None:
+            key, entry = find_entry(data, name)
+            if entry:
+                name = key
+                if usable_dataset_url(entry.get("repository")):
+                    url = entry.get("repository")
+        if url is None:
+            status, canonical, detail = gerrit_lookup(item_type, name)
+            if status == "active":
+                name, url, source = canonical, detail, "gerrit"
+            elif status == "archived":
+                return {
+                    "failed": True,
+                    "msg": ("%s '%s' is archived on Wikimedia Gerrit%s. Pass "
+                            "--repository with its current git URL."
+                            % (kind, canonical,
+                               " (%s)" % detail if detail else "")),
+                }
+            elif status == "unreachable":
+                return {
+                    "failed": True,
+                    "msg": ("Could not reach Wikimedia Gerrit to look up %s "
+                            "'%s'. Pass --repository with its git URL."
+                            % (kind.lower(), name)),
+                }
+            elif item_type == "skins":
+                return {
+                    "failed": True,
+                    "msg": ("Skin '%s' is not on Wikimedia Gerrit. Pass "
+                            "--repository with its git URL." % name),
+                }
+            else:
+                return {
+                    "failed": True,
+                    "msg": ("Extension '%s' was not found in ExtensionJson.json "
+                            "or on Wikimedia Gerrit. Check the spelling, or pass "
+                            "--repository with its git URL." % name),
+                }
 
     # Always refuse injection-style URLs (empty / leading dash), regardless of
     # where the value came from.
