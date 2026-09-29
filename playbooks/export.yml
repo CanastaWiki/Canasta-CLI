@@ -5,6 +5,10 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Validate wiki ID
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/validate_wiki_id.yml
+
 - name: Set output file (resolve relative paths against user's working directory)
   ansible.builtin.set_fact:
     _export_raw: "{{ file | default(wiki + '.sql') }}"
