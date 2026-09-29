@@ -1,0 +1,650 @@
+---
+name: Integration Tests
+
+# Integration tests create real Canasta instances and take minutes each, so
+# they run on push to main and on demand, not on pull requests. See #67.
+on:
+  push:
+    branches: [main]
+  # Manual trigger for re-running the full suite. See #67.
+  workflow_dispatch:
+  # Weekly full version sweep so push-to-main can run a single
+  # representative leg while the matrix is still exercised regularly.
+  schedule:
+    - cron: "0 0 * * 0"
+
+# All jobs in this workflow only read the checkout to run tests; none push
+# images, write back to the repo, or post comments.
+permissions:
+  contents: read
+
+# The multi-test jobs are split into matrix legs balanced by measured per-test
+# runtime, so each leg finishes in about ten minutes. Tests are independent:
+# each creates its own instance, and each leg runs on its own runner. Job names
+# are static (no matrix expression) so GitHub renders the leg suffix correctly.
+
+jobs:
+  integration-core:
+    name: "Integration: Core Lifecycle"
+    # Run only on push to main and manual workflow_dispatch, not on the
+    # weekly schedule. See #67.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: ["lifecycle & import", "upgrade", "rebuild & tools"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y git-crypt
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          # Retry to ride out transient Ansible Galaxy CDN timeouts.
+          for attempt in 1 2 3 4; do
+            .venv/bin/ansible-galaxy collection install kubernetes.core && break
+            if [ "$attempt" -eq 4 ]; then
+              echo "ansible-galaxy install failed after 4 attempts" >&2
+              exit 1
+            fi
+            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
+            sleep $((attempt * 10))
+          done
+          git config --global user.name "CI"
+          git config --global user.email "ci@canasta.wiki"
+      - name: Run core tests (${{ matrix.leg }})
+        env:
+          LEG: ${{ matrix.leg }}
+        run: |
+          case "$LEG" in
+            "lifecycle & import") tests=(lifecycle import) ;;
+            "upgrade")            tests=(upgrade upgrade-rebuilds-buildable) ;;
+            "rebuild & tools")    tests=(rebuild version doctor host-management) ;;
+            *) echo "unknown core leg: $LEG" >&2; exit 1 ;;
+          esac
+          .venv/bin/python tests/integration/run_tests.py "${tests[@]}"
+        timeout-minutes: 18
+
+  # Podman is a supported container runtime, but every other integration job
+  # runs on Docker — so a Podman-only regression ships with a green suite.
+  # This lane mirrors integration-core's compose legs on podman-compose.
+  #
+  # Docker is taken away rather than left idle: a hardcoded `docker` call has
+  # to fail here instead of quietly reaching a live daemon.
+  #
+  # A matrix tests three podman versions (4.9.5, 5.3.2, 5.8.4) and two
+  # podman-compose versions (1.3.0, 1.6.0), each split into the same three
+  # test legs. The full podman binary with its runtime helpers (crun, conmon,
+  # netavark, fuse-overlayfs) is downloaded as a self-contained static bundle
+  # from mgoltzsche/podman-static.
+  #
+  # Known limitation: mgoltzsche/podman-static tops out at v5.8.4, so this
+  # lane cannot test podman 6.x.  When ubuntu-26.04 ships with podman 6.x
+  # from apt, a separate lane or runner update will be needed.
+  integration-podman-matrix:
+    name: "Integration: Podman matrix"
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Set podman test matrix
+        id: set-matrix
+        run: |
+          legs='"leg":["lifecycle & upgrade","rebuild-buildable","rebuild & socket"]'
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # On push-to-main run one representative version to keep the
+            # long pole short; the full sweep runs on schedule and
+            # workflow_dispatch.
+            matrix='{"podman_version":["5.3.2"],"podman_compose_version":["1.3.0"],'"$legs"'}'
+          else
+            compose16='{"podman_version":"5.8.4","podman_compose_version":"1.6.0","leg":'
+            include="[${compose16}\"lifecycle & upgrade\"},${compose16}\"rebuild-buildable\"},${compose16}\"rebuild & socket\"}]"
+            matrix='{"podman_version":["4.9.5","5.3.2","5.8.4"],"podman_compose_version":["1.3.0"],'"$legs"',"include":'"$include"'}'
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  integration-podman:
+    name: "Integration: Podman"
+    needs: integration-podman-matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.integration-podman-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git-crypt uidmap
+
+      - name: Leg details
+        run: |
+          echo "podman=${{ matrix.podman_version }} podman-compose=${{ matrix.podman_compose_version }} leg=${{ matrix.leg }}"
+
+      - name: Download podman ${{ matrix.podman_version }} static bundle
+        run: |
+          url="https://github.com/mgoltzsche/podman-static/releases/download/v${{ matrix.podman_version }}/podman-linux-amd64.tar.gz"
+          curl -fsSL --retry 3 "$url" -o /tmp/podman-static.tar.gz
+          # Pinned sha256 — if the upstream archive changes, update these.
+          # Computed from the release asset at the time of writing.
+          case "${{ matrix.podman_version }}" in
+            4.9.5) expected="05fcac12a6777c4db5f90ecf71b859d669c7bb1a8ee39d9ab299ac9ad1f99c5d" ;;
+            5.3.2) expected="3feea505a40cba6d4940cbfcbc89e28441073685c0d93b9e1e0a69fd2379b7b5" ;;
+            5.8.4) expected="a58765fe8be6ab3fb79f892f1a027b4ce4a7e8eb589df1ef960c167cbde08d69" ;;
+            *)     echo "unknown podman version: ${{ matrix.podman_version }}" >&2; exit 1 ;;
+          esac
+          actual=$(sha256sum /tmp/podman-static.tar.gz | awk '{print $1}')
+          if [ "$actual" != "$expected" ]; then
+            echo "sha256 mismatch: expected $expected, got $actual" >&2
+            exit 1
+          fi
+          # The archive root contains both usr/ and etc/.  Extract each
+          # tree with the strip level that lands it at the matching system
+          # path, not nested under /usr/local/local.
+          sudo tar -xzf /tmp/podman-static.tar.gz \
+            -C /usr --strip-components=2 podman-linux-amd64/usr/
+          # Installing etc/containers/ from the bundle replaces the runner's
+          # registries.conf with an older format, but this lane is rootless so
+          # ~/.config/containers/registries.conf (written below) wins.
+          sudo tar -xzf /tmp/podman-static.tar.gz \
+            -C /etc --strip-components=2 podman-linux-amd64/etc/
+          rm -f /tmp/podman-static.tar.gz
+          echo "/usr/local/bin" >> "$GITHUB_PATH"
+
+      # The runner image ships its own podman binary.  Move those aside so the
+      # downloaded one is what runs.  (The /usr/local/bin entry added via
+      # GITHUB_PATH is prepended to PATH, but we keep the loop as defense-in
+      # depth in case a system path is added later.)
+      - name: Shadow other podman binaries on PATH
+        run: |
+          downloaded="$(readlink -f /usr/local/bin/podman)"
+          for p in $(type -a -P podman || true); do
+            [ -e "$p" ] || continue
+            if [ "$(readlink -f "$p")" != "$downloaded" ]; then
+              echo "Shadowing $p ($("$p" --version 2>/dev/null || echo unknown))"
+              sudo mv "$p" "$p.shadowed"
+            fi
+          done
+          hash -r
+
+      # Ubuntu >=24.04 ships an AppArmor profile that restricts user
+      # namespaces to processes matching specific profiles.  The static
+      # podman lives at /usr/local/bin/podman, not /usr/bin/podman, so
+      # the stock profile doesn't apply.  Widen the path glob so the
+      # downloaded binary can create user namespaces.  See mgoltzsche/
+      # podman-static documentation for the recommended profile change.
+      - name: Relax AppArmor profile for /usr/local/bin/podman
+        run: |
+          if [ -f /etc/apparmor.d/podman ]; then
+            sudo sed -Ei \
+              's!^profile podman /usr/bin/podman !profile podman /usr/{bin,local/bin}/podman !' \
+              /etc/apparmor.d/podman
+            sudo apparmor_parser -r /etc/apparmor.d/podman 2>/dev/null || true
+            grep -q '/usr/{bin,local/bin}/podman' /etc/apparmor.d/podman || {
+              echo "AppArmor profile update not confirmed" >&2
+              exit 1
+            }
+          fi
+
+      - name: Configure rootless Podman
+        run: |
+          mkdir -p ~/.config/containers
+          cat > ~/.config/containers/registries.conf <<'EOF'
+          unqualified-search-registries = ["docker.io"]
+          EOF
+          # Point to the system fuse-overlayfs (which uses the distro's
+          # setuid fusermount3) rather than the static bundle's copy
+          # (which lacks the setuid bit needed for unprivileged FUSE).
+          cat > ~/.config/containers/storage.conf <<'EOF'
+          [storage]
+          driver = "overlay"
+          [storage.options.overlay]
+          mount_program = "/usr/bin/fuse-overlayfs"
+          EOF
+          # The bundle's own /etc/containers/containers.conf sets
+          # cgroup_manager = "cgroupfs" and events_logger = "file".  Add
+          # a user-level override that points the crun runtime at the bundle
+          # copy; otherwise podman searches a built-in absolute-path list
+          # that puts /usr/bin/crun ahead of /usr/local/bin/crun and the
+          # system crun is too old for podman 5.x.
+          cat > ~/.config/containers/containers.conf <<'EOF'
+          [engine]
+          cgroup_manager = "cgroupfs"
+          events_logger = "file"
+          [engine.runtimes]
+          crun = ["/usr/local/bin/crun"]
+          EOF
+          # Subordinate id ranges are a property of the runner image, not
+          # something Canasta configures — the static bundle brings no
+          # useradd hook to write them. Lingering, the unprivileged port
+          # floor and the socket are deliberately NOT set here: they are
+          # the three rootless prerequisites `canasta install podman`
+          # exists to configure, and setting them by hand would mean this
+          # lane never tests that it does. See #1432.
+          grep -q "^$(id -un):" /etc/subuid 2>/dev/null || \
+            echo "$(id -un):100000:65536" | sudo tee -a /etc/subuid
+          grep -q "^$(id -un):" /etc/subgid 2>/dev/null || \
+            echo "$(id -un):100000:65536" | sudo tee -a /etc/subgid
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+
+      - name: Install podman-compose ${{ matrix.podman_compose_version }}
+        run: |
+          python -m pip install --user \
+            "podman-compose==${{ matrix.podman_compose_version }}"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Verify podman-compose version
+        run: |
+          resolved="$(command -v podman-compose || true)"
+          if [ -z "$resolved" ]; then
+            echo "podman-compose not found on PATH" >&2
+            exit 1
+          fi
+          # --version prints both the compose version and the podman version
+          # on separate lines; the 'version' subcommand has a --short flag.
+          version="$(podman-compose version --short)"
+          echo "podman-compose: $resolved ($version)"
+          echo "target:  ${{ matrix.podman_compose_version }}"
+          if [ "$version" != "${{ matrix.podman_compose_version }}" ]; then
+            echo "expected podman-compose ${{ matrix.podman_compose_version }}" \
+                 "but got $version from $resolved" >&2
+            exit 1
+          fi
+
+      - name: Verify podman version
+        run: |
+          resolved="$(command -v podman || true)"
+          if [ -z "$resolved" ]; then
+            echo "podman not found on PATH after download/shadow" >&2
+            exit 1
+          fi
+          version="$(podman --version | awk '{print $3}')"
+          echo "podman:  $resolved ($version)"
+          echo "target:  ${{ matrix.podman_version }}"
+          target="${{ matrix.podman_version }}"
+          if [ "$version" != "$target" ]; then
+            echo "expected podman $target but got $version from $resolved" >&2
+            exit 1
+          fi
+
+      - name: Remove Docker so only Podman is reachable
+        run: |
+          sudo systemctl stop docker.socket docker.service || true
+          sudo systemctl mask docker.socket docker.service || true
+          # On this runner /bin is a symlink to /usr/bin, so type -a -P docker
+          # can return the same binary twice; the guard skips the second hit.
+          for d in $(type -a -P docker || true); do
+            if [ -e "$d" ]; then
+              sudo mv "$d" "$d.disabled"
+            fi
+          done
+          hash -r
+          if command -v docker; then
+            echo "docker is still on PATH" >&2
+            exit 1
+          fi
+
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          # Retry to ride out transient Ansible Galaxy CDN timeouts.
+          for attempt in 1 2 3 4; do
+            .venv/bin/ansible-galaxy collection install kubernetes.core && break
+            if [ "$attempt" -eq 4 ]; then
+              echo "ansible-galaxy install failed after 4 attempts" >&2
+              exit 1
+            fi
+            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
+            sleep $((attempt * 10))
+          done
+          git config --global user.name "CI"
+          git config --global user.email "ci@canasta.wiki"
+
+      # The rootless prerequisites — lingering, the unprivileged port
+      # floor, and the socket — are configured the way an operator
+      # configures them, so the lane both exercises the install path and
+      # ends up in the state a real Podman host is in.
+      #
+      # The socket is the point. Without it the CLI detects no Podman
+      # socket, falls through to "Docker absent, use Podman" instead, and
+      # the lane silently tests a route no installed host takes. See #1432.
+      - name: Configure rootless prerequisites via canasta install podman
+        run: ./canasta-native install podman
+
+      # Every one of those three steps warns rather than fails when it
+      # cannot be applied, which is exactly how this gap stayed invisible.
+      # Assert the results so a silent regression fails the lane instead
+      # of quietly restoring the blind spot.
+      - name: Assert the rootless prerequisites are in place
+        run: |
+          fail=0
+          sock="/run/user/$(id -u)/podman/podman.sock"
+          if [ ! -S "$sock" ]; then
+            echo "No socket at $sock — 'canasta install podman' did not enable" \
+                 "podman.socket, so this lane cannot reach the socket-detection" \
+                 "path it exists to cover." >&2
+            systemctl --user status podman.socket --no-pager 2>&1 | head -20 >&2 || true
+            fail=1
+          fi
+          if [ "$(loginctl show-user "$(id -un)" -p Linger --value)" != "yes" ]; then
+            echo "Lingering is off — systemd would reap the containers when" \
+                 "the session ends." >&2
+            fail=1
+          fi
+          floor="$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start)"
+          if [ "$floor" -gt 80 ]; then
+            echo "Unprivileged port floor is $floor — rootless Caddy cannot" \
+                 "bind 80/443." >&2
+            fail=1
+          fi
+          [ "$fail" -eq 0 ] || exit 1
+          echo "socket=$sock linger=yes port_floor=$floor"
+
+      # After `canasta install podman`, so this confirms the environment
+      # that command produced actually runs containers — /run/user/<uid>
+      # does not exist until lingering is enabled.
+      - name: Smoke test podman
+        run: |
+          podman --version
+          podman-compose --version
+          podman info >/dev/null
+          podman run --rm docker.io/library/alpine:latest true
+          echo "Podman ${{ matrix.podman_version }} smoke test passed"
+
+      - name: Run Podman tests (${{ matrix.leg }})
+        env:
+          LEG: ${{ matrix.leg }}
+        run: |
+          case "$LEG" in
+            "lifecycle & upgrade") tests=(lifecycle upgrade doctor) ;;
+            "rebuild-buildable")   tests=(upgrade-rebuilds-buildable) ;;
+            "rebuild & socket")    tests=(rebuild podman-socket-runtime) ;;
+            *) echo "unknown podman leg: $LEG" >&2; exit 1 ;;
+          esac
+          .venv/bin/python tests/integration/run_tests.py "${tests[@]}"
+        timeout-minutes: 18
+
+  integration-features:
+    name: "Integration: Features"
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: ["extensions & config", "farms", "backup", "backup-advanced & ops"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y git-crypt
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          # Retry to ride out transient Ansible Galaxy CDN timeouts.
+          for attempt in 1 2 3 4; do
+            .venv/bin/ansible-galaxy collection install kubernetes.core && break
+            if [ "$attempt" -eq 4 ]; then
+              echo "ansible-galaxy install failed after 4 attempts" >&2
+              exit 1
+            fi
+            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
+            sleep $((attempt * 10))
+          done
+          git config --global user.name "CI"
+          git config --global user.email "ci@canasta.wiki"
+      - name: Run feature tests (${{ matrix.leg }})
+        env:
+          LEG: ${{ matrix.leg }}
+        run: |
+          case "$LEG" in
+            "extensions & config")   tests=(extension-skin config-side-effects) ;;
+            "farms")                 tests=(wiki-farm) ;;
+            "backup")                tests=(backup) ;;
+            "backup-advanced & ops") tests=(backup-advanced sitemap maintenance) ;;
+            *) echo "unknown feature leg: $LEG" >&2; exit 1 ;;
+          esac
+          .venv/bin/python tests/integration/run_tests.py "${tests[@]}"
+        timeout-minutes: 18
+
+  integration-gitops:
+    name: "Integration: GitOps"
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: ["init & join", "pull & config", "push"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y git-crypt
+          sudo groupadd -f www-data
+          sudo usermod -aG www-data "$(whoami)"
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          # Retry to ride out transient Ansible Galaxy CDN timeouts.
+          for attempt in 1 2 3 4; do
+            .venv/bin/ansible-galaxy collection install kubernetes.core && break
+            if [ "$attempt" -eq 4 ]; then
+              echo "ansible-galaxy install failed after 4 attempts" >&2
+              exit 1
+            fi
+            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
+            sleep $((attempt * 10))
+          done
+          git config --global user.name "CI"
+          git config --global user.email "ci@canasta.wiki"
+      - name: Run gitops tests (${{ matrix.leg }})
+        env:
+          LEG: ${{ matrix.leg }}
+        run: |
+          case "$LEG" in
+            "init & join")   tests="gitops gitops-join" ;;
+            "pull & config") tests="gitops-pull-diff config-set-gitops" ;;
+            "push")          tests="gitops-push-shared gitops-push-reporting" ;;
+            *) echo "unknown gitops leg: $LEG" >&2; exit 1 ;;
+          esac
+          sg www-data -c ".venv/bin/python tests/integration/run_tests.py $tests"
+        timeout-minutes: 18
+
+  integration-k8s:
+    name: "Integration: Kubernetes"
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git-crypt
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          # Retry to ride out transient Ansible Galaxy CDN timeouts.
+          for attempt in 1 2 3 4; do
+            .venv/bin/ansible-galaxy collection install kubernetes.core && break
+            if [ "$attempt" -eq 4 ]; then
+              echo "ansible-galaxy install failed after 4 attempts" >&2
+              exit 1
+            fi
+            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
+            sleep $((attempt * 10))
+          done
+          git config --global user.name "CI"
+          git config --global user.email "ci@canasta.wiki"
+      # Bootstrap the cluster via the product's own install path so CI
+      # exercises 'canasta install k8s-cp' (which installs k3s + helm at the
+      # pinned canasta_k3s_version / canasta_helm_version, writing
+      # ~/.kube/config) instead of a separate, unpinned curl | sh that
+      # depended on update.k3s.io.
+      - name: Bootstrap k3s control plane via canasta
+        run: ./canasta-native install k8s-cp
+      - name: Run K8s tests
+        run: >-
+          .venv/bin/python tests/integration/run_tests.py
+          k8s-lifecycle
+        timeout-minutes: 20
+      # Reuse the same bootstrapped cluster (k8s-lifecycle deletes its instance
+      # on cleanup, and the in-cluster registry was deployed at install) so this
+      # adds only the build/push/pull path, not a second k3s bootstrap.
+      - name: Run K8s build-from test
+        run: >-
+          .venv/bin/python tests/integration/run_tests.py
+          k8s-build-from
+        timeout-minutes: 18
+
+  # Separate job (own runner) so the CrowdSec enable — which drives several
+  # Helm rollouts — gets a fresh, unloaded node and its own time budget rather
+  # than serializing behind k8s-lifecycle on a shared 2-CPU runner.
+  integration-k8s-crowdsec:
+    name: "Integration: Kubernetes CrowdSec"
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git-crypt
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          # Retry to ride out transient Ansible Galaxy CDN timeouts.
+          for attempt in 1 2 3 4; do
+            .venv/bin/ansible-galaxy collection install kubernetes.core && break
+            if [ "$attempt" -eq 4 ]; then
+              echo "ansible-galaxy install failed after 4 attempts" >&2
+              exit 1
+            fi
+            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
+            sleep $((attempt * 10))
+          done
+          git config --global user.name "CI"
+          git config --global user.email "ci@canasta.wiki"
+      # Bootstrap the cluster via the product's own install path so CI
+      # exercises 'canasta install k8s-cp' (which installs k3s + helm at the
+      # pinned canasta_k3s_version / canasta_helm_version, writing
+      # ~/.kube/config) instead of a separate, unpinned curl | sh that
+      # depended on update.k3s.io.
+      - name: Bootstrap k3s control plane via canasta
+        run: ./canasta-native install k8s-cp
+      - name: Run K8s CrowdSec test
+        run: >-
+          .venv/bin/python tests/integration/run_tests.py
+          k8s-crowdsec
+        timeout-minutes: 35
+
+  # Separate job (own runner) so the K8s backup Jobs run against a
+  # fresh single-node cluster with their own time budget, in parallel with
+  # the other k8s jobs rather than serializing behind them.
+  integration-k8s-backup:
+    name: "Integration: Kubernetes Backup"
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git-crypt
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          # Retry to ride out transient Ansible Galaxy CDN timeouts.
+          for attempt in 1 2 3 4; do
+            .venv/bin/ansible-galaxy collection install kubernetes.core && break
+            if [ "$attempt" -eq 4 ]; then
+              echo "ansible-galaxy install failed after 4 attempts" >&2
+              exit 1
+            fi
+            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
+            sleep $((attempt * 10))
+          done
+          git config --global user.name "CI"
+          git config --global user.email "ci@canasta.wiki"
+      # Bootstrap the cluster via the product's own install path so CI
+      # exercises 'canasta install k8s-cp' (which installs k3s + helm at the
+      # pinned canasta_k3s_version / canasta_helm_version, writing
+      # ~/.kube/config) instead of a separate, unpinned curl | sh that
+      # depended on update.k3s.io.
+      - name: Bootstrap k3s control plane via canasta
+        run: ./canasta-native install k8s-cp
+      - name: Run K8s backup test
+        run: >-
+          .venv/bin/python tests/integration/run_tests.py
+          k8s-backup
+        timeout-minutes: 20
+
+  remote-integration:
+    name: Remote Host Integration Tests
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          # Retry to ride out transient Ansible Galaxy CDN timeouts.
+          for attempt in 1 2 3 4; do
+            .venv/bin/ansible-galaxy collection install kubernetes.core && break
+            if [ "$attempt" -eq 4 ]; then
+              echo "ansible-galaxy install failed after 4 attempts" >&2
+              exit 1
+            fi
+            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
+            sleep $((attempt * 10))
+          done
+
+      - name: Run remote integration tests
+        run: tests/integration/remote/run_tests.sh
+        timeout-minutes: 15
