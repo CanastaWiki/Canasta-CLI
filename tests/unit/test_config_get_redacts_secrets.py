@@ -7,6 +7,7 @@ prints; the bare dump is not, and masks.
 """
 
 import os
+import re
 import sys
 
 import yaml
@@ -108,7 +109,9 @@ class TestClassificationMatchesAnsible:
 
     def test_every_pattern_word_is_treated_as_secret(self):
         pattern = self._yaml()["canasta_secret_key_pattern"]
-        for word in pattern.strip("()").split("|"):
+        words = re.findall(r"[A-Z]+", pattern)
+        assert words
+        for word in words:
             assert direct_commands._helpers._is_secret_key("MY_" + word)
 
     def test_ordinary_keys_are_not(self):

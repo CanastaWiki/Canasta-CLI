@@ -1,0 +1,9 @@
+[Unit]
+Description=Keep Canasta NFS exports in step with the cluster's nodes
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,7 @@
+[Unit]
+Description=Limit Canasta NFS exports to the Kubernetes cluster's nodes
+After=network-online.target nfs-server.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/canasta-nfs-exports-sync

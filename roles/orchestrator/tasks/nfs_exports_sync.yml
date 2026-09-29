@@ -1,0 +1,97 @@
+---
+# Export NFS shares only to the cluster's nodes and pod networks.
+#
+# Installs canasta-nfs-exports-sync and a timer that re-runs it every
+# minute, so the export follows nodes joining or leaving the cluster. The
+# sync owns /etc/exports.d/canasta.exports; /etc/exports is left to the
+# operator.
+#
+# Input: _nfs_sync_shares (list of share paths to add; may be empty to only
+#        refresh the installed files), _nfs_sync_kubeconfig (optional path
+#        the root-run sync should use when the host is not a k3s server),
+#        _nfs_sync_required (default true: fail when a share is not exported).
+# Output: _nfs_sync_ok (bool, every share in _nfs_sync_shares is exported).
+
+- name: Create the Canasta config directory on the NFS host
+  ansible.builtin.file:
+    path: /etc/canasta
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Record the shares the sync exports
+  ansible.builtin.lineinfile:
+    path: /etc/canasta/nfs-shares
+    line: "{{ item }}"
+    create: true
+    mode: "0644"
+  loop: "{{ _nfs_sync_shares | default([]) }}"
+  become: true
+
+- name: Record the kubeconfig the sync uses
+  ansible.builtin.copy:
+    dest: /etc/canasta/nfs-exports.env
+    content: "KUBECONFIG={{ _nfs_sync_kubeconfig | quote }}\n"
+    mode: "0644"
+  when: _nfs_sync_kubeconfig | default('') | length > 0
+  become: true
+
+- name: Install the NFS exports sync script
+  ansible.builtin.copy:
+    src: "{{ canasta_root }}/roles/orchestrator/files/nfs/canasta-nfs-exports-sync"
+    dest: /usr/local/sbin/canasta-nfs-exports-sync
+    mode: "0755"
+  become: true
+
+- name: Install the NFS exports sync units
+  ansible.builtin.copy:
+    src: "{{ canasta_root }}/roles/orchestrator/files/nfs/{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - canasta-nfs-exports-sync.service
+    - canasta-nfs-exports-sync.timer
+  become: true
+
+- name: Enable the NFS exports sync timer
+  ansible.builtin.systemd:
+    name: canasta-nfs-exports-sync.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  become: true
+
+- name: Sync the NFS exports now
+  ansible.builtin.command:
+    cmd: /usr/local/sbin/canasta-nfs-exports-sync
+  register: _nfs_sync_run
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Read the synced exports
+  ansible.builtin.slurp:
+    src: /etc/exports.d/canasta.exports
+  register: _nfs_sync_exports
+  failed_when: false
+  become: true
+
+- name: Check that every share is exported
+  ansible.builtin.set_fact:
+    _nfs_sync_ok: >-
+      {{ (_nfs_sync_shares | default([]))
+         | reject('in', (_nfs_sync_exports.content | default('') | b64decode).splitlines()
+                         | map('regex_replace', '^(\S+)\s.*$', '\1') | list)
+         | list | length == 0 }}
+
+- name: Fail if a share is not exported
+  ansible.builtin.fail:
+    msg: >-
+      Could not export {{ _nfs_sync_shares | join(', ') }} to the cluster's
+      nodes: the export sync
+      {{ 'exited ' ~ _nfs_sync_run.rc ~ ' (the Kubernetes API did not list the nodes)'
+         if _nfs_sync_run.rc != 0 else 'did not write them' }}.
+      Check `sudo /usr/local/sbin/canasta-nfs-exports-sync` on this host.
+  when:
+    - not (_nfs_sync_ok | bool)
+    - _nfs_sync_required | default(true) | bool
