@@ -587,6 +587,60 @@ class TestPasswdEntryUsesHostUsername:
         )
 
 
+class TestCredentialCopiesOwnerOnly:
+    """The sanitized Docker config and kubeconfig copies carry registry
+    and cluster credentials, so they must not be readable by other
+    local users, including when a copy from an earlier run is 0644.
+    """
+
+    def _home(self):
+        home = tempfile.mkdtemp(prefix="cd-", dir="/tmp")
+        _run_dry_tmpdirs.append(home)
+        os.makedirs(os.path.join(home, ".docker"))
+        with open(os.path.join(home, ".docker", "config.json"), "w") as f:
+            json.dump({"auths": {}, "credsStore": "desktop"}, f)
+        os.makedirs(os.path.join(home, ".kube"))
+        with open(os.path.join(home, ".kube", "config"), "w") as f:
+            f.write(
+                "clusters:\n"
+                "- cluster:\n"
+                "    server: https://127.0.0.1:6443\n"
+                "  name: local\n"
+            )
+        return home
+
+    def _config_dir(self):
+        config_dir = tempfile.mkdtemp(prefix="cd-", dir="/tmp")
+        _run_dry_tmpdirs.append(config_dir)
+        return config_dir
+
+    def _assert_owner_only(self, config_dir):
+        for name in (".docker-config.json", ".kube-config"):
+            path = os.path.join(config_dir, name)
+            assert os.path.isfile(path), "%s was not written" % path
+            mode = os.stat(path).st_mode & 0o777
+            assert mode == 0o600, "%s has mode %o, not 600" % (path, mode)
+
+    def test_new_copies_are_0600(self):
+        config_dir = self._config_dir()
+        run_dry(["version"], env={
+            "HOME": self._home(), "CANASTA_CONFIG_DIR": config_dir,
+        })
+        self._assert_owner_only(config_dir)
+
+    def test_existing_0644_copies_are_tightened(self):
+        config_dir = self._config_dir()
+        for name in (".docker-config.json", ".kube-config"):
+            path = os.path.join(config_dir, name)
+            with open(path, "w") as f:
+                f.write("stale\n")
+            os.chmod(path, 0o644)
+        run_dry(["version"], env={
+            "HOME": self._home(), "CANASTA_CONFIG_DIR": config_dir,
+        })
+        self._assert_owner_only(config_dir)
+
+
 def assert_no_env_key(argv, key):
     """Assert no `-e KEY=...` appears in the docker run argv."""
     for i, a in enumerate(argv):
