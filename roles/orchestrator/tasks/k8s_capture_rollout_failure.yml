@@ -39,7 +39,7 @@
   ansible.builtin.debug:
     msg: >-
       {{ ['The rollout did not finish. What the cluster reports:', '']
-         + (_rollout_state.stdout | default('') | split('\n')) }}
+         + (_rollout_state.stdout | default('')).splitlines() }}
   when: (_rollout_state.stdout | default('') | trim) | length > 0
 
 # A PVC stuck Pending never resolves by waiting: no provisioner will
