@@ -1237,12 +1237,14 @@ def _ssh_run(host, cmd):
         if result.returncode != 0 and result.stderr.strip():
             print(result.stderr.strip(), file=sys.stderr)
         return result.returncode, result.stdout
+    # A timeout or a failure to run ssh at all says nothing about the remote
+    # command, so report it as ssh's own transport failure.
     except subprocess.TimeoutExpired:
         print("Error: SSH connection to %s timed out" % host, file=sys.stderr)
-        return 1, ""
+        return _SSH_CONN_FAILURE_RC, ""
     except OSError as e:
         print("Error: %s" % e, file=sys.stderr)
-        return 1, ""
+        return _SSH_CONN_FAILURE_RC, ""
 
 
 # ssh exits 255 on a connection-level failure (reset / broken pipe /
