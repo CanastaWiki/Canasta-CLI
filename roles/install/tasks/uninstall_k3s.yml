@@ -1,5 +1,7 @@
 ---
-# Uninstall k3s, kubectl, helm, and clean up iptables rules.
+# Uninstall k3s, kubectl, helm, and clean up iptables rules. NFS exports
+# that `canasta storage setup nfs --install-server` scoped to this cluster's
+# nodes are withdrawn once the cluster is gone.
 # Idempotent — skips if k3s is not installed. Handles both the
 # control-plane (k3s-uninstall.sh) and worker (k3s-agent-uninstall.sh)
 # install forms; the k3s installer creates a different script
@@ -127,6 +129,13 @@
         - _doomed_volumes | length > 0
         - force | default(false) | bool
 
+# The install writes the kubeconfig under the connecting user's HOME, so
+# gather it without become.
+- name: Gather minimal facts for HOME directory
+  ansible.builtin.setup:
+    filter: ansible_env
+  when: _k3s_uninstall_script | length > 0
+
 - name: Uninstall k3s
   when: _k3s_uninstall_script | length > 0
   become: true
@@ -161,12 +170,16 @@
 
     - name: Remove kubeconfig
       ansible.builtin.file:
-        path: "{{ ansible_env.HOME | default('/root') }}/.kube/config"
+        path: "{{ ansible_env.HOME }}/.kube/config"
         state: absent
 
     - name: Report uninstalled
       ansible.builtin.debug:
         msg: "Kubernetes ({{ _k3s_role_label }}) uninstalled."
+
+- name: Withdraw NFS exports that followed this cluster
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/nfs_exports_remove.yml"
+  when: _k3s_uninstall_script | length > 0
 
 # --- Worker only: clean up the Node entry on the control plane ---
 

@@ -1,0 +1,82 @@
+---
+# Stop exporting the shares nfs_exports_sync.yml manages once the cluster it
+# follows is gone. Without a reachable cluster the sync keeps its last node
+# list, so the share would stay exported to those addresses indefinitely.
+#
+# The cluster counts as gone when the kubeconfig the sync reads no longer
+# exists. The share directories and their contents are left in place.
+
+- name: Check for an installed NFS exports sync
+  ansible.builtin.stat:
+    path: /etc/canasta/nfs-shares
+  register: _nfs_rm_shares
+  become: true
+
+- name: Remove the NFS exports sync when its cluster is gone
+  when: _nfs_rm_shares.stat.exists
+  become: true
+  block:
+    - name: Read the kubeconfig the sync uses
+      ansible.builtin.shell:
+        cmd: >-
+          . /etc/canasta/nfs-exports.env 2>/dev/null;
+          echo "${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+      register: _nfs_rm_kubeconfig
+      changed_when: false
+
+    - name: Check whether that kubeconfig still exists
+      ansible.builtin.stat:
+        path: "{{ _nfs_rm_kubeconfig.stdout | trim }}"
+      register: _nfs_rm_kubeconfig_stat
+
+    - name: Read the exported shares
+      ansible.builtin.slurp:
+        src: /etc/canasta/nfs-shares
+      register: _nfs_rm_share_list
+      when: not _nfs_rm_kubeconfig_stat.stat.exists
+
+    - name: Stop the NFS exports sync timer
+      ansible.builtin.systemd:
+        name: canasta-nfs-exports-sync.timer
+        enabled: false
+        state: stopped
+      failed_when: false
+      when: not _nfs_rm_kubeconfig_stat.stat.exists
+
+    - name: Remove the NFS exports sync files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/canasta-nfs-exports-sync.timer
+        - /etc/systemd/system/canasta-nfs-exports-sync.service
+        - /usr/local/sbin/canasta-nfs-exports-sync
+        - /etc/exports.d/canasta.exports
+        - /etc/canasta/nfs-exports.env
+        - /etc/canasta/nfs-shares
+      when: not _nfs_rm_kubeconfig_stat.stat.exists
+
+    - name: Reload systemd after removing the sync units
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: not _nfs_rm_kubeconfig_stat.stat.exists
+
+    - name: Withdraw the NFS exports
+      ansible.builtin.command:
+        cmd: exportfs -ra
+      changed_when: true
+      when: not _nfs_rm_kubeconfig_stat.stat.exists
+
+    - name: Report the withdrawn NFS exports
+      ansible.builtin.debug:
+        msg: >-
+          Stopped exporting NFS share(s) {{ (_nfs_rm_share_list.content | b64decode).split() | join(', ') }}.
+          Their contents were left on disk.
+      when: not _nfs_rm_kubeconfig_stat.stat.exists
+
+    - name: Report NFS exports kept for another cluster
+      ansible.builtin.debug:
+        msg: >-
+          NFS exports on this host follow the cluster in
+          {{ _nfs_rm_kubeconfig.stdout | trim }}, which still exists; left them in place.
+      when: _nfs_rm_kubeconfig_stat.stat.exists
