@@ -225,19 +225,43 @@ class TestPasswordsStayOffTheCommandLine:
                             "%s:%d" % (os.path.relpath(path, REPO_ROOT), lineno))
         assert not offenders, (
             "interpolate the password into the command line and it shows up "
-            "in ps; read it from the container's environment instead "
-            "(-p\"$MYSQL_PASSWORD\"): " + ", ".join(offenders))
+            "in ps; pass it through MYSQL_PWD from the container's "
+            "environment instead: " + ", ".join(offenders))
+
+    def test_no_password_argument_from_the_environment(self):
+        # -p"$MYSQL_PASSWORD" keeps the secret out of the playbook, but the
+        # shell expands it into the client's argv, where ps still shows it.
+        pattern = re.compile(r"""-p["']?\$|--password=""")
+        offenders = []
+        for root in SEARCH_ROOTS:
+            for dirpath, _, filenames in os.walk(
+                    os.path.join(REPO_ROOT, root)):
+                for filename in filenames:
+                    if not filename.endswith((".yml", ".yaml", ".py")):
+                        continue
+                    path = os.path.join(dirpath, filename)
+                    with open(path) as f:
+                        for lineno, line in enumerate(f, 1):
+                            if pattern.search(line):
+                                offenders.append("%s:%d" % (
+                                    os.path.relpath(path, REPO_ROOT),
+                                    lineno))
+        assert not offenders, (
+            "a password argument is visible in the process list; set "
+            "MYSQL_PWD=\"$MYSQL_PASSWORD\" before the client instead: "
+            + ", ".join(offenders))
 
     def test_compose_dump_reads_the_environment(self):
         dump = _by_name(STAGE, "Dump each wiki's database group (Compose)")
-        assert '-p"$MYSQL_PASSWORD"' in dump["vars"]["exec_command"]
+        assert 'MYSQL_PWD="$MYSQL_PASSWORD"' in dump["vars"]["exec_command"]
 
     def test_restore_import_reads_the_environment(self):
         for name in ("Import each wiki database dump",
                      "Import the single restored wiki's database dump"):
             task = _by_name(RESTORE, name)
             assert task is not None, name
-            assert '-p"$MYSQL_PASSWORD"' in task["vars"]["exec_command"], name
+            assert ('MYSQL_PWD="$MYSQL_PASSWORD"'
+                    in task["vars"]["exec_command"]), name
 
 
 class TestDeclarationCommands:

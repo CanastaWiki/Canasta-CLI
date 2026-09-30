@@ -187,12 +187,13 @@
           - -c
           - |
             set -u
+            export MYSQL_PWD="$MYSQL_PASSWORD"
             EXCLUDE='^(information_schema|performance_schema|mysql|sys)$'
             WIKI_GROUPS='{{ _backup_groups_encoded | default('') }}'
             # List databases first so a connection/auth failure aborts the
             # backup loudly instead of silently saving a DB-less snapshot.
             if ! DBLIST=$(mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" \
-                -p"$MYSQL_PASSWORD" -N -e "SHOW DATABASES"); then
+                -N -e "SHOW DATABASES"); then
               echo "FATAL: could not list databases (DB connection or auth failed)" >&2
               exit 1
             fi
@@ -211,7 +212,7 @@
               name=$1
               shift
               if ! mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" \
-                  -p"$MYSQL_PASSWORD" --single-transaction --databases "$@" \
+                  --single-transaction --databases "$@" \
                   > "/currentsnapshot/config/backup/db_${name}.sql"; then
                 echo "FATAL: mariadb-dump failed for database(s) '$*'" >&2
                 exit 1
