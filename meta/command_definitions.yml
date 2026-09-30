@@ -921,7 +921,9 @@ commands:
     description: "Uninstall dependencies from the target host"
     long_description: |
       Uninstall dependencies from the target host. Supported packages:
-      k8s (removes k3s, kubectl, helm, and cleans up iptables rules).
+      k8s (removes k3s, kubectl, helm, and cleans up iptables rules;
+      NFS exports that `canasta storage setup nfs --install-server`
+      scoped to the cluster are withdrawn, their contents left on disk).
 
       When uninstalling k8s from a worker, pass `--cp-host <name>` to
       also delete the worker's Node entry from the control plane.

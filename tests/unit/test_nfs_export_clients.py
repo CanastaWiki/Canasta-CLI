@@ -1,8 +1,9 @@
 """Guards for `canasta storage setup nfs --install-server` exports.
 
 The share is exported only to the cluster's node addresses and pod networks,
-through a sync that follows nodes joining and leaving, and `canasta upgrade`
-moves an export written by an earlier release onto that sync.
+through a sync that follows nodes joining and leaving, `canasta upgrade`
+moves an export written by an earlier release onto that sync, and
+`canasta uninstall k8s` withdraws the export once the cluster is gone.
 """
 
 import os
@@ -16,6 +17,9 @@ TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 SYNC_TASKS = os.path.join(TASKS, "nfs_exports_sync.yml")
 UPGRADE_TASKS = os.path.join(TASKS, "k8s_nfs_exports_upgrade.yml")
 UPGRADE_MAIN = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "main.yml")
+REMOVE_TASKS = os.path.join(TASKS, "nfs_exports_remove.yml")
+UNINSTALL_K3S = os.path.join(REPO_ROOT, "roles", "install", "tasks",
+                             "uninstall_k3s.yml")
 SCRIPT = os.path.join(REPO_ROOT, "roles", "orchestrator", "files", "nfs",
                       "canasta-nfs-exports-sync")
 
@@ -125,3 +129,71 @@ class TestUpgrade:
     def test_old_export_is_kept_unless_the_sync_worked(self):
         task = _named(UPGRADE_TASKS, "Remove the any-host exports from /etc/exports")
         assert task["when"] == "_nfs_sync_ok | default(false) | bool"
+
+
+class TestUninstall:
+    def _include(self):
+        return _named(UNINSTALL_K3S,
+                      "Withdraw NFS exports that followed this cluster")
+
+    def test_uninstall_withdraws_the_exports(self):
+        task = self._include()
+        assert task["ansible.builtin.include_tasks"].endswith(
+            "/roles/orchestrator/tasks/nfs_exports_remove.yml")
+        assert task["when"] == "_k3s_uninstall_script | length > 0"
+
+    def test_include_runs_after_k3s_is_removed_and_outside_a_block(self):
+        top = _load(UNINSTALL_K3S)
+        names = [t.get("name") for t in top]
+        assert self._include() in top
+        assert names.index("Uninstall k3s") < names.index(
+            "Withdraw NFS exports that followed this cluster")
+
+    def test_every_file_the_sync_installs_is_removed(self):
+        installed = {"/etc/exports.d/canasta.exports"}
+        for t in _walk(_load(SYNC_TASKS)):
+            for key in ("ansible.builtin.copy", "ansible.builtin.lineinfile"):
+                mod = t.get(key) or {}
+                dest = mod.get("dest") or mod.get("path")
+                if not dest:
+                    continue
+                if "{{ item }}" in dest:
+                    installed.update(dest.replace("{{ item }}", i)
+                                     for i in t["loop"])
+                else:
+                    installed.add(dest)
+        task = _named(REMOVE_TASKS, "Remove the NFS exports sync files")
+        assert task["ansible.builtin.file"]["state"] == "absent"
+        assert installed <= set(task["loop"])
+
+    def test_removal_waits_for_the_cluster_to_be_gone(self):
+        gate = "not _nfs_rm_kubeconfig_stat.stat.exists"
+        for name in ("Stop the NFS exports sync timer",
+                     "Remove the NFS exports sync files",
+                     "Withdraw the NFS exports"):
+            assert _named(REMOVE_TASKS, name)["when"] == gate
+
+    def test_kubeconfig_default_matches_the_sync(self):
+        task = _named(REMOVE_TASKS, "Read the kubeconfig the sync uses")
+        cmd = task["ansible.builtin.shell"]["cmd"]
+        assert "/etc/canasta/nfs-exports.env" in cmd
+        assert "/etc/rancher/k3s/k3s.yaml" in open(SCRIPT).read()
+        assert "${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}" in cmd
+
+    def test_share_contents_are_left_alone(self):
+        task = _named(REMOVE_TASKS, "Remove the NFS exports sync files")
+        assert not any(p.startswith("/srv") for p in task["loop"])
+        text = open(REMOVE_TASKS).read()
+        assert "rm -rf" not in text
+
+    def test_uninstall_removes_the_kubeconfig_the_install_wrote(self):
+        top = _load(UNINSTALL_K3S)
+        names = [t.get("name") for t in top]
+        gather = _named(UNINSTALL_K3S, "Gather minimal facts for HOME directory")
+        assert gather["ansible.builtin.setup"]["filter"] == "ansible_env"
+        assert "become" not in gather
+        assert names.index("Gather minimal facts for HOME directory") < (
+            names.index("Uninstall k3s"))
+        remove = _named(UNINSTALL_K3S, "Remove kubeconfig")
+        assert remove["ansible.builtin.file"]["path"] == (
+            "{{ ansible_env.HOME }}/.kube/config")
