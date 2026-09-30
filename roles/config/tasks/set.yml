@@ -40,13 +40,34 @@
 
 # Dispatch: --secret writes opaque values to the gitignored config/secrets.env
 # (no .env validation/side effects); otherwise the normal .env config path.
-- name: Set opaque secret values (config/secrets.env)
-  ansible.builtin.include_tasks: _set_secret.yml
-  when: secret | default(false) | bool
+#
+# Once MYSQL_PASSWORD has been changed in the database, the running wiki
+# still holds the old one, so a failure in any later step must still
+# restart the instance before reporting the error.
+- name: Apply the settings
+  block:
+    - name: Set opaque secret values (config/secrets.env)
+      ansible.builtin.include_tasks: _set_secret.yml
+      when: secret | default(false) | bool
 
-- name: Set .env config values
-  ansible.builtin.include_tasks: _set_config.yml
-  when: not (secret | default(false) | bool)
+    - name: Set .env config values
+      ansible.builtin.include_tasks: _set_config.yml
+      when: not (secret | default(false) | bool)
+  rescue:
+    - name: Restart onto the new database password
+      ansible.builtin.include_role:
+        name: instance_lifecycle
+        tasks_from: restart.yml
+      when: _db_password_rotated | default(false) | bool
+
+    - name: Report the failed config set
+      ansible.builtin.fail:
+        msg: >-
+          {{ ansible_failed_result.msg | default('config set failed; see the error above.') }}
+          {{ 'The database password had already been changed, so the instance
+          was restarted to use it. Correct the error before the next gitops
+          pull, which renders .env from the gitops vars.'
+          if (_db_password_rotated | default(false) | bool) else '' }}
 
 # The restart is a side effect here, not what the operator asked for, so
 # say it is coming before the instance goes down.

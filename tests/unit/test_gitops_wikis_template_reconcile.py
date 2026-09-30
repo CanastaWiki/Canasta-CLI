@@ -9,6 +9,7 @@ capture; these tests assert it exists, keeps `name` a literal while
 `config regenerate` in the right order.
 """
 
+import json
 import os
 import re
 
@@ -70,7 +71,7 @@ class TestReconcileTask:
             content = f.read()
         # url is host-specific -> placeholder; name is shared -> literal.
         assert "wiki_url_{{ w.id }}" in content, "url must stay a placeholder"
-        assert 'name: "{{ w.name | default(w.id) }}"' in content, (
+        assert 'name: {{ w.name | default(w.id) | to_json }}' in content, (
             "name must be copied through as a literal so display-name edits "
             "are captured"
         )
@@ -109,8 +110,9 @@ class TestExtraDatabasesSurviveRender:
 
     def _render(self, wikis, db_groups):
         jinja2 = pytest.importorskip("jinja2")
-        template = jinja2.Template(
-            _copy_template_content(), trim_blocks=True, lstrip_blocks=False)
+        env = jinja2.Environment(trim_blocks=True, lstrip_blocks=False)
+        env.filters["to_json"] = json.dumps
+        template = env.from_string(_copy_template_content())
         rendered = template.render(_reconcile_wikis_data={
             "wikis": wikis, "db_groups": db_groups})
         return rendered

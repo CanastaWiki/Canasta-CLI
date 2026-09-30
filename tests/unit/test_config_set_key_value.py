@@ -46,8 +46,11 @@ def test_check_runs_before_either_dispatch():
     assert names.index(
         "Resolve settings string (allow internal override of the extra-var)"
     ) < check
-    assert check < names.index("Set opaque secret values (config/secrets.env)")
-    assert check < names.index("Set .env config values")
+    apply = names.index("Apply the settings")
+    assert check < apply
+    dispatch = [t.get("name") for t in _tasks()[apply]["block"]]
+    assert dispatch == ["Set opaque secret values (config/secrets.env)",
+                        "Set .env config values"]
 
 
 @pytest.mark.parametrize(
