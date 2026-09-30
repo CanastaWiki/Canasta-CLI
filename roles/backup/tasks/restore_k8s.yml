@@ -287,13 +287,18 @@
   when: wiki is not defined
   ansible.builtin.shell:
     cmd: >-
+      set -eo pipefail;
+      if kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      test -d /currentsnapshot/config; then
       rm -rf "{{ instance_path }}/config";
       mkdir -p "{{ instance_path }}/config";
       kubectl exec -n {{ _k8s_namespace }} restic-restore --
-      tar cf - -C /currentsnapshot/config . 2>/dev/null |
-      tar xf - -C "{{ instance_path }}/config/"
+      tar cf - -C /currentsnapshot/config . |
+      tar xf - -C "{{ instance_path }}/config/";
+      fi
+  args:
+    executable: /bin/bash
   changed_when: true
-  ignore_errors: true
 
 # Single-wiki restore replaces only the target wiki's settings dir on the host;
 # k8s_sync_config below pushes it into the ConfigMap the pods read.
@@ -301,13 +306,18 @@
   when: wiki is defined
   ansible.builtin.shell:
     cmd: >-
+      set -eo pipefail;
+      if kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      test -d /currentsnapshot/config/settings/wikis/{{ wiki }}; then
       rm -rf "{{ instance_path }}/config/settings/wikis/{{ wiki }}";
       mkdir -p "{{ instance_path }}/config/settings/wikis/{{ wiki }}";
       kubectl exec -n {{ _k8s_namespace }} restic-restore --
-      tar cf - -C /currentsnapshot/config/settings/wikis/{{ wiki }} . 2>/dev/null |
-      tar xf - -C "{{ instance_path }}/config/settings/wikis/{{ wiki }}/"
+      tar cf - -C /currentsnapshot/config/settings/wikis/{{ wiki }} . |
+      tar xf - -C "{{ instance_path }}/config/settings/wikis/{{ wiki }}/";
+      fi
+  args:
+    executable: /bin/bash
   changed_when: true
-  ignore_errors: true
 
 # Full restore round-trips the source host's .env; single-wiki leaves it alone.
 - name: Copy restored .env to host
