@@ -68,7 +68,7 @@ caddy:
 # Varnish cache
 varnish:
   enabled: true
-  image: varnish:7.0.2-alpine
+  image: varnish:9.1.0
   resources:
     requests:
       cpu: 100m

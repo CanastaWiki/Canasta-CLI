@@ -209,7 +209,7 @@ services:
       - caddy-logs:/var/log/caddy
 
   varnish:
-    image: docker.io/library/varnish:7.0.2-alpine
+    image: docker.io/library/varnish:9.1.0
     # Same as `web`: needed so podman-compose doesn't run as the host
     # user and lose read access to the bind-mounted default.vcl.
     user: root
