@@ -204,8 +204,8 @@
                 exec_service: db
                 exec_long: true
                 exec_command: >-
+                  MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
                   mariadb --no-defaults -u root
-                  -p"$MYSQL_ROOT_PASSWORD"
                   < /tmp/dump.sql
 
             - name: Clean up the dump inside the container
