@@ -43,6 +43,14 @@
         dest: "{{ instance_path }}/values.yaml"
         mode: "0644"
 
+    # Nothing pulls images on Kubernetes, so the upgrade's restart decision
+    # needs to know the tag moved in order to roll the pods onto it.
+    - name: Record whether the image tag changed
+      ansible.builtin.set_fact:
+        _k8s_image_tag_changed: >-
+          {{ (_upgrade_values.image.tag | default('') | string)
+             != (_upgrade_new_values.image.tag | string) }}
+
     # On a gitops K8s instance, render_kubernetes.yml regenerates the deployed
     # values from values.template.yaml overlaid with hosts/<host>/vars.yaml's
     # image_tag — so the values.yaml write above is reverted on the next pull
