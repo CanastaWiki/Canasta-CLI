@@ -185,6 +185,12 @@ if [[ "$(id -u)" != "0" ]]; then
     )
 fi
 
+# The Docker and kube config copies below carry credentials, so they
+# are written owner-only. umask covers a new file; a truncating write
+# keeps an existing file's mode, so that needs the chmod.
+_saved_umask="$(umask)"
+umask 077
+
 # Sanitize Docker config.json for the container.
 # macOS Docker Desktop's config.json typically contains
 # "credsStore": "desktop" which references docker-credential-desktop,
@@ -198,6 +204,7 @@ fi
 DOCKER_CONFIG_HOST="$HOME/.docker/config.json"
 if [[ -f "$DOCKER_CONFIG_HOST" ]] && grep -q '"credsStore"' "$DOCKER_CONFIG_HOST" 2>/dev/null; then
     CANASTA_DOCKER_CONFIG="$CONFIG_DIR/.docker-config.json"
+    [[ ! -e "$CANASTA_DOCKER_CONFIG" ]] || chmod 600 "$CANASTA_DOCKER_CONFIG"
     if command -v python3 &>/dev/null; then
         python3 -c "
 import json, sys
@@ -239,6 +246,7 @@ KUBE_CONFIG="$HOME/.kube/config"
 if [[ -f "$KUBE_CONFIG" ]] \
     && grep -qE 'server:.*https://(127\.0\.0\.1|localhost)' "$KUBE_CONFIG" 2>/dev/null; then
     CANASTA_KUBE_CONFIG="$CONFIG_DIR/.kube-config"
+    [[ ! -e "$CANASTA_KUBE_CONFIG" ]] || chmod 600 "$CANASTA_KUBE_CONFIG"
     if [[ "$(uname)" == "Darwin" ]]; then
         sed -e 's|server: https://127\.0\.0\.1|server: https://kubernetes.docker.internal|g' \
             -e 's|server: https://localhost|server: https://kubernetes.docker.internal|g' \
@@ -290,6 +298,7 @@ PYEOF
         MOUNTS+=(-v "$CANASTA_KUBE_CONFIG":"$HOME/.kube/config":ro)
     fi
 fi
+umask "$_saved_umask"
 
 # Ensure the container has a passwd entry for the host UID so that
 # SSH and Ansible can resolve the current user (required for remote
