@@ -1,7 +1,7 @@
 ---
 # Add a single resolved extension/skin to the instance.
 # Input (loop item): a canasta_extension_resolve result dict with
-#   name, repository, branch, branch_note.
+#   name, repository, branch, branch_note, source_label, category.
 # Also uses: instance_path, _item_dir, _item_type, is_gitops.
 
 - name: "Validate {{ _item_type }} name"
@@ -184,6 +184,13 @@
          else 'detached (HEAD)' }}.
       The checkout was not changed — pass --branch or --mw-version to pin the
       right release.
+
+- name: "Report where {{ _item_type }} '{{ item.name }}' is cloned from"
+  when: not _add_existing.stat.exists
+  ansible.builtin.debug:
+    msg: >-
+      Cloning {{ _item_type[:-1] }} '{{ item.name }}' from {{ item.repository }}
+      ({{ item.source_label }})
 
 # A failed `submodule add` (e.g. a -b branch the remote lacks) still leaves
 # the clone and its .git/modules entry behind; the clone would be symlinked

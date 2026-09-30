@@ -315,3 +315,115 @@ class TestFailedSubmoduleAdd:
             cmd = _cmd(t)
             if "-b " in cmd:
                 assert "item.branch | quote" in cmd
+
+
+def _names(tasks):
+    return [t.get("name", "") for t in tasks]
+
+
+def _index(tasks, fragment):
+    return next(i for i, n in enumerate(_names(tasks)) if fragment in n)
+
+
+class TestBundledProbe:
+    def _probe(self):
+        return next(t for t in _walk(_load(ADD))
+                    if t.get("name", "").startswith("Probe bundled"))
+
+    def test_probe_lists_real_directories_not_symlinks(self):
+        cmd = self._probe()["block"][0]["vars"]["exec_command"]
+        assert "/var/www/mediawiki/w/{{ _item_type }}" in cmd
+        assert '[ -d "$d" ]' in cmd and '[ ! -L "$d" ]' in cmd
+
+    def test_probe_failure_fails_instead_of_assuming_not_bundled(self):
+        rescue = self._probe()["rescue"]
+        assert rescue and "ansible.builtin.fail" in rescue[-1]
+        assert not any("set_fact" in str(t) for t in rescue)
+
+    def test_probe_block_is_unconditional(self):
+        assert "when" not in self._probe()
+
+    def test_matching_is_case_insensitive(self):
+        classify = next(t for t in _walk(_load(ADD))
+                        if t.get("name", "").startswith("Classify requested"))
+        expr = classify["ansible.builtin.set_fact"]["_classified"]
+        assert "item | lower" in expr
+        assert "_bundled_map" in expr and "_local_map" in expr
+        # Bundled wins over a local checkout of the same name.
+        assert expr.index("_bundled_map") < expr.index("_local_map")
+
+    def test_bundled_items_are_not_resolved(self):
+        resolve = next(t for t in _walk(_load(ADD))
+                       if "canasta_extension_resolve" in t)
+        assert resolve["loop"] == "{{ _non_bundled }}"
+
+    def test_overrides_refused_for_bundled(self):
+        guard = next(t for t in _walk(_load(ADD))
+                     if t.get("name", "").startswith("Refuse --repository/--branch for a bundled"))
+        assert "ansible.builtin.fail" in guard
+        assert "_bundled_names | length > 0" in guard["when"]
+
+    def test_bundled_items_are_enabled(self):
+        for t in _walk(_load(ADD)):
+            if "enable.yml" in str(t.get("ansible.builtin.include_tasks") or ""):
+                assert "_bundled_names" in t["vars"]["_names"]
+
+
+class TestCloneGate:
+    def _gate(self):
+        return next(t for t in _walk(_load(ADD))
+                    if t.get("name") == "Refuse to clone without --clone or --repository")
+
+    def test_gate_accepts_clone_or_repository(self):
+        when = " ".join(self._gate()["when"])
+        assert "_clone_pending | length > 0" in when
+        assert "clone | default(false) | bool" in when
+        assert "repository | default('', true) | length == 0" in when
+
+    def test_gate_names_url_and_source(self):
+        msg = self._gate()["ansible.builtin.fail"]["msg"]
+        assert "c.repository" in msg and "c.source_label" in msg
+        assert "--clone" in msg
+
+    def test_gate_runs_after_resolve_and_before_any_change(self):
+        tasks = _load(ADD)
+        gate = _index(tasks, "Refuse to clone without")
+        assert _index(tasks, "Resolve {{ _item_type }} git URL") < gate
+        assert gate < _index(tasks, "Report bundled")
+        assert gate < _index(tasks, "Add each")
+
+    def test_local_checkout_keeps_on_disk_spelling(self):
+        collect = next(t for t in _walk(_load(ADD))
+                       if t.get("name", "").startswith("Collect resolved"))
+        expr = collect["ansible.builtin.set_fact"]["_to_add"]
+        assert "item.item.category == 'local'" in expr
+
+    def test_clone_source_is_reported_before_cloning(self):
+        tasks = _load(ADD_ONE)
+        report = _index(tasks, "Report where")
+        assert report < _index(tasks, "Add {{ _item_type }} as a gitops submodule")
+        assert report < _index(tasks, "Add {{ _item_type }} as a plain clone")
+        msg = tasks[report]["ansible.builtin.debug"]["msg"]
+        assert "item.repository" in msg and "item.source_label" in msg
+        assert tasks[report]["when"] == "not _add_existing.stat.exists"
+
+
+class TestCommandDefinitions:
+    def _cmd(self, name):
+        path = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        return next(c for c in data["commands"] if c["name"] == name)
+
+    def test_clone_flag_defined(self):
+        for name in ("extension_add", "skin_add"):
+            params = {p["name"]: p for p in self._cmd(name)["parameters"]}
+            assert params["clone"]["type"] == "bool"
+            assert params["clone"]["default"] is False
+
+    def test_description_explains_the_order(self):
+        for name in ("extension_add", "skin_add"):
+            text = self._cmd(name)["long_description"]
+            assert "Bundled with Canasta" in text
+            assert "--clone" in text
+            assert "not hosted on" in text

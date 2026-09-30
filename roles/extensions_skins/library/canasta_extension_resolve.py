@@ -25,8 +25,9 @@ The branch is chosen as follows:
 The selected REL branch is verified to exist via ``git ls-remote`` before it
 is handed back.
 
-Repository URLs are validated to be plain http(s) remotes before being used,
-so ``ext::`` transport strings or leading-dash options cannot reach ``git``.
+URLs from ExtensionJson.json and Gerrit must be https remotes, so ``ext::``
+transport strings, plaintext http, or leading-dash options cannot reach
+``git``. An explicit ``--repository`` only has to pass the leading-dash check.
 """
 
 from __future__ import absolute_import, division, print_function
@@ -98,6 +99,13 @@ returns:
     description: Where the data came from ('explicit', 'url:<url>', 'file:<path>', 'gerrit').
     returned: success
     type: str
+  source_label:
+    description: >-
+      Human-readable origin of the repository URL ('--repository',
+      'ExtensionJson.json' or 'Wikimedia Gerrit'), suffixed with
+      '; not hosted on Wikimedia Gerrit' when the URL points elsewhere.
+    returned: success
+    type: str
   url:
     description: The extension's canonical page URL from ExtensionJson.json.
     returned: success
@@ -121,6 +129,7 @@ from ansible.module_utils.basic import AnsibleModule
 MW_VERSION_RE = re.compile(r"^1\.(\d+)(?:\.\d+)?$")
 DEFAULT_JSON_URL = "https://extjsonuploader.toolforge.org/ExtensionJson.json"
 GERRIT_URL = "https://gerrit.wikimedia.org/r/"
+GERRIT_HOST_RE = re.compile(r"^https://gerrit\.wikimedia\.org(?:/|$)", re.IGNORECASE)
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")
 
 
@@ -163,8 +172,8 @@ def validate_repository_url(url):
     """Return an error message if an *untrusted* ``url`` must not reach git.
 
     Git accepts ``ext::sh -c ...`` transport URLs and treats leading-dash
-    arguments as options; only plain http(s) remotes are allowed for values
-    that come from the community-supplied ExtensionJson.json. A trusted
+    arguments as options; only https remotes are allowed for values that
+    come from the community-supplied ExtensionJson.json or Gerrit. A trusted
     operator-provided ``--repository`` override skips this check (see
     resolve), so internal ``ssh://`` or ``git@host:path`` remotes work.
     """
@@ -172,8 +181,8 @@ def validate_repository_url(url):
     if basic:
         return basic
     low = url.strip().lower()
-    if not (low.startswith("https://") or low.startswith("http://")):
-        return ("Refusing repository URL '%s': only http(s) git remotes are "
+    if not low.startswith("https://"):
+        return ("Refusing repository URL '%s': only https git remotes are "
                 "supported." % url)
     return None
 
@@ -236,12 +245,25 @@ def find_entry(data, name):
 
 
 def usable_dataset_url(url):
-    """True if a dataset repository value can be cloned: a plain http(s)
-    remote, and not a Phabricator Diffusion URL, which no longer serves
-    clones."""
+    """True if a dataset repository value can be cloned: an https remote,
+    and not a Phabricator Diffusion URL, which no longer serves clones."""
     if not url or validate_repository_url(url):
         return False
     return "phabricator.wikimedia.org/" not in url.lower()
+
+
+def source_label(source, url):
+    """Describe where ``url`` came from for the operator, flagging a remote
+    that is not on Wikimedia Gerrit."""
+    if source == "explicit":
+        label = "--repository"
+    elif source == "gerrit":
+        label = "Wikimedia Gerrit"
+    else:
+        label = "ExtensionJson.json"
+    if not GERRIT_HOST_RE.match((url or "").strip()):
+        label += "; not hosted on Wikimedia Gerrit"
+    return label
 
 
 def gerrit_projects(name):
@@ -348,8 +370,8 @@ def resolve(name, item_type, mw_version, repository, branch, json_path, json_url
     safety_error = _validate_url_basic(url)
     if safety_error:
         return {"failed": True, "msg": safety_error}
-    # The ExtensionJson.json value is community-supplied and untrusted, so it
-    # must be a plain http(s) remote. An operator-provided --repository
+    # The ExtensionJson.json and Gerrit values are looked up, not chosen by
+    # the operator, so they must be https remotes. An operator-provided --repository
     # override is trusted and may be an internal ssh:// or git@ host, so it
     # skips the scheme restriction.
     if repository is None:
@@ -384,6 +406,7 @@ def resolve(name, item_type, mw_version, repository, branch, json_path, json_url
         "branch_note": branch_note,
         "branch_unverified": branch_unverified,
         "source": source,
+        "source_label": source_label(source, url),
         "url": (entry or {}).get("url"),
         "description": (entry or {}).get("description"),
         "mw_required": (entry or {}).get("requires", {}).get("MediaWiki"),

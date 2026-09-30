@@ -1545,16 +1545,27 @@ commands:
         description: "Run update.php after pinning to apply DB schema changes"
 
   - name: extension_add
-    description: "Add a non-bundled extension from its git repository"
+    description: "Add an extension, cloning it from its git repository if needed"
     long_description: |
-      Add a MediaWiki extension that is not bundled with Canasta by cloning
-      its git repository into the instance's extensions/ directory.
+      Add a MediaWiki extension to the instance and enable it. Each name is
+      matched case-insensitively and handled in this order:
 
-      The extension's git URL is resolved from ExtensionJson.json (the
-      extjsonuploader Toolforge dataset), or from Wikimedia Gerrit
-      (mediawiki/extensions/<Name>) when the dataset has no usable git URL.
-      Names match case-insensitively. Pass `--repository` to override the
-      lookup, or `--branch` to pin a specific branch. The branch is
+      # Bundled with Canasta (shipped in the image): nothing is cloned; the
+        extension is only enabled. `--repository` and `--branch` are refused,
+        since the image sets its version.
+      # Already in the instance's extensions/ directory: the existing
+        checkout is kept and its branch is verified.
+      # Otherwise it is cloned into extensions/, which requires `--clone`
+        (or an explicit `--repository`). Without it the command fails before
+        changing anything and names the URL it would clone and where that
+        URL came from.
+
+      When cloning, the git URL is taken from `--repository`, else from
+      ExtensionJson.json (the extjsonuploader Toolforge dataset), else from
+      Wikimedia Gerrit (mediawiki/extensions/<Name>). URLs from
+      ExtensionJson.json and Gerrit must be https. The URL and its source are
+      printed for every clone, flagged when the repository is not hosted on
+      Wikimedia Gerrit. Pass `--branch` to pin a specific branch. The branch is
       chosen automatically as REL1_YY matching the instance's MediaWiki
       version (e.g. MediaWiki 1.43 -> REL1_43), tried on every remote (GitHub
       and GitLab mirrors carry the same REL branches); if the REL branch does
@@ -1573,8 +1584,9 @@ commands:
       Requires a Compose (including gitops) instance; Kubernetes is not
       supported.
     examples:
-      - "canasta extension add OAuth"
-      - "canasta extension add OAuth --mw-version 1.43.2"
+      - "canasta extension add ParserFunctions"
+      - "canasta extension add DarkMode --clone"
+      - "canasta extension add DarkMode --clone --mw-version 1.43.2"
       - "canasta extension add MyExtension --repository https://example.org/MyExtension.git --branch main"
     playbook: extension_add.yml
     parameters:
@@ -1600,6 +1612,10 @@ commands:
       - name: branch
         type: string
         description: "Branch to check out (overrides auto branch selection); only with a single name"
+      - name: clone
+        type: bool
+        default: false
+        description: "Allow cloning extensions that are neither bundled nor already in extensions/"
       - name: skip_enable
         type: bool
         default: false
@@ -1687,15 +1703,27 @@ commands:
         description: "Comma-separated skin names"
 
   - name: skin_add
-    description: "Add a non-bundled skin from its git repository"
+    description: "Add a skin, cloning it from its git repository if needed"
     long_description: |
-      Add a MediaWiki skin that is not bundled with Canasta by cloning its
-      git repository into the instance's skins/ directory.
+      Add a MediaWiki skin to the instance and enable it. Each name is
+      matched case-insensitively and handled in this order:
 
-      The skin's git URL is resolved from Wikimedia Gerrit
-      (mediawiki/skins/<Name>), matching the name case-insensitively. A skin
-      hosted elsewhere, or archived on Gerrit, needs `--repository`. Pass
-      `--branch` to pin a specific branch. The branch is
+      # Bundled with Canasta (shipped in the image): nothing is cloned; the
+        skin is only enabled. `--repository` and `--branch` are refused,
+        since the image sets its version.
+      # Already in the instance's skins/ directory: the existing checkout is
+        kept and its branch is verified.
+      # Otherwise it is cloned into skins/, which requires `--clone` (or an
+        explicit `--repository`). Without it the command fails before
+        changing anything and names the URL it would clone and where that
+        URL came from.
+
+      When cloning, the git URL is taken from `--repository`, else from
+      Wikimedia Gerrit (mediawiki/skins/<Name>), which must be https. The URL
+      and its source are printed for every clone, flagged when the repository
+      is not hosted on Wikimedia Gerrit. A skin hosted elsewhere, or archived
+      on Gerrit, needs `--repository`. Pass `--branch` to pin a specific
+      branch. The branch is
       chosen automatically as REL1_YY matching the instance's MediaWiki
       version (e.g. MediaWiki 1.43 -> REL1_43), tried on every remote (GitHub
       and GitLab mirrors carry the same REL branches); if the REL branch does
@@ -1714,8 +1742,9 @@ commands:
       Requires a Compose (including gitops) instance; Kubernetes is not
       supported.
     examples:
-      - "canasta skin add Citizen"
-      - "canasta skin add Citizen --mw-version 1.43.2"
+      - "canasta skin add Timeless"
+      - "canasta skin add Citizen --clone"
+      - "canasta skin add Citizen --clone --mw-version 1.43.2"
     playbook: skin_add.yml
     parameters:
       - name: id
@@ -1740,6 +1769,10 @@ commands:
       - name: branch
         type: string
         description: "Branch to check out (overrides auto branch selection); only with a single name"
+      - name: clone
+        type: bool
+        default: false
+        description: "Allow cloning skins that are neither bundled nor already in skins/"
       - name: skip_enable
         type: bool
         default: false

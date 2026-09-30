@@ -1,7 +1,13 @@
 ---
-# Add a user extension/skin that is not bundled with Canasta.
+# Add an extension/skin to an instance.
 #
-# Resolves its git URL + branch (REL1_YY for Gerrit remotes) from
+# Each name is, in order: bundled (a real directory in the image; nothing is
+# cloned, it is only enabled), already local (a checkout in the instance's
+# extensions/ or skins/; its branch is verified), or cloned. Cloning needs
+# --clone or --repository; without either the command fails before changing
+# anything, naming the URL and its source.
+#
+# For a clone it resolves the git URL + branch (REL1_YY for Gerrit remotes) from
 # ExtensionJson.json or Wikimedia Gerrit, adds it as a submodule (gitops) or a plain clone
 # (non-gitops) under extensions/ or skins/, commits it in gitops,
 # registers any composer.json in config/composer.local.json and best-effort
@@ -11,7 +17,7 @@
 #
 # Input: id, wiki (optional, passed to enable), names (comma-separated),
 #        mw_version (optional override), repository (optional override),
-#        branch (optional override), skip_enable (bool), skip_update (bool),
+#        branch (optional override), clone (bool), skip_enable (bool), skip_update (bool),
 #        _item_type (extensions|skins)
 
 - name: Resolve instance
@@ -93,24 +99,138 @@
   ansible.builtin.set_fact:
     _extjson_path: "{{ canasta_root }}/data/ExtensionJson.json"
 
+- name: "Set requested {{ _item_type }}"
+  ansible.builtin.set_fact:
+    _names_list: "{{ names.split(',') | map('trim') | reject('equalto', '') | list }}"
+    _item_kind: "{{ 'Skin' if (_item_type == 'skins') else 'Extension' }}"
+
+# Bundled items are real directories in the image; user items are symlinks
+# into ../user-{{ _item_type }}.
+- name: "Probe bundled {{ _item_type }}"
+  block:
+    - name: "List bundled {{ _item_type }} in the web container"
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: web
+        exec_command: >-
+          cd /var/www/mediawiki/w/{{ _item_type }} &&
+          for d in */; do d="${d%/}";
+          if [ -d "$d" ] && [ ! -L "$d" ]; then printf '%s\n' "$d"; fi;
+          done
+    - name: "Record bundled {{ _item_type }}"
+      ansible.builtin.set_fact:
+        _bundled_dirs: >-
+          {{ (exec_result.stdout | default('')).splitlines() | map('trim')
+             | reject('equalto', '') | list }}
+  rescue:
+    - name: "Fail: could not list bundled {{ _item_type }}"
+      ansible.builtin.fail:
+        msg: >-
+          Could not list the bundled {{ _item_type }} in the web container, so
+          it is unknown which of {{ _names_list | join(', ') }} ship with
+          Canasta. Start the instance first.
+
+- name: "List {{ _item_dir }}/ on the instance"
+  ansible.builtin.find:
+    paths: "{{ instance_path }}/{{ _item_dir }}"
+    file_type: any
+  register: _local_entries
+
+- name: "Map lowercase names to on-disk spellings"
+  ansible.builtin.set_fact:
+    _bundled_map: "{{ dict(_bundled_dirs | map('lower') | zip(_bundled_dirs)) }}"
+    _local_map: >-
+      {{ dict(_local_entries.files | map(attribute='path') | map('basename')
+              | map('lower')
+              | zip(_local_entries.files | map(attribute='path') | map('basename'))) }}
+    _classified: []
+
+- name: "Classify requested {{ _item_type }} as bundled, local, or to clone"
+  ansible.builtin.set_fact:
+    _classified: >-
+      {{ _classified + [
+           {'name': _bundled_map[item | lower], 'category': 'bundled'}
+           if (item | lower) in _bundled_map else
+           {'name': _local_map[item | lower], 'category': 'local'}
+           if (item | lower) in _local_map else
+           {'name': item, 'category': 'clone'}] }}
+  loop: "{{ _names_list }}"
+
+- name: "Split bundled from non-bundled {{ _item_type }}"
+  ansible.builtin.set_fact:
+    _bundled_names: >-
+      {{ _classified | selectattr('category', 'equalto', 'bundled')
+         | map(attribute='name') | list }}
+    _non_bundled: "{{ _classified | rejectattr('category', 'equalto', 'bundled') | list }}"
+
+- name: "Refuse --repository/--branch for a bundled {{ _item_type[:-1] }}"
+  ansible.builtin.fail:
+    msg: >-
+      {{ _item_kind }} '{{ _bundled_names | first }}' is bundled with Canasta;
+      its version comes from the image, so --repository and --branch do not
+      apply.
+  when:
+    - _bundled_names | length > 0
+    - (repository | default('', true) | length > 0) or (branch | default('', true) | length > 0)
+
 - name: "Resolve {{ _item_type }} git URL and branch"
   canasta_extension_resolve:
-    name: "{{ item | trim }}"
+    name: "{{ item.name }}"
     item_type: "{{ _item_type }}"
     mw_version: "{{ _mw_version | default('', true) }}"
     repository: "{{ repository | default(omit) }}"
     branch: "{{ branch | default(omit) }}"
     json_path: "{{ _extjson_path }}"
-  loop: "{{ names.split(',') | map('trim') | list }}"
+  loop: "{{ _non_bundled }}"
   loop_control:
-    label: "{{ item }}"
+    label: "{{ item.name }}"
   register: _resolved
   # The bundled snapshot lives on the controller.
   delegate_to: localhost
 
+- name: "Initialize {{ _item_type }} to add"
+  ansible.builtin.set_fact:
+    _to_add: []
+
+# A local checkout keeps its on-disk spelling so _add_one finds it.
+- name: "Collect resolved {{ _item_type }} with their category"
+  ansible.builtin.set_fact:
+    _to_add: >-
+      {{ _to_add + [item | combine({
+           'name': item.item.name if item.item.category == 'local' else item.name,
+           'category': item.item.category})] }}
+  loop: "{{ _resolved.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+- name: "Set {{ _item_type }} that need cloning"
+  ansible.builtin.set_fact:
+    _clone_pending: "{{ _to_add | selectattr('category', 'equalto', 'clone') | list }}"
+
+- name: "Refuse to clone without --clone or --repository"
+  ansible.builtin.fail:
+    msg: >-
+      {% for c in _clone_pending %}{{ _item_kind }} '{{ c.name }}' is not
+      bundled and not in {{ _item_dir }}/. It would be cloned from
+      {{ c.repository }} ({{ c.source_label }}). {% endfor %}Pass --clone to
+      clone {{ 'it' if (_clone_pending | length == 1) else 'them' }}.
+  when:
+    - _clone_pending | length > 0
+    - not (clone | default(false) | bool)
+    - repository | default('', true) | length == 0
+
+- name: "Report bundled {{ _item_type }}"
+  when: _bundled_names | length > 0
+  ansible.builtin.debug:
+    msg: >-
+      {{ _bundled_names
+         | map('regex_replace', '^(.*)$',
+               _item_kind ~ " '\1' is bundled with Canasta; nothing to clone.")
+         | list }}
+
 - name: "Add each {{ _item_type }} to the instance"
   ansible.builtin.include_tasks: _add_one.yml
-  loop: "{{ _resolved.results }}"
+  loop: "{{ _to_add }}"
   loop_control:
     label: "{{ item.name }}"
 
@@ -121,7 +241,7 @@
 - name: "Check added {{ _item_type }} for a composer.json"
   ansible.builtin.stat:
     path: "{{ instance_path }}/{{ _item_dir }}/{{ item.name }}/composer.json"
-  loop: "{{ _resolved.results }}"
+  loop: "{{ _to_add }}"
   loop_control:
     label: "{{ item.name }}"
   register: _composer_probes
@@ -187,7 +307,7 @@
       ansible.builtin.command:
         cmd: >-
           git -C {{ instance_path | quote }} -c commit.gpgsign=false commit
-          -m {{ ('Add composer requirements for ' ~ (_resolved.results | map(attribute='name') | join(', '))) | quote }}
+          -m {{ ('Add composer requirements for ' ~ (_to_add | map(attribute='name') | join(', '))) | quote }}
         chdir: "{{ instance_path }}"
       changed_when: true
       ignore_errors: true  # nothing to commit if the file content was already committed
@@ -201,7 +321,7 @@
       ansible.builtin.debug:
         msg: >-
           Composer could not install the requirements for
-          {{ _resolved.results | map(attribute='name') | join(', ') }}
+          {{ _to_add | map(attribute='name') | join(', ') }}
           (composer exited {{ exec_result.rc | default('?') }}). The
           {{ _item_type }} code was added, but its PHP dependencies are NOT
           installed and were left out of config/composer.local.json to keep the
@@ -230,4 +350,4 @@
     - name: "Enable added {{ _item_type }}"
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/enable.yml"
       vars:
-        _names: "{{ _resolved.results | map(attribute='name') | join(',') }}"
+        _names: "{{ (_bundled_names + (_to_add | map(attribute='name') | list)) | join(',') }}"
