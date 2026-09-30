@@ -660,6 +660,32 @@ class TestCleanup:
         assert "Kept" in out
         assert "unreachable" in out
 
+    @pytest.mark.parametrize("error", [
+        subprocess.TimeoutExpired(cmd="ssh", timeout=30),
+        OSError("ssh not found"),
+    ])
+    def test_cleanup_keeps_remote_when_ssh_times_out(
+        self, registry_with_remote, monkeypatch, capsys, error
+    ):
+        """A timed-out (or unrunnable) ssh probe is a transport failure, not
+        a missing directory, so the entry is kept."""
+        tmp_path, _ = registry_with_remote
+
+        def raise_error(*args, **kwargs):
+            raise error
+        monkeypatch.setattr(direct_commands._helpers.subprocess, "run", raise_error)
+
+        args = type("Args", (), {
+            "cleanup": True, "host": None, "force": False, "dry_run": False,
+        })()
+        direct_commands.cmd_list(args)
+
+        instances = direct_commands._read_registry(
+            str(tmp_path / "conf.json")
+        )
+        assert "remote" in instances
+        assert "unreachable" in capsys.readouterr().out
+
     def test_cleanup_removes_unreachable_with_force(
         self, registry_with_remote, monkeypatch, capsys
     ):
