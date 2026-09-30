@@ -168,6 +168,7 @@ class TestGeneratedSecretKeysAreNoLog:
 # no secret. Each entry needs a reason, as in _EXEMPT.
 _CMD_EXEMPT = {
     "_ssh_key_path": "path of the deploy key file, not its contents",
+    "_k3s_agent_token_file": "path of the join token file, not its contents",
 }
 
 _TEMPLATE_EXPR = re.compile(r"\{\{(.*?)\}\}", re.S)
