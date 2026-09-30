@@ -202,8 +202,10 @@ def test_push_authenticates_with_deploy_key():
     # push must use the staged deploy key (or --ssh-key), not ambient ssh —
     # a joined host authenticates to the forge only via .gitops-deploy-key.
     c = _read(PUSHK8S)
-    assert "GIT_SSH_COMMAND" in c
-    assert ".gitops-deploy-key" in c
+    assert 'environment: "{{ gitops_k8s_git_env }}"' in c
+    v = _read(os.path.join(REPO_ROOT, "roles", "gitops", "vars", "main.yml"))
+    assert "GIT_SSH_COMMAND" in v
+    assert ".gitops-deploy-key" in v
 
 
 def test_join_wires_sops():
