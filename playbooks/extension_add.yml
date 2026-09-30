@@ -1,5 +1,5 @@
 ---
-# canasta extension add - Add a non-bundled extension from its git repository.
+# canasta extension add - Add an extension (bundled, local, or cloned with --clone).
 
 - name: Add extensions
   ansible.builtin.include_role:

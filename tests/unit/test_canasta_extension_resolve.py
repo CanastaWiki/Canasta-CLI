@@ -69,9 +69,11 @@ class TestValidateRepositoryUrl:
         assert canasta_extension_resolve.validate_repository_url(
             "https://github.com/example/Foo.git") is None
 
-    def test_http_ok(self):
+    def test_plain_http_rejected(self):
         assert canasta_extension_resolve.validate_repository_url(
-            "http://gitea.internal/example/Foo.git") is None
+            "http://gitea.internal/example/Foo.git") is not None
+        assert canasta_extension_resolve.validate_repository_url(
+            "HTTP://github.com/example/Foo.git") is not None
 
     def test_ext_transport_rejected(self):
         assert canasta_extension_resolve.validate_repository_url(
@@ -395,3 +397,58 @@ class TestGerritProjects:
             raise OSError("no network")
         monkeypatch.setattr(urllib.request, "urlopen", boom)
         assert REAL_GERRIT_PROJECTS("Vector") is None
+
+
+class TestHttpsOnlyLookups:
+    def test_http_dataset_url_falls_through_to_gerrit(self, tmp_dir, monkeypatch, verified):
+        path = _json_file(tmp_dir, {"Foo": {
+            "repository": "http://example.org/Foo.git"}})
+        _gerrit(monkeypatch, {"mediawiki/extensions/Foo": {"state": "ACTIVE"}})
+        res = canasta_extension_resolve.resolve(
+            "Foo", "extensions", "1.43.2", None, None, path, URL)
+        assert res["repository"] == "https://gerrit.wikimedia.org/r/mediawiki/extensions/Foo"
+        assert res["source"] == "gerrit"
+
+    def test_http_dataset_url_never_used(self, tmp_dir, monkeypatch):
+        path = _json_file(tmp_dir, {"Foo": {
+            "repository": "http://example.org/Foo.git"}})
+        _gerrit(monkeypatch, {})
+        res = canasta_extension_resolve.resolve(
+            "Foo", "extensions", "1.43.2", None, None, path, URL)
+        assert res.get("failed") is True
+        assert "http://" not in res["msg"]
+
+    def test_explicit_http_repository_still_trusted(self, tmp_dir, verified):
+        path = _json_file(tmp_dir, {})
+        res = canasta_extension_resolve.resolve(
+            "Foo", "extensions", "1.43.2", "http://gitea.internal/Foo.git",
+            None, path, URL)
+        assert res.get("failed") is not True
+        assert res["repository"] == "http://gitea.internal/Foo.git"
+
+
+class TestSourceLabel:
+    @pytest.mark.parametrize("source,url,label", [
+        ("gerrit", "https://gerrit.wikimedia.org/r/mediawiki/skins/Citizen",
+         "Wikimedia Gerrit"),
+        ("file:/x/ExtensionJson.json",
+         "https://gerrit.wikimedia.org/r/mediawiki/extensions/OAuth",
+         "ExtensionJson.json"),
+        ("url:https://extjsonuploader.toolforge.org/ExtensionJson.json",
+         "https://github.com/example/Foo",
+         "ExtensionJson.json; not hosted on Wikimedia Gerrit"),
+        ("explicit", "git@example.com:Foo.git",
+         "--repository; not hosted on Wikimedia Gerrit"),
+        ("explicit", "https://gerrit.wikimedia.org.evil.example/Foo",
+         "--repository; not hosted on Wikimedia Gerrit"),
+    ])
+    def test_labels(self, source, url, label):
+        assert canasta_extension_resolve.source_label(source, url) == label
+
+    def test_resolve_returns_label(self, tmp_dir, verified):
+        path = _json_file(tmp_dir, {"Foo": {
+            "repository": "https://github.com/example/Foo"}})
+        res = canasta_extension_resolve.resolve(
+            "Foo", "extensions", "1.43.2", None, None, path, URL)
+        assert res["source_label"] == (
+            "ExtensionJson.json; not hosted on Wikimedia Gerrit")

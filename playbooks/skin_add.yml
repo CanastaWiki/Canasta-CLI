@@ -1,5 +1,5 @@
 ---
-# canasta skin add - Add a non-bundled skin from its git repository.
+# canasta skin add - Add a skin (bundled, local, or cloned with --clone).
 
 - name: Add skins
   ansible.builtin.include_role:
