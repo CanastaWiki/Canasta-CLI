@@ -56,7 +56,7 @@
           {% set extras = _reconcile_wikis_data.db_groups[loop.index0].databases[1:] %}
           - id: {{ w.id }}
             url: {{ '{{' }}wiki_url_{{ w.id }}{{ '}}' }}
-            name: "{{ w.name | default(w.id) }}"
+            name: {{ w.name | default(w.id) | to_json }}
           {% if extras %}
             extra_databases:
           {% for db in extras %}

@@ -319,23 +319,25 @@
     state: read
   register: _gitops_wikis
 
+# Values go through to_json: a JSON string is a valid YAML double-quoted
+# scalar with its quotes and backslashes escaped.
 - name: Build vars content (placeholder values + wiki URLs + admin passwords)
   ansible.builtin.copy:
     content: |
       # Secret + host-specific values (the keys placeholdered in env.template)
       {% for k, v in _gitops_env.variables.items() %}
       {% if (k | regex_search(canasta_secret_key_regex)) or (k in canasta_host_specific_nonsecret) %}
-      {{ k | lower }}: "{{ v }}"
+      {{ k | lower }}: {{ v | to_json }}
       {% endif %}
       {% endfor %}
       # Wiki URL placeholders
       {% for w in _gitops_wikis.wikis | default([]) %}
-      wiki_url_{{ w.id }}: "{{ w.url }}"
+      wiki_url_{{ w.id }}: {{ w.url | to_json }}
       {% endfor %}
       # Admin passwords
       {% for wid in _gitops_wikis.wiki_ids | default([]) %}
       {% set pw_file = instance_path + '/admin-password_' + wid %}
-      admin_password_{{ wid }}: "{{ lookup('file', pw_file, errors='ignore') | default('') }}"
+      admin_password_{{ wid }}: {{ lookup('file', pw_file, errors='ignore') | default('') | to_json }}
       {% endfor %}
     dest: "{{ instance_path }}/hosts/{{ host_name }}/vars.yaml"
     mode: "0644"
