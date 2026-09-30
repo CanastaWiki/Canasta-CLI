@@ -63,3 +63,40 @@ gitops_k8s_git_env:
     ssh -i {{ ssh_key | default(instance_path + '/.gitops-deploy-key', true) }}
     -o StrictHostKeyChecking=accept-new
     -o UserKnownHostsFile=~/.ssh/known_hosts
+
+# Paths a gitops commit stages on its own (init's initial commit, and every
+# Kubernetes push). Staging is limited to these so stray files elsewhere in the
+# instance directory never reach the remote. Within them, adds, modifications,
+# and deletions are all staged. Anything else is committed only through
+# 'canasta gitops add'.
+gitops_compose_tracked_paths:
+  - .gitignore
+  - .gitattributes
+  - .gitmodules
+  - env.template
+  - wikis.yaml.template
+  - my.cnf.template
+  - media-hosts.yaml.template
+  - docker-compose.override.yml
+  - ":(glob)Dockerfile*"
+  - hosts
+  - config
+  - extensions
+  - skins
+  - public_assets
+  - scripts
+
+gitops_k8s_tracked_paths:
+  - .gitignore
+  - .gitmodules
+  - .sops.yaml
+  - Chart.yaml
+  - templates
+  - values.yaml
+  - values.template.yaml
+  - argocd
+  - hosts
+  - config
+  - extensions
+  - skins
+  - public_assets

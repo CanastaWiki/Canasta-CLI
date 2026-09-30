@@ -39,6 +39,10 @@ config/persistent/
 # Editor / tooling backup files
 *.bak
 *.bak.*
+*~
+*.swp
+*.swo
+.#*
 
 # Gitops state (host-specific, not shared)
 .gitops-applied
