@@ -10,6 +10,14 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
   when: instance_path is not defined
 
+# Validate config/sidecars.yaml while the instance is still running, so a
+# declaration the start would refuse does not leave it stopped.
+- name: Check config/sidecars.yaml before stopping
+  canasta_render_sidecars:
+    instance_path: "{{ instance_path }}"
+    orchestrator: "{{ instance_orchestrator | default('compose') }}"
+  check_mode: true
+
 - name: Stop containers
   ansible.builtin.include_role:
     name: orchestrator
