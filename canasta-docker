@@ -169,11 +169,19 @@ fi
 # the directory is owned by the host user. This causes Ansible to fail when
 # trying to create $HOME/.ansible (collections cache, retry files) and
 # $HOME/.ansible/tmp (per-task scratch). Using /tmp avoids the issue.
+#
+# The remote temp dir also applies to SSH targets, where /tmp is shared
+# with other accounts. $USER is left unexpanded here so the target
+# resolves it, giving each remote account (including the become user)
+# its own base directory instead of one that the first account to run
+# creates 0700 and locks everyone else out of.
 if [[ "$(id -u)" != "0" ]]; then
+    # shellcheck disable=SC2016
+    _REMOTE_TEMP='/tmp/ansible-remote-$USER'
     MOUNTS+=(
         -e "ANSIBLE_HOME=/tmp/ansible-home"
         -e "ANSIBLE_LOCAL_TEMP=/tmp/ansible-local"
-        -e "ANSIBLE_REMOTE_TEMP=/tmp/ansible-remote"
+        -e "ANSIBLE_REMOTE_TEMP=$_REMOTE_TEMP"
     )
 fi
 
@@ -336,6 +344,9 @@ printf '%s:x:%s:%s:%s:%s:/bin/sh\n' \
     "$_CANASTA_DOCKER_USER" "$HOME" >> "$_PASSWD_TMP"
 mv "$_PASSWD_TMP" "$CANASTA_PASSWD"
 MOUNTS+=(-v "$CANASTA_PASSWD:/etc/passwd:ro")
+# docker run --user does not set $USER, which ANSIBLE_REMOTE_TEMP
+# references for tasks that run locally in the container.
+MOUNTS+=(-e "USER=$_CANASTA_DOCKER_USER")
 # Add only the groups the container actually needs: the Docker socket
 # GID (for docker commands) and www-data (for writing to container-
 # created files). Previously all host supplementary groups were passed
