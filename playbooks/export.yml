@@ -25,13 +25,15 @@
     _export_gzip: "{{ _export_file | regex_search('\\.gz$') is not none }}"
 
 # The password comes from the db container's own environment via MYSQL_PWD,
-# so it never appears in the dump process's argument list.
+# so it never appears in the dump process's argument list. The umask keeps
+# the dump owner-only; the copy out of the container carries that mode.
 - name: Dump database to temp file in container
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: db
     exec_long: true
     exec_command: >-
+      umask 077 && rm -f /tmp/{{ wiki | quote }}.sql &&
       MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mariadb-dump -u root
       {{ wiki | quote }}
       > /tmp/{{ wiki | quote }}.sql
@@ -47,6 +49,14 @@
   ansible.builtin.set_fact:
     _container_file: "/tmp/{{ wiki }}.sql{{ (_export_gzip | bool) | ternary('.gz', '') }}"
 
+# kubectl cp writes the destination with the default umask rather than the
+# source's mode, but keeps the mode of a file that already exists.
+- name: Create the export file owner-only before copying into it
+  ansible.builtin.file:
+    path: "{{ _export_file }}"
+    state: touch
+    mode: "0600"
+
 # The orchestrator owns how a file is copied out of the db container
 # (docker compose cp vs kubectl cp); dispatch.
 - name: Copy dump from the db container to the host
@@ -56,6 +66,11 @@
     copy_service: db
     copy_src: "{{ _container_file }}"
     copy_dest: "{{ _export_file }}"
+
+- name: Restrict exported dump to its owner
+  ansible.builtin.file:
+    path: "{{ _export_file }}"
+    mode: "0600"
 
 - name: Clean up temp files in container
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
