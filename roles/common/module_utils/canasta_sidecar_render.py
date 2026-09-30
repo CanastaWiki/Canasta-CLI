@@ -15,6 +15,7 @@ from __future__ import absolute_import, division, print_function
 
 __metaclass__ = type
 
+import os
 import re
 
 _ENV_REF = re.compile(r"\$\{([A-Za-z_]\w*)(:-|-)?([^}]*)\}")
@@ -35,6 +36,66 @@ def resolve_env_value(value, env):
         return val if val is not None else ""
 
     return _ENV_REF.sub(repl, value)
+
+
+# --- Host access ----------------------------------------------------------- #
+# config/sidecars.yaml is read on every start, whoever wrote it, and its paths
+# become Compose bind mounts, build contexts, and (k8s) inlined file contents.
+# Keep every host path inside the instance and every mount a container path.
+
+_VOLUME_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*\Z")
+
+
+def _inside(instance_path, relative):
+    """True if `relative` is a relative path that resolves (following
+    symlinks) inside instance_path."""
+    if not isinstance(relative, str) or not relative or os.path.isabs(relative):
+        return False
+    if any(c in relative for c in ":\n\r\0") or relative.startswith("~"):
+        return False
+    base = os.path.realpath(instance_path)
+    target = os.path.realpath(os.path.join(base, relative))
+    return target == base or target.startswith(base + os.sep)
+
+
+def _container_path(path):
+    return (isinstance(path, str) and path.startswith("/")
+            and not any(c in path for c in ":\n\r\0"))
+
+
+def validate_host_access(sidecars, instance_path):
+    """Return None if no sidecar reaches outside the instance, else an error."""
+    for sidecar in sidecars or []:
+        name = sidecar.get("name", "?") if isinstance(sidecar, dict) else "?"
+        if not isinstance(sidecar, dict):
+            return "each sidecar must be a mapping"
+        for volume in sidecar.get("volumes") or []:
+            if not _container_path((volume or {}).get("mountPath")):
+                return ("sidecar '%s': volume mountPath must be an absolute "
+                        "container path without ':'" % name)
+            if volume.get("persistent") and not _VOLUME_NAME.match(
+                    str(volume.get("name", ""))):
+                return ("sidecar '%s': persistent volume name must be letters, "
+                        "digits, and _ . -" % name)
+        for fileref in sidecar.get("files") or []:
+            if not _container_path((fileref or {}).get("mountPath")):
+                return ("sidecar '%s': file mountPath must be an absolute "
+                        "container path without ':'" % name)
+            if not _inside(instance_path, fileref.get("source")):
+                return ("sidecar '%s': file source must be a relative path "
+                        "inside the instance directory" % name)
+        build = sidecar.get("build")
+        if build:
+            context = build.get("context", ".") if isinstance(build, dict) else build
+            if not _inside(instance_path, context):
+                return ("sidecar '%s': build context must be a relative path "
+                        "inside the instance directory" % name)
+            dockerfile = build.get("dockerfile") if isinstance(build, dict) else None
+            if dockerfile and not _inside(instance_path,
+                                          os.path.join(context, dockerfile)):
+                return ("sidecar '%s': build dockerfile must be inside the "
+                        "instance directory" % name)
+    return None
 
 
 # --- Web <-> sidecar env bridge -------------------------------------------- #
