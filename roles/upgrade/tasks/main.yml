@@ -196,6 +196,13 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/backfill_mycnf_template.yml
 
+# Facts persist across the instances of one upgrade run, so clear the image
+# change signals before this instance sets its own.
+- name: Reset image change signals for this instance
+  ansible.builtin.set_fact:
+    _pull_changed: false
+    _k8s_image_tag_changed: false
+
 # --- Bump configured image tag (orchestrator-specific) ---
 # K8s updates values.yaml image.tag; Compose updates CANASTA_IMAGE in .env.
 - name: Update configured image tag
@@ -216,7 +223,9 @@
 
 - name: Check if new images were pulled
   ansible.builtin.set_fact:
-    _images_updated: "{{ _pull_changed | default(false) | bool }}"
+    _images_updated: >-
+      {{ (_pull_changed | default(false) | bool)
+         or (_k8s_image_tag_changed | default(false) | bool) }}
 
 # --- Rebuild buildable services (orchestrator-specific; Compose only) ---
 # Compose detects services with a `build:` directive and rebuilds them

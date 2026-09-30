@@ -126,3 +126,39 @@ def test_no_restart_is_refused():
 def test_mysql_password_is_a_known_key():
     names = [k["name"] for k in _load(DEFAULTS)["canasta_known_keys"]]
     assert "MYSQL_PASSWORD" in names
+
+
+SET = os.path.join(TASKS, "set.yml")
+
+
+def test_gitops_vars_are_checked_before_anything_changes():
+    tasks = _load(ROTATE)
+    names = [t.get("name") for t in tasks]
+    check = tasks[names.index("Require a readable gitops vars.yaml")]
+    assert check["when"] == "_rdp_gitops_host.stat.exists"
+    assert names.index("Require a readable gitops vars.yaml") < names.index(
+        "Create a temp file for the password change")
+    refuse = check["rescue"][0]["ansible.builtin.fail"]["msg"]
+    assert "Nothing was changed" in refuse
+
+
+def test_rotation_is_recorded_only_after_the_change():
+    block = next(t for t in _load(ROTATE)
+                 if t.get("name") == "Change the password in the bundled database")
+    names = [t.get("name") for t in block["block"]]
+    assert names.index("Apply the password change") < names.index(
+        "Record that the database password changed")
+    record = block["block"][names.index("Record that the database password changed")]
+    assert record["ansible.builtin.set_fact"] == {"_db_password_rotated": True}
+
+
+def test_config_set_restarts_after_a_failure_once_the_password_changed():
+    apply = next(t for t in _load(SET) if t.get("name") == "Apply the settings")
+    assert "when" not in apply, "the block wraps include_tasks, so it must be unconditional"
+    assert [t["ansible.builtin.include_tasks"] for t in apply["block"]] == [
+        "_set_secret.yml", "_set_config.yml"]
+    restart, report = apply["rescue"]
+    assert restart["ansible.builtin.include_role"] == {
+        "name": "instance_lifecycle", "tasks_from": "restart.yml"}
+    assert restart["when"] == "_db_password_rotated | default(false) | bool"
+    assert "ansible_failed_result" in report["ansible.builtin.fail"]["msg"]
