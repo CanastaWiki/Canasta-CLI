@@ -172,7 +172,7 @@
       vars:
         exec_service: db
         exec_command: >-
-          mariadb -u root -p"$MYSQL_ROOT_PASSWORD"
+          MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mariadb -u root
           -e 'CREATE DATABASE IF NOT EXISTS `{{ wiki }}`'
 
     - name: Import database dump

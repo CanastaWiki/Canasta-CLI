@@ -42,8 +42,9 @@
           vars:
             exec_service: web
             exec_command: >-
+              MYSQL_PWD="$MYSQL_PASSWORD"
               mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
-              -p"$MYSQL_PASSWORD" -N -e "SHOW DATABASES"
+              -N -e "SHOW DATABASES"
 
         - name: Record the databases that exist
           ansible.builtin.set_fact:
@@ -95,8 +96,8 @@
           vars:
             exec_service: web
             exec_command: >-
+              MYSQL_PWD="$MYSQL_PASSWORD"
               mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
-              -p"$MYSQL_PASSWORD"
               --single-transaction
               --databases {{ item.databases | map('quote') | join(' ') }}
               > /mediawiki/config/backup/db_{{ item.wiki | quote }}.sql
@@ -240,6 +241,9 @@
     # make_dir_writable chgrps to www-data and sets g=rwX, which is how
     # MediaWiki keeps write access to content it does not own.
     #
+    # set -e makes a failed copy fail the task, since by then the target
+    # directories have already been emptied. The glob rm stays best-effort.
+    #
     # my.cnf is the one file that is tuning for a host rather than state of an
     # instance: innodb_buffer_pool_size is chosen against the host's RAM, and
     # a pool the destination cannot allocate makes mariadbd exit 1. Across
@@ -253,12 +257,13 @@
             -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro" \
             -v "{{ instance_path }}:/install" \
             docker.io/library/alpine sh -c '
+            set -e;
             std="config extensions images skins public_assets";
             keep_mycnf={{ (_restore_crossed_hosts | default(false)) | ternary(1, 0) }};
             for d in $std; do
               if [ -d /currentsnapshot/$d ]; then
-                mkdir -p /install/$d &&
-                rm -rf /install/$d/* /install/$d/.[!.]* 2>/dev/null;
+                mkdir -p /install/$d;
+                rm -rf /install/$d/* /install/$d/.[!.]* 2>/dev/null || true;
                 cp -a /currentsnapshot/$d/. /install/$d/;
               fi;
             done;
@@ -266,11 +271,11 @@
               [ -e "$e" ] || continue;
               name=$(basename "$e");
               skip=0;
-              for d in $std; do [ "$name" = "$d" ] && skip=1; done;
+              for d in $std; do if [ "$name" = "$d" ]; then skip=1; fi; done;
               if [ "$name" = "my.cnf" ] && [ "$keep_mycnf" = "1" ] \
                  && [ -e /install/my.cnf ]; then skip=1; fi;
-              [ "$skip" = "1" ] && continue;
-              [ -d "$e" ] && rm -rf "/install/$name";
+              if [ "$skip" = "1" ]; then continue; fi;
+              if [ -d "$e" ]; then rm -rf "/install/$name"; fi;
               cp -a "$e" "/install/$name";
             done;
             chown -R "$(stat -c "%u:%g" /install)" /install'
@@ -322,10 +327,11 @@
             -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro" \
             -v "{{ instance_path }}:/install" \
             docker.io/library/alpine sh -c '
+            set -e;
             for rel in "config/settings/wikis/$W" "images/$W" "public_assets/$W"; do
               if [ -d "/currentsnapshot/$rel" ]; then
                 mkdir -p "/install/$rel";
-                rm -rf "/install/$rel"/* "/install/$rel"/.[!.]* 2>/dev/null;
+                rm -rf "/install/$rel"/* "/install/$rel"/.[!.]* 2>/dev/null || true;
                 cp -a "/currentsnapshot/$rel/." "/install/$rel/";
               fi;
             done;
@@ -385,8 +391,8 @@
       vars:
         exec_service: web
         exec_command: >-
+          MYSQL_PWD="$MYSQL_PASSWORD"
           mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
-          -p"$MYSQL_PASSWORD"
           < /mediawiki/config/backup/db_{{ item | quote }}.sql
       loop: "{{ _restore_wikis.wiki_ids }}"
 
@@ -396,8 +402,8 @@
       vars:
         exec_service: web
         exec_command: >-
+          MYSQL_PWD="$MYSQL_PASSWORD"
           mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
-          -p"$MYSQL_PASSWORD"
           < /mediawiki/config/backup/db_{{ wiki | quote }}.sql
 
     - name: Clean up backup dump directory
