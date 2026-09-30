@@ -5,7 +5,8 @@
 # Resolves --cp-host (a registered Canasta host name) to its SSH
 # target by reading the controller's hosts.yml, then SSHs to the
 # control plane to fetch:
-#   - the k3s join token (/var/lib/rancher/k3s/server/node-token)
+#   - the k3s agent join token (/var/lib/rancher/k3s/server/agent-token,
+#     or node-token on a k3s too old to write agent-token)
 #   - the cluster-internal API IP (k3s kubectl get node ...)
 # and finally invokes k8s_install_k3s_agent.yml on this host with
 # those values to actually do the join.
@@ -53,6 +54,8 @@
 
 # --- SSH to cp-host, fetch token + cluster-internal IP ---
 
+# agent-token admits agents only. On a control plane started without a
+# dedicated agent token it is a link to the server token.
 - name: Fetch k3s join token from cp-host
   ansible.builtin.command:
     argv:
@@ -60,7 +63,9 @@
       - -o
       - StrictHostKeyChecking=accept-new
       - "{{ _cp_ssh_target }}"
-      - sudo cat /var/lib/rancher/k3s/server/node-token
+      - >-
+        sudo cat /var/lib/rancher/k3s/server/agent-token 2>/dev/null
+        || sudo cat /var/lib/rancher/k3s/server/node-token
   delegate_to: localhost
   vars:
     ansible_connection: local

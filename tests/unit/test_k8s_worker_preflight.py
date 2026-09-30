@@ -11,7 +11,8 @@ regress:
   - a misconfigured `--cp-host` fails with an actionable message instead
     of a censored "non-zero return code" (the join probes the cp's k3s
     before the token fetch);
-  - the join token is never logged;
+  - the join token is never logged and never on a command line, and
+    workers join with the agent token rather than the server token;
   - an unregistered `--cp-host` is rejected up front;
   - a worker uninstall requires `--cp-host` and removes the worker's Node
     from the control plane so it doesn't linger as NotReady.
@@ -25,6 +26,12 @@ REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 WORKER = os.path.join(REPO_ROOT, "roles", "install", "tasks", "k3s_worker.yml")
 UNINSTALL = os.path.join(
     REPO_ROOT, "roles", "install", "tasks", "uninstall_k3s.yml",
+)
+AGENT_INSTALL = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_install_k3s_agent.yml",
+)
+CP_INSTALL = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_install_k3s.yml",
 )
 RESOLVE_CP = os.path.join(
     REPO_ROOT, "roles", "common", "tasks", "resolve_cp_host_ssh.yml",
@@ -100,6 +107,16 @@ class TestWorkerJoinPreflight:
             "the join-token fetch must set no_log: true"
         )
 
+    def test_join_token_prefers_agent_token(self):
+        tasks = _load(WORKER)
+        cmd = _named(tasks, "Fetch k3s join token")["ansible.builtin.command"]
+        remote = cmd["argv"][-1]
+        agent = remote.find("/var/lib/rancher/k3s/server/agent-token")
+        node = remote.find("/var/lib/rancher/k3s/server/node-token")
+        assert 0 <= agent < node, (
+            "the join must read agent-token, falling back to node-token"
+        )
+
     def test_validates_fetched_cluster_info(self):
         tasks = _load(WORKER)
         validate = _named(tasks, "Validate fetched values")
@@ -161,3 +178,29 @@ class TestWorkerUninstall:
         joined = " ".join(str(a) for a in argv)
         assert "kubectl delete node" in joined
         assert "--ignore-not-found" in joined
+
+
+class TestAgentTokenHandling:
+    def test_agent_token_passed_by_file_not_argv(self):
+        tasks = _load(AGENT_INSTALL)
+        write = _named(tasks, "Write k3s agent join token")
+        assert write is not None
+        assert write.get("no_log") is True
+        assert write["ansible.builtin.copy"]["mode"] == "0600"
+        install = _named(tasks, "Download and install k3s agent")
+        rx_cmd = install["vars"]["rx_cmd"]
+        assert "K3S_TOKEN_FILE=" in rx_cmd
+        assert "K3S_TOKEN=" not in rx_cmd
+        assert "{{ token" not in rx_cmd
+
+    def test_control_plane_sets_dedicated_agent_token(self):
+        tasks = _load(CP_INSTALL)
+        write = _named(tasks, "Write k3s agent token secret")
+        assert write is not None
+        assert write.get("no_log") is True
+        copy = write["ansible.builtin.copy"]
+        assert copy["mode"] == "0600"
+        assert copy["force"] is False
+        exec_args = _named(tasks, "Build k3s install exec args")
+        value = exec_args["ansible.builtin.set_fact"]["_k3s_install_exec"]
+        assert "--agent-token-file" in value

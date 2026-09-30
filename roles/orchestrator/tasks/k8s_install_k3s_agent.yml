@@ -2,8 +2,8 @@
 # Install k3s as an agent (worker) on the target host.
 # Input vars:
 #   server - k3s server URL (e.g. https://10.0.0.1:6443)
-#   token  - k3s join token (read from
-#            /var/lib/rancher/k3s/server/node-token on the cp host)
+#   token  - k3s agent join token (read from
+#            /var/lib/rancher/k3s/server/agent-token on the cp host)
 # Idempotent — checks if k3s is already running.
 #
 # Agents run only the kubelet + container runtime; they don't need
@@ -25,21 +25,41 @@
 
 - name: Install k3s agent
   when: _k3s_agent_running.rc != 0
+  vars:
+    _k3s_agent_token_file: /etc/rancher/k3s/agent-join-token
   block:
     - name: Report joining cluster
       ansible.builtin.debug:
         msg: "Joining k3s cluster at {{ server }} as a worker..."
 
+    # The token lives in a root-only file so it never appears on a
+    # command line; the agent reads it on every start via K3S_TOKEN_FILE.
+    - name: Ensure k3s config directory exists
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        mode: "0755"
+      become: true
+
+    - name: Write k3s agent join token
+      ansible.builtin.copy:
+        content: "{{ token }}"
+        dest: "{{ _k3s_agent_token_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+      become: true
+      no_log: true
+
     # K3S_URL pre-set on the install command flips the upstream
     # installer into agent mode (vs the default server install).
-    # Both env vars are required.
+    # K3S_URL and K3S_TOKEN_FILE are both required.
     # Pin the same k3s version as the control plane (canasta_k3s_version)
     # so a later-joining worker can't outpace the cp, and so the install
     # doesn't depend on update.k3s.io resolving a channel.
     # Launched detached and polled (resilient_exec): the installer runs for
     # a minute or more and a controller-side SSH reset mid-join would abort
-    # it. rx_no_log hides the command because it carries the join token. The
-    # k3s installer is idempotent, so a re-run after a reset is safe.
+    # it. The k3s installer is idempotent, so a re-run after a reset is safe.
     # (Registry trust is applied cluster-wide by the registry-trust DaemonSet,
     # which lands on this worker once it joins — no per-worker config here.)
     - name: Download and install k3s agent
@@ -47,12 +67,11 @@
       vars:
         rx_name: "install k3s agent"
         rx_async: 600
-        rx_no_log: true
         rx_cmd: >-
           curl -sfL --retry 3 --retry-delay 5 https://get.k3s.io |
           INSTALL_K3S_VERSION={{ canasta_k3s_version | quote }}
           K3S_URL={{ server | quote }}
-          K3S_TOKEN={{ token | quote }}
+          K3S_TOKEN_FILE={{ _k3s_agent_token_file | quote }}
           sh -
 
     - name: Wait for k3s-agent service to be active
