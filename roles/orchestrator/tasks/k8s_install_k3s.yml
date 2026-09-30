@@ -23,6 +23,8 @@
 
 - name: Install k3s
   when: _k3s_running.rc != 0
+  vars:
+    _k3s_agent_token_file: /etc/rancher/k3s/agent-token
   block:
     - name: Report installing Kubernetes
       ansible.builtin.debug:
@@ -42,11 +44,34 @@
       register: _k3s_kubeconfig_group
       changed_when: false
 
+    # A dedicated agent token lets workers join without holding the
+    # server token, which would also let them join as a server. Without
+    # it, k3s links server/agent-token to the server token. force: false
+    # keeps the secret stable if the installer is re-run.
+    - name: Ensure k3s config directory exists
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        mode: "0755"
+      become: true
+
+    - name: Write k3s agent token secret
+      ansible.builtin.copy:
+        content: "{{ lookup('ansible.builtin.password', '/dev/null length=64 chars=ascii_letters,digits') }}"
+        dest: "{{ _k3s_agent_token_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+        force: false
+      become: true
+      no_log: true
+
     - name: Build k3s install exec args
       ansible.builtin.set_fact:
         _k3s_install_exec: >-
           --write-kubeconfig-mode 0640
           --write-kubeconfig-group {{ _k3s_kubeconfig_group.stdout | quote }}
+          --agent-token-file {{ _k3s_agent_token_file }}
           {{ (public_ip | default([]))
              | map('regex_replace', '^(.*)$', '--tls-san \1')
              | join(' ') }}

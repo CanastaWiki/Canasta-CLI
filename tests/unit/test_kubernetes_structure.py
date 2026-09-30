@@ -724,6 +724,46 @@ class TestGitopsComposeGitEnv:
         return ""
 
 
+class TestGitopsKubernetesGitEnv:
+    """Every remote-touching git command in the Kubernetes pull/push flows
+    must run with `environment: "{{ gitops_k8s_git_env }}"`, so a host that
+    authenticates only with its staged .gitops-deploy-key can reach the
+    remote."""
+
+    K8S_FILES = [
+        "pull_kubernetes.yml",
+        "push_kubernetes.yml",
+    ]
+
+    GIT_VERBS = TestGitopsComposeGitEnv.GIT_VERBS + ("git submodule update",)
+
+    @pytest.mark.parametrize("filename", K8S_FILES)
+    def test_every_git_command_has_k8s_git_env(self, filename):
+        with open(os.path.join(GITOPS_TASKS, filename)) as f:
+            tasks = yaml.safe_load(f) or []
+        offending = []
+        found = 0
+        for entry in TestGitopsComposeGitEnv._walk_tasks(tasks):
+            cmd = TestGitopsComposeGitEnv._extract_cmd(entry)
+            if not any(verb in cmd for verb in self.GIT_VERBS):
+                continue
+            found += 1
+            if "gitops_k8s_git_env" not in str(entry.get("environment", "")):
+                offending.append(
+                    "%s: task '%s' ran '%s' without gitops_k8s_git_env"
+                    % (filename, entry.get("name", "<unnamed>"), cmd)
+                )
+        assert found, "%s has no remote git commands to check" % filename
+        assert not offending, "\n".join(offending)
+
+    def test_k8s_git_env_uses_deploy_key(self):
+        with open(os.path.join(GITOPS_TASKS, "..", "vars", "main.yml")) as f:
+            env = yaml.safe_load(f)["gitops_k8s_git_env"]
+        cmd = env["GIT_SSH_COMMAND"]
+        assert ".gitops-deploy-key" in cmd
+        assert "ssh_key" in cmd
+
+
 class TestGitopsReinit:
     """Every init/join entry point must include _reinit_cleanup.yml
     gated on the reinit flag, and surface --reinit in the

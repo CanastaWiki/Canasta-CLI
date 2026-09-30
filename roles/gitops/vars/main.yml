@@ -53,3 +53,13 @@ gitops_git_env:
     | ternary(' -i ' ~ (ssh_key | default('')), '') }}
     -o StrictHostKeyChecking=accept-new
     -o UserKnownHostsFile=~/.ssh/known_hosts
+
+# Environment for git commands that reach the remote from an existing
+# Kubernetes gitops checkout (pull, push). A Kubernetes host
+# authenticates with its staged .gitops-deploy-key unless --ssh-key
+# overrides it; the ambient ssh/agent is not present on every host.
+gitops_k8s_git_env:
+  GIT_SSH_COMMAND: >-
+    ssh -i {{ ssh_key | default(instance_path + '/.gitops-deploy-key', true) }}
+    -o StrictHostKeyChecking=accept-new
+    -o UserKnownHostsFile=~/.ssh/known_hosts
