@@ -24,7 +24,7 @@
   ansible.builtin.fail:
     msg: >-
       {{ _item_type | capitalize }} not installed in the container:
-      {{ exec_result.stdout | default('') | split('\n') | map('trim')
+      {{ (exec_result.stdout | default('')).splitlines() | map('trim')
          | reject('equalto', '') | join(', ') }}.
   when: exec_result.stdout | default('') | trim | length > 0
 

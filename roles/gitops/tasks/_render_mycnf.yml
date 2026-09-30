@@ -60,7 +60,7 @@
     - name: Reduce that to a list
       ansible.builtin.set_fact:
         _mycnf_missing: >-
-          {{ (_mycnf_missing_raw | default('', true) | string).split('\n')
+          {{ (_mycnf_missing_raw | default('', true) | string).splitlines()
              | map('trim') | reject('equalto', '') | list | unique }}
 
     - name: Stat the my.cnf currently on disk

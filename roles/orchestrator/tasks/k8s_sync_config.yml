@@ -358,7 +358,7 @@
 - name: Build appSecretEnv list
   ansible.builtin.set_fact:
     _app_secret_env: >-
-      {{ ((_app_secrets_web_raw.content | b64decode).split('\n')
+      {{ ((_app_secrets_web_raw.content | b64decode).splitlines()
           | map('trim') | select() | reject('match', '^#') | list | unique)
          if _app_secrets_web_stat.stat.exists else [] }}
 
