@@ -162,11 +162,7 @@
     cmd: "git push"
     chdir: "{{ instance_path }}"
   when: (_unpushed.stdout | default('0', true) | int) > 0
-  environment:
-    GIT_SSH_COMMAND: >-
-      ssh -i {{ ssh_key | default(instance_path + '/.gitops-deploy-key', true) }}
-      -o StrictHostKeyChecking=accept-new
-      -o UserKnownHostsFile=~/.ssh/known_hosts
+  environment: "{{ gitops_k8s_git_env }}"
   register: _push_result
   changed_when: true
   failed_when: false
