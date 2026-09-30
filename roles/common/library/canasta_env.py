@@ -210,7 +210,7 @@ def run_module():
         path=dict(type="str", required=True),
         state=dict(type="str", default="read_all", choices=["read", "read_all", "set", "unset", "lint"]),
         key=dict(type="str", required=False),
-        value=dict(type="str", required=False),
+        value=dict(type="str", required=False, no_log=True),
         keys=dict(type="list", elements="str", required=False),
     )
 

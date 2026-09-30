@@ -1,8 +1,10 @@
 """Tests for the canasta_env Ansible module."""
 
 
+from unittest.mock import patch
+
 import canasta_env
-from mock_ansible import run_module_with_params
+from mock_ansible import MockAnsibleModule, run_module_with_params
 
 
 class TestParseEnvFile:
@@ -328,3 +330,21 @@ class TestSetQuoteHandling:
         })
         assert result["changed"]
         assert open(path).read() == 'A="q #x"\n'
+
+
+class TestArgumentSpec:
+    def test_value_is_no_log(self, tmp_path):
+        # Values such as passwords must be masked in module invocation
+        # logs on the target.
+        mock = MockAnsibleModule({
+            "path": str(tmp_path / ".env"), "state": "read_all",
+            "key": None, "value": None, "keys": None,
+        })
+        with patch.object(canasta_env, "AnsibleModule",
+                          return_value=mock) as ctor:
+            try:
+                canasta_env.run_module()
+            except SystemExit:
+                pass
+        spec = ctor.call_args.kwargs["argument_spec"]
+        assert spec["value"].get("no_log") is True

@@ -64,10 +64,16 @@ class TestImportSurfacesError:
     def _load_commands(self):
         """(task, exec_command) for every include of exec.yml that runs a
         mariadb command in import_database.yml."""
+        def walk(tasks):
+            for t in tasks or []:
+                if not isinstance(t, dict):
+                    continue
+                yield t
+                for key in ("block", "rescue", "always"):
+                    yield from walk(t.get(key))
+
         out = []
-        for t in _load(IMPORT_DB):
-            if not isinstance(t, dict):
-                continue
+        for t in walk(_load(IMPORT_DB)):
             v = t.get("vars") or {}
             cmd = v.get("exec_command", "")
             if "mariadb" in cmd:

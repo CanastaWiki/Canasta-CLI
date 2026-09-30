@@ -19,50 +19,55 @@
     exec_service: db
     exec_command: "MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mariadb -u root -e 'CREATE DATABASE IF NOT EXISTS `{{ import_wiki_id }}`'"
 
-# Transfer the dump file from the controller to the target host if remote.
-# For localhost this is a no-op (same filesystem). For remote hosts, ansible
-# copies the file via SCP so the path doesn't need to exist on the remote.
-- name: Transfer database dump to target host
-  ansible.builtin.copy:
-    src: "{{ import_database_path }}"
-    dest: "/tmp/canasta-import{{ _is_gzipped | bool | ternary('.sql.gz', '.sql') }}"
-    mode: "0644"
-  register: _import_transferred
+- name: Create a private temp file on the target host for the dump
+  ansible.builtin.tempfile:
+    state: file
+    suffix: "{{ _is_gzipped | bool | ternary('.sql.gz', '.sql') }}"
+  register: _import_host_tmp
 
-# The orchestrator owns how a file lands in the db container (docker
-# compose cp vs kubectl cp); dispatch. Runs before the host-side cleanup
-# below so the dump still exists when kubectl cp reads it on K8s.
-- name: Copy database dump into the db container
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/copy_into_container.yml
-  vars:
-    copy_service: db
-    copy_src: "/tmp/canasta-import{{ _is_gzipped | bool | ternary('.sql.gz', '.sql') }}"
-    copy_dest: "{{ _import_container_file }}"
+- name: Load the dump into the database
+  block:
+    # For localhost this is a local copy; for remote hosts ansible transfers
+    # the file, so the source path doesn't need to exist on the remote.
+    - name: Transfer database dump to target host
+      ansible.builtin.copy:
+        src: "{{ import_database_path }}"
+        dest: "{{ _import_host_tmp.path }}"
+        mode: "0600"
 
-- name: Clean up transferred dump from target host
-  ansible.builtin.file:
-    path: "/tmp/canasta-import{{ _is_gzipped | bool | ternary('.sql.gz', '.sql') }}"
-    state: absent
+    # The orchestrator owns how a file lands in the db container (docker
+    # compose cp vs kubectl cp); dispatch.
+    - name: Copy database dump into the db container
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/copy_into_container.yml
+      vars:
+        copy_service: db
+        copy_src: "{{ _import_host_tmp.path }}"
+        copy_dest: "{{ _import_container_file }}"
 
-- name: Import gzipped database
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-  vars:
-    exec_service: db
-    exec_command: "gunzip -c /tmp/import.sql.gz | MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mariadb -u root '{{ import_wiki_id }}'"
-    exec_long: true
-  when: _is_gzipped | bool
+    - name: Import gzipped database
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: db
+        exec_command: "gunzip -c /tmp/import.sql.gz | MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mariadb -u root '{{ import_wiki_id }}'"
+        exec_long: true
+      when: _is_gzipped | bool
 
-- name: Import plain SQL database
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-  vars:
-    exec_service: db
-    exec_command: "MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mariadb -u root '{{ import_wiki_id }}' < /tmp/import.sql"
-    exec_long: true
-  when: not (_is_gzipped | bool)
+    - name: Import plain SQL database
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: db
+        exec_command: "MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mariadb -u root '{{ import_wiki_id }}' < /tmp/import.sql"
+        exec_long: true
+      when: not (_is_gzipped | bool)
+  always:
+    - name: Clean up transferred dump from target host
+      ansible.builtin.file:
+        path: "{{ _import_host_tmp.path }}"
+        state: absent
 
-- name: Clean up temp dump file
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-  vars:
-    exec_service: db
-    exec_command: "rm -f /tmp/import.sql /tmp/import.sql.gz"
+    - name: Clean up temp dump file
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: db
+        exec_command: "rm -f /tmp/import.sql /tmp/import.sql.gz"

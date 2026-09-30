@@ -169,13 +169,27 @@ fi
 # the directory is owned by the host user. This causes Ansible to fail when
 # trying to create $HOME/.ansible (collections cache, retry files) and
 # $HOME/.ansible/tmp (per-task scratch). Using /tmp avoids the issue.
+#
+# The remote temp dir also applies to SSH targets, where /tmp is shared
+# with other accounts. $USER is left unexpanded here so the target
+# resolves it, giving each remote account (including the become user)
+# its own base directory instead of one that the first account to run
+# creates 0700 and locks everyone else out of.
 if [[ "$(id -u)" != "0" ]]; then
+    # shellcheck disable=SC2016
+    _REMOTE_TEMP='/tmp/ansible-remote-$USER'
     MOUNTS+=(
         -e "ANSIBLE_HOME=/tmp/ansible-home"
         -e "ANSIBLE_LOCAL_TEMP=/tmp/ansible-local"
-        -e "ANSIBLE_REMOTE_TEMP=/tmp/ansible-remote"
+        -e "ANSIBLE_REMOTE_TEMP=$_REMOTE_TEMP"
     )
 fi
+
+# The Docker and kube config copies below carry credentials, so they
+# are written owner-only. umask covers a new file; a truncating write
+# keeps an existing file's mode, so that needs the chmod.
+_saved_umask="$(umask)"
+umask 077
 
 # Sanitize Docker config.json for the container.
 # macOS Docker Desktop's config.json typically contains
@@ -190,6 +204,7 @@ fi
 DOCKER_CONFIG_HOST="$HOME/.docker/config.json"
 if [[ -f "$DOCKER_CONFIG_HOST" ]] && grep -q '"credsStore"' "$DOCKER_CONFIG_HOST" 2>/dev/null; then
     CANASTA_DOCKER_CONFIG="$CONFIG_DIR/.docker-config.json"
+    [[ ! -e "$CANASTA_DOCKER_CONFIG" ]] || chmod 600 "$CANASTA_DOCKER_CONFIG"
     if command -v python3 &>/dev/null; then
         python3 -c "
 import json, sys
@@ -231,6 +246,7 @@ KUBE_CONFIG="$HOME/.kube/config"
 if [[ -f "$KUBE_CONFIG" ]] \
     && grep -qE 'server:.*https://(127\.0\.0\.1|localhost)' "$KUBE_CONFIG" 2>/dev/null; then
     CANASTA_KUBE_CONFIG="$CONFIG_DIR/.kube-config"
+    [[ ! -e "$CANASTA_KUBE_CONFIG" ]] || chmod 600 "$CANASTA_KUBE_CONFIG"
     if [[ "$(uname)" == "Darwin" ]]; then
         sed -e 's|server: https://127\.0\.0\.1|server: https://kubernetes.docker.internal|g' \
             -e 's|server: https://localhost|server: https://kubernetes.docker.internal|g' \
@@ -282,6 +298,7 @@ PYEOF
         MOUNTS+=(-v "$CANASTA_KUBE_CONFIG":"$HOME/.kube/config":ro)
     fi
 fi
+umask "$_saved_umask"
 
 # Ensure the container has a passwd entry for the host UID so that
 # SSH and Ansible can resolve the current user (required for remote
@@ -327,6 +344,9 @@ printf '%s:x:%s:%s:%s:%s:/bin/sh\n' \
     "$_CANASTA_DOCKER_USER" "$HOME" >> "$_PASSWD_TMP"
 mv "$_PASSWD_TMP" "$CANASTA_PASSWD"
 MOUNTS+=(-v "$CANASTA_PASSWD:/etc/passwd:ro")
+# docker run --user does not set $USER, which ANSIBLE_REMOTE_TEMP
+# references for tasks that run locally in the container.
+MOUNTS+=(-e "USER=$_CANASTA_DOCKER_USER")
 # Add only the groups the container actually needs: the Docker socket
 # GID (for docker commands) and www-data (for writing to container-
 # created files). Previously all host supplementary groups were passed

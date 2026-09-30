@@ -6,10 +6,12 @@
 
 # Rebase, not merge or fast-forward-only — see pull_compose.yml. --rebase is
 # explicit so the outcome does not depend on the host's ambient pull config.
+# Authenticates with the staged deploy key (or --ssh-key), like push.
 - name: Pull values repo
   ansible.builtin.command:
     cmd: "git -c commit.gpgsign=false pull --rebase"
     chdir: "{{ instance_path }}"
+  environment: "{{ gitops_k8s_git_env }}"
   register: _git_pull
   changed_when: "'Already up to date' not in _git_pull.stdout"
   failed_when: false
@@ -31,6 +33,7 @@
   ansible.builtin.command:
     cmd: "git submodule update --init --recursive"
     chdir: "{{ instance_path }}"
+  environment: "{{ gitops_k8s_git_env }}"
   changed_when: _git_pull.changed
   ignore_errors: true  # OK if no submodules configured
 
