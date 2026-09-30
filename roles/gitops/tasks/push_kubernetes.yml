@@ -120,11 +120,10 @@
   ansible.builtin.include_tasks: render_kubernetes.yml
   when: _push_template_check.stat.exists
 
-- name: Stage all changes
-  ansible.builtin.command:
-    cmd: "git add -A"
-    chdir: "{{ instance_path }}"
-  changed_when: false
+- name: Stage changes to the gitops-managed paths
+  ansible.builtin.include_tasks: _stage_tracked_paths.yml
+  vars:
+    _stage_paths: "{{ gitops_k8s_tracked_paths }}"
 
 - name: Check for staged changes
   ansible.builtin.command:

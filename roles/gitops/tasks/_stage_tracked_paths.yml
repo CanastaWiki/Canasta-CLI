@@ -1,0 +1,23 @@
+---
+# Stage adds, modifications, and deletions within an explicit set of paths.
+# A path that matches nothing tracked or addable is skipped, because git add
+# fails on a pathspec that matches no files.
+#
+# Requires: instance_path, _stage_paths (list of pathspecs).
+
+- name: Stage the gitops-managed paths
+  ansible.builtin.shell:
+    cmd: |
+      set -eu
+      set --
+      for p in {{ _stage_paths | map('quote') | join(' ') }}; do
+        if [ -n "$(git ls-files --cached --others --exclude-standard -- "$p")" ]; then
+          set -- "$@" "$p"
+        fi
+      done
+      if [ "$#" -gt 0 ]; then
+        git add -A -- "$@"
+      fi
+  args:
+    chdir: "{{ instance_path }}"
+  changed_when: false

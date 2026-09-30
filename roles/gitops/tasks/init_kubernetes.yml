@@ -518,7 +518,7 @@
 # extensions/ and skins/ are the source of truth for the user-extensions
 # and user-skins PVCs (roles/orchestrator/tasks/k8s_sync_user_dirs.yml),
 # so they must be tracked. A loose git checkout under them is promoted to a
-# proper submodule (pinned to its current commit) — otherwise `git add -A`
+# proper submodule (pinned to its current commit) — otherwise the staging step
 # below would record it as a bare gitlink whose files never get tracked.
 - name: Find git repos in extensions
   ansible.builtin.find:
@@ -553,11 +553,10 @@
     loop_var: _repo_path
 
 # --- Initial commit and push ---
-- name: Stage all files
-  ansible.builtin.command:
-    cmd: "git add -A"
-    chdir: "{{ instance_path }}"
-  changed_when: true
+- name: Stage the gitops-managed paths
+  ansible.builtin.include_tasks: _stage_tracked_paths.yml
+  vars:
+    _stage_paths: "{{ gitops_k8s_tracked_paths }}"
 
 - name: Initial commit
   ansible.builtin.command:

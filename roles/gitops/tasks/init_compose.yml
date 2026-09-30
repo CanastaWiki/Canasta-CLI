@@ -392,11 +392,10 @@
     loop_var: _repo_path
 
 # --- Step 14: Initial commit and push ---
-- name: Stage all files
-  ansible.builtin.command:
-    cmd: "git add -A"
-    chdir: "{{ instance_path }}"
-  changed_when: true
+- name: Stage the gitops-managed paths
+  ansible.builtin.include_tasks: _stage_tracked_paths.yml
+  vars:
+    _stage_paths: "{{ gitops_compose_tracked_paths }}"
 
 # An extension/skin whose Step-13 conversion didn't run — its .git is a gitlink
 # file the directory-only find missed, or it is a loose clone with no origin
@@ -406,6 +405,9 @@
 # loudly) before the initial commit below folds it in.
 - name: Recover orphan gitlinks before the initial commit
   ansible.builtin.include_tasks: _recover_orphan_gitlinks.yml
+
+- name: Guard against committing unencrypted git-crypt files
+  ansible.builtin.include_tasks: "_check_gitcrypt_staged.yml"
 
 - name: Initial commit
   ansible.builtin.command:
