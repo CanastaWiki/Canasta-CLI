@@ -950,7 +950,7 @@ def _db_tuning_lines(inst):
     compose_cmd = _helpers._resolve_compose_cmd(inst)
     argv = (list(compose_cmd) + _helpers._compose_profile_args(inst)
             + ["exec", "-T", "db", "sh", "-c",
-               'mariadb -u root -p"$MYSQL_ROOT_PASSWORD" -N -B -e '
+               'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mariadb -u root -N -B -e '
                + _helpers._shell_quote(_INNODB_QUERY)])
     out = _helpers._capture_in_instance(
         path, host, inst.get("dockerHost"), argv, capture_stderr=True)
