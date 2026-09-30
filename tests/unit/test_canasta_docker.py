@@ -433,6 +433,29 @@ class TestHostPWDEnvVar:
         )
 
 
+@pytest.mark.skipif(os.getuid() == 0, reason="override applies to non-root")
+class TestRemoteTempIsPerUser:
+    """ANSIBLE_REMOTE_TEMP must not be a single /tmp path shared by every
+    account on an SSH target."""
+
+    def test_remote_temp_references_target_user(self):
+        argv, _ = run_dry(["version"])
+        # Literal $USER: expanded on the target, not by the wrapper.
+        assert_env_var(argv, "ANSIBLE_REMOTE_TEMP",
+                       "/tmp/ansible-remote-$USER")
+
+    def test_user_is_set_in_container(self):
+        argv, _ = run_dry(["version"])
+        users = [
+            argv[i + 1].split("=", 1)[1] for i, a in enumerate(argv)
+            if a == "-e" and i + 1 < len(argv)
+            and argv[i + 1].startswith("USER=")
+        ]
+        assert users and users[0], (
+            "expected non-empty -e USER=... in argv:\n%s" % "\n".join(argv)
+        )
+
+
 class TestPodmanDetection:
     """Verify canasta-docker injects --userns=keep-id when `docker` is a
     podman wrapper (the rootless-podman UID-namespace fix)."""
