@@ -28,12 +28,6 @@
             state: read
           register: _safety_wikis
 
-        - name: Create backup staging directory
-          ansible.builtin.include_tasks: exec.yml
-          vars:
-            exec_service: web
-            exec_command: "mkdir -p /mediawiki/config/backup"
-
         # A wiki listed in wikis.yaml may have no database (dropped or corrupted
         # — the very disaster a restore recovers from). Dumping a missing DB
         # fails mariadb-dump and would abort the whole restore, so dump only the
@@ -92,19 +86,26 @@
               {{ _safety_missing_wikis | join(', ') }}: no database present.
           when: _safety_missing_wikis | length > 0
 
+        # A database that exists but cannot be dumped (a broken view, a
+        # corrupted table) is left out of the safety snapshot rather than
+        # stopping the restore that would repair it.
         - name: Dump each present wiki's database group for safety backup
-          ansible.builtin.include_tasks: exec.yml
+          ansible.builtin.include_tasks: backup_stage_db_dumps.yml
           vars:
-            exec_service: web
-            exec_command: >-
-              MYSQL_PWD="$MYSQL_PASSWORD"
-              mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
-              --single-transaction
-              --databases {{ item.databases | map('quote') | join(' ') }}
-              > /mediawiki/config/backup/db_{{ item.wiki | quote }}.sql
-          loop: "{{ _safety_present_groups | default([]) }}"
-          loop_control:
-            label: "{{ item.wiki }}"
+            _backup_wikis:
+              db_groups: "{{ _safety_present_groups | default([]) }}"
+
+        - name: Tag the safety snapshot
+          ansible.builtin.set_fact:
+            _safety_tag: >-
+              {{ (['safety-before-restore']
+                  + ((['INCOMPLETE']
+                      + (_backup_dump_failures
+                         | map('regex_replace', ':.*$', '')
+                         | map('split') | flatten
+                         | map('regex_replace', '^', 'missing-db:') | list))
+                     if _backup_dump_failures | length > 0 else []))
+                 | join(',') }}
 
         - name: Build safety backup volume map
           ansible.builtin.set_fact:
@@ -150,7 +151,7 @@
           vars:
             backup_args:
               - "--tag"
-              - "safety-before-restore"
+              - "{{ _safety_tag }}"
               - "backup"
               - "/currentsnapshot"
             backup_volumes: "{{ _safety_volumes }}"
