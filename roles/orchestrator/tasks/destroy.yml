@@ -53,8 +53,31 @@
           {{ compose_command }} {{ _destroy_compose_files | join(' ') }}
           {{ _destroy_profile_flags | default('') }} down -v --remove-orphans
         chdir: "{{ instance_path }}"
+      register: _destroy_down
       changed_when: true
-      ignore_errors: true  # OK if containers already removed
+      failed_when: false
+
+    # `down` succeeds when the containers are already gone, so a failure
+    # means they may still be running.
+    - name: Fail if containers and volumes could not be removed
+      ansible.builtin.fail:
+        msg: >-
+          Failed to remove the containers and volumes of instance
+          '{{ instance_id }}': {{ (_destroy_down.stderr | default('', true)
+          | trim) or (_destroy_down.msg | default('')) }}
+          The instance was not deleted. Use --force to delete it anyway.
+      when:
+        - _destroy_down.rc | default(1) != 0
+        - not (force | default(false) | bool)
+
+    - name: Warn that containers and volumes may remain
+      ansible.builtin.debug:
+        msg: >-
+          Warning: failed to remove the containers and volumes of instance
+          '{{ instance_id }}'; they may still exist.
+      when:
+        - _destroy_down.rc | default(1) != 0
+        - force | default(false) | bool
 
     - name: Remove backup staging volume
       ansible.builtin.command:
