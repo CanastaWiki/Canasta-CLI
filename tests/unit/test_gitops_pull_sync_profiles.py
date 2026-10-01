@@ -47,13 +47,13 @@ def test_pull_compose_reconciles_profiles_after_render():
     )
 
     # Must run before change detection so a reconciled profile change is
-    # picked up by the new-.env comparison and flags a restart.
+    # picked up by the post-render .env checksum and flags a restart.
     change_idx = next(
         (i for i, t in enumerate(tasks)
-         if t.get("name") == "Read new .env for comparison"),
+         if t.get("name") == "Checksum .env and wikis.yaml after rendering"),
         None,
     )
-    assert change_idx is not None, "expected the new-.env comparison step"
+    assert change_idx is not None, "expected the post-render .env checksum step"
     assert sync_idx < change_idx, (
         "profile reconciliation must run before change detection so a "
         "profile change is seen by the .env comparison"
