@@ -1,0 +1,24 @@
+---
+# Check out every submodule at the commit the superproject pins. A repo with
+# no submodules exits 0, so any non-zero exit is a real failure and stops the
+# caller before it records the change as applied.
+# Requires: instance_path. Optional: submodule_git_env (environment for git).
+
+- name: Update submodules
+  ansible.builtin.command:
+    cmd: "git submodule update --init --recursive"
+    chdir: "{{ instance_path }}"
+  environment: "{{ submodule_git_env | default({}) }}"
+  register: _submodule_update
+  changed_when: (_submodule_update.stdout | default('')) != ''
+  failed_when: false
+
+- name: Fail if the submodules could not be updated
+  ansible.builtin.fail:
+    msg: |
+      Could not update the submodules in {{ instance_path }}:
+
+        {{ (_submodule_update.stderr | default('') | trim
+            or _submodule_update.stdout | default('') | trim)
+           | indent(8) }}
+  when: _submodule_update.rc != 0

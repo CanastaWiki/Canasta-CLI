@@ -236,11 +236,7 @@
   ansible.builtin.include_tasks: _heal_dangling_submodules.yml
 
 - name: Re-clone healed submodules
-  ansible.builtin.command:
-    cmd: "git submodule update --init --recursive"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-  ignore_errors: true  # OK if no submodules configured
+  ansible.builtin.include_tasks: "_update_submodules.yml"
 
 # Joining overlays the repo's tracked files onto a working tree that
 # already holds this host's instance files. A blind `git checkout HEAD
@@ -517,11 +513,7 @@
 
 # --- Step 10: Update submodules ---
 - name: Update submodules
-  ansible.builtin.command:
-    cmd: "git submodule update --init --recursive"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-  ignore_errors: true  # OK if no submodules configured
+  ansible.builtin.include_tasks: "_update_submodules.yml"
 
 # --- Step 11: Commit and push ---
 # Stage only the join's own artifacts — the host registration and this host's
