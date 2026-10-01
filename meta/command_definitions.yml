@@ -2284,7 +2284,8 @@ commands:
     description: "Create a backup"
     long_description: |
       Create a backup snapshot. Dumps all wiki databases, stages
-      config/extensions/images/skins, and uploads to the repository.
+      config/extensions/images/skins/public_assets and the `sidecars/`
+      build contexts, and uploads to the repository.
 
       A wiki whose data extends into a second database — Cargo's
       `$wgCargoDBname` being the usual case — declares it with
@@ -2316,8 +2317,8 @@ commands:
       Restore a Canasta instance from a backup snapshot. By default,
       a safety snapshot is taken before restoring. The restore
       replaces configuration files, extensions, images, skins,
-      public_assets, `.env`, `docker-compose.override.yml`, `my.cnf`,
-      and all wiki databases — including any extra databases declared in
+      public_assets, the `sidecars/` build contexts, `.env`,
+      `docker-compose.override.yml`, `my.cnf`, and all wiki databases — including any extra databases declared in
       `config/wikis.yaml` — with the contents of the specified snapshot.
 
       Use `-w`/`--wiki` to restore only a single wiki's database,
