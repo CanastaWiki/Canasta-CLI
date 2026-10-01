@@ -7,7 +7,8 @@
 #
 # Reads/writes the shared _images_updated fact (set by the pull step,
 # consumed by the restart decision in the upgrade role).
-# Input: instance_path, instance_orchestrator, instance_devmode,
+# Sets _upgrade_build_failed_services (the services whose rebuild failed).
+# Input: instance_path, instance_id, instance_orchestrator, instance_devmode,
 #        _images_updated
 
 # Detect services that have a `build:` directive. The merged compose
@@ -150,9 +151,33 @@
     cmd: "{{ compose_command }} {{ _upgrade_compose_files | join(' ') }} {{ _upgrade_profile_flags | default('') }} build {{ item }}"
     chdir: "{{ instance_path }}"
   loop: "{{ _buildable_services | default([]) }}"
+  register: _upgrade_build_results
   changed_when: true
-  ignore_errors: true
+  failed_when: false
   when:
     - instance_orchestrator | default('compose') == 'compose'
     - _images_updated | bool
     - (_buildable_services | default([]) | length) > 0
+
+# Set unconditionally: the fact persists across the upgrade loop, and a skipped
+# build registers results that carry no rc.
+- name: Record the services whose build failed
+  ansible.builtin.set_fact:
+    _upgrade_build_failed_services: >-
+      {{ _upgrade_build_results.results | default([])
+         | selectattr('rc', 'defined') | rejectattr('rc', 'equalto', 0)
+         | map(attribute='item') | list }}
+
+- name: Report each failed build
+  ansible.builtin.debug:
+    msg: |
+      Building service '{{ item.item }}' of instance '{{ instance_id }}' failed:
+
+        {{ ((item.stderr | default('') | trim
+             or item.stdout | default('') | trim).splitlines()[-20:])
+           | join('\n') | indent(8) }}
+  loop: "{{ _upgrade_build_results.results | default([])
+            | selectattr('rc', 'defined') | rejectattr('rc', 'equalto', 0)
+            | list }}"
+  loop_control:
+    label: "{{ item.item }}"

@@ -92,11 +92,7 @@
       ansible.builtin.include_tasks: "_explain_pull_failure.yml"
 
 - name: Update submodules
-  ansible.builtin.command:
-    cmd: "git submodule update --init --recursive"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-  ignore_errors: true  # OK if no submodules configured
+  ansible.builtin.include_tasks: "_update_submodules.yml"
 
 - name: Remove submodules the pull dropped
   ansible.builtin.include_tasks: "_remove_dropped_submodules.yml"
