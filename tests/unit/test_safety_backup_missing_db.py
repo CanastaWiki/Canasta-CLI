@@ -3,7 +3,8 @@
 The safety backup used to dump every wiki in wikis.yaml, so a single missing
 database (the very disaster a restore recovers from) failed mariadb-dump and
 aborted the whole restore. The dump must run only over wikis whose database is
-present, and warn about the rest.
+present, and warn about the rest. A database that is present but cannot be
+dumped is left out of the safety snapshot, which is then tagged INCOMPLETE.
 """
 
 import os
@@ -38,9 +39,31 @@ def test_safety_dump_loops_only_over_present_wikis():
     dump = _by_name(
         "Dump each present wiki's database group for safety backup")
     assert dump is not None, "safety dump task missing/renamed"
-    assert dump.get("loop") == "{{ _safety_present_groups | default([]) }}", (
-        "safety dump must loop over groups built from wikis with a present DB, "
+    assert dump.get("vars", {}).get("_backup_wikis") == {
+        "db_groups": "{{ _safety_present_groups | default([]) }}"}, (
+        "safety dump must cover groups built from wikis with a present DB, "
         "not all wiki_ids (a missing DB otherwise aborts the whole restore)")
+
+
+def test_safety_dump_survives_a_database_that_cannot_be_dumped():
+    dump = _by_name(
+        "Dump each present wiki's database group for safety backup")
+    assert dump.get("ansible.builtin.include_tasks") == \
+        "backup_stage_db_dumps.yml", (
+        "safety dump must use the backup dump, which retries a failed group "
+        "one database at a time and records failures instead of failing — "
+        "a broken view otherwise aborts the restore that would repair it")
+
+
+def test_safety_snapshot_is_tagged_incomplete_when_a_dump_failed():
+    tag = _by_name("Tag the safety snapshot")
+    expr = tag["ansible.builtin.set_fact"]["_safety_tag"]
+    assert "'safety-before-restore'" in expr
+    assert "'INCOMPLETE'" in expr and "'missing-db:'" in expr
+    assert "_backup_dump_failures | length > 0" in expr
+    run = _by_name("Run safety backup with staged files")
+    args = run["vars"]["backup_args"]
+    assert args[args.index("--tag") + 1] == "{{ _safety_tag }}"
 
 
 def test_safety_groups_drop_databases_that_do_not_exist():
