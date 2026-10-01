@@ -136,9 +136,11 @@ class TestComposeDump:
         dump = _by_name(STAGE, "Dump each wiki's database group (Compose)")
         assert dump is not None
         cmd = dump["vars"]["exec_command"]
-        assert "--databases {{ item.databases | map('quote') | join(' ') }}" in cmd, (
-            "every database in a group must be passed to a single "
-            "mariadb-dump call — separate calls are separate transactions")
+        # The first attempt passes the whole group to one mariadb-dump call;
+        # separate calls are separate transactions, and are only the
+        # fallback when that attempt fails.
+        assert 'd "$f.tmp" {{ item.databases | map(\'quote\') | join(\' \') }}' in cmd
+        assert '--databases "$@"' in cmd
         assert "--single-transaction" in cmd
 
     def test_dump_file_is_named_for_the_wiki(self):
@@ -195,9 +197,9 @@ class TestKubernetesDump:
             "these are read-only or load-bearing in bash: %s" % offenders)
 
     def test_group_loop_is_not_a_subshell(self):
-        # A `while` on the right of a pipe runs in a subshell, where the
-        # script's `exit 1` would abort only the subshell and let the
-        # backup finish reporting success.
+        # A `while` on the right of a pipe runs in a subshell, which would
+        # lose GROUPED and dump every grouped database a second time on
+        # its own.
         script = self._script()
         assert "done < /tmp/db_groups" in script
 

@@ -3251,6 +3251,7 @@ class TestBackupList:
             lambda *a, **kw: type("R", (), {
                 "returncode": 0,
                 "stdout": "ID        Time                 Host\nabc123    2026-04-18 12:00:00  test\n",
+                "stderr": "",
             })(),
         )
         args = type("Args", (), {"id": "test"})()

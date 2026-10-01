@@ -2270,7 +2270,9 @@ commands:
     description: "List backups"
     long_description: |
       List all snapshots stored in the backup repository. Displays
-      each snapshot's ID, timestamp, hostname, and tags.
+      each snapshot's ID, timestamp, hostname, and tags. Snapshots
+      tagged `INCOMPLETE` are also listed in a warning below the table,
+      with the databases each one is missing.
     examples:
       - "canasta backup list"
     playbook: backup_list.yml
@@ -2297,6 +2299,12 @@ commands:
       tracking them (`cargo_pages`) lives in the wiki database: captured
       at different moments, the metadata under-reports, and editing an
       affected page appends duplicate rows instead of replacing them.
+
+      If a wiki's databases cannot be dumped, the other wikis are still
+      dumped and the snapshot is still saved, but it is tagged
+      `INCOMPLETE` with a `missing-db:<name>` tag for each database it
+      lacks, and the command exits non-zero naming each failed database
+      and its error. A scheduled backup's purge therefore does not run.
     examples:
       - "canasta backup create -t before-upgrade"
     playbook: backup_create.yml
@@ -2324,8 +2332,16 @@ commands:
       Use `-w`/`--wiki` to restore only a single wiki's database,
       per-wiki settings, images, and public assets from the backup,
       leaving shared files untouched.
+
+      A snapshot tagged `INCOMPLETE` is missing databases that failed to
+      dump when it was taken. Restore refuses it, naming the missing
+      databases, unless `--allow-incomplete` is given; with the flag it
+      restores everything the snapshot has and leaves the missing
+      databases as they are. `-s latest` skips `INCOMPLETE` snapshots
+      unless `--allow-incomplete` is given.
     examples:
       - "canasta backup restore -s abc123"
+      - "canasta backup restore -s abc123 --allow-incomplete"
     playbook: backup_restore.yml
     parameters:
       - name: id
@@ -2345,6 +2361,10 @@ commands:
         short: w
         type: string
         description: "Restore only this wiki's database and per-wiki files"
+      - name: allow_incomplete
+        type: bool
+        default: false
+        description: "Restore a snapshot tagged INCOMPLETE, which is missing databases"
 
   - name: backup_delete
     description: "Delete a backup"

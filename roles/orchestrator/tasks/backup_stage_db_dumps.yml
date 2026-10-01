@@ -19,8 +19,19 @@
 # rather than templated in, so it never reaches the host's process
 # table.
 #
+# A group whose dump fails does not stop the backup. Its databases are
+# then dumped one at a time, without the shared transaction, so one
+# broken database does not cost the others; those that still fail are
+# left out of the snapshot.
+#
 # Input: instance_path, instance_orchestrator,
 #        _backup_wikis (db_groups)
+# Output: _backup_dump_failures - one "<db> [<db>...]: <error>" entry per
+#         group that could not be dumped (on K8s the Job reports these)
+
+- name: Start with no failed database dumps
+  ansible.builtin.set_fact:
+    _backup_dump_failures: []
 
 - name: Create backup staging directory (Compose)
   ansible.builtin.include_tasks: exec.yml
@@ -30,16 +41,37 @@
   when: instance_orchestrator | default('compose') == 'compose'
 
 - name: Dump each wiki's database group (Compose)
-  ansible.builtin.include_tasks: exec.yml
+  ansible.builtin.include_tasks: backup_dump_db_group.yml
   vars:
     exec_service: web
     exec_long: true
+    # A database that cannot be dumped leaves nothing behind, neither a
+    # partial dump nor a previous run's, that could pass for its backup.
     exec_command: >-
+      f=/mediawiki/config/backup/db_{{ item.wiki | quote }}.sql;
+      rm -f "$f" "$f.part";
+      d() { o=$1; shift;
       MYSQL_PWD="$MYSQL_PASSWORD"
       mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
-      --single-transaction
-      --databases {{ item.databases | map('quote') | join(' ') }}
-      > /mediawiki/config/backup/db_{{ item.wiki | quote }}.sql
+      --single-transaction --databases "$@" > "$o" 2> "$f.err"
+      && [ -s "$o" ]; };
+      if d "$f.tmp" {{ item.databases | map('quote') | join(' ') }};
+      then mv "$f.tmp" "$f"; cat "$f.err" >&2;
+      else rm -f "$f.tmp";
+      {% if item.databases | length > 1 %}
+      echo "WARNING: dumping {{ item.databases | join(' ') }} together
+      failed; dumping each database on its own" >&2;
+      for db in {{ item.databases | map('quote') | join(' ') }}; do
+      if d "$f.one" "$db"; then cat "$f.one" >> "$f.part";
+      else echo "DUMP-FAILED $db: $(tr '\n' ' ' < "$f.err")"; fi;
+      done; rm -f "$f.one";
+      if [ -s "$f.part" ]; then mv "$f.part" "$f"; else rm -f "$f.part"; fi;
+      {% else %}
+      echo "DUMP-FAILED {{ item.databases | join(' ') }}:
+      $(tr '\n' ' ' < "$f.err")";
+      {% endif %}
+      fi;
+      rm -f "$f.err"
   loop: "{{ _backup_wikis.db_groups }}"
   loop_control:
     label: >-
