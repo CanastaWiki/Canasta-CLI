@@ -7,6 +7,9 @@ and no compose file, so delete cannot be re-run to remove them.
 
 `down -v` also exits 0 when it skips a volume another container still has
 mounted, so delete checks for the project's volumes afterward.
+
+A failed delete must also leave the instance's content alone: Compose
+removes config/, images/ and public_assets/ only after the teardown checks.
 """
 
 import os
@@ -112,6 +115,40 @@ class TestLeftoverVolumesAreFatal:
         when = _when(warn)
         assert "_destroy_leftover_volumes | length > 0" in when
         assert "not (force" not in when and "force" in when
+
+
+class TestContentIsRemovedOnlyAfterTeardown:
+    CLEANUP = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "tasks",
+        "delete_cleanup_files.yml")
+
+    def test_compose_cleanup_follows_the_teardown_checks(self):
+        tasks = _walk(_load(DESTROY))
+        names = [t.get("name") for t in tasks]
+        clean = "Clean up container-owned files"
+        assert clean in names, "Compose content cleanup missing from destroy"
+        for check in ("Destroy containers and volumes",
+                      "Fail if containers and volumes could not be removed",
+                      "Fail if volumes could not be removed"):
+            assert names.index(check) < names.index(clean), (
+                "%r must run before content is removed, or a failed delete "
+                "has already erased the instance" % check)
+
+    def test_compose_cleanup_needs_no_compose_stack(self):
+        task = _named(_walk(_load(DESTROY)), "Clean up container-owned files")
+        cmd = task["ansible.builtin.command"]["cmd"]
+        assert cmd.startswith("{{ inspect_command }} run --rm")
+        assert "compose" not in cmd, (
+            "`compose run` would recreate the volumes the teardown removed")
+        for d in ("config", "images", "public_assets"):
+            assert "/instance/%s" % d in cmd
+        assert "-mindepth 1 -delete" in cmd
+
+    def test_nothing_removes_compose_content_before_teardown(self):
+        text = open(self.CLEANUP).read()
+        assert "compose_command" not in text
+        assert "instance_orchestrator | default('compose') == 'compose'" \
+            not in text
 
 
 class TestDeregistrationFollowsTeardown:
