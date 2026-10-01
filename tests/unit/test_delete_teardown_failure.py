@@ -4,6 +4,9 @@ When `compose down` fails (wrong or unreachable runtime, broken compose
 file), the containers and volumes are still there. Deregistering and
 emptying the directory at that point leaves them with no registry entry
 and no compose file, so delete cannot be re-run to remove them.
+
+`down -v` also exits 0 when it skips a volume another container still has
+mounted, so delete checks for the project's volumes afterward.
 """
 
 import os
@@ -75,6 +78,39 @@ class TestComposeTeardownFailureIsFatal:
         assert warn, "a forced delete should say what was left behind"
         when = _when(warn)
         assert "_destroy_down.rc" in when
+        assert "not (force" not in when and "force" in when
+
+
+class TestLeftoverVolumesAreFatal:
+    def _tasks(self):
+        return _walk(_load(DESTROY))
+
+    def test_project_volumes_are_listed_after_down(self):
+        tasks = self._tasks()
+        names = [t.get("name") for t in tasks]
+        ls = _named(tasks, "List volumes the teardown left behind")
+        assert ls, "nothing checks for volumes `down -v` skipped"
+        cmd = ls["ansible.builtin.command"]["cmd"]
+        assert "volume ls -q" in cmd
+        assert ("label=com.docker.compose.project="
+                "{{ instance_path | basename | lower }}") in cmd
+        assert "_destroy_down.rc" in _when(ls)
+        assert (names.index("Destroy containers and volumes")
+                < names.index("List volumes the teardown left behind"))
+
+    def test_leftover_volumes_stop_delete_unless_forced(self):
+        fail = _named(self._tasks(), "Fail if volumes could not be removed")
+        assert fail and "ansible.builtin.fail" in fail
+        when = _when(fail)
+        assert "_destroy_leftover_volumes | length > 0" in when
+        assert "not (force" in when
+        assert "_destroy_leftover_volumes" in fail["ansible.builtin.fail"]["msg"]
+
+    def test_forced_delete_names_leftover_volumes(self):
+        warn = _named(self._tasks(), "Warn that volumes remain")
+        assert warn
+        when = _when(warn)
+        assert "_destroy_leftover_volumes | length > 0" in when
         assert "not (force" not in when and "force" in when
 
 
