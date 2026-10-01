@@ -57,6 +57,22 @@
       changed_when: true
       failed_when: false
 
+    # `down -v` skips a volume another container still has mounted and
+    # exits 0 anyway.
+    - name: List volumes the teardown left behind
+      ansible.builtin.command:
+        cmd: >-
+          {{ inspect_command }} volume ls -q
+          --filter label=com.docker.compose.project={{ instance_path | basename | lower }}
+      register: _destroy_leftover
+      changed_when: false
+      failed_when: false
+      when: _destroy_down.rc | default(1) == 0
+
+    - name: Record the volumes left behind
+      ansible.builtin.set_fact:
+        _destroy_leftover_volumes: "{{ _destroy_leftover.stdout_lines | default([]) }}"
+
     # `down` succeeds when the containers are already gone, so a failure
     # means they may still be running.
     - name: Fail if containers and volumes could not be removed
@@ -69,6 +85,27 @@
       when:
         - _destroy_down.rc | default(1) != 0
         - not (force | default(false) | bool)
+
+    - name: Fail if volumes could not be removed
+      ansible.builtin.fail:
+        msg: >-
+          Failed to remove volume(s) {{ _destroy_leftover_volumes | join(', ') }}
+          of instance '{{ instance_id }}'; another container is probably
+          still using them. The instance was not deleted. Stop that
+          container and run delete again, or use --force to delete the
+          instance and leave the volumes.
+      when:
+        - _destroy_leftover_volumes | length > 0
+        - not (force | default(false) | bool)
+
+    - name: Warn that volumes remain
+      ansible.builtin.debug:
+        msg: >-
+          Warning: volume(s) {{ _destroy_leftover_volumes | join(', ') }}
+          of instance '{{ instance_id }}' could not be removed and still exist.
+      when:
+        - _destroy_leftover_volumes | length > 0
+        - force | default(false) | bool
 
     - name: Warn that containers and volumes may remain
       ansible.builtin.debug:
