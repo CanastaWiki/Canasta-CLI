@@ -744,6 +744,19 @@ class TestGitopsKubernetesGitEnv:
         offending = []
         found = 0
         for entry in TestGitopsComposeGitEnv._walk_tasks(tasks):
+            # The shared submodule update runs git under the environment
+            # its caller passes in.
+            if "_update_submodules.yml" in str(
+                    entry.get("ansible.builtin.include_tasks", "")):
+                found += 1
+                env = entry.get("vars", {}).get("submodule_git_env", "")
+                if "gitops_k8s_git_env" not in str(env):
+                    offending.append(
+                        "%s: task '%s' updated submodules without "
+                        "gitops_k8s_git_env"
+                        % (filename, entry.get("name", "<unnamed>"))
+                    )
+                continue
             cmd = TestGitopsComposeGitEnv._extract_cmd(entry)
             if not any(verb in cmd for verb in self.GIT_VERBS):
                 continue

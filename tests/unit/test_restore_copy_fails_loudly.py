@@ -23,6 +23,7 @@ K8S_COPY_TASKS = (
     "Copy restored single wiki settings to host",
     "Restore extensions/skins/public_assets to host",
     "Restore single wiki public assets to host",
+    "Restore sidecar build contexts to host",
 )
 
 

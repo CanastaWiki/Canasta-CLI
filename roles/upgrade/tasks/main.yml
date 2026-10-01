@@ -239,12 +239,16 @@
 # trigger a recreate, not just an image bump. A build_from instance always
 # rebuilt its image above, so it must restart to redeploy the new build
 # (no registry pull happened, so _images_updated is false for it).
+# An instance whose custom image failed to build keeps its current
+# containers: recreating them could start the stock image in place of the
+# custom one.
 - name: Decide whether a restart is needed
   ansible.builtin.set_fact:
     _restart_needed: >-
-      {{ (_images_updated | bool)
-         or (_compose_stack_copy is defined and _compose_stack_copy is changed)
-         or (_upgrade_rebuild | bool) }}
+      {{ ((_images_updated | bool)
+          or (_compose_stack_copy is defined and _compose_stack_copy is changed)
+          or (_upgrade_rebuild | bool))
+         and (_upgrade_build_failed_services | default([]) | length) == 0 }}
 
 - name: Restart containers
   when:
@@ -299,4 +303,17 @@
 - name: Report already up to date
   ansible.builtin.debug:
     msg: "Already up to date — no restart needed."
-  when: not (_restart_needed | bool)
+  when:
+    - not (_restart_needed | bool)
+    - (_upgrade_build_failed_services | default([]) | length) == 0
+
+# Recorded rather than failed here so the remaining instances still upgrade;
+# the playbook fails once the loop is done.
+- name: Record the failed upgrade
+  ansible.builtin.set_fact:
+    _upgrade_failures: >-
+      {{ (_upgrade_failures | default([]))
+         + ["'" ~ instance_id ~ "': building "
+            ~ (_upgrade_build_failed_services | join(', '))
+            ~ " failed; the instance was left on its current containers"] }}
+  when: (_upgrade_build_failed_services | default([]) | length) > 0
