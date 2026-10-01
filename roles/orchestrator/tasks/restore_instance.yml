@@ -12,7 +12,8 @@
 #   Secret handling) -> preserve DB password in the restored .env.
 #
 # Input: instance_id, instance_path, instance_orchestrator,
-#        _resolved_snapshot, _restore_dbpass, snapshot, skip_safety_backup
+#        _resolved_snapshot, _restore_dbpass, snapshot, skip_safety_backup,
+#        _restore_incomplete
 
 # --- Compose restore path ---
 - name: Restore (Compose)
@@ -385,6 +386,30 @@
     # contains are replaced wholesale. Tables created after the snapshot
     # are absent from it and survive the import — a restore rewinds the
     # snapshot's tables, it does not reset the database.
+    # An INCOMPLETE snapshot has no dump for a wiki whose databases failed
+    # to dump; those wikis are skipped instead of failing the import.
+    - name: Find the database dumps an INCOMPLETE snapshot carries
+      when:
+        - wiki is not defined
+        - _restore_incomplete | default(false) | bool
+      ansible.builtin.find:
+        paths: "{{ instance_path }}/config/backup"
+        patterns: "db_*.sql"
+      register: _restore_dump_files
+
+    - name: Choose the wikis whose databases to import
+      when: wiki is not defined
+      ansible.builtin.set_fact:
+        _restore_import_wikis: >-
+          {{ _restore_wikis.wiki_ids
+             if not (_restore_incomplete | default(false) | bool)
+             else _restore_wikis.wiki_ids | select('in',
+               _restore_dump_files.files | map(attribute='path')
+               | map('basename')
+               | map('regex_replace', '^db_', '')
+               | map('regex_replace', '[.]sql$', '') | list)
+             | list }}
+
     - name: Import each wiki database dump
       when: wiki is not defined
       ansible.builtin.include_tasks: exec.yml
@@ -394,7 +419,7 @@
           MYSQL_PWD="$MYSQL_PASSWORD"
           mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
           < /mediawiki/config/backup/db_{{ item | quote }}.sql
-      loop: "{{ _restore_wikis.wiki_ids }}"
+      loop: "{{ _restore_import_wikis }}"
 
     - name: Import the single restored wiki's database dump
       when: wiki is defined

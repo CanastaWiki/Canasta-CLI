@@ -195,9 +195,9 @@ class TestKubernetesDump:
             "these are read-only or load-bearing in bash: %s" % offenders)
 
     def test_group_loop_is_not_a_subshell(self):
-        # A `while` on the right of a pipe runs in a subshell, where the
-        # script's `exit 1` would abort only the subshell and let the
-        # backup finish reporting success.
+        # A `while` on the right of a pipe runs in a subshell, which would
+        # lose GROUPED and dump every grouped database a second time on
+        # its own.
         script = self._script()
         assert "done < /tmp/db_groups" in script
 

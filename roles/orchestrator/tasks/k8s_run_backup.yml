@@ -7,6 +7,8 @@
 #   backup_args - list of restic arguments
 # Output:
 #   _restic_result - dict with .stdout and .rc
+#   _backup_dump_failures - backup ops only: one "<db> [<db>...]: <error>"
+#     entry per database dump that failed and is missing from the snapshot
 
 - name: Set K8s namespace
   ansible.builtin.set_fact:
@@ -156,14 +158,19 @@
 # SQL dumps and the Secret manifest into that writable overlay (the
 # hostPath config mount itself is read-only); restic captures the merged
 # tree. The overlay also shadows any transient config/backup dir on the
-# host so stale dumps aren't picked up.
+# host so stale dumps aren't picked up. 'dump-status' carries the list of
+# failed dumps from the init container to restic, outside the snapshot.
 - name: Add dumps volume + mount-on-mount for backup ops
   when: _is_backup_op | bool
   ansible.builtin.set_fact:
-    _restic_volumes: "{{ _restic_volumes + [{'name': 'dumps', 'emptyDir': {}}] }}"
+    _restic_volumes: >-
+      {{ _restic_volumes + [{'name': 'dumps', 'emptyDir': {}},
+                            {'name': 'dump-status', 'emptyDir': {}}] }}
     _restic_volume_mounts: >-
       {{ _restic_volume_mounts + [{'name': 'dumps',
-         'mountPath': '/currentsnapshot/config/backup', 'readOnly': true}] }}
+         'mountPath': '/currentsnapshot/config/backup', 'readOnly': true},
+         {'name': 'dump-status', 'mountPath': '/dump-status',
+          'readOnly': true}] }}
 
 # Build the init container list. Empty for non-backup ops (forget,
 # snapshots, etc. don't need DB or Secret dumps). For backup ops:
@@ -209,22 +216,26 @@
               # $1 is the dump's basename, the rest are databases to put in
               # it. One invocation means one transaction, so a wiki and the
               # extra databases it declares are captured at the same moment.
+              # A failed dump is recorded in /dump-status/failures for the
+              # restic container and left out of the snapshot; the other
+              # databases are still dumped.
               name=$1
               shift
-              if ! mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" \
+              out="/currentsnapshot/config/backup/db_${name}.sql"
+              if mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" \
                   --single-transaction --databases "$@" \
-                  > "/currentsnapshot/config/backup/db_${name}.sql"; then
-                echo "FATAL: mariadb-dump failed for database(s) '$*'" >&2
-                exit 1
+                  > "$out" 2> /tmp/dump.err; then
+                cat /tmp/dump.err >&2
+                [ -s "$out" ] && return 0
+                echo "dump is empty" > /tmp/dump.err
               fi
-              if [ ! -s "/currentsnapshot/config/backup/db_${name}.sql" ]; then
-                echo "FATAL: dump for database(s) '$*' is empty" >&2
-                exit 1
-              fi
+              rm -f "$out"
+              echo "DUMP-FAILED $*: $(tr '\n' ' ' < /tmp/dump.err)" \
+                | tee -a /dump-status/failures >&2
             }
             # Wikis that declare extra databases go first, as one dump each.
             # Reading from a file rather than a pipe keeps the loop out of a
-            # subshell, so a failed dump still aborts the backup.
+            # subshell, so GROUPED survives it.
             printf '%s\n' "$WIKI_GROUPS" | tr ';' '\n' > /tmp/db_groups
             GROUPED=''
             while read -r wiki extras; do
@@ -255,6 +266,8 @@
         volumeMounts:
           - name: dumps
             mountPath: /currentsnapshot/config/backup
+          - name: dump-status
+            mountPath: /dump-status
       # Captures canasta-managed Secrets so a fresh-cluster restore
       # can bring back MYSQL_PASSWORD / MW_SECRET_KEY (#510). Same
       # by-name dump strategy the scheduled CronJob uses.
@@ -290,6 +303,22 @@
 - name: Build the restic container command
   ansible.builtin.set_fact:
     _restic_command: "restic --cache-dir /tmp/restic-cache {{ backup_args | join(' ') }}"
+
+# Same tags as the Compose path: INCOMPLETE plus missing-db:<name> per
+# database the init container could not dump. The failures are echoed so
+# they reach the Job's log, which is read back below.
+- name: Tag the snapshot INCOMPLETE when a dump failed
+  ansible.builtin.set_fact:
+    _restic_command: >-
+      _tags=;
+      if [ -s /dump-status/failures ]; then
+      cat /dump-status/failures;
+      _tags=INCOMPLETE$(sed 's/^DUMP-FAILED //; s/:.*//' /dump-status/failures
+      | tr ' ' '\n'
+      | sed '/^$/d; s/^/,missing-db:/' | tr -d '\n');
+      fi;
+      {{ _restic_command }} ${_tags:+--tag "$_tags"}
+  when: _is_backup_op | bool
 
 # chown the local-path repo back to its parent-dir owner after restic runs, so
 # the operator (not root) owns it and can remove it without sudo. Runs for any
@@ -386,6 +415,15 @@
     _restic_result:
       stdout: "{{ _restic_log.stdout }}"
       rc: "{{ (_backup_job_status.resources[0].status.succeeded | default(0) > 0) | ternary(0, 1) }}"
+
+- name: Collect the database dumps that failed
+  ansible.builtin.set_fact:
+    _backup_dump_failures: >-
+      {{ _restic_log.stdout.splitlines()
+         | select('match', '^DUMP-FAILED ')
+         | map('regex_replace', '^DUMP-FAILED ', '')
+         | map('trim') | list }}
+  when: _is_backup_op | bool
 
 - name: Delete completed Job
   kubernetes.core.k8s:

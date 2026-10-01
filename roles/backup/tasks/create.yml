@@ -38,6 +38,19 @@
     _backup_tag: >-
       {{ tag }}__on__{{ _hostname.stdout | trim }}
 
+# A snapshot missing databases carries INCOMPLETE plus one missing-db:<name>
+# tag per absent database, which `backup list` and `backup restore` read.
+- name: Tag a snapshot that is missing databases
+  ansible.builtin.set_fact:
+    _backup_tag: >-
+      {{ ([_backup_tag, 'INCOMPLETE']
+          + (_backup_dump_failures
+             | map('regex_replace', ':.*$', '')
+             | map('split') | flatten
+             | map('regex_replace', '^', 'missing-db:') | list))
+         | join(',') }}
+  when: _backup_dump_failures | length > 0
+
 - name: Build volume map for staging
   ansible.builtin.set_fact:
     _backup_volumes: >-
@@ -103,3 +116,15 @@
 - name: Clean up backup staging directory
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/backup_cleanup_db_dumps.yml
+
+# Non-zero, so a scheduled `create && purge` skips retention and a partial
+# snapshot can never cause a complete one to be pruned.
+- name: Fail when databases are missing from the snapshot
+  ansible.builtin.fail:
+    msg: |-
+      The snapshot was saved but is INCOMPLETE: these databases could not be dumped and are not in it.
+      {% for failure in _backup_dump_failures %}
+        - {{ failure }}
+      {% endfor %}
+      It is tagged INCOMPLETE, and 'canasta backup restore' refuses it unless --allow-incomplete is given.
+  when: _backup_dump_failures | length > 0

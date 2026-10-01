@@ -9,6 +9,34 @@
   vars:
     backup_args: ["snapshots"]
 
+- name: Keep the snapshot table
+  ansible.builtin.set_fact:
+    _backup_list_table: "{{ _restic_result.stdout }}"
+
 - name: Display snapshots
   ansible.builtin.debug:
-    msg: "{{ _restic_result.stdout }}"
+    msg: "{{ _backup_list_table }}"
+
+# The table shows INCOMPLETE as just another tag, so spell out what each
+# INCOMPLETE snapshot is missing below it.
+- name: List INCOMPLETE snapshots as JSON
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
+  vars:
+    backup_args: ["snapshots", "--json", "--tag", "INCOMPLETE"]
+  when: "'INCOMPLETE' in _backup_list_table"
+
+- name: Warn about INCOMPLETE snapshots
+  ansible.builtin.debug:
+    msg: |-
+      WARNING: {{ _incomplete | length }} INCOMPLETE snapshot(s), missing databases that failed to dump:
+      {% for snap in _incomplete %}
+      {%   set missing = snap.tags | select('match', '^missing-db:')
+                         | map('regex_replace', '^missing-db:', '') | join(', ') %}
+        {{ snap.short_id }}  {{ snap.time[:19] | replace('T', ' ') }}  missing: {{ missing | default('(unrecorded)', true) }}
+      {% endfor %}
+  vars:
+    _incomplete: "{{ _restic_result.stdout | from_json | sort(attribute='time') }}"
+  when:
+    - "'INCOMPLETE' in _backup_list_table"
+    - _incomplete | length > 0

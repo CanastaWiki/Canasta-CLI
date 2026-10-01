@@ -119,36 +119,111 @@
 # shadows any set_fact (precedence 20). We resolve into a *new* fact
 # (`_resolved_snapshot`) and use that everywhere downstream instead of
 # trying to rebind `snapshot` itself.
+#
+# The listing also supplies the tags of the snapshot being restored, so an
+# INCOMPLETE one (a backup that could not dump every database) is refused
+# unless --allow-incomplete is given. For the same reason 'latest' passes
+# over INCOMPLETE snapshots unless that flag is given.
+- name: List all snapshots as JSON
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
+  vars:
+    backup_args:
+      - "snapshots"
+      - "--json"
+
+- name: Read the snapshot listing
+  ansible.builtin.set_fact:
+    _restore_snapshots: "{{ (_restic_result.stdout | from_json) | sort(attribute='time') }}"
+
 - name: Resolve 'latest' snapshot (excluding internal safety snapshots)
   when: snapshot == 'latest'
   block:
-    - name: List all snapshots as JSON
-      ansible.builtin.include_tasks: >-
-        {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
-      vars:
-        backup_args:
-          - "snapshots"
-          - "--json"
-
     - name: Pick latest non-safety snapshot
       ansible.builtin.set_fact:
         _resolved_snapshot: "{{ item.short_id }}"
-      loop: "{{ (_restic_result.stdout | from_json) | sort(attribute='time') }}"
-      when: "'safety-before-restore' not in (item.tags | default([]))"
+        _resolved_snapshot_time: "{{ item.time }}"
+      loop: "{{ _restore_snapshots }}"
+      when:
+        - "'safety-before-restore' not in (item.tags | default([]))"
+        - >-
+          (allow_incomplete | default(false) | bool)
+          or 'INCOMPLETE' not in (item.tags | default([]))
       loop_control:
         label: "{{ item.short_id }} ({{ item.time }})"
+
+    - name: Find INCOMPLETE snapshots 'latest' passed over
+      ansible.builtin.set_fact:
+        _restore_skipped_incomplete: >-
+          {{ _restore_snapshots
+             | selectattr('time', '>', _resolved_snapshot_time | default(''))
+             | selectattr('tags', 'defined')
+             | selectattr('tags', 'contains', 'INCOMPLETE')
+             | rejectattr('tags', 'contains', 'safety-before-restore')
+             | map(attribute='short_id') | list }}
 
     - name: Fail if no non-safety snapshot exists
       ansible.builtin.fail:
         msg: >-
+          {% if _restore_skipped_incomplete | length > 0 %}
+          No complete backup snapshot found: the only candidates are
+          INCOMPLETE ({{ _restore_skipped_incomplete | join(', ') }}), which
+          lack databases that failed to dump. To restore one anyway, name it
+          with -s and add --allow-incomplete.
+          {% else %}
           No backup snapshots found (excluding safety-before-restore
           snapshots). Create a backup first with 'canasta backup create'.
+          {% endif %}
       when: _resolved_snapshot is not defined
+
+    - name: Report the INCOMPLETE snapshots 'latest' passed over
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: skipping newer INCOMPLETE snapshot(s)
+          {{ _restore_skipped_incomplete | join(', ') }}; restoring
+          {{ _resolved_snapshot }} ({{ _resolved_snapshot_time }}), the
+          latest complete snapshot.
+      when: _restore_skipped_incomplete | length > 0
 
 - name: Set effective snapshot ID
   ansible.builtin.set_fact:
     _resolved_snapshot: "{{ snapshot }}"
   when: _resolved_snapshot is not defined
+
+- name: Read the restored snapshot's tags
+  ansible.builtin.set_fact:
+    _restore_snapshot_tags: >-
+      {{ _restore_snapshots
+         | selectattr('id', 'match', _resolved_snapshot | regex_escape)
+         | map(attribute='tags', default=[]) | flatten | unique | list }}
+
+- name: Note whether the snapshot is INCOMPLETE
+  ansible.builtin.set_fact:
+    _restore_incomplete: "{{ 'INCOMPLETE' in _restore_snapshot_tags }}"
+    _restore_missing_dbs: >-
+      {{ _restore_snapshot_tags | select('match', '^missing-db:')
+         | map('regex_replace', '^missing-db:', '') | list }}
+
+- name: Refuse an INCOMPLETE snapshot
+  ansible.builtin.fail:
+    msg: >-
+      Snapshot {{ _resolved_snapshot }} is INCOMPLETE: database(s)
+      {{ _restore_missing_dbs | join(', ') | default('(unrecorded)', true) }}
+      failed to dump when it was taken and are not in it. Restoring it would
+      bring back everything else while leaving those databases as they are
+      now. To restore it anyway, add --allow-incomplete.
+  when:
+    - _restore_incomplete | bool
+    - not (allow_incomplete | default(false) | bool)
+
+- name: Warn that the snapshot is INCOMPLETE
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: snapshot {{ _resolved_snapshot }} is INCOMPLETE. Restoring
+      what it has; database(s)
+      {{ _restore_missing_dbs | join(', ') | default('(unrecorded)', true) }}
+      are not in it and will be left as they are.
+  when: _restore_incomplete | bool
 
 - name: Note when this restore started
   ansible.builtin.set_fact:
@@ -245,3 +320,9 @@
       Database tables present in the snapshot were replaced; any table
       created since it was taken (a later extension install, a MediaWiki
       upgrade) still exists.
+      {% if _restore_incomplete | bool %}
+      The snapshot is INCOMPLETE, so database(s)
+      {{ _restore_missing_dbs | join(', ') | default('(unrecorded)', true) }}
+      were not restored; this instance's copies, if any, were left as they
+      were.
+      {% endif %}

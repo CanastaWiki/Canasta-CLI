@@ -19,8 +19,19 @@
 # rather than templated in, so it never reaches the host's process
 # table.
 #
+# A group whose dump fails is left out of the snapshot rather than
+# stopping the backup; the other groups are still dumped. Its databases
+# are not retried one by one, because dumping them separately would
+# break the shared transaction.
+#
 # Input: instance_path, instance_orchestrator,
 #        _backup_wikis (db_groups)
+# Output: _backup_dump_failures - one "<db> [<db>...]: <error>" entry per
+#         group that could not be dumped (on K8s the Job reports these)
+
+- name: Start with no failed database dumps
+  ansible.builtin.set_fact:
+    _backup_dump_failures: []
 
 - name: Create backup staging directory (Compose)
   ansible.builtin.include_tasks: exec.yml
@@ -30,16 +41,25 @@
   when: instance_orchestrator | default('compose') == 'compose'
 
 - name: Dump each wiki's database group (Compose)
-  ansible.builtin.include_tasks: exec.yml
+  ansible.builtin.include_tasks: backup_dump_db_group.yml
   vars:
     exec_service: web
     exec_long: true
+    # A failed group leaves no file behind, neither a partial dump nor a
+    # previous run's, that could pass for its backup.
     exec_command: >-
-      MYSQL_PWD="$MYSQL_PASSWORD"
+      f=/mediawiki/config/backup/db_{{ item.wiki | quote }}.sql;
+      rm -f "$f";
+      if MYSQL_PWD="$MYSQL_PASSWORD"
       mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
       --single-transaction
       --databases {{ item.databases | map('quote') | join(' ') }}
-      > /mediawiki/config/backup/db_{{ item.wiki | quote }}.sql
+      > "$f.tmp" 2> "$f.err";
+      then mv "$f.tmp" "$f"; cat "$f.err" >&2;
+      else echo "DUMP-FAILED {{ item.databases | join(' ') }}:
+      $(tr '\n' ' ' < "$f.err")"; rm -f "$f.tmp";
+      fi;
+      rm -f "$f.err"
   loop: "{{ _backup_wikis.db_groups }}"
   loop_control:
     label: >-
