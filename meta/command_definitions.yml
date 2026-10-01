@@ -483,9 +483,15 @@ commands:
       and configuration files. If run without --id from an instance directory,
       the instance is resolved by matching the current directory against the
       registry.
+
+      If the containers and volumes of a Docker Compose instance cannot be
+      removed, delete stops and leaves the instance registered and its files
+      in place. Pass --force to delete the instance anyway; any containers
+      and volumes that remain must then be removed by hand.
     examples:
       - "canasta delete -y"
       - "cd /path/to/instance && canasta delete -y"
+      - "canasta delete -i mysite -y --force"
     playbook: delete.yml
     parameters:
       - name: id
@@ -497,6 +503,11 @@ commands:
         type: bool
         default: false
         description: "Skip confirmation prompt"
+      - name: force
+        short: f
+        type: bool
+        default: false
+        description: "Delete even if the containers and volumes cannot be removed"
 
   - name: start
     description: "Start a Canasta instance"
