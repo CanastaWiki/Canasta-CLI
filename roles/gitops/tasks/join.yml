@@ -555,6 +555,13 @@
   environment: "{{ gitops_git_env }}"
   changed_when: true
 
+# The rendered files match HEAD; `gitops pull` diffs against this commit.
+- name: Record HEAD as the applied commit
+  ansible.builtin.shell:
+    cmd: "git rev-parse HEAD > .gitops-applied"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
 # --- Step 11: Clean up temp dir ---
 - name: Remove temp clone directory
   ansible.builtin.file:
