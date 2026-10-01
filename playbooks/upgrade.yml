@@ -57,7 +57,10 @@
 
     - name: Report upgrade complete
       ansible.builtin.debug:
-        msg: "Upgraded {{ _upgrade_instances.instances | length }} instance(s)."
+        msg: >-
+          Upgraded {{ _upgrade_instances.instances | length
+                      - (_upgrade_failures | default([]) | length) }}
+          instance(s).
 
     # --- Purge superseded images (--purge) ---
     # Runs once per distinct host after all its instances have upgraded, so
@@ -71,3 +74,12 @@
       loop_control:
         loop_var: _purge_host_name
       when: purge | default(false) | bool
+
+    - name: Fail if any instance failed to upgrade
+      ansible.builtin.fail:
+        msg: |
+          {{ _upgrade_failures | length }} instance(s) failed to upgrade:
+          {% for f in _upgrade_failures %}
+            {{ f }}
+          {% endfor %}
+      when: (_upgrade_failures | default([]) | length) > 0

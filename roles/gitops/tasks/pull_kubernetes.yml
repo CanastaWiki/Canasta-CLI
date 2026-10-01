@@ -30,12 +30,9 @@
 
 # Keep extensions/skins submodules in sync with the pulled pointers.
 - name: Update submodules
-  ansible.builtin.command:
-    cmd: "git submodule update --init --recursive"
-    chdir: "{{ instance_path }}"
-  environment: "{{ gitops_k8s_git_env }}"
-  changed_when: _git_pull.changed
-  ignore_errors: true  # OK if no submodules configured
+  ansible.builtin.include_tasks: "_update_submodules.yml"
+  vars:
+    submodule_git_env: "{{ gitops_k8s_git_env }}"
 
 - name: Check for multi-env structure
   ansible.builtin.stat:

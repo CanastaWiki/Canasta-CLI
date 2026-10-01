@@ -75,9 +75,11 @@ def test_restore_covers_every_dir_the_backup_captures():
     # bug that silently dropped images + extensions/skins/public_assets on
     # restore — the backup saved them, but restore never brought them back.
     captured = set(re.findall(r"/currentsnapshot/([A-Za-z_]+)", _text(BACKUP)))
-    captured &= {"config", "images", "extensions", "skins", "public_assets"}
+    captured &= {"config", "images", "extensions", "skins", "public_assets",
+                 "sidecars"}
     # Sanity: the backup really does capture the media/user dirs.
-    assert {"images", "extensions", "skins", "public_assets"} <= captured
+    assert {"images", "extensions", "skins", "public_assets",
+            "sidecars"} <= captured
     # Check the PARSED tasks (comments stripped) so a dir mentioned only in a
     # comment cannot satisfy the guard — it must be in real restore logic.
     restore_logic = yaml.safe_dump(_tasks())

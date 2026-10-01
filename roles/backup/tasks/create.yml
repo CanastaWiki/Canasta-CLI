@@ -70,6 +70,7 @@
   loop:
     - docker-compose.override.yml
     - my.cnf
+    - sidecars
 
 - name: Add optional files to staging
   ansible.builtin.set_fact:

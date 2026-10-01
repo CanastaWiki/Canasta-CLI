@@ -117,6 +117,22 @@
          'mountPath': _restic_repo}] }}
   when: _restic_local_repo | bool
 
+# `build:` sidecars are built from sidecars/<name> on the host at every
+# start, so a restore onto a new host needs them. Most instances have no
+# sidecars/ directory, and a hostPath of type Directory fails pod start
+# when the path is missing, so it is mounted only when present.
+- name: Check for a sidecars directory
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/sidecars"
+  register: _restic_sidecars_dir
+
+- name: Add sidecars volume mount
+  ansible.builtin.set_fact:
+    _restic_volume_mounts: >-
+      {{ _restic_volume_mounts + [{'name': 'sidecars',
+         'mountPath': '/currentsnapshot/sidecars', 'readOnly': true}] }}
+  when: _restic_sidecars_dir.stat.isdir | default(false)
+
 - name: Build volumes list
   ansible.builtin.set_fact:
     _restic_volumes:
@@ -152,6 +168,14 @@
       {{ _restic_volumes + [{'name': 'local-repo',
          'hostPath': {'path': _restic_repo, 'type': 'DirectoryOrCreate'}}] }}
   when: _restic_local_repo | bool
+
+- name: Add sidecars hostPath volume
+  ansible.builtin.set_fact:
+    _restic_volumes: >-
+      {{ _restic_volumes + [{'name': 'sidecars',
+         'hostPath': {'path': instance_path ~ '/sidecars',
+                      'type': 'Directory'}}] }}
+  when: _restic_sidecars_dir.stat.isdir | default(false)
 
 # Backup ops add a 'dumps' emptyDir mounted on top of the config
 # hostPath at /currentsnapshot/config/backup. The init containers write
