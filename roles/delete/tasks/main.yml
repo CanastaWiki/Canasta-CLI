@@ -251,10 +251,34 @@
     - name: End play for already-removed instance
       ansible.builtin.meta: end_play
 
-# Deregister FIRST so the instance is removed from the registry even
-# if subsequent cleanup steps fail (e.g., directory already gone from
-# a previous partial delete). Better to have an orphaned directory
-# than an orphaned registry entry.
+# Remove instance content files via the orchestrator (Compose uses
+# `docker compose run`; K8s execs into the web pod when reachable).
+- name: Clean up container-owned files
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/delete_cleanup_files.yml
+
+# Remove backup schedule from crontab
+- name: Remove backup schedule
+  ansible.builtin.cron:
+    name: "canasta-backup-{{ instance_id }}"
+    state: absent
+  ignore_errors: true  # OK if no crontab entry exists
+
+- name: Remove Argo CD Application if present
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/delete_remove_argocd_app.yml
+
+- name: Destroy containers and volumes
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: destroy.yml
+  # Compose never sets _k8s_api_reachable, so default(true) runs destroy;
+  # K8s skips only when the cluster API was probed unreachable. destroy.yml
+  # itself dispatches Compose vs K8s.
+  when: _k8s_api_reachable | default(true)
+
+# Deregister only after teardown, so a failed teardown leaves the
+# registry entry that lets delete be re-run.
 - name: Save connection state before controller deregistration
   ansible.builtin.set_fact:
     _del_saved:
@@ -288,33 +312,6 @@
     id: "{{ instance_id }}"
     state: absent
   when: _instance_host | default('localhost') != 'localhost'
-
-# Remove instance content files via the orchestrator (Compose uses
-# `docker compose run`; K8s execs into the web pod when reachable).
-- name: Clean up container-owned files
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/delete_cleanup_files.yml
-
-# Remove backup schedule from crontab
-- name: Remove backup schedule
-  ansible.builtin.cron:
-    name: "canasta-backup-{{ instance_id }}"
-    state: absent
-  ignore_errors: true  # OK if no crontab entry exists
-
-- name: Remove Argo CD Application if present
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/delete_remove_argocd_app.yml
-
-- name: Destroy containers and volumes
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: destroy.yml
-  ignore_errors: true  # OK if already destroyed
-  # Compose never sets _k8s_api_reachable, so default(true) runs destroy;
-  # K8s skips only when the cluster API was probed unreachable. destroy.yml
-  # itself dispatches Compose vs K8s.
-  when: _k8s_api_reachable | default(true)
 
 # Require a non-trivial absolute path before running 'find -delete'.
 # 'length > 5' rejects '/', '/a', '/ab', '/abc' — values short enough to

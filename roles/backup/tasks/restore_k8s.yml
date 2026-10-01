@@ -7,8 +7,9 @@
 # Restores everything the k8s backup captures: config (-> host -> ConfigMaps),
 # .env, the DB (streamed into the web pod), managed Secrets, uploaded media
 # (the images PVC, mounted into the restore pod so restic lands it directly),
-# and the extensions/skins/public_assets dirs (-> host; the post-restore
-# restart's k8s_sync_user_dirs mirrors them into their PVCs). Parity with the
+# the extensions/skins/public_assets dirs (-> host; the post-restore
+# restart's k8s_sync_user_dirs mirrors them into their PVCs), and the sidecars/
+# build contexts (-> host, where the restart builds them). Parity with the
 # Compose restore, which round-trips the same set to the host.
 #
 # Inputs: instance_path, instance_id, _resolved_snapshot, _restore_dbpass
@@ -360,6 +361,27 @@
   args:
     executable: /bin/bash
   loop: ['extensions', 'skins', 'public_assets']
+  changed_when: true
+
+# The sidecars/ build contexts are replaced wholesale like the dirs above,
+# but only when the snapshot holds them: most instances have none, and a
+# snapshot without the directory leaves the host's copy in place, as the
+# Compose restore does.
+- name: Restore sidecar build contexts to host
+  when: wiki is not defined
+  ansible.builtin.shell:
+    cmd: >-
+      set -eo pipefail;
+      if kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      test -d /currentsnapshot/sidecars; then
+      rm -rf "{{ instance_path }}/sidecars";
+      mkdir -p "{{ instance_path }}/sidecars";
+      kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      tar cf - -C /currentsnapshot/sidecars . |
+      tar xf - -C "{{ instance_path }}/sidecars/";
+      fi
+  args:
+    executable: /bin/bash
   changed_when: true
 
 # Single-wiki restore: public_assets is per-wiki, so restore only this wiki's

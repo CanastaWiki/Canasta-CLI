@@ -124,6 +124,7 @@
           loop:
             - docker-compose.override.yml
             - my.cnf
+            - sidecars
 
         - name: Add optional files to safety staging
           ansible.builtin.set_fact:
@@ -228,9 +229,11 @@
 
     # The standard MediaWiki dirs are replaced wholesale (rm -rf then copy) so a
     # restore doesn't leave stale files behind. Everything else the snapshot holds
-    # - .env, docker-compose.override.yml, my.cnf, and any custom build inputs
-    # (Dockerfile, build context dirs) staged by backup_discover_build_paths.yml - is
-    # copied back generically, so the restore round-trips whatever was captured.
+    # - .env, docker-compose.override.yml, my.cnf, the sidecars/ build contexts,
+    # and any custom build inputs (Dockerfile, build context dirs) staged by
+    # backup_discover_build_paths.yml - is copied back generically, so the
+    # restore round-trips whatever was captured. A directory the snapshot lacks
+    # is left as it is on the host.
     #
     # cp -a preserves the snapshot's NUMERIC uids, which on a cross-host
     # restore need not map to a real user here. Files the CLI user does not
