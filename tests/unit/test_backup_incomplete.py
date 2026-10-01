@@ -136,10 +136,31 @@ class TestComposeDump:
                 env=fake_mariadb)
             assert result.returncode == 0, result.stderr
             outputs[group["wiki"]] = result.stdout
-        assert sorted(os.listdir(staging)) == ["db_two.sql"]
-        assert outputs["one"].startswith("DUMP-FAILED one one_cargo: ")
-        assert "(1356)" in outputs["one"]
+        assert sorted(os.listdir(staging)) == ["db_one.sql", "db_two.sql"]
+        # The group failed together, so its databases were dumped one at a
+        # time: the main database is kept, only the broken one is missing.
+        one = (staging / "db_one.sql").read_text()
+        assert "--databases one" in one
+        assert "STALE" not in one and "partial" not in one
+        failures = [line for line in outputs["one"].splitlines()
+                    if line.startswith("DUMP-FAILED ")]
+        assert len(failures) == 1
+        assert failures[0].startswith("DUMP-FAILED one_cargo: ")
+        assert "(1356)" in failures[0]
         assert outputs["two"] == ""
+
+    def test_a_single_database_group_that_fails_is_reported(
+            self, tmp_path, fake_mariadb):
+        staging = tmp_path / "backup"
+        staging.mkdir()
+        cmd = _render(self._command(),
+                      item={"wiki": "x_cargo", "databases": ["x_cargo"]}
+                      ).replace("/mediawiki/config/backup", str(staging))
+        result = subprocess.run(["bash", "-c", cmd], capture_output=True,
+                                text=True, env=fake_mariadb)
+        assert result.returncode == 0, result.stderr
+        assert os.listdir(staging) == []
+        assert result.stdout.startswith("DUMP-FAILED x_cargo: ")
 
 
 class TestKubernetesDump:
@@ -174,10 +195,13 @@ class TestKubernetesDump:
         result = subprocess.run(["sh", "-c", script], capture_output=True,
                                 text=True, env=fake_mariadb)
         assert result.returncode == 0, result.stderr
-        assert sorted(os.listdir(dumps)) == ["db_loose.sql", "db_two.sql"]
+        assert sorted(os.listdir(dumps)) == [
+            "db_loose.sql", "db_one.sql", "db_two.sql"]
+        one = (dumps / "db_one.sql").read_text()
+        assert "--databases one" in one and "partial" not in one
         failures = (status / "failures").read_text().splitlines()
         assert len(failures) == 1
-        assert failures[0].startswith("DUMP-FAILED one one_cargo: ")
+        assert failures[0].startswith("DUMP-FAILED one_cargo: ")
 
     def _tag_command(self, tmp_path, failures):
         status = tmp_path / "status"

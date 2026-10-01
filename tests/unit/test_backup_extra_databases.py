@@ -136,9 +136,11 @@ class TestComposeDump:
         dump = _by_name(STAGE, "Dump each wiki's database group (Compose)")
         assert dump is not None
         cmd = dump["vars"]["exec_command"]
-        assert "--databases {{ item.databases | map('quote') | join(' ') }}" in cmd, (
-            "every database in a group must be passed to a single "
-            "mariadb-dump call — separate calls are separate transactions")
+        # The first attempt passes the whole group to one mariadb-dump call;
+        # separate calls are separate transactions, and are only the
+        # fallback when that attempt fails.
+        assert 'd "$f.tmp" {{ item.databases | map(\'quote\') | join(\' \') }}' in cmd
+        assert '--databases "$@"' in cmd
         assert "--single-transaction" in cmd
 
     def test_dump_file_is_named_for_the_wiki(self):

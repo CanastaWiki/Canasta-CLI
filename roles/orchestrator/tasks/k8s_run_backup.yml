@@ -212,26 +212,57 @@
             exists() {
               printf '%s\n' "$DBS" | grep -qxF "$1"
             }
+            dump_into() {
+              # $1 is the output file, the rest are databases to put in it.
+              # Fails, with the reason in /tmp/dump.err, unless the dump
+              # succeeded and is not empty.
+              file=$1
+              shift
+              if mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" \
+                  --single-transaction --databases "$@" \
+                  > "$file" 2> /tmp/dump.err; then
+                cat /tmp/dump.err >&2
+                [ -s "$file" ] && return 0
+                echo "dump is empty" > /tmp/dump.err
+              fi
+              rm -f "$file"
+              return 1
+            }
+            dump_failed() {
+              echo "DUMP-FAILED $*: $(tr '\n' ' ' < /tmp/dump.err)" \
+                | tee -a /dump-status/failures >&2
+            }
             dump() {
               # $1 is the dump's basename, the rest are databases to put in
               # it. One invocation means one transaction, so a wiki and the
               # extra databases it declares are captured at the same moment.
-              # A failed dump is recorded in /dump-status/failures for the
-              # restic container and left out of the snapshot; the other
-              # databases are still dumped.
+              # When that fails, each database is dumped on its own, so one
+              # broken database does not cost the others. Databases that
+              # still fail are recorded in /dump-status/failures for the
+              # restic container and left out of the snapshot.
               name=$1
               shift
               out="/currentsnapshot/config/backup/db_${name}.sql"
-              if mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" \
-                  --single-transaction --databases "$@" \
-                  > "$out" 2> /tmp/dump.err; then
-                cat /tmp/dump.err >&2
-                [ -s "$out" ] && return 0
-                echo "dump is empty" > /tmp/dump.err
+              dump_into "$out" "$@" && return 0
+              if [ $# -eq 1 ]; then
+                dump_failed "$@"
+                return 0
               fi
-              rm -f "$out"
-              echo "DUMP-FAILED $*: $(tr '\n' ' ' < /tmp/dump.err)" \
-                | tee -a /dump-status/failures >&2
+              echo "WARNING: dumping $* together failed; dumping each database on its own" >&2
+              : > "$out.part"
+              for db in "$@"; do
+                if dump_into "$out.one" "$db"; then
+                  cat "$out.one" >> "$out.part"
+                else
+                  dump_failed "$db"
+                fi
+              done
+              rm -f "$out.one"
+              if [ -s "$out.part" ]; then
+                mv "$out.part" "$out"
+              else
+                rm -f "$out.part"
+              fi
             }
             # Wikis that declare extra databases go first, as one dump each.
             # Reading from a file rather than a pipe keeps the loop out of a

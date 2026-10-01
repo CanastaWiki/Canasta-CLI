@@ -23,7 +23,6 @@
 - name: Report the group's dump failure
   ansible.builtin.debug:
     msg: >-
-      WARNING: could not dump {{ item.databases | join(', ') }}
-      ({{ _backup_group_failures | join('; ') }}). Continuing with the
-      remaining databases.
+      WARNING: could not dump {{ _backup_group_failures | join('; ') }}.
+      Continuing with the remaining databases.
   when: _backup_group_failures | length > 0
