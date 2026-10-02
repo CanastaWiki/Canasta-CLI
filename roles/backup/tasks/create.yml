@@ -15,108 +15,112 @@
     state: read
   register: _backup_wikis
 
-# The orchestrator owns how DB dumps are staged into the snapshot:
-# Compose dumps into the live web container's bind-mounted
-# /mediawiki/config/backup; K8s does it in the restic Job's init
-# container instead (a no-op here). Dispatch unconditionally.
-- name: Report the database-dump phase
-  ansible.builtin.debug:
-    msg: "Dumping databases into the snapshot..."
+# The staged dumps are full database copies in the instance directory, so
+# they are removed whether or not the snapshot succeeds.
+- name: Dump databases and take the snapshot
+  block:
+    # The orchestrator owns how DB dumps are staged into the snapshot:
+    # Compose dumps into the live web container's bind-mounted
+    # /mediawiki/config/backup; K8s does it in the restic Job's init
+    # container instead (a no-op here). Dispatch unconditionally.
+    - name: Report the database-dump phase
+      ansible.builtin.debug:
+        msg: "Dumping databases into the snapshot..."
 
-- name: Stage database dumps for backup
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/backup_stage_db_dumps.yml
+    - name: Stage database dumps for backup
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/backup_stage_db_dumps.yml
 
-- name: Get hostname for tag
-  ansible.builtin.command:
-    cmd: hostname
-  register: _hostname
-  changed_when: false
+    - name: Get hostname for tag
+      ansible.builtin.command:
+        cmd: hostname
+      register: _hostname
+      changed_when: false
 
-- name: Build tag with hostname
-  ansible.builtin.set_fact:
-    _backup_tag: >-
-      {{ tag }}__on__{{ _hostname.stdout | trim }}
+    - name: Build tag with hostname
+      ansible.builtin.set_fact:
+        _backup_tag: >-
+          {{ tag }}__on__{{ _hostname.stdout | trim }}
 
-# A snapshot missing databases carries INCOMPLETE plus one missing-db:<name>
-# tag per absent database, which `backup list` and `backup restore` read.
-- name: Tag a snapshot that is missing databases
-  ansible.builtin.set_fact:
-    _backup_tag: >-
-      {{ ([_backup_tag, 'INCOMPLETE']
-          + (_backup_dump_failures
-             | map('regex_replace', ':.*$', '')
-             | map('split') | flatten
-             | map('regex_replace', '^', 'missing-db:') | list))
-         | join(',') }}
-  when: _backup_dump_failures | length > 0
+    # A snapshot missing databases carries INCOMPLETE plus one missing-db:<name>
+    # tag per absent database, which `backup list` and `backup restore` read.
+    - name: Tag a snapshot that is missing databases
+      ansible.builtin.set_fact:
+        _backup_tag: >-
+          {{ ([_backup_tag, 'INCOMPLETE']
+              + (_backup_dump_failures
+                 | map('regex_replace', ':.*$', '')
+                 | map('split') | flatten
+                 | map('regex_replace', '^', 'missing-db:') | list))
+             | join(',') }}
+      when: _backup_dump_failures | length > 0
 
-- name: Build volume map for staging
-  ansible.builtin.set_fact:
-    _backup_volumes: >-
-      {{ {
-        instance_path + '/config': '/currentsnapshot/config',
-        instance_path + '/extensions': '/currentsnapshot/extensions',
-        instance_path + '/images': '/currentsnapshot/images',
-        instance_path + '/skins': '/currentsnapshot/skins',
-        instance_path + '/public_assets': '/currentsnapshot/public_assets',
-        instance_path + '/.env': '/currentsnapshot/.env'
-      } }}
+    - name: Build volume map for staging
+      ansible.builtin.set_fact:
+        _backup_volumes: >-
+          {{ {
+            instance_path + '/config': '/currentsnapshot/config',
+            instance_path + '/extensions': '/currentsnapshot/extensions',
+            instance_path + '/images': '/currentsnapshot/images',
+            instance_path + '/skins': '/currentsnapshot/skins',
+            instance_path + '/public_assets': '/currentsnapshot/public_assets',
+            instance_path + '/.env': '/currentsnapshot/.env'
+          } }}
 
-- name: Check for optional files
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/{{ item }}"
-  register: _opt_files
-  loop:
-    - docker-compose.override.yml
-    - my.cnf
-    - sidecars
+    - name: Check for optional files
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/{{ item }}"
+      register: _opt_files
+      loop:
+        - docker-compose.override.yml
+        - my.cnf
+        - sidecars
 
-- name: Add optional files to staging
-  ansible.builtin.set_fact:
-    _backup_volumes: >-
-      {{ _backup_volumes | combine(
-         {instance_path + '/' + item.item:
-          '/currentsnapshot/' + item.item}) }}
-  loop: "{{ _opt_files.results }}"
-  when: item.stat.exists
-  loop_control:
-    label: "{{ item.item }}"
+    - name: Add optional files to staging
+      ansible.builtin.set_fact:
+        _backup_volumes: >-
+          {{ _backup_volumes | combine(
+             {instance_path + '/' + item.item:
+              '/currentsnapshot/' + item.item}) }}
+      loop: "{{ _opt_files.results }}"
+      when: item.stat.exists
+      loop_control:
+        label: "{{ item.item }}"
 
-- name: Discover custom Docker build inputs
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/backup_discover_build_paths.yml
+    - name: Discover custom Docker build inputs
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/backup_discover_build_paths.yml
 
-- name: Add custom build inputs to staging
-  ansible.builtin.set_fact:
-    _backup_volumes: "{{ _backup_volumes | combine(_build_staging_map) }}"
+    - name: Add custom build inputs to staging
+      ansible.builtin.set_fact:
+        _backup_volumes: "{{ _backup_volumes | combine(_build_staging_map) }}"
 
-# --host pins restic's host to the instance id, so every snapshot of this
-# instance shares a stable host. Without it, restic records the host as the
-# ephemeral restic container's random id (different every run), so it never
-# finds a parent ("no parent snapshot found, will read all files") and
-# `forget --group-by host,paths` puts each snapshot in its own group. A
-# stable host restores incremental backups and correct retention grouping.
-- name: Create backup snapshot
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
-  vars:
-    backup_args:
-      - "--host"
-      - "{{ instance_id }}"
-      - "--tag"
-      - "{{ _backup_tag }}"
-      - "backup"
-      - "/currentsnapshot"
-    backup_volumes: "{{ _backup_volumes }}"
+    # --host pins restic's host to the instance id, so every snapshot of this
+    # instance shares a stable host. Without it, restic records the host as the
+    # ephemeral restic container's random id (different every run), so it never
+    # finds a parent ("no parent snapshot found, will read all files") and
+    # `forget --group-by host,paths` puts each snapshot in its own group. A
+    # stable host restores incremental backups and correct retention grouping.
+    - name: Create backup snapshot
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/run_backup.yml
+      vars:
+        backup_args:
+          - "--host"
+          - "{{ instance_id }}"
+          - "--tag"
+          - "{{ _backup_tag }}"
+          - "backup"
+          - "/currentsnapshot"
+        backup_volumes: "{{ _backup_volumes }}"
 
-- name: Display result
-  ansible.builtin.debug:
-    msg: "{{ _restic_result.stdout }}"
-
-- name: Clean up backup staging directory
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/backup_cleanup_db_dumps.yml
+    - name: Display result
+      ansible.builtin.debug:
+        msg: "{{ _restic_result.stdout }}"
+  always:
+    - name: Clean up backup staging directory
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/backup_cleanup_db_dumps.yml
 
 # Non-zero, so a scheduled `create && purge` skips retention and a partial
 # snapshot can never cause a complete one to be pruned.

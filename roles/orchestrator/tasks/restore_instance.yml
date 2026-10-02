@@ -155,7 +155,9 @@
               - "backup"
               - "/currentsnapshot"
             backup_volumes: "{{ _safety_volumes }}"
-
+      # The dumps are full database copies in the instance directory; a
+      # failed safety backup must not leave them there.
+      always:
         - name: Clean up safety DB dump directory
           ansible.builtin.include_tasks:
             file: exec.yml
