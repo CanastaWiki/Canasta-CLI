@@ -7,10 +7,13 @@ original bash wrapper script.
 """
 
 import argparse
+import datetime
+import fcntl
 import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -26,8 +29,10 @@ ANSIBLE_CFG = os.path.join(SCRIPT_DIR, "ansible.cfg")
 # Exit codes a wrapping script can branch on. 0 success; 1 unexpected
 # error; 2 usage error (argparse). 3 flags an expected precondition
 # refusal — the target already exists — so CI can special-case it
-# instead of treating it like a crash.
+# instead of treating it like a crash. 4 means the instance is busy.
 EXIT_ALREADY_EXISTS = 3
+# Another command that changes the same instance is still running.
+EXIT_INSTANCE_BUSY = 4
 
 # Registry-location and lookup helpers are shared with the
 # canasta_registry Ansible module (which reads/writes conf.json), so the
@@ -934,6 +939,65 @@ def resolve_instance(instance_id=None, required=True):
         return inst
 
     return _unresolved("Error: no instance found for current directory")
+
+
+# Commands that change an instance wholesale or start and stop it. Each holds
+# an exclusive per-instance lock for its whole run, so two of them never
+# interleave on one instance.
+LOCKED_COMMANDS = {
+    "backup_restore": "restore",
+    "delete": "delete",
+    "start": "start",
+    "stop": "stop",
+    "restart": "restart",
+}
+
+
+def acquire_instance_lock(command_name, args):
+    """Hold the instance's command lock for the rest of this run.
+
+    The lock is an flock on <config dir>/locks/<id>.lock, a directory the
+    Dockerized CLI shares through its config mount. The descriptor stays
+    open and inheritable, so it passes through the exec into
+    ansible-playbook and the kernel releases it when the run ends, however
+    it ends. An unresolvable instance is left to the command to report.
+    """
+    action = LOCKED_COMMANDS.get(command_name)
+    if action is None:
+        return None
+    inst = resolve_instance(getattr(args, "id", None), required=False)
+    if not inst:
+        return None
+    lock_dir = os.path.join(get_config_dir(), "locks")
+    os.makedirs(lock_dir, exist_ok=True)
+    fd = os.open(os.path.join(lock_dir, "%s.lock" % inst["id"]),
+                 os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        try:
+            holder = json.loads(os.read(fd, 4096) or b"{}")
+        except ValueError:
+            holder = {}
+        os.close(fd)
+        print(
+            "Error: a %s of instance '%s' is in progress (started %s on %s). "
+            "Wait for it to finish, then try again."
+            % (holder.get("command", "command"), inst["id"],
+               holder.get("started", "at an unknown time"),
+               holder.get("host", "this controller")),
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_INSTANCE_BUSY)
+    os.ftruncate(fd, 0)
+    os.write(fd, json.dumps({
+        "command": action,
+        "started": datetime.datetime.now(datetime.timezone.utc)
+        .strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "host": os.environ.get("CANASTA_HOST_NAME") or socket.gethostname(),
+    }).encode())
+    os.set_inheritable(fd, True)
+    return fd
 
 
 def check_create_precondition(args):
@@ -2048,6 +2112,8 @@ def main():
             # when it handles the command; returns False to fall through
             # to Ansible for the service-listing case.
             pass
+
+    acquire_instance_lock(command_name, args)
 
     # Direct command bypass: run simple commands without Ansible overhead.
     # direct_only commands always run via direct_commands and never fall
