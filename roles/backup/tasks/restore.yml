@@ -190,6 +190,25 @@
     _resolved_snapshot: "{{ snapshot }}"
   when: _resolved_snapshot is not defined
 
+- name: Find the snapshot in the repository
+  ansible.builtin.set_fact:
+    _restore_matches: >-
+      {{ _restore_snapshots
+         | selectattr('id', 'match', _resolved_snapshot | regex_escape)
+         | map(attribute='short_id') | list }}
+
+- name: Fail when the snapshot is not in the repository
+  ansible.builtin.fail:
+    msg: >-
+      {% if _restore_matches | length == 0 -%}
+      Snapshot '{{ _resolved_snapshot }}' not found in the backup repository.
+      {%- else -%}
+      Snapshot ID '{{ _resolved_snapshot }}' matches more than one snapshot
+      ({{ _restore_matches | join(', ') }}); give more of the ID.
+      {%- endif %}
+      Run 'canasta backup list -i {{ instance_id }}' to see available snapshots.
+  when: _restore_matches | length != 1
+
 - name: Read the restored snapshot's tags
   ansible.builtin.set_fact:
     _restore_snapshot_tags: >-
@@ -250,9 +269,51 @@
 # The orchestrator owns the restore mechanics (Compose volume restore +
 # file copy + DB import, or the K8s pod-based restore); dispatch
 # unconditionally.
+# A restore that fails while still in its "starting" phase has changed
+# nothing, so it must not leave a marker that reads as an interrupted one.
 - name: Restore from snapshot
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/restore_instance.yml
+  block:
+    - name: Run the orchestrator restore
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/restore_instance.yml
+  rescue:
+    - name: Read how far the failed restore got
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/{{ canasta_restore_marker }}"
+      register: _restore_marker_at_failure
+      failed_when: false
+
+    - name: Clear the marker of a restore that changed nothing
+      when: >-
+        (_restore_marker_at_failure.content | default('') | b64decode)
+        is search('(?m)^phase: starting$')
+      block:
+        - name: Remove the restore marker
+          ansible.builtin.include_tasks: _restore_marker.yml
+          vars:
+            restore_marker_clear: true
+
+        - name: Remove the password parked by a restore that changed nothing
+          ansible.builtin.file:
+            path: "{{ instance_path }}/{{ canasta_restore_dbpass_stash }}"
+            state: absent
+
+    - name: Report the restore failure
+      ansible.builtin.fail:
+        msg: >-
+          {% if _restore_failed_phase == 'starting' -%}
+          The restore failed before changing anything (see the error above);
+          this instance is as it was.
+          {%- elif _restore_failed_phase -%}
+          The restore failed partway through, in its {{ _restore_failed_phase }}
+          phase (see the error above). Run the restore again to complete it.
+          {%- else -%}
+          The restore failed (see the error above).
+          {%- endif %}
+      vars:
+        _restore_failed_phase: >-
+          {{ (_restore_marker_at_failure.content | default('') | b64decode)
+             | regex_findall('(?m)^phase: (.*)$') | first | default('') }}
 
 # Everything above this point is the restore proper: the snapshot's files
 # and databases are already in place once it completes. A failure in the

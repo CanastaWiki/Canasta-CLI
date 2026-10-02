@@ -1131,6 +1131,13 @@ commands:
       current database. The instance must be running. Supported
       formats are .sql and .sql.gz files.
 
+      The extra databases the wiki declares (see `canasta backup
+      databases`) are imported too, each from the dump `canasta export`
+      writes beside the main one: `<stem>.<database>.sql` or
+      `.sql.gz`, where `<stem>` is the main dump's path without its
+      `.sql`/`.sql.gz` extension. An extra database with no such dump is
+      left as it is, and reported.
+
       To create a new wiki from a database dump, use the `--database`
       flag with `canasta create` or `canasta add` instead.
     examples:
@@ -1163,6 +1170,14 @@ commands:
       be running. By default the dump is saved to `<wikiID>.sql` in
       the current directory. Use a `.gz` extension on the output
       path to get a gzip-compressed dump.
+
+      Each extra database the wiki declares (see `canasta backup
+      databases`) is exported to its own file beside the main one,
+      named `<stem>.<database>.sql` (or `.sql.gz`), where `<stem>` is
+      the output path without its `.sql`/`.sql.gz` extension. For
+      example, `canasta export -w main` with a declared `main_cargo`
+      writes `main.sql` and `main.main_cargo.sql`. `canasta import`
+      reads them from the same place.
     examples:
       - "canasta export -w main"
       - "canasta export -w main -f backup.sql.gz"
