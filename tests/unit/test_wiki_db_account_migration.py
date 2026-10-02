@@ -140,3 +140,19 @@ class TestOptOut:
         env = {"MYSQL_USER": "root", "MYSQL_PASSWORD": "rootpw",
                "WIKI_DB_USER": "mediawiki", "WIKI_DB_PASSWORD": "wikipw"}
         assert _helpers._wiki_db_account_updates(env) == []
+
+
+class TestRestoreKeepsThisHostsAccount:
+    def test_compose_restore_puts_back_the_wiki_account(self):
+        path = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
+                            "restore_instance.yml")
+        task = _named(_load(path),
+                      "Preserve MediaWiki's database account in restored .env")
+        assert task["loop"] == ["WIKI_DB_USER", "WIKI_DB_PASSWORD"]
+        assert "wiki is not defined" in task["when"]
+        assert task["no_log"] is True
+        restore = _load(os.path.join(REPO_ROOT, "roles", "backup", "tasks",
+                                     "restore.yml"))
+        names = [t.get("name") for t in restore]
+        assert (names.index("Save MediaWiki's database account before restore")
+                < names.index("Restore from snapshot"))
