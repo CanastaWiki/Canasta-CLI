@@ -1,0 +1,57 @@
+---
+# Export one database as a SQL dump on the host.
+# Input: instance_path, instance_orchestrator, export_db (database name),
+#        export_dest (host path), export_gzip (bool)
+#
+# The dump names no database (no CREATE DATABASE / USE), so it can be
+# imported into a database of another name.
+
+# The password comes from the db container's own environment via MYSQL_PWD,
+# so it never appears in the dump process's argument list. The umask keeps
+# the dump owner-only; the copy out of the container carries that mode.
+- name: Dump database to temp file in container
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  vars:
+    exec_service: db
+    exec_long: true
+    exec_command: >-
+      umask 077 && rm -f /tmp/{{ export_db | quote }}.sql &&
+      MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mariadb-dump -u root
+      {{ export_db | quote }}
+      > /tmp/{{ export_db | quote }}.sql
+
+- name: Compress dump if gzip requested
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  vars:
+    exec_service: db
+    exec_command: "gzip -f /tmp/{{ export_db | quote }}.sql"
+  when: export_gzip | bool
+
+# kubectl cp writes the destination with the default umask rather than the
+# source's mode, but keeps the mode of a file that already exists.
+- name: Create the export file owner-only before copying into it
+  ansible.builtin.file:
+    path: "{{ export_dest }}"
+    state: touch
+    mode: "0600"
+
+# The orchestrator owns how a file is copied out of the db container
+# (docker compose cp vs kubectl cp); dispatch.
+- name: Copy dump from the db container to the host
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/copy_from_container.yml
+  vars:
+    copy_service: db
+    copy_src: "/tmp/{{ export_db }}.sql{{ (export_gzip | bool) | ternary('.gz', '') }}"
+    copy_dest: "{{ export_dest }}"
+
+- name: Restrict exported dump to its owner
+  ansible.builtin.file:
+    path: "{{ export_dest }}"
+    mode: "0600"
+
+- name: Clean up temp files in container
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  vars:
+    exec_service: db
+    exec_command: "rm -f /tmp/{{ export_db | quote }}.sql /tmp/{{ export_db | quote }}.sql.gz"

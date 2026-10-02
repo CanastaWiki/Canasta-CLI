@@ -5,7 +5,8 @@ import os
 import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-EXPORT = os.path.join(REPO_ROOT, "playbooks", "export.yml")
+EXPORT = os.path.join(
+    REPO_ROOT, "roles", "mediawiki", "tasks", "export_database.yml")
 IMPORT_DB = os.path.join(
     REPO_ROOT, "roles", "mediawiki", "tasks", "import_database.yml")
 
@@ -21,7 +22,7 @@ def _dump_command():
         for t in _tasks()
     ]
     dumps = [c for c in cmds if "mariadb-dump" in c]
-    assert len(dumps) == 1, "export.yml must run exactly one mariadb-dump"
+    assert len(dumps) == 1, "export_database.yml must run exactly one mariadb-dump"
     return dumps[0]
 
 
@@ -45,7 +46,7 @@ class TestExportFileMode:
         return [
             t for t in _tasks()
             if (t.get("ansible.builtin.file") or {}).get("path")
-            == "{{ _export_file }}"
+            == "{{ export_dest }}"
         ]
 
     def test_export_file_precreated_0600_before_copy(self):
