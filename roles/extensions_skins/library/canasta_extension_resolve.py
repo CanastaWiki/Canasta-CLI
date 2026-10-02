@@ -379,6 +379,10 @@ def resolve(name, item_type, mw_version, repository, branch, json_path, json_url
         if url_error:
             return {"failed": True, "msg": url_error}
 
+    if branch and branch.strip().startswith("-"):
+        return {"failed": True,
+                "msg": "Refusing branch starting with '-': %s" % branch}
+
     selected = select_branch(url, mw_version, branch)
     # A REL branch may not exist for every extension (especially on remotes
     # that are not Wikimedia mirrors). If ls-remote can confirm it is absent we
