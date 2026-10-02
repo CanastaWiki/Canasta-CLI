@@ -1,6 +1,8 @@
 ---
-# canasta export - Export a wiki's database.
-# Uses container temp file + copy to host.
+# canasta export - Export a wiki's databases.
+# The wiki's own database goes to the output file. Each extra database it
+# declares in wikis.yaml goes to a sibling file named <stem>.<database>.sql
+# (or .sql.gz), which `canasta import` picks up from the same stem.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
@@ -24,60 +26,33 @@
   ansible.builtin.set_fact:
     _export_gzip: "{{ _export_file | regex_search('\\.gz$') is not none }}"
 
-# The password comes from the db container's own environment via MYSQL_PWD,
-# so it never appears in the dump process's argument list. The umask keeps
-# the dump owner-only; the copy out of the container carries that mode.
-- name: Dump database to temp file in container
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-  vars:
-    exec_service: db
-    exec_long: true
-    exec_command: >-
-      umask 077 && rm -f /tmp/{{ wiki | quote }}.sql &&
-      MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mariadb-dump -u root
-      {{ wiki | quote }}
-      > /tmp/{{ wiki | quote }}.sql
+- name: Read the wiki's databases
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: query
+    wiki_id: "{{ wiki }}"
+  register: _export_wiki
 
-- name: Compress dump if gzip requested
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-  vars:
-    exec_service: db
-    exec_command: "gzip -f /tmp/{{ wiki }}.sql"
-  when: _export_gzip | bool
-
-- name: Set container temp file path
+- name: Name the sibling files for extra databases
   ansible.builtin.set_fact:
-    _container_file: "/tmp/{{ wiki }}.sql{{ (_export_gzip | bool) | ternary('.gz', '') }}"
+    _export_stem: "{{ _export_file | regex_replace('(\\.sql)?(\\.gz)?$', '') }}"
+    _export_ext: "{{ (_export_gzip | bool) | ternary('.sql.gz', '.sql') }}"
+    _export_dbs: "{{ _export_wiki.databases | default([wiki], true) }}"
 
-# kubectl cp writes the destination with the default umask rather than the
-# source's mode, but keeps the mode of a file that already exists.
-- name: Create the export file owner-only before copying into it
-  ansible.builtin.file:
-    path: "{{ _export_file }}"
-    state: touch
-    mode: "0600"
-
-# The orchestrator owns how a file is copied out of the db container
-# (docker compose cp vs kubectl cp); dispatch.
-- name: Copy dump from the db container to the host
+- name: Export each of the wiki's databases
   ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/copy_from_container.yml
+    {{ canasta_root }}/roles/mediawiki/tasks/export_database.yml
   vars:
-    copy_service: db
-    copy_src: "{{ _container_file }}"
-    copy_dest: "{{ _export_file }}"
-
-- name: Restrict exported dump to its owner
-  ansible.builtin.file:
-    path: "{{ _export_file }}"
-    mode: "0600"
-
-- name: Clean up temp files in container
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-  vars:
-    exec_service: db
-    exec_command: "rm -f /tmp/{{ wiki }}.sql /tmp/{{ wiki }}.sql.gz"
+    export_db: "{{ item }}"
+    export_dest: >-
+      {{ _export_file if item == wiki
+         else _export_stem ~ '.' ~ item ~ _export_ext }}
+    export_gzip: "{{ _export_gzip }}"
+  loop: "{{ _export_dbs }}"
 
 - name: Report export complete
   ansible.builtin.debug:
-    msg: "Wiki '{{ wiki }}' exported to {{ _export_file }}"
+    msg: >-
+      Wiki '{{ wiki }}' exported to {{ _export_file }}{% if _export_dbs | length > 1 %},
+      with its extra database(s) in
+      {% for db in _export_dbs[1:] %}{{ _export_stem ~ '.' ~ db ~ _export_ext }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}.
