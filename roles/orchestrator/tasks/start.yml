@@ -416,6 +416,12 @@
           on a missing vendor/ file.
       when: (_start_web_podman_ready.rc | default(0)) != 0
 
+    # The account lives in the database server, so a restored or rebuilt db
+    # volume can lack it while .env still names it. Put it back on every
+    # start.
+    - name: Ensure MediaWiki's database account
+      ansible.builtin.include_tasks: ensure_wiki_db_account.yml
+
     # Rootless Podman: run-all.sh rsyncs with --chown=www-data at container
     # startup, which resets ownership of config/, extensions/, skins/ to the
     # container's subuid. Re-apply the operator-writable directory ownership

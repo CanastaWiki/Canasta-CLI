@@ -48,6 +48,10 @@ services:
       - MYSQL_ROOT_HOST=%
       - MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD}
       - MARIADB_AUTO_UPGRADE=1
+      # MediaWiki's own account, which the CLI creates and grants from
+      # inside this container.
+      - WIKI_DB_USER=${WIKI_DB_USER}
+      - WIKI_DB_PASSWORD=${WIKI_DB_PASSWORD}
     healthcheck:
       test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mariadb-admin ping -h localhost -u root"]
       interval: 10s
@@ -82,8 +86,12 @@ services:
       - MW_SECRET_KEY=${MW_SECRET_KEY}
       - MYSQL_HOST=${MYSQL_HOST:-db}
       - MYSQL_PORT=${MYSQL_PORT:-3306}
-      - MYSQL_USER=${MYSQL_USER:-root}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      # MediaWiki connects with its own account, never the .env MYSQL_USER /
+      # MYSQL_PASSWORD (the database administrator). Both WIKI_DB_ keys are
+      # always present in .env, since podman-compose does not expand
+      # ${VAR:-default}.
+      - MYSQL_USER=${WIKI_DB_USER}
+      - MYSQL_PASSWORD=${WIKI_DB_PASSWORD}
       - MYSQL_SSL=${MYSQL_SSL:-false}
       - USE_EXTERNAL_DB=${USE_EXTERNAL_DB:-false}
       - PHP_UPLOAD_MAX_FILESIZE=${PHP_UPLOAD_MAX_FILESIZE:-10M}

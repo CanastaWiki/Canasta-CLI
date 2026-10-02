@@ -68,5 +68,3 @@
     install_admin_name: "{{ admin | default('WikiSysop') }}"
     install_admin_password: "{{ _admin_password }}"
     install_root_db_password: "{{ _rootdbpass }}"
-    install_wiki_db_username: "{{ wikidbuser | default('root') }}"
-    install_wiki_db_password: "{{ _wikidbpass }}"
