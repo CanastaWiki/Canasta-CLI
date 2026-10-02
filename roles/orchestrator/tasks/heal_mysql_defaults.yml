@@ -17,6 +17,8 @@
 # the administrator account (MYSQL_USER, root on the bundled database), and
 # then WIKI_DB_PASSWORD is copied from MYSQL_PASSWORD every time, so a root
 # password rotation or a restored .env never leaves MediaWiki a stale copy.
+# CANASTA_DB_ROOT_ACCOUNT=true keeps (or puts) MediaWiki on the
+# administrator account.
 #
 # The Compose fast path (direct_commands/_helpers.py, _backfill_db_defaults)
 # sets the same keys; keep them in sync.
@@ -108,7 +110,11 @@
     value: "{{ _backfill_admin_user }}"
   vars:
     _backfill_admin_user: "{{ _backfill_wiki_env.variables.MYSQL_USER | default('root', true) | trim }}"
-  when: (_backfill_wiki_env.variables.WIKI_DB_USER | default('') | trim) == ''
+  when: >-
+    (_backfill_wiki_env.variables.WIKI_DB_USER | default('') | trim) == ''
+    or ((_backfill_wiki_env.variables.CANASTA_DB_ROOT_ACCOUNT | default('false')
+         | string | lower) == 'true'
+        and (_backfill_wiki_env.variables.WIKI_DB_USER | trim) != _backfill_admin_user)
 
 - name: Give the administrator account's password to MediaWiki while it uses that account
   canasta_env:
@@ -119,8 +125,11 @@
   vars:
     _backfill_admin_user: "{{ _backfill_wiki_env.variables.MYSQL_USER | default('root', true) | trim }}"
     _backfill_wiki_user: >-
-      {{ _backfill_wiki_env.variables.WIKI_DB_USER | default('', true) | trim
-         or _backfill_admin_user }}
+      {{ _backfill_admin_user
+         if (_backfill_wiki_env.variables.CANASTA_DB_ROOT_ACCOUNT | default('false')
+             | string | lower) == 'true'
+         else (_backfill_wiki_env.variables.WIKI_DB_USER | default('', true) | trim
+               or _backfill_admin_user) }}
   when:
     - _backfill_wiki_user == _backfill_admin_user
     - (_backfill_wiki_env.variables.MYSQL_PASSWORD | default('')) != ''

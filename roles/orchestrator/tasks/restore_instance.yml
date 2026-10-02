@@ -373,6 +373,20 @@
         value: "{{ _restore_dbpass.value }}"
       no_log: true
 
+    - name: Preserve MediaWiki's database account in restored .env
+      when:
+        - wiki is not defined
+        - (_restore_wiki_account.variables[item] | default('')) != ''
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: "{{ item }}"
+        value: "{{ _restore_wiki_account.variables[item] }}"
+      loop:
+        - WIKI_DB_USER
+        - WIKI_DB_PASSWORD
+      no_log: true
+
     - name: Read wiki IDs for DB restore
       when: wiki is not defined
       canasta_wikis_yaml:

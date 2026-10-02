@@ -283,6 +283,12 @@
       ansible.builtin.debug:
         msg: "Canasta upgraded successfully!"
 
+# After the restart: the instance must be running on the refreshed compose
+# file, which takes MediaWiki's credentials from WIKI_DB_USER /
+# WIKI_DB_PASSWORD.
+- name: Move MediaWiki to its own database account
+  ansible.builtin.include_tasks: migrate_wiki_db_account.yml
+
 # Without a restart, a running Caddy would keep the previous Caddyfile.
 - name: Reload Caddy with the regenerated Caddyfile
   ansible.builtin.include_tasks: >-
