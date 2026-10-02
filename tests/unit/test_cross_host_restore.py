@@ -155,6 +155,20 @@ class TestTheResultIsReported:
         # The cross-host warning already covers that case, more loudly.
         assert any("not (_restore_crossed_hosts" in c for c in conds)
 
+    def test_an_in_place_rollback_is_not_warned_about(self):
+        from ansible.parsing.dataloader import DataLoader
+        from ansible.template import Templar, trust_as_template
+        task = _named(RESTORE_INSTANCE, "Warn that host-specific config came from the snapshot")
+        origin = next(c for c in _when(task) if "_restore_source_fqdn" in c)
+        for prior, source, warned in (("wiki.example.com", "wiki.example.com", False),
+                                      ("", "wiki.example.com", True),
+                                      ("wiki.example.com", "", True)):
+            templar = Templar(loader=DataLoader(), variables={
+                "_restore_prior_fqdn": {"value": prior},
+                "_restore_source_fqdn": source})
+            assert templar.template(
+                trust_as_template("{{ %s }}" % origin)) is warned, (prior, source)
+
     def test_single_wiki_restores_stay_quiet(self):
         # -w does not touch shared rendered files, so there is nothing to say.
         for name in ("Read the site identity held in the snapshot",
