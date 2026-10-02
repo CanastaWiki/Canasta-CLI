@@ -36,7 +36,8 @@ class TestHelper:
         _helpers._backfill_db_defaults(_inst(tmp_path))
         assert _env(tmp_path) == (
             "MYSQL_PASSWORD=pw\nMYSQL_HOST=db\nMYSQL_PORT=3306\n"
-            "MYSQL_USER=root\nMYSQL_SSL=false\n")
+            "MYSQL_USER=root\nMYSQL_SSL=false\n"
+            "WIKI_DB_USER=root\nWIKI_DB_PASSWORD=pw\n")
 
     def test_existing_values_are_kept(self, tmp_path):
         (tmp_path / ".env").write_text(
@@ -55,20 +56,39 @@ class TestHelper:
         _helpers._backfill_db_defaults(_inst(tmp_path))
         assert _env(tmp_path).startswith("MYSQL_HOST=db\n")
 
-    def test_external_db_is_left_alone(self, tmp_path):
-        content = "USE_EXTERNAL_DB=true\nMYSQL_HOST=db.example.com\n"
+    def test_external_db_gets_only_the_wiki_account_keys(self, tmp_path):
+        content = ("USE_EXTERNAL_DB=true\nMYSQL_HOST=db.example.com\n"
+                   "MYSQL_USER=wikiop\nMYSQL_PASSWORD=extpw\n")
         (tmp_path / ".env").write_text(content)
         _helpers._backfill_db_defaults(_inst(tmp_path))
-        assert _env(tmp_path) == content
+        assert _env(tmp_path) == (
+            content + "WIKI_DB_USER=wikiop\nWIKI_DB_PASSWORD=extpw\n")
 
     def test_complete_env_is_not_rewritten(self, tmp_path, monkeypatch):
         (tmp_path / ".env").write_text(
-            "MYSQL_HOST=db\nMYSQL_PORT=3306\nMYSQL_USER=root\nMYSQL_SSL=false\n")
+            "MYSQL_HOST=db\nMYSQL_PORT=3306\nMYSQL_USER=root\nMYSQL_SSL=false\n"
+            "MYSQL_PASSWORD=pw\nWIKI_DB_USER=root\nWIKI_DB_PASSWORD=pw\n")
         writes = []
         monkeypatch.setattr(_helpers, "_write_env_content",
                             lambda *a: writes.append(a))
         _helpers._backfill_db_defaults(_inst(tmp_path))
         assert writes == []
+
+    def test_root_account_password_follows_a_rotation(self, tmp_path):
+        (tmp_path / ".env").write_text(
+            "MYSQL_HOST=db\nMYSQL_PORT=3306\nMYSQL_USER=root\nMYSQL_SSL=false\n"
+            "MYSQL_PASSWORD=new\nWIKI_DB_USER=root\nWIKI_DB_PASSWORD=old\n")
+        _helpers._backfill_db_defaults(_inst(tmp_path))
+        assert "WIKI_DB_PASSWORD=new\n" in _env(tmp_path)
+        assert "WIKI_DB_PASSWORD=old" not in _env(tmp_path)
+
+    def test_own_account_password_is_left_alone(self, tmp_path):
+        content = (
+            "MYSQL_HOST=db\nMYSQL_PORT=3306\nMYSQL_USER=root\nMYSQL_SSL=false\n"
+            "MYSQL_PASSWORD=rootpw\nWIKI_DB_USER=mediawiki\nWIKI_DB_PASSWORD=wikipw\n")
+        (tmp_path / ".env").write_text(content)
+        _helpers._backfill_db_defaults(_inst(tmp_path))
+        assert _env(tmp_path) == content
 
     def test_no_env_is_not_created(self, tmp_path):
         _helpers._backfill_db_defaults(_inst(tmp_path))

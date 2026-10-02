@@ -16,6 +16,10 @@
     database: "{{ database }}"
   register: _backup_db_add
 
+- name: Give MediaWiki's database account the new database set
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/ensure_wiki_db_account.yml
+
 - name: Capture the change for gitops
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/capture_wikis_yaml.yml

@@ -377,8 +377,11 @@ commands:
         description: "Root database password (auto-generated if not provided)"
       - name: wikidbuser
         type: string
-        default: root
-        description: "Wiki database username"
+        description: >-
+          Database account MediaWiki connects with (default: mediawiki on
+          Compose, root on Kubernetes). The CLI creates it with access to
+          the instance's wiki databases only. Pass root to keep MediaWiki
+          on the database administrator account.
       - name: wikidbpass
         type: string
         sensitive: true
@@ -1096,9 +1099,6 @@ commands:
         type: string
         sensitive: true
         description: "Initial wiki admin password"
-      - name: wikidbuser
-        type: string
-        description: "Wiki database username"
 
   - name: remove
     description: "Remove a wiki from a Canasta instance"

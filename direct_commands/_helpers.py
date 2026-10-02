@@ -429,13 +429,42 @@ _BUNDLED_DB_DEFAULTS = (
 )
 
 
+def _wiki_db_account_updates(env):
+    """The WIKI_DB_USER / WIKI_DB_PASSWORD settings .env needs.
+
+    MediaWiki's account defaults to the administrator account (MYSQL_USER,
+    root on the bundled database). While it is that account, its password
+    is MYSQL_PASSWORD, copied every time so a rotated root password or a
+    restored .env never leaves MediaWiki a stale copy.
+    """
+    admin = (env.get("MYSQL_USER") or "").strip() or "root"
+    wiki_user = (env.get("WIKI_DB_USER") or "").strip()
+    updates = []
+    if not wiki_user:
+        wiki_user = admin
+        updates.append(("WIKI_DB_USER", admin))
+    admin_password = env.get("MYSQL_PASSWORD") or ""
+    if (wiki_user == admin and admin_password
+            and env.get("WIKI_DB_PASSWORD") != admin_password):
+        updates.append(("WIKI_DB_PASSWORD", admin_password))
+    return updates
+
+
+def _uses_wiki_db_account(env):
+    """True when MediaWiki has its own account on the bundled database."""
+    if not env or (env.get("USE_EXTERNAL_DB") or "").strip().lower() == "true":
+        return False
+    return (env.get("WIKI_DB_USER") or "").strip() not in ("", "root")
+
+
 def _backfill_db_defaults(inst):
-    """Add the bundled-DB MYSQL_* defaults missing from .env.
+    """Add the bundled-DB MYSQL_* defaults missing from .env, and the
+    WIKI_DB_ account keys every instance needs.
 
     podman-compose passes ${MYSQL_HOST:-db} through literally instead of
     expanding it, so an instance whose .env predates create pinning these
     keys hangs waiting for a host named "${MYSQL_HOST:-db}". Only absent or
-    empty keys are set, and an external-DB instance is left alone.
+    empty MYSQL_* keys are set, and an external-DB instance keeps its own.
     """
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
@@ -443,10 +472,11 @@ def _backfill_db_defaults(inst):
     if not content:
         return
     env = {k: v for k, v, c in _parse_env_entries(content) if not c and k}
-    if (env.get("USE_EXTERNAL_DB") or "").strip().lower() == "true":
-        return
-    missing = [(k, v) for k, v in _BUNDLED_DB_DEFAULTS
-               if not (env.get(k) or "").strip()]
+    missing = []
+    if (env.get("USE_EXTERNAL_DB") or "").strip().lower() != "true":
+        missing = [(k, v) for k, v in _BUNDLED_DB_DEFAULTS
+                   if not (env.get(k) or "").strip()]
+    missing += _wiki_db_account_updates(env)
     if not missing:
         return
     lines = content.rstrip("\n").split("\n")
