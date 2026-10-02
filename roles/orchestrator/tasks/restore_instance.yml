@@ -225,6 +225,27 @@
         msg: "Copying the restored files onto the host..."
       when: wiki is not defined
 
+    - name: Confirm the target wiki is present in the snapshot
+      when: wiki is defined
+      ansible.builtin.shell:
+        cmd: >-
+          {{ inspect_command }} run --rm
+          -e W={{ wiki | quote }}
+          -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro"
+          docker.io/library/alpine sh -c 'test -f "/currentsnapshot/config/backup/db_$W.sql"'
+      register: _restore_wiki_in_snapshot
+      changed_when: false
+      failed_when: false
+
+    - name: Fail when the target wiki is absent from the snapshot
+      when:
+        - wiki is defined
+        - _restore_wiki_in_snapshot.rc != 0
+      ansible.builtin.fail:
+        msg: >-
+          Snapshot {{ _resolved_snapshot }} contains no backup for wiki
+          '{{ wiki }}' (no db_{{ wiki }}.sql). Nothing to restore.
+
     - name: Mark the files phase
       ansible.builtin.include_tasks: >-
         {{ canasta_root }}/roles/backup/tasks/_restore_marker.yml
@@ -304,27 +325,6 @@
     # global config, extensions, skins, .env, and other wikis' data — is left
     # untouched. The wiki id reaches the container via -e (env), never spliced
     # into the single-quoted sh -c payload.
-    - name: Confirm the target wiki is present in the snapshot
-      when: wiki is defined
-      ansible.builtin.shell:
-        cmd: >-
-          {{ inspect_command }} run --rm
-          -e W={{ wiki | quote }}
-          -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro"
-          docker.io/library/alpine sh -c 'test -f "/currentsnapshot/config/backup/db_$W.sql"'
-      register: _restore_wiki_in_snapshot
-      changed_when: false
-      failed_when: false
-
-    - name: Fail when the target wiki is absent from the snapshot
-      when:
-        - wiki is defined
-        - _restore_wiki_in_snapshot.rc != 0
-      ansible.builtin.fail:
-        msg: >-
-          Snapshot {{ _resolved_snapshot }} contains no backup for wiki
-          '{{ wiki }}' (no db_{{ wiki }}.sql). Nothing to restore.
-
     - name: Copy single wiki's files from volume to host
       when: wiki is defined
       ansible.builtin.shell:
@@ -574,17 +574,22 @@
         - _restore_crossed_hosts | default(false)
         - not (_restore_rerendered | bool)
 
+    # Matching identities mean an in-place rollback, which needs no review.
     - name: Warn that host-specific config came from the snapshot
       ansible.builtin.debug:
         msg: |-
           WARNING: this instance is not gitops-managed, so nothing re-rendered
-          its host-specific files for this host. .env, config/wikis.yaml and
-          config/Caddyfile.* are the source host's, as captured in the
-          snapshot. Review them before the instance serves traffic.
+          its host-specific files for this host, and the snapshot's origin
+          could not be confirmed as this host. .env, config/wikis.yaml and
+          config/Caddyfile.* are as captured in the snapshot. Review them
+          before the instance serves traffic.
       when:
         - wiki is not defined
         - not (_restore_gitops_stat.stat.exists | default(false))
         - not (_restore_crossed_hosts | default(false))
+        - >-
+          (_restore_prior_fqdn.value | default('', true)) == ''
+          or (_restore_source_fqdn | default('', true)) == ''
 
 # --- Kubernetes restore path ---
 - name: Restore (Kubernetes)
