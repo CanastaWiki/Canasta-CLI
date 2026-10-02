@@ -18,6 +18,11 @@
       name (letters, digits, '.', '_', '-').
   when: extension_name is not match('^[A-Za-z0-9][A-Za-z0-9_.-]*$')
 
+- name: Validate the ref
+  ansible.builtin.fail:
+    msg: "Refusing ref starting with '-': {{ ref }}"
+  when: ref | trim is match('-')
+
 - name: Set the extension submodule path
   ansible.builtin.set_fact:
     _ext_path: "extensions/{{ extension_name }}"
@@ -96,7 +101,7 @@
 
 - name: Check out the requested ref
   ansible.builtin.command:
-    cmd: "git -C {{ _ext_path | quote }} checkout {{ ref | quote }}"
+    cmd: "git -C {{ _ext_path | quote }} checkout --end-of-options {{ ref | quote }}"
     chdir: "{{ instance_path }}"
   register: _ext_checkout
   changed_when: true
