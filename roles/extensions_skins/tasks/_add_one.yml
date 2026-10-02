@@ -74,7 +74,7 @@
     - _current_branch.stdout | default('') | trim == 'HEAD'
     - item.branch | default('', true) | trim != ''
   ansible.builtin.command:
-    cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} fetch origin {{ item.branch | quote }}"
+    cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} fetch --end-of-options origin {{ item.branch | quote }}"
     chdir: "{{ instance_path }}"
   changed_when: true
 
@@ -122,7 +122,7 @@
   block:
     - name: "Fetch expected branch for {{ _item_type }} '{{ item.name }}'"
       ansible.builtin.command:
-        cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} fetch origin {{ item.branch | quote }}"
+        cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} fetch --end-of-options origin {{ item.branch | quote }}"
         chdir: "{{ instance_path }}"
       changed_when: true
     - name: "Capture the pre-switch commit of '{{ item.name }}'"
@@ -133,7 +133,7 @@
       changed_when: false
     - name: "Switch {{ _item_type }} '{{ item.name }}' to {{ item.branch }}"
       ansible.builtin.command:
-        cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} checkout {{ item.branch | quote }}"
+        cmd: "git -C {{ instance_path }}/{{ _item_dir }}/{{ item.name }} checkout --end-of-options {{ item.branch | quote }}"
         chdir: "{{ instance_path }}"
       changed_when: true
     - name: "Capture the post-switch commit of '{{ item.name }}'"

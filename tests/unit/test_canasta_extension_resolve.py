@@ -168,6 +168,17 @@ class TestResolve:
             "https://unreachable.example/ExtensionJson.json")
         assert res.get("failed") is True
 
+    def test_explicit_branch_with_leading_dash_rejected(self, tmp_dir):
+        # git would parse it as an option (`fetch origin --upload-pack=...`).
+        path = self._json(tmp_dir, {})
+        res = canasta_extension_resolve.resolve(
+            "Whatever", "extensions", "1.43.2",
+            "https://example.com/Whatever.git",
+            "--upload-pack=touch /tmp/x", path,
+            "https://unreachable.example/ExtensionJson.json")
+        assert res.get("failed") is True
+        assert "Refusing branch starting with '-'" in res["msg"]
+
     def test_not_found(self, tmp_dir):
         path = self._json(tmp_dir, {})
         res = canasta_extension_resolve.resolve(
