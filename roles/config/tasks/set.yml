@@ -21,14 +21,26 @@
   ansible.builtin.set_fact:
     _config_settings: "{{ config_settings_override | default(settings) }}"
 
+# The rejected tokens may be secret values, so the message names their
+# positions, never their contents.
 - name: Reject settings that are not KEY=VALUE
   ansible.builtin.fail:
     msg: >-
-      Each setting must be written as KEY=VALUE; not valid: {{ _config_bad | join(' ') }}.
-      {% if _config_tokens | length == 2 and _config_bad | length == 2 %}Did you mean {{ _config_tokens | join('=') }}?{% endif %}
+      Each setting must be written as KEY=VALUE, and a value that contains
+      spaces must be quoted. {{ 'Arguments' if _config_bad | length > 1
+      else 'Argument' }} {{ _config_bad_at | join(', ') }} of
+      {{ _config_tokens | length }} {{ 'have' if _config_bad | length > 1
+      else 'has' }} no '='.{% if _config_tokens | length == 2
+      and _config_bad | length == 2
+      and _config_tokens[0] is match('^[A-Za-z_][A-Za-z0-9_]*$') %}
+      Did you mean {{ _config_tokens[0] }}=<value>?{% endif %}
   vars:
     _config_tokens: "{{ _config_settings.split() }}"
     _config_bad: "{{ _config_tokens | reject('search', '=') | list }}"
+    _config_bad_at: >-
+      {{ range(1, _config_tokens | length + 1)
+         | zip(_config_tokens) | rejectattr('1', 'search', '=')
+         | map('first') | list }}
   when: _config_bad | length > 0
 
 - name: Require --secret with --web
