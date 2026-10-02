@@ -1,0 +1,37 @@
+---
+# Refuse a backup schedule that is unsafe to put in a crontab.
+#
+# Input: cron_expression, retention (optional dict of restic forget flags)
+
+# The schedule can come from config/backup-schedule.yml, which gitops
+# distributes, and both values end up unquoted in a crontab line, so accept
+# only plain cron fields and known retention flags whose values need no
+# shell quoting.
+- name: Validate the backup schedule
+  ansible.builtin.fail:
+    msg: >-
+      Refusing the backup schedule:
+      {{ 'the cron expression must be exactly five cron fields'
+         if not _sched_cron_ok else
+         'retention may only use ' ~ _sched_retention_keys | join(', ')
+         ~ ' with values made of letters, digits, and _ . : -' }}.
+  vars:
+    _sched_retention_keys:
+      - keep-last
+      - keep-hourly
+      - keep-daily
+      - keep-weekly
+      - keep-monthly
+      - keep-yearly
+      - keep-within
+      - keep-tag
+    _sched_retention: "{{ retention | default({}, true) }}"
+    _sched_cron_ok: >-
+      {{ cron_expression | default('') | string
+         is match('^[0-9A-Za-z*/,-]+([ \t]+[0-9A-Za-z*/,-]+){4}\Z') }}
+    _sched_retention_ok: >-
+      {{ _sched_retention is mapping
+         and (_sched_retention.keys() | difference(_sched_retention_keys)) | length == 0
+         and (_sched_retention.values() | map('string')
+              | reject('match', '^[A-Za-z0-9_.:-]+\Z') | list | length == 0) }}
+  when: not (_sched_cron_ok | bool) or not (_sched_retention_ok | bool)
