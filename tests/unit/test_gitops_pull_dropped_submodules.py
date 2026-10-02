@@ -105,6 +105,34 @@ def test_already_absent_checkout_is_skipped(repo):
     assert not any("Clean" in line for line in out)
 
 
+def test_checkout_reached_through_a_symlinked_parent_is_kept(repo, tmp_path):
+    top, prev = repo
+    # A sibling directory outside the instance that holds a clean checkout
+    # at the same relative path as a dropped submodule.
+    outside = tmp_path / "outside"
+    (outside / "Clean").mkdir(parents=True)
+    git(outside / "Clean", "init", "-q", "-b", "main")
+    (outside / "Clean" / "keep.txt").write_text("x\n")
+    git(outside / "Clean", "add", ".")
+    git(outside / "Clean", "commit", "-q", "-m", "x")
+    subprocess.run(["rm", "-rf", str(top / "extensions")], check=True)
+    (top / "extensions").symlink_to(outside)
+    out = run(top, prev)
+    assert "kept extensions/Clean" in out
+    assert (outside / "Clean" / "keep.txt").exists()
+
+
+def test_checkout_that_is_itself_a_symlink_is_kept(repo, tmp_path):
+    top, prev = repo
+    target = tmp_path / "elsewhere"
+    subprocess.run(["mv", str(top / "extensions" / "Clean"), str(target)],
+                   check=True)
+    (top / "extensions" / "Clean").symlink_to(target)
+    out = run(top, prev)
+    assert "kept extensions/Clean" in out
+    assert (target / "extension.json").exists()
+
+
 def test_pull_runs_it_right_after_updating_submodules():
     names = [t.get("name") for t in _load(PULL)]
     step = names.index("Remove submodules the pull dropped")
