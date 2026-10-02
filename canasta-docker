@@ -821,6 +821,9 @@ fi
 DOCKER_RUN_FLAGS+=(-e CANASTA_RUN_MODE=docker)
 DOCKER_RUN_FLAGS+=(-e "CANASTA_CLI_IMAGE_TAG=${IMAGE##*:}")
 DOCKER_RUN_FLAGS+=(-e "CANASTA_CLI_BIN=$CANASTA_CLI_BIN")
+# Names this controller in an instance's command lock; the container's own
+# hostname is a random id.
+DOCKER_RUN_FLAGS+=(-e "CANASTA_HOST_NAME=$(hostname)")
 # Tell the playbook to edit this mounted file instead of the (unreachable)
 # host crontab; the dispatch below installs it on the host afterward.
 if [[ -n "$SCHEDULE_CRONTAB_FILE" ]]; then
