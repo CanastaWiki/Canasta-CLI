@@ -124,6 +124,13 @@
 - name: Apply backup-env Secret before the restore pod
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_apply_backup_env_secret.yml"
 
+# The restore pod writes uploaded media straight into the instance's volume,
+# so the instance starts changing here.
+- name: Mark the files phase
+  ansible.builtin.include_tasks: _restore_marker.yml
+  vars:
+    restore_marker_phase: files
+
 - name: Create restore pod
   kubernetes.core.k8s:
     state: present

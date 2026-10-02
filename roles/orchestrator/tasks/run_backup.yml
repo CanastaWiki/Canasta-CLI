@@ -229,6 +229,19 @@
             executable: /bin/bash
           register: _compose_restic_result
           changed_when: true
+          failed_when: false
+
+        - name: Fail when restic fails
+          ansible.builtin.fail:
+            msg: "restic {{ _restic_command }} failed (exit {{ _compose_restic_result.rc }}).{{ _restic_error }}"
+          vars:
+            _restic_commands: [backup, restore, snapshots, init, forget, prune,
+                               check, diff, ls, unlock, dump, stats, tag, find]
+            _restic_command: "{{ backup_args | select('in', _restic_commands) | first | default('') }}"
+            _restic_error: >-
+              {{ (' restic output: ' ~ (_compose_restic_result.stderr | trim))
+                 if (_compose_restic_result.stderr | default('') | trim) else '' }}
+          when: _compose_restic_result.rc != 0
 
         - name: Set restic result from Compose
           ansible.builtin.set_fact:
