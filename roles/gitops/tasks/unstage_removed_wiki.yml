@@ -1,0 +1,92 @@
+---
+# Undo stage_new_wiki.yml for a removed wiki, so the removal reaches the
+# gitops repo on the next push: drop the wiki from wikis.yaml.template and
+# its wiki_url_<id> from this host's vars, and stage the deletion of its
+# tracked paths. Without this the template keeps rendering the wiki back
+# into config/wikis.yaml, and the deleted tracked files block the next
+# pull as local changes.
+#
+# Best-effort and non-fatal, like stage_new_wiki.yml: the wiki is already
+# removed. Gitops-only — no-ops when the gitops marker is absent.
+#
+# Input: instance_path, canasta_root, removed_wiki_id.
+
+- name: Check for gitops instance
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _urw_gitops
+
+- name: Remove the wiki from gitops
+  when: _urw_gitops.stat.exists
+  block:
+    # config/wikis.yaml no longer has the wiki, so regenerating the template
+    # from it drops the wiki. A no-op when the instance has no template.
+    - name: Regenerate wikis.yaml.template without the wiki
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/gitops/tasks/_reconcile_wikis_template.yml
+
+    - name: Stage wikis.yaml.template
+      ansible.builtin.command:
+        cmd: "git add -- wikis.yaml.template"
+        chdir: "{{ instance_path }}"
+      register: _urw_tmpl
+      changed_when: _urw_tmpl.rc == 0
+      failed_when: false
+      when: _reconcile_wikis_tmpl.stat.exists | default(false)
+
+    - name: Read this host's gitops name
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/.gitops-host"
+      register: _urw_host_raw
+
+    - name: Read this host's vars
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/hosts/{{ _urw_host_raw.content | b64decode | trim }}/vars.yaml"
+      register: _urw_vars_raw
+      failed_when: false
+      no_log: true  # vars.yaml holds this host's secrets
+
+    - name: Drop the wiki's url from this host's vars
+      when:
+        - _urw_vars_raw.content is defined
+        - ('wiki_url_' ~ removed_wiki_id) in (_urw_vars_raw.content | b64decode | from_yaml | default({}, true))
+      block:
+        - name: Write vars.yaml without the wiki's url
+          ansible.builtin.copy:
+            content: >-
+              {{ (_urw_vars_raw.content | b64decode | from_yaml)
+                 | dict2items | rejectattr('key', 'equalto', 'wiki_url_' ~ removed_wiki_id)
+                 | items2dict | to_nice_yaml(indent=2) }}
+            dest: "{{ instance_path }}/hosts/{{ _urw_host_raw.content | b64decode | trim }}/vars.yaml"
+            mode: "0644"
+          no_log: true
+
+        - name: Stage vars.yaml
+          ansible.builtin.command:
+            cmd: "git add -- hosts/{{ _urw_host_raw.content | b64decode | trim }}/vars.yaml"
+            chdir: "{{ instance_path }}"
+          changed_when: true
+          failed_when: false
+
+    - name: Stage the deletion of the wiki's tracked paths
+      ansible.builtin.command:
+        argv:
+          - git
+          - rm
+          - -r
+          - -q
+          - --cached
+          - --ignore-unmatch
+          - --
+          - "config/settings/wikis/{{ removed_wiki_id }}"
+          - "public_assets/{{ removed_wiki_id }}"
+        chdir: "{{ instance_path }}"
+      register: _urw_rm
+      changed_when: _urw_rm.rc == 0
+      failed_when: false
+
+    - name: Report the removal staged for gitops
+      ansible.builtin.debug:
+        msg: >-
+          Staged the removal of wiki '{{ removed_wiki_id }}' for gitops.
+          Publish it with 'canasta gitops push'.

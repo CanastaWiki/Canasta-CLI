@@ -5,7 +5,8 @@
 # added later was never brought into tracking — its per-wiki settings and
 # public_assets (logos) silently stayed out of gitops.
 #
-# Captures the new wiki into the farm template (wikis.yaml.template) and
+# Captures the new wiki into the farm template (wikis.yaml.template),
+# records its url as wiki_url_<id> in this host's vars, and
 # stages its tracked paths (config/settings/wikis/<id>, public_assets/<id>)
 # when present. Best-effort and non-fatal: a staging hiccup must not fail
 # the wiki-add that already succeeded. Gitops-only — no-ops when the
@@ -36,6 +37,24 @@
       changed_when: _snw_tmpl.rc == 0
       failed_when: false
       when: _reconcile_wikis_tmpl.stat.exists | default(false)
+
+    # The template names the wiki's url as {{wiki_url_<id>}}; without the
+    # var, the next render refuses to write config/wikis.yaml.
+    - name: Read this host's gitops name
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/.gitops-host"
+      register: _config_host_raw
+      when: _reconcile_wikis_tmpl.stat.exists | default(false)
+
+    - name: Record the new wiki's url in this host's vars
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/config/tasks/_update_gitops_wiki_url.yml
+      vars:
+        _gw_wiki: >-
+          {{ _reconcile_wikis_data.wikis | selectattr('id', 'equalto', new_wiki_id) | first }}
+      when:
+        - _reconcile_wikis_tmpl.stat.exists | default(false)
+        - _reconcile_wikis_data.wikis | default([]) | selectattr('id', 'equalto', new_wiki_id) | list | length > 0
 
     - name: Stat the new wiki's tracked paths
       ansible.builtin.stat:

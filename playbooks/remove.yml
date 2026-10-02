@@ -84,6 +84,12 @@
     name: orchestrator
     tasks_from: update_config.yml
 
+- name: Remove the wiki from gitops
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/unstage_removed_wiki.yml
+  vars:
+    removed_wiki_id: "{{ wiki }}"
+
 - name: Restart instance
   ansible.builtin.include_role:
     name: instance_lifecycle
