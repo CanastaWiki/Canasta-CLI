@@ -251,8 +251,8 @@
     - name: End play for already-removed instance
       ansible.builtin.meta: end_play
 
-# Remove instance content files via the orchestrator (Compose uses
-# `docker compose run`; K8s execs into the web pod when reachable).
+# Kubernetes removes instance content files from inside the web pod while
+# it still runs; Compose does it in destroy.yml once teardown succeeded.
 - name: Clean up container-owned files
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/delete_cleanup_files.yml

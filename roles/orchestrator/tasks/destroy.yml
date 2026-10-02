@@ -116,6 +116,21 @@
         - _destroy_down.rc | default(1) != 0
         - force | default(false) | bool
 
+    # Only reached once the teardown succeeded or --force was given, so a
+    # failed delete leaves the instance's content in place. The files can
+    # be owned by the container's www-data, which the operator cannot
+    # remove, so the removal runs as root in a container.
+    - name: Clean up container-owned files
+      ansible.builtin.command:
+        cmd: >-
+          {{ inspect_command }} run --rm
+          -v {{ instance_path | quote }}:/instance
+          docker.io/library/alpine
+          find /instance/config /instance/images /instance/public_assets
+          -mindepth 1 -delete
+      changed_when: true
+      ignore_errors: true  # OK if a directory is already gone
+
     - name: Remove backup staging volume
       ansible.builtin.command:
         cmd: "{{ inspect_command }} volume rm canasta-backup-{{ instance_path | basename }}"
