@@ -54,3 +54,11 @@
         cmd: "git checkout {{ _sub_hash.stdout | trim }}"
         chdir: "{{ _repo_path }}"
       changed_when: true
+
+    # `submodule add` staged the remote's HEAD; record the commit that was
+    # deployed instead, or the next `submodule update` moves to the remote's.
+    - name: Stage the original commit as the submodule's gitlink
+      ansible.builtin.command:
+        cmd: "git add -- {{ _sub_relpath | quote }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
