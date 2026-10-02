@@ -1,10 +1,10 @@
 ---
 # Stage each wiki's database dump for a backup snapshot.
 #
-# Compose: dump DBs into the live web container's
-# /mediawiki/config/backup, which is bind-mounted from the host's
-# instance_path/config — restic's container then mounts the same host
-# path and the dumps appear in the snapshot.
+# Compose: run mariadb-dump in the db container as root (the web
+# container for an external database, see db_admin.yml) and write its
+# output from the host into instance_path/config/backup. restic's
+# container mounts that host path, so the dumps appear in the snapshot.
 #
 # Kubernetes: no-op here. Writing into the live web pod's emptyDir is
 # useless — the separately-spawned restic Job mounts the web-config
@@ -33,28 +33,43 @@
   ansible.builtin.set_fact:
     _backup_dump_failures: []
 
-- name: Create backup staging directory (Compose)
-  ansible.builtin.include_tasks: exec.yml
+- name: Find where the database dumps run (Compose)
+  ansible.builtin.include_tasks: db_admin.yml
+  when: instance_orchestrator | default('compose') == 'compose'
+
+# The dumps are written from the host, so the staging directory has to be
+# the host user's. A directory a previous run left from inside the web
+# container belongs to that container's root, so remove it first.
+- name: Remove a staging directory a previous run left (Compose)
+  ansible.builtin.include_tasks:
+    file: exec.yml
+    apply:
+      ignore_errors: true
   vars:
     exec_service: web
-    exec_command: "mkdir -p /mediawiki/config/backup"
+    exec_command: "rm -rf /mediawiki/config/backup"
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Create backup staging directory (Compose)
+  ansible.builtin.file:
+    path: "{{ instance_path }}/config/backup"
+    state: directory
+    mode: "0700"
   when: instance_orchestrator | default('compose') == 'compose'
 
 - name: Dump each wiki's database group (Compose)
   ansible.builtin.include_tasks: backup_dump_db_group.yml
   vars:
-    exec_service: web
-    exec_long: true
     # A database that cannot be dumped leaves nothing behind, neither a
     # partial dump nor a previous run's, that could pass for its backup.
-    exec_command: >-
-      f=/mediawiki/config/backup/db_{{ item.wiki | quote }}.sql;
+    dump_command: >-
+      f={{ (instance_path ~ '/config/backup/db_' ~ item.wiki ~ '.sql') | quote }};
       rm -f "$f" "$f.part";
       d() { o=$1; shift;
-      MYSQL_PWD="$MYSQL_PASSWORD"
-      mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
-      --single-transaction --databases "$@" > "$o" 2> "$f.err"
-      && [ -s "$o" ]; };
+      {{ _db_admin_exec }} sh -c
+      '{{ _db_admin_pwd }} exec mariadb-dump {{ _db_admin_args }}
+      --single-transaction --databases "$@"' sh "$@"
+      > "$o" 2> "$f.err" && [ -s "$o" ]; };
       if d "$f.tmp" {{ item.databases | map('quote') | join(' ') }};
       then mv "$f.tmp" "$f"; cat "$f.err" >&2;
       else rm -f "$f.tmp";

@@ -135,7 +135,7 @@ class TestComposeDump:
     def test_group_is_one_invocation(self):
         dump = _by_name(STAGE, "Dump each wiki's database group (Compose)")
         assert dump is not None
-        cmd = dump["vars"]["exec_command"]
+        cmd = dump["vars"]["dump_command"]
         # The first attempt passes the whole group to one mariadb-dump call;
         # separate calls are separate transactions, and are only the
         # fallback when that attempt fails.
@@ -147,7 +147,8 @@ class TestComposeDump:
         # Single-wiki restore (-w) looks for db_<wiki>.sql, so the group's
         # file keeps the wiki's name even when it holds several databases.
         dump = _by_name(STAGE, "Dump each wiki's database group (Compose)")
-        assert "db_{{ item.wiki | quote }}.sql" in dump["vars"]["exec_command"]
+        assert "'/config/backup/db_' ~ item.wiki ~ '.sql'" in \
+            dump["vars"]["dump_command"]
 
     def test_loop_is_over_groups(self):
         dump = _by_name(STAGE, "Dump each wiki's database group (Compose)")
@@ -255,15 +256,18 @@ class TestPasswordsStayOffTheCommandLine:
 
     def test_compose_dump_reads_the_environment(self):
         dump = _by_name(STAGE, "Dump each wiki's database group (Compose)")
-        assert 'MYSQL_PWD="$MYSQL_PASSWORD"' in dump["vars"]["exec_command"]
+        assert "{{ _db_admin_pwd }}" in dump["vars"]["dump_command"]
 
     def test_restore_import_reads_the_environment(self):
-        for name in ("Import each wiki database dump",
-                     "Import the single restored wiki's database dump"):
-            task = _by_name(RESTORE, name)
-            assert task is not None, name
-            assert ('MYSQL_PWD="$MYSQL_PASSWORD"'
-                    in task["vars"]["exec_command"]), name
+        task = _by_name(RESTORE, "Import each wiki database dump")
+        assert "{{ _db_admin_pwd }}" in task["vars"]["rx_cmd"]
+
+    def test_the_admin_login_names_no_password(self):
+        with open(os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
+                               "db_admin.yml")) as f:
+            facts = yaml.safe_load(f)[1]["ansible.builtin.set_fact"]
+        assert 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD"' in facts["_db_admin_pwd"]
+        assert 'MYSQL_PWD="$MYSQL_PASSWORD"' in facts["_db_admin_pwd"]
 
 
 class TestDeclarationCommands:

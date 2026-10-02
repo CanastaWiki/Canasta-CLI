@@ -74,10 +74,9 @@ def test_compose_has_scoped_single_wiki_copy():
 
 
 def test_compose_db_import_is_scoped():
-    full = _by_name(COMPOSE, "Import each wiki database dump")
-    assert full is not None and "wiki is not defined" in _when(full)
-    one = _by_name(COMPOSE, "Import the single restored wiki's database dump")
-    assert one is not None and "wiki is defined" in _when(one)
+    task = _by_name(COMPOSE, "Import each wiki database dump")
+    assert task is not None
+    assert "[wiki] if wiki is defined else _restore_import_wikis" in task["loop"]
 
 
 def test_compose_env_password_preserve_gated_off_for_single_wiki():

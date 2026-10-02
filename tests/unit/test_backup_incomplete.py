@@ -91,7 +91,7 @@ def fake_mariadb(tmp_path):
     mariadb.write_text(
         "#!/bin/sh\nprintf 'one\\none_cargo\\ntwo\\nloose\\nmysql\\n'\n")
     mariadb.chmod(0o755)
-    env = dict(os.environ, MYSQL_PASSWORD="pw",
+    env = dict(os.environ, MYSQL_PASSWORD="pw", MYSQL_ROOT_PASSWORD="rootpw",
                PATH="%s:%s" % (bindir, os.environ["PATH"]))
     return env
 
@@ -105,7 +105,16 @@ GROUPS = [
 class TestComposeDump:
     def _command(self):
         task = _by_name(STAGE, "Dump each wiki's database group (Compose)")
-        return task["vars"]["exec_command"]
+        return task["vars"]["dump_command"]
+
+    def _run(self, tmp_path, env, group):
+        """Run the group's dump script on the host, with the db container
+        replaced by a local shell, as the bundled-database path does."""
+        cmd = _render(self._command(), item=group, instance_path=str(tmp_path),
+                      _db_admin_exec="", _db_admin_args="-u root",
+                      _db_admin_pwd='MYSQL_PWD="$MYSQL_ROOT_PASSWORD"')
+        return subprocess.run(["sh", "-c", cmd], capture_output=True,
+                              text=True, env=env)
 
     def test_failures_start_empty_on_every_orchestrator(self):
         task = _by_name(STAGE, "Start with no failed database dumps")
@@ -123,17 +132,13 @@ class TestComposeDump:
 
     def test_a_failed_group_does_not_stop_the_others(
             self, tmp_path, fake_mariadb):
-        staging = tmp_path / "backup"
-        staging.mkdir()
+        staging = tmp_path / "config" / "backup"
+        staging.mkdir(parents=True)
         # A previous run's dump must not stand in for a failed group.
         (staging / "db_one.sql").write_text("STALE")
         outputs = {}
         for group in GROUPS:
-            cmd = _render(self._command(), item=group).replace(
-                "/mediawiki/config/backup", str(staging))
-            result = subprocess.run(
-                ["bash", "-c", cmd], capture_output=True, text=True,
-                env=fake_mariadb)
+            result = self._run(tmp_path, fake_mariadb, group)
             assert result.returncode == 0, result.stderr
             outputs[group["wiki"]] = result.stdout
         assert sorted(os.listdir(staging)) == ["db_one.sql", "db_two.sql"]
@@ -151,13 +156,10 @@ class TestComposeDump:
 
     def test_a_single_database_group_that_fails_is_reported(
             self, tmp_path, fake_mariadb):
-        staging = tmp_path / "backup"
-        staging.mkdir()
-        cmd = _render(self._command(),
-                      item={"wiki": "x_cargo", "databases": ["x_cargo"]}
-                      ).replace("/mediawiki/config/backup", str(staging))
-        result = subprocess.run(["bash", "-c", cmd], capture_output=True,
-                                text=True, env=fake_mariadb)
+        staging = tmp_path / "config" / "backup"
+        staging.mkdir(parents=True)
+        result = self._run(tmp_path, fake_mariadb,
+                           {"wiki": "x_cargo", "databases": ["x_cargo"]})
         assert result.returncode == 0, result.stderr
         assert os.listdir(staging) == []
         assert result.stdout.startswith("DUMP-FAILED x_cargo: ")
@@ -295,7 +297,7 @@ class TestRestore:
 
     def test_compose_import_skips_absent_dumps_only_when_incomplete(self):
         task = _by_name(RESTORE_INSTANCE, "Import each wiki database dump")
-        assert task["loop"] == "{{ _restore_import_wikis }}"
+        assert "_restore_import_wikis" in task["loop"]
         choose = _by_name(RESTORE_INSTANCE,
                           "Choose the wikis whose databases to import")
         expr = choose["ansible.builtin.set_fact"]["_restore_import_wikis"]
