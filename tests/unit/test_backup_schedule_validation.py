@@ -14,17 +14,20 @@ from ansible.parsing.dataloader import DataLoader
 from ansible.template import Templar, trust_as_template
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-APPLY = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
-                     "backup_schedule_apply.yml")
+TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
+APPLY = os.path.join(TASKS, "backup_schedule_apply.yml")
+SET = os.path.join(TASKS, "backup_schedule_set.yml")
+VALIDATE = os.path.join(TASKS, "backup_schedule_validate.yml")
 
 
-def _tasks():
-    with open(APPLY) as f:
+def _tasks(path=APPLY):
+    with open(path) as f:
         return yaml.safe_load(f)
 
 
 def _refused(cron, retention):
-    task = next(t for t in _tasks() if t.get("name") == "Validate the backup schedule")
+    task = next(t for t in _tasks(VALIDATE)
+                if t.get("name") == "Validate the backup schedule")
     variables = {"cron_expression": cron, "retention": retention}
     variables.update({k: trust_as_template(v) if isinstance(v, str) else v
                       for k, v in task["vars"].items()})
@@ -60,6 +63,19 @@ def test_unsafe_schedules_are_refused(cron, retention):
 def test_validation_runs_before_any_change():
     names = [t.get("name") for t in _tasks()]
     assert names[0] == "Validate the backup schedule"
+    assert _tasks()[0]["ansible.builtin.include_tasks"].endswith(
+        "/backup_schedule_validate.yml")
+
+
+def test_schedule_set_validates_before_writing_the_file():
+    tasks = _tasks(SET)
+    names = [t.get("name") for t in tasks]
+    validate = names.index("Validate the backup schedule")
+    assert validate < names.index("Persist the backup schedule to instance config")
+    task = tasks[validate]
+    assert task["ansible.builtin.include_tasks"].endswith(
+        "/backup_schedule_validate.yml")
+    assert "_retention_policy" in task["vars"]["retention"]
 
 
 def _cron_retention(retention):

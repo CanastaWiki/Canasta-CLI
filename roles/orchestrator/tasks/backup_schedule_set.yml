@@ -13,6 +13,14 @@
 # Input: instance_id, instance_path, instance_orchestrator,
 #        cron_expression, _retention_policy (dict of restic forget flags)
 
+# Before the persist: a refused schedule must not be left in the file that
+# backups capture and gitops distributes.
+- name: Validate the backup schedule
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_validate.yml
+  vars:
+    retention: "{{ _retention_policy | default({}, true) }}"
+
 - name: Persist the backup schedule to instance config
   ansible.builtin.copy:
     dest: "{{ instance_path }}/config/backup-schedule.yml"
