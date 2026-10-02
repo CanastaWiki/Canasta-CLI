@@ -2,8 +2,8 @@
 # Remove the working trees of submodules that the pull dropped from the
 # repository. Git takes the gitlink out of the index but leaves the checkout
 # on disk, where it shows as untracked and a later `gitops add` could commit
-# it back. A checkout with local changes, or without its own .git, is kept
-# and reported instead of deleted.
+# it back. A checkout with local changes, without its own .git, or reached
+# through a symbolic link is kept and reported instead of deleted.
 # Requires: instance_path, _pull_prev_commit (the HEAD before the pull).
 
 - name: Remove submodule checkouts the pull dropped
@@ -18,10 +18,12 @@
         git ls-files --stage |
           awk -F'\t' '{ split($1, f, " "); if (f[1] == "160000") print $2 }'
       }
+      root=$(pwd -P)
       comm -23 <(gitlinks_before "$PREV" | sort) <(gitlinks_now | sort) |
       while IFS= read -r path; do
         [ -e "$path" ] || continue
-        if [ -e "$path/.git" ] && [ -z "$(git -C "$path" status --porcelain)" ]; then
+        real=$(cd -- "$path" 2>/dev/null && pwd -P) || real=
+        if [ "$real" = "$root/$path" ] && [ -e "$path/.git" ] && [ -z "$(git -C "$path" status --porcelain)" ]; then
           rm -rf -- "$path"
           echo "removed $path"
         else
@@ -48,8 +50,8 @@
   ansible.builtin.debug:
     msg: >-
       WARNING: {{ _pull_kept | join(', ') }} was removed from the repository
-      but left in place, because it has local changes or is not a git
-      checkout. Delete it once anything in it you need is saved elsewhere.
+      but left in place, because it has local changes, is not a git
+      checkout, or is reached through a symbolic link. Delete it once anything in it you need is saved elsewhere.
   vars:
     _pull_kept: >-
       {{ _pull_dropped_submodules.stdout_lines | select('match', '^kept ')
