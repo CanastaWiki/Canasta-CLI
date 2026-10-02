@@ -1,0 +1,184 @@
+---
+# Move a Compose instance's MediaWiki off the database root account and
+# onto its own `mediawiki` account (#1596).
+#
+# Runs after upgrade's restart, so the instance is up on the refreshed
+# compose file, which takes MediaWiki's credentials from WIKI_DB_USER /
+# WIKI_DB_PASSWORD. Only a running instance on the bundled database that
+# still uses root and has not opted out (CANASTA_DB_ROOT_ACCOUNT=true) is
+# migrated. Anything that would leave a wiki unable to reach its data stops
+# the migration and leaves the instance on root; a failure after the switch
+# rolls back to root. Either way the rest of the upgrade is unaffected.
+#
+# Input: instance_id, instance_path, instance_orchestrator, _was_running
+
+- name: Read the database account settings
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _mig_db_env
+  no_log: true  # registers the whole .env, including passwords
+
+- name: Decide whether to move MediaWiki to its own database account
+  ansible.builtin.set_fact:
+    _mig_db_account: >-
+      {{ instance_orchestrator | default('compose') == 'compose'
+         and (_was_running | default(false) | bool)
+         and (_mig_db_env.variables.USE_EXTERNAL_DB | default('false') | string | lower) != 'true'
+         and (_mig_db_env.variables.CANASTA_DB_ROOT_ACCOUNT | default('false') | string | lower) != 'true'
+         and (_mig_db_env.variables.WIKI_DB_USER | default('root', true)) == 'root' }}
+
+- name: Move MediaWiki to its own database account
+  when: _mig_db_account | bool
+  block:
+    - name: Report the database account migration
+      ansible.builtin.debug:
+        msg: >-
+          Checking whether MediaWiki can move off the database root account
+          onto its own 'mediawiki' account.
+
+    # A $wgDBuser or $wgDBpassword set in a settings file wins over the
+    # container environment, so switching the environment would change
+    # nothing MediaWiki uses, or worse, pair a stale user with a new password.
+    - name: Look for database credentials set in settings files
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -rlE
+          - '^[[:space:]]*\$wgDB(user|password)[[:space:]]*='
+          - --include=*.php
+          - config
+        chdir: "{{ instance_path }}"
+      register: _mig_db_overrides
+      changed_when: false
+      # grep exits 1 when nothing matches.
+      failed_when: _mig_db_overrides.rc > 1
+
+    - name: Read the wiki database set
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: read
+      register: _mig_db_wikis
+
+    - name: Find where database administration runs
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/db_admin.yml
+
+    - name: List the databases on the server
+      ansible.builtin.command:
+        cmd: >-
+          {{ _db_admin_exec }} sh -c
+          '{{ _db_admin_pwd }} mariadb {{ _db_admin_args }} -N -e "SHOW DATABASES"'
+        chdir: "{{ instance_path }}"
+      register: _mig_db_list
+      changed_when: false
+
+    # The account reaches only declared databases. A wiki whose Cargo
+    # database is set through $wgCargoDBname alone would lose it.
+    - name: Find databases no wiki declares
+      ansible.builtin.set_fact:
+        _mig_db_undeclared: >-
+          {{ _mig_db_list.stdout_lines
+             | reject('in', ['information_schema', 'mysql', 'performance_schema', 'sys'])
+             | reject('in', _mig_db_wikis.db_groups | map(attribute='databases') | flatten)
+             | list }}
+
+    - name: Report why the instance stays on the root account
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: instance '{{ instance_id }}' stays on the database root
+          account.
+          {%- if _mig_db_overrides.stdout_lines | length > 0 %}
+          {{ _mig_db_overrides.stdout_lines | join(', ') }} set $wgDBuser or
+          $wgDBpassword, which would override MediaWiki's own account;
+          remove those settings.
+          {%- endif %}
+          {%- if _mig_db_undeclared | length > 0 %}
+          The server has database(s) {{ _mig_db_undeclared | join(', ') }}
+          that no wiki declares, which MediaWiki's own account could not
+          reach. Declare each one a wiki uses with 'canasta backup databases
+          add -i {{ instance_id }} -w <wiki> <database>', and drop any that
+          are no longer used.
+          {%- endif %}
+          The move is tried again on the next upgrade. To keep this instance
+          on root, run 'canasta config set CANASTA_DB_ROOT_ACCOUNT=true -i
+          {{ instance_id }}'.
+      when: >-
+        _mig_db_overrides.stdout_lines | length > 0
+        or _mig_db_undeclared | length > 0
+
+    - name: Switch to MediaWiki's own account
+      when:
+        - _mig_db_overrides.stdout_lines | length == 0
+        - _mig_db_undeclared | length == 0
+      block:
+        - name: Generate the account's password
+          ansible.builtin.include_tasks: >-
+            {{ canasta_root }}/roles/common/tasks/generate_password.yml
+
+        # Through config set, so a gitops instance records the keys in its
+        # vars and the next pull does not render them away.
+        - name: Record the account in .env
+          ansible.builtin.include_role:
+            name: config
+            tasks_from: set.yml
+          vars:
+            config_settings_override: >-
+              WIKI_DB_USER=mediawiki WIKI_DB_PASSWORD={{ _generated_password }}
+            force: true
+            no_restart: true
+
+        - name: Restart onto the new account
+          ansible.builtin.include_role:
+            name: instance_lifecycle
+            tasks_from: restart.yml
+
+        - name: Check that each wiki reaches its database as the new account
+          ansible.builtin.include_tasks: >-
+            {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+          vars:
+            exec_service: web
+            exec_command: >-
+              {% for wiki in _mig_db_wikis.wiki_ids %}
+              php maintenance/run.php showSiteStats --wiki={{ wiki | quote }} >/dev/null &&
+              {% endfor %}
+              true
+
+        - name: Check whether the instance is gitops-managed
+          ansible.builtin.stat:
+            path: "{{ instance_path }}/.gitops-host"
+          register: _mig_db_gitops
+
+        - name: Report the database account migration complete
+          ansible.builtin.debug:
+            msg: >-
+              MediaWiki now connects as 'mediawiki', with access to this
+              instance's wiki databases only; the root password is no
+              longer in the web container.
+              {%- if _mig_db_gitops.stat.exists %}
+              The new keys are in this host's gitops vars; run 'canasta
+              gitops push -i {{ instance_id }}' to commit them before the
+              next pull.
+              {%- endif %}
+
+      rescue:
+        - name: Report the failed database account migration
+          ansible.builtin.debug:
+            msg: >-
+              WARNING: moving instance '{{ instance_id }}' to its own database
+              account failed ({{ ansible_failed_result.msg | default('see the
+              error above') }}). Rolling back to the root account.
+
+        - name: Roll back to the root account
+          ansible.builtin.include_role:
+            name: config
+            tasks_from: set.yml
+          vars:
+            config_settings_override: "WIKI_DB_USER=root"
+            force: true
+            no_restart: true
+
+        - name: Restart on the root account
+          ansible.builtin.include_role:
+            name: instance_lifecycle
+            tasks_from: restart.yml

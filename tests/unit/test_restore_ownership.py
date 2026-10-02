@@ -74,3 +74,39 @@ def test_single_wiki_restore_normalizes_what_it_restored():
         "a single-wiki restore copies with cp -a too, so it strands the same "
         "uids across the wiki's settings, images and public assets"
     )
+
+
+def test_ownership_pass_covers_only_what_the_restore_wrote(tmp_path):
+    """The instance directory holds more than a snapshot does: .git on a
+    gitops instance, whose read-only objects Docker Desktop on macOS will
+    not chown. Only the restored paths are re-owned."""
+    import re
+    import subprocess
+
+    cmd = _copy_task()["ansible.builtin.shell"]["cmd"]
+    script = re.search(r"sh -c '(.*)'\s*$", cmd, re.S).group(1)
+    script = script.replace(
+        "{{ (_restore_crossed_hosts | default(false)) | ternary(1, 0) }}", "0")
+    snap, inst, bindir = tmp_path / "snap", tmp_path / "inst", tmp_path / "bin"
+    for d in ("config", "images", ".env", "sidecars"):
+        if d == ".env":
+            (snap / d).parent.mkdir(parents=True, exist_ok=True)
+            (snap / d).write_text("X=1\n")
+        else:
+            (snap / d).mkdir(parents=True)
+            (snap / d / "f").write_text("x")
+    (inst / ".git" / "objects").mkdir(parents=True)
+    bindir.mkdir()
+    log = tmp_path / "chown.log"
+    (bindir / "chown").write_text('#!/bin/sh\nshift 2\nfor a; do echo "$a"; done >> %s\n' % log)
+    (bindir / "stat").write_text("#!/bin/sh\necho 1000:1000\n")
+    for f in ("chown", "stat"):
+        (bindir / f).chmod(0o755)
+    script = script.replace("/currentsnapshot", str(snap)).replace("/install", str(inst))
+    result = subprocess.run(
+        ["sh", "-c", script], capture_output=True, text=True,
+        env=dict(os.environ, PATH="%s:%s" % (bindir, os.environ["PATH"])))
+    assert result.returncode == 0, result.stderr
+    chowned = sorted(os.path.basename(p) for p in log.read_text().split())
+    assert chowned == [".env", "config", "images", "sidecars"]
+    assert (inst / "config" / "f").exists() and (inst / ".env").exists()

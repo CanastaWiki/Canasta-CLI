@@ -15,8 +15,19 @@ canasta_known_keys:
   - name: MYSQL_PASSWORD
     group: Database
     description: >-
-      Database password the wiki connects with; on the bundled database,
+      Database administrator (root) password; on the bundled database,
       setting it changes the password in the database too
+  - name: WIKI_DB_PASSWORD
+    group: Database
+    description: >-
+      Password of MediaWiki's own database account; setting it changes the
+      account's password at the restart
+  - name: CANASTA_DB_ROOT_ACCOUNT
+    group: Database
+    description: >-
+      true keeps MediaWiki on the database administrator account instead
+      of its own, and stops upgrades moving it
+    default: "false"
   - name: HTTP_PORT
     group: Network
     description: HTTP port
