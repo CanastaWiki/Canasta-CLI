@@ -32,13 +32,15 @@
         # — the very disaster a restore recovers from). Dumping a missing DB
         # fails mariadb-dump and would abort the whole restore, so dump only the
         # wikis whose database is present and warn about the rest.
+        - name: Find where database administration runs
+          ansible.builtin.include_tasks: db_admin.yml
+
         - name: List existing databases for the safety backup
           ansible.builtin.include_tasks: exec.yml
           vars:
-            exec_service: web
+            exec_service: "{{ _db_admin_service }}"
             exec_command: >-
-              MYSQL_PWD="$MYSQL_PASSWORD"
-              mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
+              {{ _db_admin_pwd }} mariadb {{ _db_admin_args }}
               -N -e "SHOW DATABASES"
 
         - name: Record the databases that exist
@@ -416,26 +418,24 @@
                | map('regex_replace', '[.]sql$', '') | list)
              | list }}
 
-    - name: Import each wiki database dump
-      when: wiki is not defined
-      ansible.builtin.include_tasks: exec.yml
-      vars:
-        exec_service: web
-        exec_command: >-
-          MYSQL_PWD="$MYSQL_PASSWORD"
-          mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
-          < /mediawiki/config/backup/db_{{ item | quote }}.sql
-      loop: "{{ _restore_import_wikis }}"
+    # The dumps name their databases (CREATE DATABASE / USE), so the import
+    # runs with database administration rights, fed from the host copy.
+    - name: Find where database administration runs
+      ansible.builtin.include_tasks: db_admin.yml
 
-    - name: Import the single restored wiki's database dump
-      when: wiki is defined
-      ansible.builtin.include_tasks: exec.yml
+    - name: Import each wiki database dump
+      ansible.builtin.include_tasks: resilient_exec.yml
       vars:
-        exec_service: web
-        exec_command: >-
-          MYSQL_PWD="$MYSQL_PASSWORD"
-          mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"
-          < /mediawiki/config/backup/db_{{ wiki | quote }}.sql
+        rx_name: "import {{ item }}"
+        rx_cmd: >-
+          {{ _db_admin_exec }} sh -c
+          '{{ _db_admin_pwd }} exec mariadb {{ _db_admin_args }}'
+          < {{ (instance_path ~ '/config/backup/db_' ~ item ~ '.sql') | quote }}
+        rx_chdir: "{{ instance_path }}"
+        rx_async: 3600
+        rx_retries: 360
+      loop: >-
+        {{ [wiki] if wiki is defined else _restore_import_wikis }}
 
     - name: Clean up backup dump directory
       ansible.builtin.include_tasks:

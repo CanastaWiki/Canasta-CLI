@@ -1,0 +1,48 @@
+---
+# Decide where Compose database administration runs and how it logs in.
+#
+# Bundled database: the db container, as root with its own
+# $MYSQL_ROOT_PASSWORD, so nothing depends on the credentials the web
+# container holds. External database: there is no db container, so the web
+# container, as the operator's MYSQL_USER.
+#
+# Input: instance_path, compose_command
+# Output:
+#   _db_admin_service - the service to run in (db or web)
+#   _db_admin_pwd     - the MYSQL_PWD assignment, and
+#   _db_admin_args    - the client's host and user arguments, used inside
+#                       that service as
+#                       `{{ _db_admin_pwd }} mariadb {{ _db_admin_args }}`
+#   _db_admin_exec    - host command prefix that runs a command in that
+#                       service with stdin attached, e.g.
+#                       `{{ _db_admin_exec }} sh -c '...'`
+
+- name: Read the database settings from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _db_admin_env
+  no_log: true  # registers the whole .env, including passwords
+
+# podman-compose ignores COMPOSE_PROFILES from .env, so `exec` needs the
+# profiles passed explicitly to find a profile-gated service.
+- name: Choose the database administration target
+  ansible.builtin.set_fact:
+    _db_admin_service: "{{ 'web' if _db_admin_external | bool else 'db' }}"
+    _db_admin_pwd: >-
+      {{ 'MYSQL_PWD="$MYSQL_PASSWORD"' if _db_admin_external | bool
+         else 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD"' }}
+    _db_admin_args: >-
+      {{ '-h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"' if _db_admin_external | bool
+         else '-u root' }}
+    _db_admin_exec: >-
+      {{ compose_command }}
+      {{ (_db_admin_env.variables.COMPOSE_PROFILES | default(''))
+         | split(',') | map('trim') | reject('equalto', '')
+         | map('regex_replace', '^', '--profile ') | join(' ')
+         if compose_command is search('podman') else '' }}
+      exec -T {{ 'web' if _db_admin_external | bool else 'db' }}
+  vars:
+    _db_admin_external: >-
+      {{ (_db_admin_env.variables.USE_EXTERNAL_DB | default('false'))
+         | string | lower == 'true' }}

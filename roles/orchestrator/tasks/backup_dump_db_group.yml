@@ -1,17 +1,25 @@
 ---
 # Dump one wiki's database group (Compose) and record it if it failed.
 #
-# Input: item (a db_groups entry), exec_service, exec_long, exec_command
-#        (prints "DUMP-FAILED <db> [<db>...]: <error>" when the dump fails)
+# Input: item (a db_groups entry), instance_path, dump_command (a host
+#        shell command that prints "DUMP-FAILED <db>: <error>" for each
+#        database it could not dump)
 # Output: _backup_dump_failures, appended to
 
+# Detached and polled, so a large dump survives a dropped SSH connection.
 - name: Dump the database group
-  ansible.builtin.include_tasks: exec.yml
+  ansible.builtin.include_tasks: resilient_exec.yml
+  vars:
+    rx_name: "dump {{ item.wiki }}"
+    rx_cmd: "{{ dump_command }}"
+    rx_chdir: "{{ instance_path }}"
+    rx_async: "{{ backup_dump_timeout | default(3600) }}"
+    rx_retries: "{{ ((backup_dump_timeout | default(3600) | int) / 10) | int }}"
 
 - name: Collect the group's dump failure
   ansible.builtin.set_fact:
     _backup_group_failures: >-
-      {{ (exec_result.stdout | default('')).splitlines()
+      {{ (rx_result.stdout | default('')).splitlines()
          | select('match', '^DUMP-FAILED ')
          | map('regex_replace', '^DUMP-FAILED ', '')
          | map('trim') | list }}
