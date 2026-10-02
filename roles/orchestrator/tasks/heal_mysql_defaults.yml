@@ -11,6 +11,13 @@
 # (e.g. an external-DB MYSQL_HOST). Skipped entirely when
 # USE_EXTERNAL_DB=true, since those setups supply their own DB host.
 #
+# WIKI_DB_USER / WIKI_DB_PASSWORD, MediaWiki's own account, are always
+# filled, for external databases too: docker-compose.yml passes them to web
+# without a default. Until an instance has its own account, WIKI_DB_USER is
+# the administrator account (MYSQL_USER, root on the bundled database), and
+# then WIKI_DB_PASSWORD is copied from MYSQL_PASSWORD every time, so a root
+# password rotation or a restored .env never leaves MediaWiki a stale copy.
+#
 # The Compose fast path (direct_commands/_helpers.py, _backfill_db_defaults)
 # sets the same keys; keep them in sync.
 #
@@ -85,3 +92,39 @@
         key: MYSQL_SSL
         value: "false"
       when: not _backfill_mysql_ssl.found or (_backfill_mysql_ssl.value | default('') | trim) == ''
+
+- name: Read the database account keys from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _backfill_wiki_env
+  no_log: true  # registers the whole .env, including passwords
+
+- name: Default MediaWiki's account to the administrator account
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: WIKI_DB_USER
+    value: "{{ _backfill_admin_user }}"
+  vars:
+    _backfill_admin_user: "{{ _backfill_wiki_env.variables.MYSQL_USER | default('root', true) | trim }}"
+  when: (_backfill_wiki_env.variables.WIKI_DB_USER | default('') | trim) == ''
+
+- name: Give the administrator account's password to MediaWiki while it uses that account
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: WIKI_DB_PASSWORD
+    value: "{{ _backfill_wiki_env.variables.MYSQL_PASSWORD }}"
+  vars:
+    _backfill_admin_user: "{{ _backfill_wiki_env.variables.MYSQL_USER | default('root', true) | trim }}"
+    _backfill_wiki_user: >-
+      {{ _backfill_wiki_env.variables.WIKI_DB_USER | default('', true) | trim
+         or _backfill_admin_user }}
+  when:
+    - _backfill_wiki_user == _backfill_admin_user
+    - (_backfill_wiki_env.variables.MYSQL_PASSWORD | default('')) != ''
+    - >-
+      (_backfill_wiki_env.variables.WIKI_DB_PASSWORD | default(''))
+      != _backfill_wiki_env.variables.MYSQL_PASSWORD
+  no_log: true

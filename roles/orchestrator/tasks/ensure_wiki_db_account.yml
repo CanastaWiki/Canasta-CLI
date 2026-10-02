@@ -1,0 +1,108 @@
+---
+# Make MediaWiki's database account match .env (Compose, bundled database).
+#
+# Account state lives only in the database server: no backup captures it,
+# and a restore onto a fresh host, a gitops join or a rebuilt db volume
+# starts without it. So this runs after every `up`, and after anything that
+# changes the wiki database set, and puts the account back the way .env and
+# wikis.yaml say it should be. ensure_wiki_db_account.sh does the work
+# inside the db container, which reads WIKI_DB_USER and WIKI_DB_PASSWORD
+# from its own environment, so it must run after the `up` that gave the
+# container the current values.
+#
+# Nothing to do for an external database (the operator owns its accounts)
+# or while MediaWiki still connects as root.
+#
+# Input: instance_path, instance_orchestrator, compose_command
+# Output: _wiki_db_undeclared - databases the account cannot use
+
+- name: Read the wiki database account settings
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _ensure_env
+  no_log: true  # registers the whole .env, including passwords
+
+- name: Decide whether the account needs ensuring
+  ansible.builtin.set_fact:
+    _wiki_db_undeclared: []
+    _ensure_needed: >-
+      {{ instance_orchestrator | default('compose') == 'compose'
+         and (_ensure_env.variables.USE_EXTERNAL_DB | default('false')
+              | string | lower) != 'true'
+         and (_ensure_env.variables.WIKI_DB_USER | default('root', true)) != 'root' }}
+
+- name: Ensure the wiki database account
+  when: _ensure_needed | bool
+  block:
+    - name: Read the wiki database set
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: read
+      register: _ensure_wikis
+
+    - name: Find where database administration runs
+      ansible.builtin.include_tasks: db_admin.yml
+
+    # A stopped instance gets the account on its next start, which runs this.
+    - name: Check whether the database is running
+      ansible.builtin.command:
+        cmd: "{{ _db_admin_exec }} true"
+        chdir: "{{ instance_path }}"
+      register: _ensure_running
+      changed_when: false
+      failed_when: false
+
+    - name: Report that the account is updated on the next start
+      ansible.builtin.debug:
+        msg: >-
+          The instance is not running; MediaWiki's database account is
+          brought up to date when it next starts.
+      when: _ensure_running.rc != 0
+
+    - name: Wait for the database to accept root logins
+      when: _ensure_running.rc == 0
+      ansible.builtin.command:
+        cmd: >-
+          {{ _db_admin_exec }} sh -c
+          '{{ _db_admin_pwd }} mariadb-admin ping {{ _db_admin_args }}'
+        chdir: "{{ instance_path }}"
+      register: _ensure_ping
+      changed_when: false
+      retries: 30
+      delay: 5
+      until: _ensure_ping.rc == 0
+
+    - name: Create, grant and verify the wiki database account
+      when: _ensure_running.rc == 0
+      ansible.builtin.command:
+        cmd: >-
+          {{ _db_admin_exec }} sh -s --
+          {{ _ensure_wikis.db_groups | map(attribute='databases') | flatten
+             | unique | map('quote') | join(' ') }}
+        chdir: "{{ instance_path }}"
+        stdin: "{{ lookup('ansible.builtin.file', canasta_root ~ '/roles/orchestrator/files/ensure_wiki_db_account.sh') }}"
+      register: _ensure_result
+      changed_when: "'ENSURED ' in _ensure_result.stdout"
+
+    - name: Record databases the account cannot use
+      when: _ensure_result is not skipped
+      ansible.builtin.set_fact:
+        _wiki_db_undeclared: >-
+          {{ _ensure_result.stdout_lines | select('match', '^UNDECLARED ')
+             | map('regex_replace', '^UNDECLARED ', '') | list }}
+
+    - name: Warn about databases the wiki account cannot use
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: MediaWiki's database account has no access to
+          {{ _wiki_db_undeclared | join(', ') }}, which
+          {{ 'is' if _wiki_db_undeclared | length == 1 else 'are' }} not
+          declared for any wiki. If a wiki uses
+          {{ 'it' if _wiki_db_undeclared | length == 1 else 'one' }} (a Cargo
+          database set with $wgCargoDBname, for example), declare it with
+          'canasta backup databases add -i {{ instance_id }} -w <wiki> <database>',
+          which also includes it in backups.
+      when:
+        - _wiki_db_undeclared | length > 0
+        - not (ensure_quiet | default(false) | bool)

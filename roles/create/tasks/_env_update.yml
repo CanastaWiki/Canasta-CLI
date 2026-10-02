@@ -8,7 +8,7 @@
 #     break MediaWiki's installer or shell quoting
 #   - read the just-generated wikis.yaml to derive MW_SITE_*
 #   - write MW_SITE_SERVER, MW_SITE_FQDN, MYSQL_PASSWORD,
-#     CANASTA_IMAGE (+ WIKI_DB_PASSWORD when wikidbuser != root)
+#     CANASTA_IMAGE, WIKI_DB_USER and WIKI_DB_PASSWORD
 #   - validate external-DB config (USE_EXTERNAL_DB requires
 #     MYSQL_HOST), and set COMPOSE_PROFILES so internal-db is
 #     skipped when an external DB is in use
@@ -67,13 +67,15 @@
     value: "{{ _host_gateway_fallback }}"
   when: _host_gateway_fallback | default('') | length > 0
 
-- name: Set WIKI_DB_PASSWORD for non-root user
+- name: Set MediaWiki's database account
   canasta_env:
     path: "{{ instance_path }}/.env"
     state: set
-    key: WIKI_DB_PASSWORD
-    value: "{{ _wikidbpass }}"
-  when: (wikidbuser | default('root')) != 'root'
+    key: "{{ item.key }}"
+    value: "{{ item.value }}"
+  loop:
+    - { key: "WIKI_DB_USER", value: "{{ _wiki_db_user }}" }
+    - { key: "WIKI_DB_PASSWORD", value: "{{ _wikidbpass }}" }
   no_log: true
 
 # --- External database setup ---

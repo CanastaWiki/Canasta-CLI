@@ -33,6 +33,10 @@ def cmd_start(args):
     # only meaningful against the reconciled list.
     env = _helpers._sync_compose_profiles(inst)
     _helpers._backfill_db_defaults(inst)
+    # Ansible's start re-creates MediaWiki's own database account if the
+    # database server lost it; that step has no fast-path copy.
+    if _helpers._uses_wiki_db_account(env):
+        return _helpers.FALLBACK
     if _helpers._check_running_compose(path, host, docker_host, compose_cmd):
         missing = _helpers._missing_profile_services(inst, compose_cmd)
         if not missing:

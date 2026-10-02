@@ -44,6 +44,13 @@
 - name: Use external DB password from env file
   when: _ext_db_early_check.found and _ext_db_early_check.value | lower == 'true'
   block:
+    - name: Read MYSQL_USER from env file
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: MYSQL_USER
+      register: _ext_db_user
+
     - name: Read MYSQL_PASSWORD from env file
       canasta_env:
         path: "{{ instance_path }}/.env"
@@ -56,6 +63,7 @@
       ansible.builtin.set_fact:
         _rootdbpass: "{{ _ext_db_password.value }}"
         _wikidbpass: "{{ _ext_db_password.value }}"
+        _wiki_db_user: "{{ _ext_db_user.value | default('root', true) }}"
       when: _ext_db_password.found
       no_log: true
 
