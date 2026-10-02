@@ -36,9 +36,9 @@ jobs:
           .venv/bin/pytest tests/unit/ -v \
             --cov=roles/common/library \
             --cov=roles/extensions_skins/library \
-            --cov=scripts/generate_docs.py \
-            --cov=scripts/validate_definitions.py \
-            --cov=canasta.py \
+            --cov=scripts \
+            --cov=direct_commands \
+            --cov=canasta \
             --cov-report=term-missing \
             --cov-report=xml:coverage.xml \
             --cov-report=html:htmlcov \
