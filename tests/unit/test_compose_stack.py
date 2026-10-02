@@ -35,7 +35,13 @@ class TestComposeUserRoot:
 # NAME=${OTHER_NAME} entries that are deliberate, not typos. The database
 # image expects MYSQL_ROOT_PASSWORD, while Canasta stores that password in
 # .env as MYSQL_PASSWORD.
-CROSS_NAMED_ENV = {("db", "MYSQL_ROOT_PASSWORD"): "MYSQL_PASSWORD"}
+CROSS_NAMED_ENV = {
+    ("db", "MYSQL_ROOT_PASSWORD"): "MYSQL_PASSWORD",
+    # web's client variables carry MediaWiki's own account, not the
+    # administrator account .env stores as MYSQL_USER / MYSQL_PASSWORD.
+    ("web", "MYSQL_USER"): "WIKI_DB_USER",
+    ("web", "MYSQL_PASSWORD"): "WIKI_DB_PASSWORD",
+}
 
 _SELF_INTERPOLATED = re.compile(
     r"^([A-Za-z_][A-Za-z0-9_]*)=\$\{([A-Za-z_][A-Za-z0-9_]*)([:\-?].*)?\}$"

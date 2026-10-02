@@ -1,9 +1,10 @@
 """A missing MYSQL_PASSWORD is only safe to replace when nothing uses it.
 
-docker-compose.yml hands the value to two services:
+docker-compose.yml hands the value to db, and to web while MediaWiki still
+connects as root (heal_mysql_defaults.yml copies it into WIKI_DB_PASSWORD):
 
     db  -> MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD}
-    web -> MYSQL_PASSWORD=${MYSQL_PASSWORD}
+    web -> MYSQL_PASSWORD=${WIKI_DB_PASSWORD}
 
 MariaDB applies MARIADB_ROOT_PASSWORD only when it initialises an empty
 data directory. On a volume that already holds a database the stored
@@ -119,4 +120,7 @@ class TestThePremiseStillHolds:
         with open(COMPOSE) as f:
             text = f.read()
         assert "MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD}" in text
-        assert "MYSQL_PASSWORD=${MYSQL_PASSWORD}" in text
+        assert "MYSQL_PASSWORD=${WIKI_DB_PASSWORD}" in text
+        defaults = os.path.join(os.path.dirname(HEAL), "heal_mysql_defaults.yml")
+        with open(defaults) as f:
+            assert "_backfill_wiki_env.variables.MYSQL_PASSWORD" in f.read()

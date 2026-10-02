@@ -4,8 +4,12 @@
 # Input: _wiki (dict with id, url, name), _wiki_idx (int),
 #   instance_path, instance_orchestrator,
 #   install_admin_name, install_admin_password,
-#   install_root_db_password, install_wiki_db_username,
-#   install_wiki_db_password
+#   install_root_db_password
+#
+# install.php gets the administrator account for both its install and its
+# runtime user, so it never creates an account of its own. Its
+# LocalSettings.php is discarded; MediaWiki's account comes from the
+# container environment and is managed by ensure_wiki_db_account.yml.
 
 - name: Extract domain from wiki URL
   ansible.builtin.set_fact:
@@ -41,8 +45,8 @@
       --server=https://{{ _install_domain }}
       --installdbuser={{ _install_env.variables.MYSQL_USER | default('root', true) | quote }}
       --installdbpass={{ install_root_db_password | quote }}
-      --dbuser={{ install_wiki_db_username | quote }}
-      --dbpass={{ install_wiki_db_password | quote }}
+      --dbuser={{ _install_env.variables.MYSQL_USER | default('root', true) | quote }}
+      --dbpass={{ install_root_db_password | quote }}
       --pass={{ install_admin_password | quote }}
       {{ _wiki.id | quote }} {{ install_admin_name | quote }}
 
