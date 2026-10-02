@@ -436,11 +436,14 @@ def _wiki_db_account_updates(env):
     root on the bundled database). While it is that account, its password
     is MYSQL_PASSWORD, copied every time so a rotated root password or a
     restored .env never leaves MediaWiki a stale copy.
+    CANASTA_DB_ROOT_ACCOUNT=true keeps (or puts) MediaWiki on the
+    administrator account.
     """
     admin = (env.get("MYSQL_USER") or "").strip() or "root"
     wiki_user = (env.get("WIKI_DB_USER") or "").strip()
+    keep_admin = (env.get("CANASTA_DB_ROOT_ACCOUNT") or "").strip().lower() == "true"
     updates = []
-    if not wiki_user:
+    if not wiki_user or (keep_admin and wiki_user != admin):
         wiki_user = admin
         updates.append(("WIKI_DB_USER", admin))
     admin_password = env.get("MYSQL_PASSWORD") or ""
