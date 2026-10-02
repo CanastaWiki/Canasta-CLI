@@ -290,11 +290,13 @@
             set -e;
             std="config extensions images skins public_assets";
             keep_mycnf={{ (_restore_crossed_hosts | default(false)) | ternary(1, 0) }};
+            set --;
             for d in $std; do
               if [ -d /currentsnapshot/$d ]; then
                 mkdir -p /install/$d;
                 rm -rf /install/$d/* /install/$d/.[!.]* 2>/dev/null || true;
                 cp -a /currentsnapshot/$d/. /install/$d/;
+                set -- "$@" "/install/$d";
               fi;
             done;
             for e in /currentsnapshot/* /currentsnapshot/.[!.]*; do
@@ -307,8 +309,9 @@
               if [ "$skip" = "1" ]; then continue; fi;
               if [ -d "$e" ]; then rm -rf "/install/$name"; fi;
               cp -a "$e" "/install/$name";
+              set -- "$@" "/install/$name";
             done;
-            chown -R "$(stat -c "%u:%g" /install)" /install'
+            [ "$#" -eq 0 ] || chown -R "$(stat -c "%u:%g" /install)" "$@"'
       changed_when: true
 
     - name: Report that this host's my.cnf was kept
