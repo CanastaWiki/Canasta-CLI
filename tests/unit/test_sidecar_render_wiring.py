@@ -103,4 +103,4 @@ def test_chart_template_emits_all_resources_per_sidecar():
     assert "replicas: 1" in body
     assert "helm.sh/resource-policy: keep" in body
     # Service named for the sidecar (bare name) so the wiki reaches it by host.
-    assert "name: {{ $sc.name }}" in body
+    assert "name: {{ $sc.name | quote }}" in body

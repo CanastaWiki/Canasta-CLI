@@ -46,6 +46,7 @@ import os
 import yaml
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.canasta_sidecar_render import validate_spec
 from ansible.module_utils.canasta_validate import (
     validate_sidecar_name,
 )
@@ -141,7 +142,7 @@ def validate_sidecars(sidecars):
             if missing:
                 return ("sidecar '%s' envPrivate names env key(s) not in env: "
                         "%s" % (name, ", ".join(missing)))
-    return None
+    return validate_spec(sidecars)
 
 
 def run_module():
