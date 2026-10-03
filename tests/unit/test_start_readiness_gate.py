@@ -125,7 +125,7 @@ class TestRuntimeCapture:
     def test_remote_probe_goes_over_ssh(self, monkeypatch):
         calls = []
 
-        def fake_ssh(host, cmd):
+        def fake_ssh(host, cmd, docker_host=None):
             calls.append((host, cmd))
             return 0, "healthy\n"
 
@@ -140,12 +140,13 @@ class TestRuntimeCapture:
         calls = []
         monkeypatch.setattr(
             _helpers, "_ssh_run",
-            lambda host, cmd: (calls.append(cmd), (0, ""))[1])
+            lambda host, cmd, docker_host=None:
+                (calls.append(docker_host), (0, ""))[1])
         _helpers._runtime_capture(
             dict(DOCKER, host="admin@remote",
                  dockerHost="unix:///run/user/1000/docker.sock"),
             ["docker", "ps"])
-        assert calls[0].startswith("DOCKER_HOST=")
+        assert calls[0] == "unix:///run/user/1000/docker.sock"
 
 
 class TestLifecycleGating:

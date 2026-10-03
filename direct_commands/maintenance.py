@@ -127,7 +127,6 @@ def cmd_maintenance_update(args):
         rc = _helpers._stream_in_container(
             inst_id, inst,
             "php maintenance/update.php --wiki=%s" % _helpers._shell_quote(w),
-            retry_on_reset=True,  # update.php is idempotent
         )
         if rc != 0:
             overall_rc = rc

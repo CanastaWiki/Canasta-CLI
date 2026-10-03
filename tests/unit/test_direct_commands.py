@@ -1681,7 +1681,7 @@ class TestLifecycleCommands:
 
     def test_remote_start_uses_ssh(self, monkeypatch):
         # The sync-profiles .env read still goes through _ssh_run...
-        def mock_ssh(host, cmd):
+        def mock_ssh(host, cmd, docker_host=None):
             return 0, ""  # empty .env → no write
 
         monkeypatch.setattr(direct_commands._helpers, "_ssh_run", mock_ssh)
@@ -4150,6 +4150,25 @@ class TestMaintenanceUpdate:
     def test_registered(self):
         assert direct_commands.is_direct_command("maintenance_update")
 
+    def test_update_php_is_not_retried_on_ssh_reset(self, monkeypatch):
+        # A reset leaves the first update.php running in the container; a
+        # retry would run a second one alongside it.
+        self._patch_resolve(monkeypatch, wikis=["main"])
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
+            lambda *a, **kw: (0, "no\n"),
+        )
+        retries = {}
+
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
+            retries[command.split()[1]] = retry_on_reset
+            return 0
+
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
+        direct_commands.cmd_maintenance_update(self._args())
+        assert retries["maintenance/update.php"] is False
+        assert retries["maintenance/runJobs.php"] is True
+
     def test_runs_update_runjobs_for_each_wiki(self, monkeypatch):
         self._patch_resolve(monkeypatch)
         # No SMW present.
@@ -4490,11 +4509,124 @@ class TestDockerHostPropagation:
         # assignment as a prefix.
         remote_cmd = captured["argv"][-1]
         assert remote_cmd.startswith(
-            "DOCKER_HOST='unix:///run/user/1000/podman/podman.sock' "
+            "export DOCKER_HOST='unix:///run/user/1000/podman/podman.sock'; "
         ), "got remote cmd: %r" % remote_cmd
         assert remote_cmd.endswith("docker compose ps"), (
             "got remote cmd: %r" % remote_cmd
         )
+
+    def test_ssh_run_export_reaches_commands_after_cd(self, monkeypatch):
+        # A bare `VAR=x cd … && docker …` prefix applies only to `cd`.
+        real_run = subprocess.run
+        captured = {}
+
+        def fake_run(cmd, **kw):
+            captured["argv"] = cmd
+
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return R()
+
+        monkeypatch.setenv("DOCKER_HOST", "unix:///env.sock")
+        monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_ssh_target",
+            lambda h: h,
+        )
+        direct_commands._ssh_run(
+            "acme", "cd /srv/x && docker compose ps",
+            docker_host="unix:///inst.sock")
+        remote_cmd = captured["argv"][-1]
+        assert remote_cmd == (
+            "export DOCKER_HOST='unix:///inst.sock'; "
+            "cd /srv/x && docker compose ps"
+        )
+        out = real_run(
+            ["sh", "-c", remote_cmd.replace(
+                "cd /srv/x && docker compose ps",
+                "cd / && echo $DOCKER_HOST")],
+            capture_output=True, text=True,
+        ).stdout
+        assert out.strip() == "unix:///inst.sock"
+
+    def test_check_running_compose_remote_exports_docker_host(
+        self, monkeypatch,
+    ):
+        captured = {}
+
+        def fake_run(cmd, **kw):
+            captured["argv"] = cmd
+
+            class R:
+                returncode = 0
+                stdout = "abc\n"
+                stderr = ""
+            return R()
+
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_ssh_target",
+            lambda h: h,
+        )
+        assert direct_commands._helpers._check_running_compose(
+            "/srv/x", "acme", docker_host="unix:///inst.sock")
+        remote_cmd = captured["argv"][-1]
+        assert remote_cmd.startswith(
+            "export DOCKER_HOST='unix:///inst.sock'; cd "
+        ), remote_cmd
+        assert remote_cmd.count("DOCKER_HOST") == 1, remote_cmd
+
+    def test_run_compose_remote_exports_docker_host(self, monkeypatch):
+        captured = {}
+
+        def fake_call(argv, **kw):
+            captured["argv"] = argv
+            return 0
+
+        monkeypatch.setenv("DOCKER_HOST", "unix:///inst.sock")
+        monkeypatch.setattr(subprocess, "call", fake_call)
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_ssh_target",
+            lambda h: h,
+        )
+        monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
+            lambda *a, **kw: ["-f", "docker-compose.yml"],
+        )
+        inst = {"host": "acme", "path": "/srv/x", "orchestrator": "compose"}
+        direct_commands._helpers._run_compose("x", inst, ["up", "-d"])
+        remote_cmd = captured["argv"][-1]
+        assert remote_cmd.startswith(
+            "export DOCKER_HOST='unix:///inst.sock'; cd '/srv/x' && "
+        ), remote_cmd
+
+    def test_stream_in_container_remote_exports_docker_host(
+        self, monkeypatch,
+    ):
+        captured = {}
+
+        def fake_popen(argv, **kw):
+            captured["argv"] = argv
+            return type("P", (), {
+                "stdout": __import__("io").StringIO(""),
+                "wait": lambda self: 0,
+            })()
+
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        monkeypatch.setattr(subprocess, "Popen", fake_popen)
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_ssh_target",
+            lambda h: h,
+        )
+        inst = {
+            "host": "acme", "path": "/srv/x", "orchestrator": "compose",
+            "dockerHost": "unix:///inst.sock",
+        }
+        direct_commands._helpers._stream_in_container(
+            "x", inst, "php maintenance/update.php")
+        remote_cmd = captured["argv"][-1]
+        assert remote_cmd.startswith(
+            "export DOCKER_HOST='unix:///inst.sock'; cd "
+        ), remote_cmd
+        assert "exec -T web" in remote_cmd
 
     def test_ssh_run_no_prefix_when_docker_host_unset(
         self, monkeypatch,
@@ -4797,14 +4929,14 @@ class TestMaintenanceStreamRetriesOnSshReset:
         return factory
 
     def test_remote_retries_only_when_opted_in(self, monkeypatch):
-        # retry_on_reset=True (idempotent command, e.g. update.php): re-stream
+        # retry_on_reset=True (idempotent command, e.g. runJobs.php): re-stream
         # once after a 255 reset.
         calls = {"n": 0}
         monkeypatch.setattr(
             subprocess, "Popen", self._popen_factory([255, 0], calls))
         inst = {"host": "remote", "path": "/srv/x", "orchestrator": "compose"}
         rc = direct_commands._helpers._stream_in_container(
-            "x", inst, "php maintenance/update.php", retry_on_reset=True)
+            "x", inst, "php maintenance/runJobs.php", retry_on_reset=True)
         assert rc == 0
         assert calls["n"] == 2, "should re-stream once after the 255 reset"
 

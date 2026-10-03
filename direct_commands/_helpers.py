@@ -379,11 +379,7 @@ def _run_compose(inst_id, inst, action_args, include_sidecars=False):
     remote_cmd = "cd %s && %s %s %s %s" % (
         _shell_quote(path), compose_str, file_str, profile_str, action_str,
     )
-    # SSH does not pass env; propagate DOCKER_HOST like _ssh_run does so a
-    # rootless socket on the target is honored.
-    docker_host = os.environ.get("DOCKER_HOST")
-    if docker_host:
-        remote_cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), remote_cmd)
+    remote_cmd = _with_docker_host(remote_cmd, inst.get("dockerHost"))
     target = _resolve_ssh_target(host)
     argv = ["ssh"] + _ssh_args() + [target, remote_cmd]
 
@@ -774,9 +770,7 @@ def _runtime_capture(inst, argv, timeout=30):
         except (subprocess.TimeoutExpired, OSError):
             return 1, ""
     cmd = " ".join(_shell_quote(a) for a in argv)
-    if docker_host:
-        cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), cmd)
-    return _ssh_run(host, cmd)
+    return _ssh_run(host, cmd, docker_host=docker_host)
 
 
 def _web_container_id(inst):
@@ -1048,8 +1042,10 @@ def _stream_in_container(inst_id, inst, command, service="web",
     down to `docker compose exec` directly. See issue #433.
 
     retry_on_reset re-streams from the start on an SSH connection reset
-    (ssh exit 255). Only pass it for IDEMPOTENT commands (update.php,
-    runJobs.php, rebuildData.php). It must stay false for arbitrary
+    (ssh exit 255). The command already started keeps running in the
+    container, so the retry runs alongside it. Only pass it for IDEMPOTENT
+    commands that tolerate a concurrent copy (runJobs.php,
+    rebuildData.php). It must stay false for arbitrary
     operator-supplied scripts, which may be destructive and non-idempotent
     (deleteBatch.php, nukePage.php, importDump.php) — re-running those
     after a mid-run reset would double-apply the work.
@@ -1106,10 +1102,10 @@ def _stream_in_container(inst_id, inst, command, service="web",
         target = _resolve_ssh_target(host)
         argv = ["ssh"] + _ssh_args() + [
             target,
-            "cd %s && %s exec -T %s /bin/bash -c %s" % (
+            _with_docker_host("cd %s && %s exec -T %s /bin/bash -c %s" % (
                 _shell_quote(path), compose_str, service,
                 _shell_quote(wrapped),
-            ),
+            ), inst.get("dockerHost")),
         ]
         cwd = None
 
@@ -1244,7 +1240,17 @@ def _ssh_args():
     return extra.split() if extra else []
 
 
-def _ssh_run(host, cmd):
+def _with_docker_host(cmd, docker_host=None):
+    """Prefix a remote shell command so every command in it, not just the
+    first, uses docker_host (default: this process's DOCKER_HOST). SSH does
+    not pass env vars to the remote."""
+    docker_host = docker_host or os.environ.get("DOCKER_HOST")
+    if not docker_host:
+        return cmd
+    return "export DOCKER_HOST=%s; %s" % (_shell_quote(docker_host), cmd)
+
+
+def _ssh_run(host, cmd, docker_host=None):
     # `host` may be a canasta short name registered via `canasta host
     # add` rather than something ~/.ssh/config or DNS knows about.
     # _resolve_ssh_target maps short names to their actual SSH target
@@ -1254,14 +1260,9 @@ def _ssh_run(host, cmd):
     # ends up running `ssh node1 …` which fails with "Could not
     # resolve hostname node1" even though canasta knows the mapping.
     target = _resolve_ssh_target(host)
-    # Propagate DOCKER_HOST (set by _resolve_instance from the
-    # registry's dockerHost field) to the remote so docker / docker
-    # compose calls there honor the rootless socket. SSH does NOT
-    # pass env vars by default; prepending the assignment is portable
-    # and works for any cmd that ever shells out to docker.
-    docker_host = os.environ.get("DOCKER_HOST")
-    if docker_host:
-        cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), cmd)
+    # docker_host defaults to DOCKER_HOST, which _resolve_instance sets from
+    # the registry's dockerHost field.
+    cmd = _with_docker_host(cmd, docker_host)
     full_cmd = ["ssh"] + _ssh_args() + [target, cmd]
     try:
         result = subprocess.run(
@@ -1588,9 +1589,8 @@ def _capture_in_instance(path, host, docker_host, argv,
     # listing then comes back empty and every service reads as missing.
     quoted = " ".join(_shell_quote(a) for a in argv)
     cmd = "cd %s && %s" % (_shell_quote(path), quoted)
-    if docker_host:
-        cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), cmd)
-    rc, stdout = _ssh_run(host, cmd + (" 2>&1" if capture_stderr else ""))
+    rc, stdout = _ssh_run(host, cmd + (" 2>&1" if capture_stderr else ""),
+                          docker_host=docker_host)
     if capture_stderr:
         return stdout
     return stdout if rc == 0 else None
@@ -1719,9 +1719,7 @@ def _check_running_compose(path, host, docker_host=None, compose_cmd=None):
     else:
         ps_str = " ".join(ps_cmd)
         cmd = "cd %s && %s" % (_shell_quote(path), ps_str)
-        if docker_host:
-            cmd = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), cmd)
-        rc, stdout = _ssh_run(host, cmd)
+        rc, stdout = _ssh_run(host, cmd, docker_host=docker_host)
         return rc == 0 and stdout.strip() != ""
 
 

@@ -111,17 +111,21 @@
                 cmd: >-
                   {{ inspect_command }} run -d --name {{ _mig_temp_container }}
                   -v {{ _mig_volume }}:/var/lib/mysql
-                  -e MYSQL_ROOT_PASSWORD={{ _mig_dbpass.value | quote }}
+                  -e MYSQL_ROOT_PASSWORD
                   mysql:8.0
+              environment:
+                MYSQL_ROOT_PASSWORD: "{{ _mig_dbpass.value }}"
               changed_when: true
               no_log: true
 
             - name: Wait for the temporary MySQL 8.0 server
               ansible.builtin.command:
                 cmd: >-
-                  {{ inspect_command }} exec -e MYSQL_PWD={{ _mig_dbpass.value | quote }}
+                  {{ inspect_command }} exec -e MYSQL_PWD
                   {{ _mig_temp_container }}
                   mysqladmin ping -h localhost --user=root --wait=60
+              environment:
+                MYSQL_PWD: "{{ _mig_dbpass.value }}"
               changed_when: false
               no_log: true
 
@@ -135,7 +139,7 @@
             - name: Dump user databases from MySQL 8.0
               ansible.builtin.command:
                 cmd: >-
-                  {{ inspect_command }} exec -e MYSQL_PWD={{ _mig_dbpass.value | quote }}
+                  {{ inspect_command }} exec -e MYSQL_PWD
                   {{ _mig_temp_container }} bash -c
                   {{ _mig_dump_script | quote }}
               vars:
@@ -151,6 +155,8 @@
                   mysqldump --user=root --databases $DBS
                   --single-transaction --routines --triggers --events
                   > /tmp/dump.sql
+              environment:
+                MYSQL_PWD: "{{ _mig_dbpass.value }}"
               changed_when: true
               no_log: true
 
@@ -193,10 +199,11 @@
                 tasks_from: wait_for_db.yml
 
             - name: Copy the dump into the MariaDB container
-              ansible.builtin.command:
-                cmd: "{{ compose_command }} cp {{ _mig_dump_host }} db:/tmp/dump.sql"
-                chdir: "{{ instance_path }}"
-              changed_when: true
+              ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/copy_into_container.yml"
+              vars:
+                copy_service: db
+                copy_src: "{{ _mig_dump_host }}"
+                copy_dest: /tmp/dump.sql
 
             - name: Import the dump into MariaDB
               ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
