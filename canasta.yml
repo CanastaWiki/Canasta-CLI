@@ -14,6 +14,14 @@
   vars:
     canasta_root: "{{ playbook_dir }}"
     canasta_default_image: "ghcr.io/canastawiki/canasta:{{ lookup('file', playbook_dir + '/CANASTA_VERSION') | trim }}"
+    # CANASTA_LOCAL_REMOTE_TEMP (set by canasta-docker) is for local
+    # connections only. Templated per task because switch_connection.yml
+    # rebinds the localhost play host to SSH targets with set_fact.
+    ansible_remote_tmp: >-
+      {{ lookup('env', 'CANASTA_LOCAL_REMOTE_TEMP')
+         if (ansible_connection | default('')) in ['local', 'ansible.builtin.local']
+            and lookup('env', 'CANASTA_LOCAL_REMOTE_TEMP')
+         else lookup('env', 'ANSIBLE_REMOTE_TEMP') | default('~/.ansible/tmp', true) }}
 
   # DOCKER_HOST applies to every `docker` / `docker compose` invocation
   # in the play. Operators on rootless podman / rootless Docker need
