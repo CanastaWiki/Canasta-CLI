@@ -373,11 +373,14 @@
                    ~ instance_id ~ "') to activate enforcement.") }}
       when: _se_crowdsec_key.value | default('') | length == 0
 
+# .env still holds the old flag here; it is written after the side effects.
 - name: Apply CANASTA_ENABLE_OBSERVABILITY side effects
   when: _config_key == 'CANASTA_ENABLE_OBSERVABILITY' and _config_value | lower == 'true'
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: ensure_observability_credentials.yml
+  vars:
+    _obs_enabling: true
 
 # --- Kubernetes values.yaml propagation ---
 # On K8s, certain env keys are sourced from values.yaml fields that
