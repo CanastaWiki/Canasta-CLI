@@ -212,6 +212,7 @@
               continue
           print(img["id"])
       '
+    executable: /bin/bash
   environment:
     SPLIT: "@@CANASTA_RECLAIM_SPLIT@@"
     PINNED: "{{ _reclaim_pinned | join(',') }}"
