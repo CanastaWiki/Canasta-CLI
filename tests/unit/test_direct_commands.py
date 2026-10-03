@@ -2495,6 +2495,11 @@ class TestParseGitopsStatus:
         assert "Remote status unknown" in result
         assert "Up to date with remote." not in result
 
+    def test_fetch_failed_hint_names_ssh_key(self):
+        out = self._make_output(fetch="fail")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "--ssh-key" in result
+
     def test_no_upstream_reports_unknown(self):
         out = self._make_output(fetch="ok", revcount="REVLIST:fail")
         result = direct_commands._parse_gitops_status(out, "mysite")
@@ -2884,6 +2889,14 @@ class TestParseGitopsStatusK8s:
         result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
         assert "Remote status:    unknown" in result
         assert "Ahead of remote:" not in result
+        assert "--ssh-key" in result
+
+    def test_no_upstream_has_no_ssh_key_hint(self):
+        out = self._make_output(fetch="ok", revcount="REVLIST:fail")
+        argocd = ("Synced", "Healthy", "never", "unknown")
+        result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
+        assert "no upstream tracking" in result
+        assert "--ssh-key" not in result
 
     def test_untracked_files_surfaced(self):
         # A K8s instance with an uncaptured file (e.g. wikis.yaml.template
