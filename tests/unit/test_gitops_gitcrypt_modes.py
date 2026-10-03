@@ -14,6 +14,7 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
 
+import canasta  # noqa: E402
 from direct_commands import gitops  # noqa: E402
 
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
@@ -58,6 +59,42 @@ class TestInitGpgMode:
         assert "git_crypt_gpg_user" in task["when"]
 
 
+class TestInitKeyOptionalInGpgMode:
+    def _init_def(self):
+        with open(os.path.join(REPO_ROOT, "meta", "command_definitions.yml")) as f:
+            defs = yaml.safe_load(f)
+        return next(c for c in defs["commands"] if c["name"] == "gitops_init")
+
+    def _key_param(self):
+        return next(p for p in self._init_def()["parameters"]
+                    if p["name"] == "key")
+
+    def test_key_is_required_unless_gpg_user(self):
+        key = self._key_param()
+        assert not key.get("required")
+        assert key.get("required_unless") == "git_crypt_gpg_user"
+
+    def test_cli_requires_key_without_gpg_user(self):
+        vals = {"key": None, "git_crypt_gpg_user": None}
+        errs = canasta._validate_required_unless(self._init_def(), vals.get)
+        assert errs == [(1, "Error: --key is required unless "
+                            "--git-crypt-gpg-user is provided")]
+
+    def test_cli_accepts_gpg_user_without_key(self):
+        vals = {"key": None, "git_crypt_gpg_user": "ops@example.com"}
+        assert canasta._validate_required_unless(self._init_def(),
+                                                 vals.get) == []
+
+    def test_kubernetes_rejects_gpg_user_before_reinit(self):
+        tasks = _load("init.yml")
+        names = [t.get("name") for t in tasks]
+        guard = "Reject --git-crypt-gpg-user on Kubernetes"
+        assert names.index(guard) < names.index(
+            "Reinit — move existing .git aside before re-init")
+        when = " ".join(_named(tasks, guard)["when"])
+        assert "kubernetes" in when and "git_crypt_gpg_user" in when
+
+
 class TestJoinUnlockChoice:
     def _choice(self):
         return _named(_load("join.yml"), "Choose the git-crypt unlock method")
@@ -70,6 +107,16 @@ class TestJoinUnlockChoice:
         task = _named(_load("join.yml"),
                       "Fail if symmetric git-crypt repo but no --key provided")
         assert task["when"] == "_join_unlock == 'none'"
+
+    def test_wrong_key_fails_without_raw_git_crypt_output(self):
+        unlock = _named(_load("join.yml"), "Unlock git-crypt with the key")
+        assert unlock["failed_when"] is False
+        explain = _named(_load("join.yml"),
+                         "Fail if the key does not unlock the repository")
+        assert explain["when"] == "_join_unlock_result.rc != 0"
+        msg = explain["ansible.builtin.fail"]["msg"]
+        assert "does not unlock this gitops repository" in msg
+        assert "_join_unlock_result" not in msg
 
     def test_kubernetes_join_requires_key(self):
         task = _named(_load("join_kubernetes.yml"),
@@ -105,6 +152,32 @@ class TestLockDetection:
                       "Fail when git-crypt could not be unlocked")
         assert "_gitcrypt_unlock_sym.rc" in task["when"]
         assert "_gitcrypt_unlock_gpg.rc" in task["when"]
+
+    def test_dirty_tree_is_reported_before_any_unlock(self):
+        block = self._tasks()[1]["block"]
+        names = [t.get("name") for t in block]
+        fail = names.index("Fail when uncommitted changes block git-crypt unlock")
+        assert names.index(
+            "Check for uncommitted changes that block git-crypt unlock") < fail
+        assert fail < names.index("Unlock with the symmetric key")
+        assert fail < names.index("Run git-crypt unlock through the GPG agent")
+
+    def test_dirty_check_matches_git_crypt_and_ignores_untracked(self):
+        task = _named(self._tasks(),
+                      "Check for uncommitted changes that block git-crypt unlock")
+        cmd = task["ansible.builtin.command"]["cmd"]
+        assert "--porcelain" in cmd and "--untracked-files=no" in cmd
+
+    def test_dirty_message_says_how_to_reach_a_clean_tree(self):
+        task = _named(self._tasks(),
+                      "Fail when uncommitted changes block git-crypt unlock")
+        msg = task["ansible.builtin.fail"]["msg"]
+        assert "_gitcrypt_dirty.stdout" in task["when"]
+        assert "git stash push" in msg
+        assert "git stash pop --index" in msg
+        assert "git-crypt unlock /path/to/gitops.key" in msg
+        assert "forwarded agent" in msg
+        assert "private key" not in msg
 
 
 class TestStatusModeDetection:

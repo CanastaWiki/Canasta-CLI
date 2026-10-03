@@ -24,6 +24,15 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Reject --git-crypt-gpg-user on Kubernetes
+  ansible.builtin.fail:
+    msg: >-
+      --git-crypt-gpg-user is only supported on Compose. Kubernetes gitops
+      repos do not use git-crypt; pass --key instead.
+  when:
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - git_crypt_gpg_user | default('') | length > 0
+
 # --- Non-destructive reinit (#663) ---
 # init --reinit wipes .git (via _reinit_cleanup) and re-creates the repo
 # in place. If the re-init then fails — e.g. the push is rejected — the
