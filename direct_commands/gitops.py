@@ -49,7 +49,8 @@ def _gitops_status_script(path, ssh_key=None):
         "echo '%(d)s'; "
         "cat hosts/hosts.yaml 2>/dev/null || echo MISSING; "
         "echo '%(d)s'; "
-        "git rev-parse --short HEAD 2>/dev/null || echo none; "
+        "git rev-parse --short HEAD 2>/dev/null "
+        "|| { [ -e .git ] && echo NOCOMMIT || echo none; }; "
         "echo '%(d)s'; "
         "cat .gitops-applied 2>/dev/null || echo none; "
         "echo '%(d)s'; "
@@ -252,6 +253,20 @@ def _parse_remote_sync(section):
         return 0, 0, "no_upstream"
 
 
+def _unfinished_setup_message(instance_id, id_label):
+    """Status for a .git with no commit, which an init that stopped partway
+    leaves behind and which a plain retry of init refuses to run over."""
+    return "\n".join([
+        "%s%s" % (id_label, instance_id),
+        "GitOps:".ljust(len(id_label)) + "setup did not finish.",
+        "",
+        "This instance has a git repository with no commits: a previous "
+        "'canasta gitops init' stopped partway.",
+        "Start over with 'canasta gitops init --reinit' (new repo) or "
+        "'canasta gitops join --reinit' (existing repo).",
+    ])
+
+
 def _parse_gitops_status(stdout, instance_id):
     """Parse the batched gitops status output into a formatted string."""
     parts = stdout.split(_helpers._SENTINEL + "\n")
@@ -294,6 +309,9 @@ def _parse_gitops_status(stdout, instance_id):
             "Set it up with 'canasta gitops init' (new repo) or "
             "'canasta gitops join' (existing repo).",
         ])
+
+    if commit == "NOCOMMIT":
+        return _unfinished_setup_message(instance_id, "Canasta ID:     ")
 
     lines = [
         "Host:           %s" % hostname,
@@ -419,6 +437,8 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
     if hostname == "MISSING":
         hostname = "unknown"
     commit = parts[2].strip() if len(parts) > 2 else "none"
+    if commit == "NOCOMMIT":
+        return _unfinished_setup_message(instance_id, "Canasta ID:       ")
     ahead, behind, remote_state = _parse_remote_sync(
         parts[6] if len(parts) > 6 else "")
 
