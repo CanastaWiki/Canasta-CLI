@@ -21,14 +21,14 @@
                  lookup('ansible.builtin.env', 'HOME') ~ '/.config/canasta'
                )
             ) }}
-  delegate_to: localhost
+  delegate_to: canasta_controller
   vars:
     ansible_connection: local
 
 - name: Read controller's hosts.yml
   ansible.builtin.slurp:
     src: "{{ _canasta_config_dir }}/hosts.yml"
-  delegate_to: localhost
+  delegate_to: canasta_controller
   vars:
     ansible_connection: local
   register: _cp_hosts_yml_raw

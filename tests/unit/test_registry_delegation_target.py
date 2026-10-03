@@ -131,6 +131,33 @@ class TestExecStdinFilesAreWrittenOnTheController:
         )
 
 
+class TestNothingDelegatesToLocalhost:
+    """Controller work must name canasta_controller: once
+    switch_connection.yml has rebound localhost, delegate_to: localhost
+    runs on the instance's host."""
+
+    def test_no_task_delegates_to_localhost(self):
+        offenders = []
+        for path in _task_files():
+            with open(path) as f:
+                raw = f.read()
+            if "delegate_to" not in raw:
+                continue
+            try:
+                doc = yaml.safe_load(raw)
+            except yaml.YAMLError:
+                continue
+            for task in _tasks(doc):
+                if (isinstance(task, dict)
+                        and task.get("delegate_to") in ("localhost",
+                                                        "127.0.0.1")):
+                    offenders.append("%s: %s" % (
+                        os.path.relpath(path, REPO_ROOT), task.get("name")))
+        assert offenders == [], (
+            "delegate to canasta_controller instead of localhost:\n"
+            + "\n".join(offenders))
+
+
 class TestTheControllerHostExists:
     def test_canasta_yml_adds_the_controller_host(self):
         with open(MAIN_PLAYBOOK) as f:

@@ -140,7 +140,7 @@ class TestPortsComeFromTheEnvFile:
         tasks = self._named("custom env file for port overrides")
         assert tasks, "preflight never reads the -e envfile"
         task = tasks[0]
-        assert task.get("delegate_to") == "localhost", (
+        assert task.get("delegate_to") == "canasta_controller", (
             "envfile is a controller-side path; slurping it on the target "
             "looks for the controller's path on the remote filesystem")
 

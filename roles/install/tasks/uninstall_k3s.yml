@@ -92,7 +92,7 @@
             {.spec.claimRef.namespace}/{.spec.claimRef.name}{"\t"}
             {.spec.nodeAffinity.required.nodeSelectorTerms[*].matchExpressions[*].values[*]}
             {"\n"}{end}'
-      delegate_to: localhost
+      delegate_to: canasta_controller
       register: _pinned_pvs
       changed_when: false
       failed_when: false
@@ -200,7 +200,7 @@
             sudo k3s kubectl delete node
             {{ (_worker_hostname_raw.stdout | trim) | quote }}
             --ignore-not-found
-      delegate_to: localhost
+      delegate_to: canasta_controller
       vars:
         ansible_connection: local
       register: _node_delete

@@ -284,7 +284,7 @@ class TestResolve:
         # The bundled snapshot is under canasta_root on the controller.
         resolve = [t for t in _walk(_load(ADD))
                    if "canasta_extension_resolve" in t]
-        assert resolve and all(t.get("delegate_to") == "localhost"
+        assert resolve and all(t.get("delegate_to") == "canasta_controller"
                                for t in resolve)
 
     def test_overrides_refused_with_several_names(self):

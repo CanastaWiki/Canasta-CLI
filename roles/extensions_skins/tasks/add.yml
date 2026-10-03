@@ -186,7 +186,7 @@
     label: "{{ item.name }}"
   register: _resolved
   # The bundled snapshot lives on the controller.
-  delegate_to: localhost
+  delegate_to: canasta_controller
 
 - name: "Initialize {{ _item_type }} to add"
   ansible.builtin.set_fact:
