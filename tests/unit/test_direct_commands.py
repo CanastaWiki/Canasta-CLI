@@ -1986,6 +1986,66 @@ class TestSyncComposeProfiles:
             direct_commands._helpers._MANAGED_PROFILE_SERVICES["observable"]
         )
 
+    def _podman_inst(self, tmp_path):
+        return {
+            "path": str(tmp_path / "MySite"), "host": "localhost",
+            "composeCommand": "podman-compose", "inspectCommand": "podman",
+        }
+
+    def _stub_runtime(self, monkeypatch, ids_by_service):
+        calls = []
+
+        def fake(inst, argv, timeout=30):
+            calls.append(argv)
+            if argv[1] == "ps":
+                svc = argv[-1].rsplit("=", 1)[1]
+                return 0, "".join(i + "\n" for i in ids_by_service.get(svc, []))
+            return 0, ""
+
+        monkeypatch.setattr(direct_commands._helpers, "_runtime_capture", fake)
+        return calls
+
+    def test_podman_removes_stale_containers_by_label(
+            self, tmp_path, monkeypatch):
+        inst = self._podman_inst(tmp_path)
+        os.makedirs(inst["path"])
+        with open(os.path.join(inst["path"], ".env"), "w") as f:
+            f.write(
+                "CANASTA_ENABLE_OBSERVABILITY=false\n"
+                "CANASTA_ENABLE_VARNISH=true\n"
+                "COMPOSE_PROFILES=observable,varnish\n"
+            )
+        calls = self._stub_runtime(
+            monkeypatch, {"opensearch": ["aaa"], "logstash": ["bbb"]})
+        direct_commands._sync_compose_profiles(inst)
+        assert self.compose_calls == []
+        ps_calls = [c for c in calls if c[1] == "ps"]
+        services = direct_commands._helpers._MANAGED_PROFILE_SERVICES[
+            "observable"]
+        assert len(ps_calls) == len(services)
+        for c in ps_calls:
+            assert c[:3] == ["podman", "ps", "-aq"]
+            assert "label=com.docker.compose.project=mysite" in c
+        assert sorted(c[-1].rsplit("=", 1)[1] for c in ps_calls) == sorted(
+            services)
+        assert [c for c in calls if c[1] == "rm"] == [
+            ["podman", "rm", "-f", "aaa", "bbb"]]
+
+    def test_podman_no_matching_containers_skips_rm(
+            self, tmp_path, monkeypatch):
+        inst = self._podman_inst(tmp_path)
+        os.makedirs(inst["path"])
+        with open(os.path.join(inst["path"], ".env"), "w") as f:
+            f.write(
+                "CANASTA_ENABLE_ELASTICSEARCH=false\n"
+                "CANASTA_ENABLE_VARNISH=true\n"
+                "COMPOSE_PROFILES=elasticsearch,varnish\n"
+            )
+        calls = self._stub_runtime(monkeypatch, {})
+        direct_commands._sync_compose_profiles(inst)
+        assert self.compose_calls == []
+        assert [c[1] for c in calls] == ["ps"]
+
     def test_no_teardown_when_nothing_deactivated(self, tmp_path):
         # Adding a profile (or steady state) must not tear anything down.
         (tmp_path / ".env").write_text(
@@ -4260,18 +4320,83 @@ class TestMaintenanceUpdate:
         assert any("update.php" in c for c in commands)
         assert not any("runJobs.php" in c for c in commands)
 
-    def test_smw_runs_when_present(self, monkeypatch):
-        self._patch_resolve(monkeypatch, wikis=["main"])
-        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
-            lambda *a, **kw: (0, "yes\n"),
-        )
+    @staticmethod
+    def _fake_smw_exec(probe_results):
+        """Stub _exec_in_container: the bundled-file probe says yes, and
+        each per-wiki eval probe returns probe_results[wiki]."""
+        probes = []
+
+        def fake_exec(inst_id, inst, command, service="web"):
+            if command.startswith("test -f"):
+                return 0, "yes\n"
+            assert "maintenance/run.php eval" in command
+            wiki = command.rsplit("--wiki=", 1)[1].strip("'")
+            probes.append(wiki)
+            return probe_results[wiki]
+        return fake_exec, probes
+
+    def _stream_recorder(self, monkeypatch):
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
             lambda iid, i, c, service="web", retry_on_reset=False:
                 commands.append(c) or 0,
         )
+        return commands
+
+    def test_smw_runs_when_loaded(self, monkeypatch):
+        self._patch_resolve(monkeypatch, wikis=["main"])
+        fake_exec, _ = self._fake_smw_exec({"main": (0, "SMW_LOADED=1\n")})
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
+                            fake_exec)
+        commands = self._stream_recorder(monkeypatch)
         direct_commands.cmd_maintenance_update(self._args())
         assert any("rebuildData.php" in c for c in commands)
+
+    def test_smw_runs_only_on_wikis_that_load_it(self, monkeypatch):
+        self._patch_resolve(monkeypatch, wikis=["main", "draft"])
+        fake_exec, probes = self._fake_smw_exec({
+            "main": (0, "SMW_LOADED=1\n"),
+            "draft": (0, "PHP Notice: something\nSMW_LOADED=0\n"),
+        })
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
+                            fake_exec)
+        commands = self._stream_recorder(monkeypatch)
+        rc = direct_commands.cmd_maintenance_update(self._args())
+        assert rc == 0
+        assert probes == ["main", "draft"]
+        rebuilds = [c for c in commands if "rebuildData.php" in c]
+        assert rebuilds == [
+            "php extensions/SemanticMediaWiki/maintenance/"
+            "rebuildData.php --wiki='main'"
+        ]
+
+    def test_smw_probe_failure_skips_with_warning(self, monkeypatch, capsys):
+        self._patch_resolve(monkeypatch, wikis=["main", "draft"])
+        fake_exec, _ = self._fake_smw_exec({
+            "main": (1, ""),
+            "draft": (0, "garbage\n"),
+        })
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
+                            fake_exec)
+        commands = self._stream_recorder(monkeypatch)
+        rc = direct_commands.cmd_maintenance_update(self._args())
+        assert rc == 0
+        assert not any("rebuildData.php" in c for c in commands)
+        err = capsys.readouterr().err
+        assert "wiki 'main'" in err
+        assert "wiki 'draft'" in err
+        assert "skipping rebuildData.php" in err
+
+    def test_smw_not_bundled_skips_probe(self, monkeypatch):
+        self._patch_resolve(monkeypatch, wikis=["main"])
+        calls = []
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
+            lambda iid, i, c, service="web": calls.append(c) or (0, "no\n"),
+        )
+        commands = self._stream_recorder(monkeypatch)
+        direct_commands.cmd_maintenance_update(self._args())
+        assert len(calls) == 1
+        assert not any("rebuildData.php" in c for c in commands)
 
     def test_skip_smw_skips_rebuilddata(self, monkeypatch):
         self._patch_resolve(monkeypatch, wikis=["main"])

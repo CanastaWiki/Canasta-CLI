@@ -360,7 +360,7 @@ commands:
       - name: yamlfile
         short: f
         type: path
-        description: "Initial wikis.yaml file"
+        description: "Initial wikis.yaml file, on the controller (the machine running canasta)"
       - name: keep_config
         short: k
         type: bool
@@ -370,7 +370,7 @@ commands:
         short: r
         type: path
         orchestrator_only: compose
-        description: "File to copy to docker-compose.override.yml"
+        description: "File on the controller (the machine running canasta) to copy to docker-compose.override.yml"
       - name: rootdbpass
         type: string
         sensitive: true
@@ -389,7 +389,7 @@ commands:
       - name: envfile
         short: e
         type: path
-        description: "Path to .env file with password overrides"
+        description: "Path on the controller (the machine running canasta) to a .env file with password overrides"
       - name: canasta_image
         type: string
         mutual_exclusion: build_from
@@ -397,7 +397,7 @@ commands:
       - name: build_from
         type: path
         mutual_exclusion: canasta_image
-        description: "Build from local source directory"
+        description: "Build from a source directory on the instance's host"
       - name: build_arg
         type: string
         multi: true
@@ -409,7 +409,7 @@ commands:
         short: d
         type: path
         mutual_exclusion: skip_install
-        description: "Path to existing database dump (.sql or .sql.gz)"
+        description: "Path on the controller (the machine running canasta) to an existing database dump (.sql or .sql.gz)"
       - name: skip_install
         type: bool
         default: false
@@ -425,22 +425,23 @@ commands:
         short: I
         type: path
         description: >-
-          Path to a tar (.tar or .tar.gz) of a wiki's images directory at the
-          hash-directory level (0/, 1/, archive/, ...). Its files are copied
-          into the wiki's uploads (images/<wiki>/) as www-data — a placement
-          restore, not importImages. Pairs with --database, which supplies the
-          File: page rows; a leading images/ parent in the tar is elided.
+          Path on the controller (the machine running canasta) to a tar (.tar
+          or .tar.gz) of a wiki's images directory at the hash-directory level
+          (0/, 1/, archive/, ...). Its files are copied into the wiki's
+          uploads (images/<wiki>/) as www-data — a placement restore, not
+          importImages. Pairs with --database, which supplies the File: page
+          rows; a leading images/ parent in the tar is elided.
       - name: wiki_settings
         short: l
         type: path
-        description: "Path to per-wiki Settings.php"
+        description: "Path on the controller (the machine running canasta) to a per-wiki Settings.php"
       - name: global_settings
         short: g
         type: path
-        description: "Path to global settings file"
+        description: "Path on the controller (the machine running canasta) to a global settings file"
       - name: composer
         type: path
-        description: "Path to custom composer.local.json"
+        description: "Path on the controller (the machine running canasta) to a custom composer.local.json"
       - name: skip_argocd_install
         type: bool
         default: false
@@ -1067,7 +1068,7 @@ commands:
         short: d
         type: path
         mutual_exclusion: skip_install
-        description: "Path to existing database dump"
+        description: "Path on the controller (the machine running canasta) to an existing database dump"
       - name: skip_install
         type: bool
         default: false
@@ -1081,15 +1082,16 @@ commands:
         short: I
         type: path
         description: >-
-          Path to a tar (.tar or .tar.gz) of the new wiki's images directory at
-          the hash-directory level (0/, 1/, archive/, ...). Its files are
-          copied into the wiki's uploads (images/<wiki>/) as www-data — a
-          placement restore, not importImages. Pairs with --database, which
-          supplies the File: page rows; a leading images/ parent is elided.
+          Path on the controller (the machine running canasta) to a tar (.tar
+          or .tar.gz) of the new wiki's images directory at the hash-directory
+          level (0/, 1/, archive/, ...). Its files are copied into the wiki's
+          uploads (images/<wiki>/) as www-data — a placement restore, not
+          importImages. Pairs with --database, which supplies the File: page
+          rows; a leading images/ parent is elided.
       - name: wiki_settings
         short: l
         type: path
-        description: "Path to per-wiki Settings.php"
+        description: "Path on the controller (the machine running canasta) to a per-wiki Settings.php"
       - name: admin
         short: a
         type: string
@@ -1157,11 +1159,11 @@ commands:
         short: d
         type: path
         required: true
-        description: "Path to SQL dump file (.sql or .sql.gz)"
+        description: "Path on the controller (the machine running canasta) to a SQL dump file (.sql or .sql.gz)"
       - name: wiki_settings
         short: l
         type: path
-        description: "Path to per-wiki Settings.php to replace"
+        description: "Path on the controller (the machine running canasta) to a per-wiki Settings.php to replace the current one"
 
   - name: export
     description: "Export the database of a wiki in a Canasta instance"
@@ -1195,7 +1197,7 @@ commands:
       - name: file
         short: f
         type: path
-        description: "Output file path (default: <wikiID>.sql, use .gz for compression)"
+        description: "Output file path on the instance's host (default: <wikiID>.sql, use .gz for compression)"
 
   # ---------------------------------------------------------------------------
   # Config management
@@ -1817,7 +1819,7 @@ commands:
     description: "Run MediaWiki maintenance update"
     long_description: |
       Run standard MediaWiki maintenance: update.php, runJobs.php,
-      and Semantic MediaWiki rebuildData.php.
+      and Semantic MediaWiki rebuildData.php on wikis that load SMW.
     examples:
       - "canasta maintenance update"
       - "canasta maintenance update -w mywiki --skip-jobs"
@@ -2762,12 +2764,13 @@ commands:
         type: path
         required_unless: git_crypt_gpg_user
         description: >-
-          On Compose, the path that receives the git-crypt symmetric
-          key, which other hosts use to unlock encrypted vars. Not used
-          with --git-crypt-gpg-user. On Kubernetes, the path basename
-          for the generated SSH deploy key, `<key>.ssh` (private) and
-          `<key>.ssh.pub` (public — register this as a deploy key on
-          the forge), and for the SOPS age key with --encrypt-secrets.
+          A path on the controller (the machine running canasta). On Compose,
+          the path that receives the git-crypt symmetric key, which other
+          hosts use to unlock encrypted vars. Not used with
+          --git-crypt-gpg-user. On Kubernetes, the path basename for the
+          generated SSH deploy key, `<key>.ssh` (private) and `<key>.ssh.pub`
+          (public — register this as a deploy key on the forge), and for the
+          SOPS age key with --encrypt-secrets.
       - name: git_crypt_gpg_user
         type: string
         description: >-
@@ -2780,10 +2783,10 @@ commands:
       - name: ssh_key
         type: path
         description: >-
-          Path to an SSH private key for git network operations. When
-          set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
-          Omit to keep the default: ssh-agent forwarding on Compose,
-          or the generated `<key>.ssh` deploy key on Kubernetes.
+          Path on the instance's host to an SSH private key for git network
+          operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
+          <ssh-key> ...". Omit to keep the default: ssh-agent forwarding on
+          Compose, or the generated `<key>.ssh` deploy key on Kubernetes.
       - name: force
         type: bool
         default: false
@@ -2873,18 +2876,19 @@ commands:
       - name: key
         type: path
         description: >-
-          Compose: path to the git-crypt symmetric key file exported by
-          `canasta gitops init`. It unlocks any git-crypt repo; it may be
-          omitted for a repo with GPG recipients, which is then unlocked
-          through a forwarded GPG agent. Kubernetes: required, the basename
-          of the SSH deploy key (<key>.ssh).
+          A path on the controller (the machine running canasta). Compose: the
+          git-crypt symmetric key file exported by `canasta gitops init`. It
+          unlocks any git-crypt repo; it may be omitted for a repo with GPG
+          recipients, which is then unlocked through a forwarded GPG agent.
+          Kubernetes: required, the basename of the SSH deploy key
+          (<key>.ssh).
       - name: ssh_key
         type: path
         description: >-
-          Path to an SSH private key for git network operations. When
-          set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
-          Omit to keep the default: ssh-agent forwarding on Compose,
-          or the generated `<key>.ssh` deploy key on Kubernetes.
+          Path on the instance's host to an SSH private key for git network
+          operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
+          <ssh-key> ...". Omit to keep the default: ssh-agent forwarding on
+          Compose, or the generated `<key>.ssh` deploy key on Kubernetes.
       - name: reinit
         type: bool
         default: false
@@ -2971,16 +2975,17 @@ commands:
       - name: ssh_key
         type: path
         description: >-
-          Path to an SSH private key for git network operations. When
-          set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
-          Omit to keep the default: ssh-agent forwarding on Compose,
-          or the staged deploy key on Kubernetes.
+          Path on the instance's host to an SSH private key for git network
+          operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
+          <ssh-key> ...". Omit to keep the default: ssh-agent forwarding on
+          Compose, or the staged deploy key on Kubernetes.
       - name: key
         type: path
         description: >-
-          Compose only. Path to the git-crypt symmetric key, used to unlock
-          the checkout if it is locked. Without it, a repo with GPG
-          recipients is unlocked through a forwarded GPG agent.
+          Compose only. Path on the controller (the machine running canasta)
+          to the git-crypt symmetric key, used to unlock the checkout if it is
+          locked. Without it, a repo with GPG recipients is unlocked through a
+          forwarded GPG agent.
 
   - name: gitops_pull
     description: "Pull latest configuration from the git repository"
@@ -3000,16 +3005,17 @@ commands:
       - name: ssh_key
         type: path
         description: >-
-          Path to an SSH private key for git network operations. When
-          set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...".
-          Omit to keep the default: ssh-agent forwarding on Compose,
-          or the staged deploy key on Kubernetes.
+          Path on the instance's host to an SSH private key for git network
+          operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
+          <ssh-key> ...". Omit to keep the default: ssh-agent forwarding on
+          Compose, or the staged deploy key on Kubernetes.
       - name: key
         type: path
         description: >-
-          Compose only. Path to the git-crypt symmetric key, used to unlock
-          the checkout if it is locked. Without it, a repo with GPG
-          recipients is unlocked through a forwarded GPG agent.
+          Compose only. Path on the controller (the machine running canasta)
+          to the git-crypt symmetric key, used to unlock the checkout if it is
+          locked. Without it, a repo with GPG recipients is unlocked through a
+          forwarded GPG agent.
 
   - name: gitops_status
     description: "Show gitops status for the instance"
@@ -3027,9 +3033,9 @@ commands:
       - name: ssh_key
         type: path
         description: >-
-          Path to an SSH private key for the remote fetch. When set,
-          git runs with GIT_SSH_COMMAND="ssh -i <ssh-key> ...". Omit
-          to keep the default: ssh-agent forwarding on Compose, or
+          Path on the instance's host to an SSH private key for the remote
+          fetch. When set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key>
+          ...". Omit to keep the default: ssh-agent forwarding on Compose, or
           the staged deploy key on Kubernetes.
 
   - name: gitops_diff
@@ -3409,8 +3415,9 @@ commands:
         type: string
         required: true
         description: >-
-          Path to a YAML file of full sidecar definition(s) (the
-          orchestrator-agnostic sidecar schema)
+          Path on the controller (the machine running canasta) to a YAML file
+          of full sidecar definition(s) (the orchestrator-agnostic sidecar
+          schema)
 
   - name: sidecar_list
     description: "List app sidecars declared for a Canasta instance"
