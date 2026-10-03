@@ -2776,9 +2776,10 @@ commands:
           git-crypt key to, enabling GPG-based unlock instead of a shared
           symmetric key file. When set, gitops initializes git-crypt with
           `git-crypt add-gpg-user` and later `gitops pull`/`push` unlock via
-          `git-crypt unlock` (using a forwarded GPG agent). The symmetric
-          git-crypt key is not exported, but --key is still required for the
-          SSH deploy key (`<key>.ssh`).
+          `git-crypt unlock` (using a forwarded GPG agent). No git-crypt key
+          is exported, so --key must still be given but is not used in this
+          mode; git authenticates through the forwarded ssh-agent or
+          --ssh-key, as with any Compose gitops init.
       - name: ssh_key
         type: path
         description: >-
