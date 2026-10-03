@@ -152,3 +152,29 @@ class TestTheControllerHostExists:
         with open(path) as f:
             raw = f.read()
         assert not re.search(r"canasta_controller", raw)
+
+
+class TestExportedKeyIsCheckedOnTheController:
+    """gitops init writes exported keys on the controller, so the check
+    that they landed must look there too, not on the bound target."""
+
+    PATH = os.path.join(
+        REPO_ROOT, "roles", "gitops", "tasks", "_verify_exported_key.yml")
+
+    def test_the_stat_delegates_to_the_controller(self):
+        with open(self.PATH) as f:
+            tasks = list(_tasks(yaml.safe_load(f)))
+        stats = [
+            t for t in tasks
+            if isinstance(t, dict)
+            and ("ansible.builtin.stat" in t or "stat" in t)
+        ]
+        assert stats, "expected a stat task in _verify_exported_key.yml"
+        wrong = [
+            (t.get("name"), t.get("delegate_to")) for t in stats
+            if t.get("delegate_to") != "canasta_controller"
+        ]
+        assert wrong == [], (
+            "the exported-key stat must delegate to canasta_controller: %s"
+            % wrong
+        )
