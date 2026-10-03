@@ -1,0 +1,28 @@
+---
+# Fail unless each named input file exists on the controller, where
+# ansible.builtin.copy reads its src even when the instance is remote.
+#
+# Input: controller_files - list of {label, path}; an empty path is skipped.
+
+- name: Stat input files on the controller
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  loop: "{{ controller_files | selectattr('path') | list }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: _controller_files_stat
+  delegate_to: canasta_controller
+
+- name: Fail when an input file is not on the controller
+  ansible.builtin.fail:
+    msg: >-
+      {% for r in _controller_files_missing %}{{ r.item.label }}
+      '{{ r.item.path }}' not found on the controller (the machine running
+      canasta).{{ ' ' if not loop.last }}{% endfor %}
+  vars:
+    _controller_files_results: "{{ _controller_files_stat.results | default([]) }}"
+    _controller_files_missing: >-
+      {{ (_controller_files_results | rejectattr('stat.exists') | list)
+         + (_controller_files_results | selectattr('stat.exists')
+            | rejectattr('stat.isreg') | list) }}
+  when: _controller_files_missing | length > 0
