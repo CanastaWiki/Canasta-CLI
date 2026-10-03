@@ -24,6 +24,18 @@
     - skip_install | default(false) | bool
     - database is defined and database != ''
 
+- name: Check the input files are on the controller
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/check_controller_files.yml
+  vars:
+    controller_files:
+      - label: Database dump
+        path: "{{ database | default('') }}"
+      - label: Images tarball
+        path: "{{ images | default('') }}"
+      - label: Settings file
+        path: "{{ wiki_settings | default('') }}"
+
 - name: Validate instance ID
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/validate_instance_id.yml"
 
