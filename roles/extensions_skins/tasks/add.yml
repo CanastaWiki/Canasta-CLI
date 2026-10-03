@@ -1,7 +1,7 @@
 ---
 # Add an extension/skin to an instance.
 #
-# Each name is, in order: bundled (a real directory in the image; nothing is
+# Each name is, in order: bundled (shipped in the image; nothing is
 # cloned, it is only enabled), already local (a checkout in the instance's
 # extensions/ or skins/; its branch is verified), or cloned. Cloning needs
 # --clone or --repository; without either the command fails before changing
@@ -104,8 +104,8 @@
     _names_list: "{{ names.split(',') | map('trim') | reject('equalto', '') | list }}"
     _item_kind: "{{ 'Skin' if (_item_type == 'skins') else 'Extension' }}"
 
-# Bundled items are real directories in the image; user items are symlinks
-# into ../user-{{ _item_type }}.
+# Bundled items are symlinks into ../canasta-{{ _item_type }} (or real
+# directories); user items are symlinks into ../user-{{ _item_type }}.
 - name: "Probe bundled {{ _item_type }}"
   block:
     - name: "List bundled {{ _item_type }} in the web container"
@@ -115,7 +115,11 @@
         exec_command: >-
           cd /var/www/mediawiki/w/{{ _item_type }} &&
           for d in */; do d="${d%/}";
-          if [ -d "$d" ] && [ ! -L "$d" ]; then printf '%s\n' "$d"; fi;
+          [ -d "$d" ] || continue;
+          if [ -L "$d" ]; then case "$(readlink "$d")" in
+          */canasta-{{ _item_type }}/*) ;;
+          *) continue ;; esac; fi;
+          printf '%s\n' "$d";
           done
     - name: "Record bundled {{ _item_type }}"
       ansible.builtin.set_fact:
