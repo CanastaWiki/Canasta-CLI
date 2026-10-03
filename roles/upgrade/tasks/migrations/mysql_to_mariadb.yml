@@ -199,10 +199,11 @@
                 tasks_from: wait_for_db.yml
 
             - name: Copy the dump into the MariaDB container
-              ansible.builtin.command:
-                cmd: "{{ compose_command }} cp {{ _mig_dump_host }} db:/tmp/dump.sql"
-                chdir: "{{ instance_path }}"
-              changed_when: true
+              ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/copy_into_container.yml"
+              vars:
+                copy_service: db
+                copy_src: "{{ _mig_dump_host }}"
+                copy_dest: /tmp/dump.sql
 
             - name: Import the dump into MariaDB
               ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
