@@ -13,6 +13,17 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
   when: instance_path is not defined
 
+- name: Read CrowdSec enablement from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: CANASTA_ENABLE_CROWDSEC
+  register: _crowdsec_enable_env
+
+- name: Note whether CrowdSec is enabled
+  ansible.builtin.set_fact:
+    _crowdsec_enabled: "{{ _crowdsec_enable_env.value | default('false', true) | lower == 'true' }}"
+
 # --- Compose: the crowdsec service must be running ---
 - name: Verify crowdsec service is running (Compose)
   when: instance_orchestrator | default('compose') == 'compose'
@@ -40,9 +51,16 @@
     - name: Refuse when the crowdsec service is not running
       ansible.builtin.fail:
         msg: >-
+          {% if _crowdsec_enabled | bool -%}
+          CrowdSec is enabled for instance '{{ instance_id }}', but its
+          crowdsec container is not running. Run 'canasta status -i
+          {{ instance_id }}' and check the crowdsec container's logs to
+          see why it did not start.
+          {%- else -%}
           The crowdsec service is not running for instance
           '{{ instance_id }}'. Enable it first with
           'canasta config set CANASTA_ENABLE_CROWDSEC=true', then retry.
+          {%- endif %}
       when: "'crowdsec' not in (_crowdsec_running.stdout_lines | default([]))"
 
 # --- Kubernetes: the crowdsec sidecar must be Ready in the caddy pod ---
@@ -65,9 +83,18 @@
     - name: Refuse when the crowdsec sidecar is not running
       ansible.builtin.fail:
         msg: >-
+          {% if _crowdsec_enabled | bool -%}
+          CrowdSec is enabled for instance '{{ instance_id }}', but its
+          crowdsec container in the caddy pod is not running. Run
+          'canasta status -i {{ instance_id }}' and check the container's
+          logs ('kubectl logs -n canasta-{{ instance_id }}
+          -l app.kubernetes.io/component=caddy -c crowdsec') to see why it
+          did not start.
+          {%- else -%}
           The CrowdSec engine is not running for instance
           '{{ instance_id }}'. Enable it first with
           'canasta config set CANASTA_ENABLE_CROWDSEC=true', then retry.
+          {%- endif %}
       when: "'crowdsec=true' not in (_crowdsec_k8s_ready.stdout | default(''))"
 
 - name: Build the cscli command prefix for this orchestrator
