@@ -97,7 +97,7 @@ class TestCrowdsecComposeService:
 
     def test_crowdsec_image_is_pinned(self):
         svc = _load_compose()["services"]["crowdsec"]
-        assert svc["image"].startswith("crowdsecurity/crowdsec:v"), (
+        assert svc["image"].startswith("docker.io/crowdsecurity/crowdsec:v"), (
             "crowdsec image must be pinned to a specific tag, not floating"
         )
 
@@ -1666,3 +1666,39 @@ class TestBouncerEnrollForceGuard:
         when = " ".join(str(self._enroll_task().get("when", "")).split())
         assert "_crowdsec_existing" in when
         assert "_crowdsec_have_key" in when
+
+
+class TestCrowdsecPreflightEnabledButNotRunning:
+    """An enabled engine that failed to start must not be told to enable
+    CrowdSec; that advice applies only when CANASTA_ENABLE_CROWDSEC is off."""
+
+    def _fail_msgs(self):
+        tasks = yaml.safe_load(_read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "_preflight.yml")))
+        return [
+            t["ansible.builtin.fail"]["msg"]
+            for b in tasks if "block" in b
+            for t in b["block"] if "ansible.builtin.fail" in t
+        ]
+
+    def _render(self, msg, enabled):
+        env = jinja2.Environment()
+        env.filters["bool"] = lambda v: str(v).lower() in ("true", "1", "yes")
+        return env.from_string(msg).render(
+            _crowdsec_enabled=enabled, instance_id="mysite")
+
+    def test_preflight_reads_enablement_from_env(self):
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "_preflight.yml"))
+        assert "key: CANASTA_ENABLE_CROWDSEC" in content
+
+    def test_compose_and_k8s_messages_distinguish_enabled(self):
+        msgs = self._fail_msgs()
+        assert len(msgs) == 2
+        for msg in msgs:
+            enabled = self._render(msg, True)
+            disabled = self._render(msg, False)
+            assert "Enable it first" not in enabled
+            assert "CrowdSec is enabled" in enabled
+            assert "canasta status -i mysite" in enabled
+            assert "Enable it first" in disabled

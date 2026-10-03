@@ -32,7 +32,7 @@ uname -s 2>/dev/null || echo unknown; echo "$D"
 python3 -c "import os; mem=os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')//(1024**3); print(str(mem)+' GB')" 2>/dev/null || echo unknown; echo "$D"
 df -h / | awk 'NR==2{print $4}' 2>/dev/null || echo unknown; echo "$D"
 cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown; echo "$D"
-runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; _sock=""; for s in "$runtime/podman/podman.sock" "$runtime/docker.sock"; do if [ -S "$s" ]; then _sock="unix://$s"; break; fi; done; echo "$_sock"; echo "$D"
+runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; _sock=""; for s in "$runtime/docker.sock" "$runtime/podman/podman.sock"; do if [ -S "$s" ]; then _sock="unix://$s"; break; fi; done; echo "$_sock"; echo "$D"
 command -v canasta >/dev/null 2>&1 && { canasta version >/dev/null 2>&1 && echo OK || echo BROKEN; } || echo MISSING; echo "$D"
 cdir="$(dirname "$(readlink -f "$(command -v canasta 2>/dev/null)" 2>/dev/null)" 2>/dev/null)"; if [ -n "$cdir" ] && [ -d "$cdir/.git" ]; then { [ -w "$cdir/.git" ] && echo WRITABLE || echo NOT_WRITABLE; } else echo NA; fi; echo "$D"
 command -v sops >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
@@ -295,10 +295,17 @@ def _parse_doctor(stdout, hostname):
     lines.append("  Docker daemon:   %s" % (
         "OK (running)" if daemon == "OK" else "NOT RUNNING"))
     if rootless_sock:
+        if daemon != "OK":
+            create_use = "canasta create will auto-set --docker-host to this"
+        elif "podman" in rootless_sock:
+            create_use = (
+                "canasta create uses the Docker daemon instead; set "
+                "CANASTA_CONTAINER_RUNTIME=podman to use Podman"
+            )
+        else:
+            create_use = "canasta create uses the Docker daemon instead"
         lines.append(
-            "  Rootless socket: %s "
-            "(canasta create will auto-set --docker-host to this)"
-            % rootless_sock
+            "  Rootless socket: %s (%s)" % (rootless_sock, create_use)
         )
         try:
             port_floor = int(unpriv_port_start)

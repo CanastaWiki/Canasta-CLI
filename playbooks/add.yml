@@ -63,7 +63,7 @@
   register: _add_dbpass
   no_log: true
 
-- name: Read .env for DB user (for install.php --installdbuser)
+- name: Read .env for DB user (for install.php --dbuser)
   canasta_env:
     path: "{{ instance_path }}/.env"
     state: read
@@ -214,26 +214,20 @@
         tasks_from: wait_for_db.yml
 
     - name: Install new wiki
-      ansible.builtin.include_tasks: >-
-        {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+      ansible.builtin.include_role:
+        name: mediawiki
+        tasks_from: run_install_php.yml
       vars:
-        exec_service: web
-        exec_no_log: true
-        exec_command: >-
-          mkdir -p /tmp/canasta-install &&
-          env -u MW_SECRET_KEY
-          php maintenance/install.php
+        install_php_db_password: "{{ _add_dbpass.value }}"
+        install_php_admin_password: "{{ _add_admin_password }}"
+        install_php_args: >-
           --skins='Vector'
           --dbserver=db
           --dbname={{ wiki }}
           --confpath=/tmp/canasta-install/
           --scriptpath=/w
           --server=https://{{ _add_domain }}
-          --installdbuser={{ _add_dbuser.value | default('root', true) | quote }}
-          --installdbpass={{ _add_dbpass.value | quote }}
           --dbuser={{ _add_dbuser.value | default('root', true) | quote }}
-          --dbpass={{ _add_dbpass.value | quote }}
-          --pass={{ _add_admin_password | quote }}
           {{ wiki | quote }}
           {{ admin | default('WikiSysop') | quote }}
 
