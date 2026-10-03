@@ -1348,6 +1348,7 @@ def handle_interactive_exec(args):
         if stdin_file:
             docker_cmd.append("-T")
         docker_cmd += [service] + command
+        docker_host = inst.get("dockerHost")
         if host and host != "localhost":
             # Run via SSH on the remote host. ssh forwards our stdin to the
             # remote command, so the --stdin-file payload (dup'd onto fd 0
@@ -1358,6 +1359,9 @@ def handle_interactive_exec(args):
                 shlex.quote(inst["path"]),
                 " ".join(shlex.quote(a) for a in docker_cmd),
             )
+            if docker_host:
+                remote_cmd = "export DOCKER_HOST=%s; %s" % (
+                    shlex.quote(docker_host), remote_cmd)
             try:
                 ssh_args = ["ssh", "-T" if stdin_file else "-t",
                             "-o", "LogLevel=ERROR"]
@@ -1380,11 +1384,14 @@ def handle_interactive_exec(args):
                     file=sys.stderr,
                 )
                 sys.exit(1)
+            if docker_host:
+                os.environ["DOCKER_HOST"] = docker_host
             try:
                 _redirect_stdin_from_file(stdin_file)
-                os.execvp("docker", docker_cmd)
+                os.execvp(docker_cmd[0], docker_cmd)
             except FileNotFoundError:
-                print("Error: docker not found on PATH", file=sys.stderr)
+                print("Error: %s not found on PATH" % docker_cmd[0],
+                      file=sys.stderr)
                 sys.exit(1)
 
 

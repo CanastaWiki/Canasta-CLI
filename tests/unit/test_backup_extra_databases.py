@@ -254,6 +254,42 @@ class TestPasswordsStayOffTheCommandLine:
             "MYSQL_PWD=\"$MYSQL_PASSWORD\" before the client instead: "
             + ", ".join(offenders))
 
+    def test_no_install_password_or_inline_env_password(self):
+        # install.php's --installdbpass=/--dbpass=/--pass= and docker's
+        # -e NAME=value both put the value in a process's argv. A bare
+        # -e NAME makes docker read the value from its own environment.
+        pattern = re.compile(
+            r"--(installdb|db)?pass=|-e\s+MYSQL_(ROOT_)?P(ASSWORD|WD)=")
+        offenders = []
+        for root in SEARCH_ROOTS:
+            for dirpath, _, filenames in os.walk(
+                    os.path.join(REPO_ROOT, root)):
+                for filename in filenames:
+                    if not filename.endswith((".yml", ".yaml", ".py")):
+                        continue
+                    path = os.path.join(dirpath, filename)
+                    with open(path) as f:
+                        for lineno, line in enumerate(f, 1):
+                            if pattern.search(line):
+                                offenders.append("%s:%d" % (
+                                    os.path.relpath(path, REPO_ROOT),
+                                    lineno))
+        assert not offenders, (
+            "a password is visible in the process list; use install.php's "
+            "--dbpassfile/--passfile, or a bare -e NAME with the value in "
+            "the task's environment: " + ", ".join(offenders))
+
+    def test_pattern_catches_the_argv_forms(self):
+        pattern = re.compile(
+            r"--(installdb|db)?pass=|-e\s+MYSQL_(ROOT_)?P(ASSWORD|WD)=")
+        for bad in ("--installdbpass=x", "--dbpass=x", "--pass=x",
+                    "-e MYSQL_PWD=x", "-e MYSQL_ROOT_PASSWORD=x",
+                    "-e MYSQL_PASSWORD=x"):
+            assert pattern.search(bad), bad
+        for good in ("--dbpassfile=/f", "--passfile=/f", "-e MYSQL_PWD",
+                     "-e MYSQL_ROOT_PASSWORD mysql:8.0"):
+            assert not pattern.search(good), good
+
     def test_compose_dump_reads_the_environment(self):
         dump = _by_name(STAGE, "Dump each wiki's database group (Compose)")
         assert "{{ _db_admin_pwd }}" in dump["vars"]["dump_command"]

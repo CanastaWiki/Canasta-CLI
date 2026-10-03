@@ -236,8 +236,9 @@ class TestSecretCommandLinesAreNoLog:
             for command, protected in _command_lines(task)
             if protected and _secret_exprs(command)
         ]
-        assert len(found) >= 5, found
-        assert os.path.join("playbooks", "add.yml") in found
+        assert len(found) >= 4, found
+        assert os.path.join("roles", "gitops", "tasks", "_init_sops.yml") \
+            in found
 
     def test_command_exemptions_still_exist(self):
         texts = "\n".join(

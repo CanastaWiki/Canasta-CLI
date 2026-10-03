@@ -32,6 +32,8 @@ _PROJECT_FILTER = "label=com.docker.compose.project"
 _QUERY_FILES = (
     "roles/crowdsec/tasks/_preflight.yml",
     "roles/orchestrator/tasks/check_running.yml",
+    "roles/orchestrator/tasks/copy_from_container.yml",
+    "roles/orchestrator/tasks/copy_into_container.yml",
     "roles/orchestrator/tasks/list_running_services.yml",
     "roles/orchestrator/tasks/start.yml",
     "roles/orchestrator/tasks/upgrade_rebuild_buildable.yml",

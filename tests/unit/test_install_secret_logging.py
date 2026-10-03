@@ -1,15 +1,11 @@
 """Security-regression guard for wiki installation.
 
-The install.php invocation in install_single_wiki.yml passes the root DB
-password, the wiki DB password, and the admin password on the command
-line. The orchestrator exec primitive only redacts the command (and the
-task banner) when exec_no_log is true; without it the three secrets are
-exposed in Ansible output on -v and on any install.php failure. See
-issue #722.
-
-This test parses install_single_wiki.yml and asserts that every exec
-include whose command carries a *_password variable sets
-exec_no_log: true.
+run_install_php.yml hands install.php the DB and admin passwords through
+files staged from the exec's stdin, so neither reaches a command line
+(host or container) or the async job file of the long exec. The
+orchestrator exec primitive only redacts the command (and the task
+banner) when exec_no_log is true, so every exec that touches a password
+must still set it. See issues #722 and #1698.
 """
 
 import os
@@ -21,6 +17,10 @@ REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 INSTALL_WIKI = os.path.join(
     REPO_ROOT, "roles", "mediawiki", "tasks", "install_single_wiki.yml",
 )
+RUN_INSTALL_PHP = os.path.join(
+    REPO_ROOT, "roles", "mediawiki", "tasks", "run_install_php.yml",
+)
+ADD_PLAYBOOK = os.path.join(REPO_ROOT, "playbooks", "add.yml")
 EXTRACT_SECRET_KEY = os.path.join(
     REPO_ROOT, "roles", "upgrade", "tasks", "migrations",
     "extract_secret_key.yml",
@@ -39,14 +39,16 @@ def _walk_tasks(tasks):
                 yield from _walk_tasks(t[nested])
 
 
-def _exec_includes():
+def _exec_includes(path):
     """Yield the vars dict of every include_tasks that pulls the
     orchestrator exec primitive."""
-    with open(INSTALL_WIKI) as f:
+    with open(path) as f:
         tasks = yaml.safe_load(f)
     for task in _walk_tasks(tasks):
         include = task.get("ansible.builtin.include_tasks") or \
             task.get("include_tasks")
+        if isinstance(include, dict):
+            include = include.get("file")
         if not isinstance(include, str):
             continue
         if "orchestrator/tasks/exec.yml" in include:
@@ -54,33 +56,58 @@ def _exec_includes():
 
 
 class TestInstallSecretsNotLogged:
-    """install.php carries three passwords; the exec MUST be no_log (#722)."""
+    """install.php handles two passwords; the exec MUST be no_log (#722)."""
 
     def test_install_php_exec_sets_no_log(self):
         found = False
-        for vars_ in _exec_includes():
+        for vars_ in _exec_includes(RUN_INSTALL_PHP):
             command = str(vars_.get("exec_command", ""))
             if "install.php" in command:
                 found = True
                 assert vars_.get("exec_no_log") is True, (
                     "The install.php exec include must set "
-                    "exec_no_log: true — it passes the root DB, wiki DB, "
-                    "and admin passwords on the command line, which the "
-                    "exec primitive otherwise logs in cleartext (#722)."
+                    "exec_no_log: true — it handles the DB and admin "
+                    "passwords, which the exec primitive otherwise logs "
+                    "in cleartext (#722)."
                 )
         assert found, (
-            "install_single_wiki.yml has no install.php exec include — "
+            "run_install_php.yml has no install.php exec include — "
             "the secret-logging regression guard cannot run."
         )
+
+    def test_install_php_reads_passwords_from_files(self):
+        for vars_ in _exec_includes(RUN_INSTALL_PHP):
+            command = str(vars_.get("exec_command", ""))
+            if "install.php" not in command:
+                continue
+            assert "--dbpassfile=" in command
+            assert "--passfile=" in command
+            assert not _PASSWORD_VAR.search(command), command
+
+    def test_password_files_are_staged_from_stdin(self):
+        staged = [v for v in _exec_includes(RUN_INSTALL_PHP)
+                  if v.get("exec_stdin")]
+        assert len(staged) == 1
+        assert staged[0].get("exec_no_log") is True
+        assert "umask 077" in staged[0]["exec_command"]
+        assert not _PASSWORD_VAR.search(staged[0]["exec_command"])
+
+    def test_callers_use_run_install_php(self):
+        for path in (INSTALL_WIKI, ADD_PLAYBOOK):
+            with open(path) as f:
+                text = f.read()
+            assert "run_install_php.yml" in text, path
+            assert "maintenance/install.php" not in text, path
 
     def test_all_password_bearing_execs_are_no_log(self):
         """Any exec whose command references a *_password variable must
         be no_log, not just install.php."""
-        for vars_ in _exec_includes():
+        for vars_ in (list(_exec_includes(INSTALL_WIKI))
+                      + list(_exec_includes(RUN_INSTALL_PHP))):
             command = str(vars_.get("exec_command", ""))
             if _PASSWORD_VAR.search(command):
                 assert vars_.get("exec_no_log") is True, (
-                    "An exec include in install_single_wiki.yml references "
+                    "An exec include in the wiki install references "
                     "a *_password variable without exec_no_log: true, "
                     "leaking the secret into Ansible output (#722). "
                     "Command: %s" % command
