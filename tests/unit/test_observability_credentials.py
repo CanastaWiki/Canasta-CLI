@@ -11,7 +11,10 @@ the old value and skipping.
 
 import os
 
+import jinja2
 import yaml
+from ansible.parsing.dataloader import DataLoader
+from ansible.template import Templar, trust_as_template
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
@@ -91,3 +94,64 @@ def test_config_set_side_effect_passes_enabling():
     assert task["ansible.builtin.include_role"]["tasks_from"] == (
         "ensure_observability_credentials.yml")
     assert task["vars"]["_obs_enabling"] is True
+
+
+# Compose interpolates $ in .env values, so the bcrypt hash is stored with
+# each $ doubled and undoubled where the Caddyfile is rendered.
+HASH = "$2b$12$o9twYopXabcdefghijklmnOPQRSTUVWXYZ0123456789abcdefgh"
+ESCAPED = HASH.replace("$", "$$")
+REWRITE_CADDY = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "tasks", "rewrite_caddy.yml")
+CADDYFILE_J2 = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "templates", "Caddyfile.j2")
+
+
+def _template(expr, variables):
+    templar = Templar(loader=DataLoader(), variables=variables)
+    return templar.template(trust_as_template(expr))
+
+
+def _caddy_hash_expr():
+    facts = _task(REWRITE_CADDY, "Determine Caddyfile parameters")[
+        "ansible.builtin.set_fact"]
+    return facts["_os_password_hash"]
+
+
+def test_generated_hash_is_written_escaped():
+    value = _task(CREDS, "Set OS_PASSWORD_HASH")["canasta_env"]["value"]
+    assert _template(value, {"_bcrypt_result": {"stdout": HASH + "\n"}}) == ESCAPED
+
+
+def test_existing_unescaped_hash_is_migrated():
+    task = _task(CREDS, "Escape $ in an existing OS_PASSWORD_HASH")
+    value = task["canasta_env"]["value"]
+    for stored in (HASH, ESCAPED):
+        env = {"_env_obs": {"variables": {"OS_PASSWORD_HASH": stored}}}
+        assert _template(value, env) == ESCAPED
+
+
+def test_migration_skips_gitops_hosts():
+    task = _task(CREDS, "Escape $ in an existing OS_PASSWORD_HASH")
+    assert "not _obs_gitops_host.stat.exists" in task["when"]
+
+
+def test_caddy_reads_escaped_and_legacy_hash():
+    expr = _caddy_hash_expr()
+    for stored in (ESCAPED, HASH):
+        env = {"_env_caddy": {"variables": {"OS_PASSWORD_HASH": stored}}}
+        assert _template(expr, env) == HASH
+
+
+def test_caddyfile_basicauth_holds_the_real_hash():
+    with open(CADDYFILE_J2) as f:
+        src = f.read()
+    stored = _template(
+        _caddy_hash_expr(),
+        {"_env_caddy": {"variables": {"OS_PASSWORD_HASH": ESCAPED}}})
+    env = jinja2.Environment(keep_trailing_newline=True)
+    env.filters["bool"] = lambda v: str(v).lower() in ("true", "1", "yes")
+    rendered = env.from_string(src).render(
+        _site_address="example.com", _backend="web:80", _observable=True,
+        _os_user="admin", _os_password_hash=stored, _staging_certs=False)
+    assert "admin " + HASH in rendered
+    assert "$$" not in rendered
