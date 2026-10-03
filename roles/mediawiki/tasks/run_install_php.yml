@@ -24,7 +24,7 @@
     state: file
     suffix: .install
   register: _ip_stdin
-  delegate_to: localhost
+  delegate_to: canasta_controller
 
 - name: Run install.php with file-based passwords
   block:
@@ -38,7 +38,7 @@
           {{ install_php_db_password }}
           {{ install_php_admin_password }}
           .
-      delegate_to: localhost
+      delegate_to: canasta_controller
       no_log: true
 
     - name: Stage the install.php password files in the container
@@ -79,4 +79,4 @@
       ansible.builtin.file:
         path: "{{ _ip_stdin.path }}"
         state: absent
-      delegate_to: localhost
+      delegate_to: canasta_controller
