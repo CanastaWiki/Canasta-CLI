@@ -2760,15 +2760,14 @@ commands:
         description: "Git repository URL"
       - name: key
         type: path
-        required: true
+        required_unless: git_crypt_gpg_user
         description: >-
-          Path basename for the gitops keys. The SSH deploy key is
-          derived as `<key>.ssh` (private) and `<key>.ssh.pub`
-          (public — register this as a deploy key on the forge).
-          On Compose, `<key>` itself also receives the git-crypt
-          symmetric key for unlocking encrypted vars on other hosts.
-          K8s does not use git-crypt; the parameter only affects
-          the SSH key path there.
+          On Compose, the path that receives the git-crypt symmetric
+          key, which other hosts use to unlock encrypted vars. Not used
+          with --git-crypt-gpg-user. On Kubernetes, the path basename
+          for the generated SSH deploy key, `<key>.ssh` (private) and
+          `<key>.ssh.pub` (public — register this as a deploy key on
+          the forge), and for the SOPS age key with --encrypt-secrets.
       - name: git_crypt_gpg_user
         type: string
         description: >-
@@ -2777,9 +2776,7 @@ commands:
           symmetric key file. When set, gitops initializes git-crypt with
           `git-crypt add-gpg-user` and later `gitops pull`/`push` unlock via
           `git-crypt unlock` (using a forwarded GPG agent). No git-crypt key
-          is exported, so --key must still be given but is not used in this
-          mode; git authenticates through the forwarded ssh-agent or
-          --ssh-key, as with any Compose gitops init.
+          is exported, so --key is not needed.
       - name: ssh_key
         type: path
         description: >-
