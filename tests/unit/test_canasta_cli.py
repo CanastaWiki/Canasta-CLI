@@ -1,6 +1,7 @@
 """Tests for the canasta.py CLI wrapper."""
 
 import os
+import shlex
 import sys
 import types
 
@@ -1620,13 +1621,16 @@ class TestHandleInteractiveExecStdin:
     (so a piped payload survives) and redirect the file onto stdin. This path
     bypasses Ansible, so the wiring lives in handle_interactive_exec."""
 
-    def _run(self, monkeypatch, stdin_file, orchestrator="compose"):
+    def _run(self, monkeypatch, stdin_file, orchestrator="compose",
+             **inst_fields):
         from argparse import Namespace
         calls = {}
-        monkeypatch.setattr(canasta_cli, "resolve_instance", lambda _id: {
+        inst = {
             "id": "rsdev", "orchestrator": orchestrator,
             "host": "localhost", "path": "/tmp/inst",
-        })
+        }
+        inst.update(inst_fields)
+        monkeypatch.setattr(canasta_cli, "resolve_instance", lambda _id: inst)
         monkeypatch.setattr(canasta_cli.os, "chdir", lambda p: None)
         monkeypatch.setattr(
             canasta_cli, "_redirect_stdin_from_file",
@@ -1646,9 +1650,34 @@ class TestHandleInteractiveExecStdin:
     def test_compose_stdin_file_adds_T_and_redirects(self, monkeypatch):
         calls = self._run(monkeypatch, "/tmp/page.txt")
         binary, argv = calls["execvp"]
-        assert binary == "docker"
+        assert binary == argv[0] == "docker"
         assert argv[:4] == ["docker", "compose", "exec", "-T"]
         assert calls["redirect"] == "/tmp/page.txt"
+
+    def test_podman_instance_runs_podman_compose(self, monkeypatch):
+        calls = self._run(monkeypatch, None, composeCommand="podman-compose")
+        binary, argv = calls["execvp"]
+        assert binary == "podman-compose"
+        assert argv[:2] == ["podman-compose", "exec"]
+
+    def test_local_docker_host_is_exported(self, monkeypatch):
+        monkeypatch.delenv("DOCKER_HOST", raising=False)
+        sock = "unix:///run/user/1000/docker.sock"
+        self._run(monkeypatch, None, dockerHost=sock)
+        assert canasta_cli.os.environ["DOCKER_HOST"] == sock
+
+    def test_remote_docker_host_is_exported_for_the_whole_command(
+            self, monkeypatch):
+        sock = "unix:///run/user/1000/podman/podman.sock"
+        calls = self._run(monkeypatch, None, host="prod1.example.com",
+                          path="/srv/my inst", dockerHost=sock,
+                          composeCommand="podman-compose")
+        binary, argv = calls["execvp"]
+        assert binary == "ssh"
+        remote_cmd = argv[-1]
+        assert remote_cmd.startswith(
+            "export DOCKER_HOST=%s; cd " % shlex.quote(sock))
+        assert "&& podman-compose exec web php edit" in remote_cmd
 
     def test_relative_stdin_file_resolves_against_the_callers_directory(
             self, monkeypatch):
