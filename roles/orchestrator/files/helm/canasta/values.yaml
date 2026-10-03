@@ -95,7 +95,7 @@ elasticsearch:
 # holds a ReadWriteOnce PVC).
 crowdsec:
   enabled: false
-  image: crowdsecurity/crowdsec:v1.6.11
+  image: docker.io/crowdsecurity/crowdsec:v1.6.11
   collections: "crowdsecurity/caddy crowdsecurity/http-cve"
   storage: 1Gi
   storageClass: ""
