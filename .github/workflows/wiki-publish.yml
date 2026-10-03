@@ -27,6 +27,11 @@ on:
 permissions:
   contents: read
 
+# Overlapping runs edit the same pages and hit MediaWiki edit conflicts.
+concurrency:
+  group: wiki-publish
+  cancel-in-progress: false
+
 env:
   WIKI_API_URL: >-
     ${{ secrets.WIKI_API_URL
