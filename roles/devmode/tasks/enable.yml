@@ -36,7 +36,7 @@
 
 - name: Set base image
   ansible.builtin.set_fact:
-    _dev_base_image: "{{ _dev_image.value | default(canasta_default_image) }}"
+    _dev_base_image: "{{ _dev_image.value | default(canasta_default_image, true) }}"
 
 # --- Extract MediaWiki code ---
 - name: Check if mediawiki-code already exists
