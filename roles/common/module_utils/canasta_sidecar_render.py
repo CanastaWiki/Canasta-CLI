@@ -15,6 +15,7 @@ from __future__ import absolute_import, division, print_function
 
 __metaclass__ = type
 
+import difflib
 import os
 import re
 
@@ -105,6 +106,10 @@ def validate_host_access(sidecars, instance_path):
 # Helm chart, so only known build options pass through and every name or
 # quantity is held to a shape that cannot carry extra YAML or build options.
 
+_SIDECAR_KEYS = (
+    "name", "image", "build", "command", "env", "envSecret", "envPrivate",
+    "ports", "volumes", "files", "depends_on", "healthcheck", "resources",
+)
 _BUILD_KEYS = ("args", "context", "dockerfile")
 _ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\Z")
 _QUANTITY = re.compile(
@@ -124,8 +129,8 @@ def _quantity(value):
 
 
 def validate_spec(sidecars):
-    """Return None if every sidecar's names, env keys, build options, and
-    resource quantities are well-formed, else an error."""
+    """Return None if every sidecar's keys, names, env keys, build options,
+    and resource quantities are well-formed, else an error."""
     for sidecar in sidecars or []:
         if not isinstance(sidecar, dict):
             return "each sidecar must be a mapping"
@@ -135,6 +140,13 @@ def validate_spec(sidecars):
         error = validate_sidecar_name(name)
         if error:
             return error
+        for key in sidecar:
+            if key not in _SIDECAR_KEYS:
+                close = difflib.get_close_matches(
+                    str(key), _SIDECAR_KEYS, n=1, cutoff=0.8)
+                hint = " (did you mean '%s'?)" % close[0] if close else ""
+                return ("sidecar '%s': key '%s' is not allowed%s (allowed: %s)"
+                        % (name, key, hint, ", ".join(_SIDECAR_KEYS)))
         env = sidecar.get("env")
         if env is not None and not isinstance(env, dict):
             return "sidecar '%s': env must be a mapping" % name

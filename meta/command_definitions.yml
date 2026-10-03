@@ -3391,8 +3391,9 @@ commands:
       full definitions — a single sidecar mapping, a list, or a `sidecars:`
       list — then run `canasta restart` to deploy them. The file uses the
       orchestrator-agnostic sidecar schema (name, image/build, ports, command,
-      env, volumes, files, depends_on, healthcheck, resources), so it renders
-      identically on Compose and Kubernetes.
+      env, envSecret, envPrivate, volumes, files, depends_on, healthcheck,
+      resources), so it renders identically on Compose and Kubernetes. Any
+      other key is refused.
 
       To migrate an existing `docker-compose.override.yml`, use
       `canasta sidecar migrate` instead, which translates its sidecar
