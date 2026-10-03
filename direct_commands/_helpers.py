@@ -795,7 +795,7 @@ def _runtime_capture(inst, argv, timeout=30):
         except (subprocess.TimeoutExpired, OSError):
             return 1, ""
     cmd = " ".join(_shell_quote(a) for a in argv)
-    return _ssh_run(host, cmd, docker_host=docker_host)
+    return _ssh_run(host, cmd, docker_host=docker_host, timeout=timeout)
 
 
 def _web_container_id(inst):
@@ -1275,7 +1275,7 @@ def _with_docker_host(cmd, docker_host=None):
     return "export DOCKER_HOST=%s; %s" % (_shell_quote(docker_host), cmd)
 
 
-def _ssh_run(host, cmd, docker_host=None):
+def _ssh_run(host, cmd, docker_host=None, timeout=30):
     # `host` may be a canasta short name registered via `canasta host
     # add` rather than something ~/.ssh/config or DNS knows about.
     # _resolve_ssh_target maps short names to their actual SSH target
@@ -1291,7 +1291,7 @@ def _ssh_run(host, cmd, docker_host=None):
     full_cmd = ["ssh"] + _ssh_args() + [target, cmd]
     try:
         result = subprocess.run(
-            full_cmd, capture_output=True, text=True, timeout=30,
+            full_cmd, capture_output=True, text=True, timeout=timeout,
         )
         if result.returncode != 0 and result.stderr.strip():
             print(result.stderr.strip(), file=sys.stderr)
