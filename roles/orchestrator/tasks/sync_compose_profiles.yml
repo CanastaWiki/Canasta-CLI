@@ -88,6 +88,40 @@
           {{ _removed_profiles | map('extract', _profile_services) | flatten | join(' ') }}
         chdir: "{{ instance_path }}"
       changed_when: true
+      when: compose_command is not search('podman')
+
+    # podman-compose has no `rm`, so Podman removes the containers by their
+    # compose labels. Podman ANDs repeated label filters, hence one query
+    # per service.
+    - name: Find containers for deactivated profiles (Podman)
+      ansible.builtin.command:
+        argv:
+          - "{{ inspect_command | default('podman') }}"
+          - ps
+          - -aq
+          - --filter
+          - "label=com.docker.compose.project={{ instance_path | basename | lower }}"
+          - --filter
+          - "label=com.docker.compose.service={{ item }}"
+      loop: "{{ _removed_profiles | map('extract', _profile_services) | flatten }}"
+      register: _teardown_podman_ps
+      changed_when: false
+      when: compose_command is search('podman')
+
+    - name: Collect containers for deactivated profiles (Podman)
+      ansible.builtin.set_fact:
+        _teardown_podman_ids: >-
+          {{ _teardown_podman_ps.results | map(attribute='stdout_lines')
+             | flatten | unique }}
+      when: compose_command is search('podman')
+
+    - name: Stop and remove containers for deactivated profiles (Podman)
+      ansible.builtin.command:
+        argv: "{{ [inspect_command | default('podman'), 'rm', '-f'] + _teardown_podman_ids }}"
+      changed_when: true
+      when:
+        - compose_command is search('podman')
+        - _teardown_podman_ids | length > 0
 
 # The caddy service runs the plugin image when a plugin feature is on:
 # CrowdSec (the bouncer), or a provider trusted-proxy mode

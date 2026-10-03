@@ -633,12 +633,37 @@ def _sync_compose_profiles(inst):
             profile_flags = []
             for p in removed:
                 profile_flags += ["--profile", p]
-            _run_compose(
-                inst.get("id"), inst,
-                profile_flags + ["rm", "-sf"] + stale_services,
-            )
+            if _is_podman_compose(inst):
+                _remove_podman_service_containers(inst, stale_services)
+            else:
+                _run_compose(
+                    inst.get("id"), inst,
+                    profile_flags + ["rm", "-sf"] + stale_services,
+                )
 
     return env
+
+
+def _remove_podman_service_containers(inst, services):
+    """Stop and remove the instance's containers for `services`.
+
+    podman-compose has no `rm`, so the containers are found by their
+    compose labels. Podman ANDs repeated label filters, hence one query
+    per service.
+    """
+    runtime = _resolve_inspect_cmd(inst)
+    project = _compose_project(inst.get("path", ""))
+    ids = []
+    for svc in services:
+        rc, out = _runtime_capture(inst, [
+            runtime, "ps", "-aq",
+            "--filter", "label=com.docker.compose.project=%s" % project,
+            "--filter", "label=com.docker.compose.service=%s" % svc,
+        ])
+        if rc == 0:
+            ids += [i for i in out.split() if i not in ids]
+    if ids:
+        _runtime_capture(inst, [runtime, "rm", "-f"] + ids, timeout=120)
 
 
 def _dump_compose_failure(inst, include_sidecars=False):
@@ -770,7 +795,7 @@ def _runtime_capture(inst, argv, timeout=30):
         except (subprocess.TimeoutExpired, OSError):
             return 1, ""
     cmd = " ".join(_shell_quote(a) for a in argv)
-    return _ssh_run(host, cmd, docker_host=docker_host)
+    return _ssh_run(host, cmd, docker_host=docker_host, timeout=timeout)
 
 
 def _web_container_id(inst):
@@ -1250,7 +1275,7 @@ def _with_docker_host(cmd, docker_host=None):
     return "export DOCKER_HOST=%s; %s" % (_shell_quote(docker_host), cmd)
 
 
-def _ssh_run(host, cmd, docker_host=None):
+def _ssh_run(host, cmd, docker_host=None, timeout=30):
     # `host` may be a canasta short name registered via `canasta host
     # add` rather than something ~/.ssh/config or DNS knows about.
     # _resolve_ssh_target maps short names to their actual SSH target
@@ -1266,7 +1291,7 @@ def _ssh_run(host, cmd, docker_host=None):
     full_cmd = ["ssh"] + _ssh_args() + [target, cmd]
     try:
         result = subprocess.run(
-            full_cmd, capture_output=True, text=True, timeout=30,
+            full_cmd, capture_output=True, text=True, timeout=timeout,
         )
         if result.returncode != 0 and result.stderr.strip():
             print(result.stderr.strip(), file=sys.stderr)
