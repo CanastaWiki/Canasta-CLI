@@ -14,7 +14,7 @@
     paths: "{{ canasta_root }}/instance_template/config"
     recurse: true
     file_type: file
-  delegate_to: localhost
+  delegate_to: canasta_controller
   register: _refresh_find
 
 - name: Build the set of refreshable seed paths
@@ -42,7 +42,7 @@
       ansible.builtin.slurp:
         src: "{{ canasta_root }}/instance_template/{{ item }}"
       loop: "{{ _refresh_seed_paths }}"
-      delegate_to: localhost
+      delegate_to: canasta_controller
       register: _refresh_tmpl
 
     - name: Compute the drifted seed files

@@ -15,7 +15,7 @@
 - name: Read the template copy of {{ _refresh_file }}
   ansible.builtin.slurp:
     src: "{{ canasta_root }}/instance_template/{{ _refresh_file }}"
-  delegate_to: localhost
+  delegate_to: canasta_controller
   register: _refresh_new
 
 - name: Note when {{ _refresh_file }} already matches the template
@@ -33,7 +33,7 @@
     - name: Stage the current instance copy on the controller
       ansible.builtin.tempfile:
         state: file
-      delegate_to: localhost
+      delegate_to: canasta_controller
       register: _refresh_tmp
 
     - name: Write the current instance copy for diffing
@@ -41,7 +41,7 @@
         content: "{{ (_refresh_cur.content | default('')) | b64decode }}"
         dest: "{{ _refresh_tmp.path }}"
         mode: "0644"
-      delegate_to: localhost
+      delegate_to: canasta_controller
 
     - name: Compute the diff (current -> template)
       ansible.builtin.command:
@@ -54,7 +54,7 @@
           - "{{ _refresh_file }} (template)"
           - "{{ _refresh_tmp.path }}"
           - "{{ canasta_root }}/instance_template/{{ _refresh_file }}"
-      delegate_to: localhost
+      delegate_to: canasta_controller
       register: _refresh_diff
       changed_when: false
       failed_when: false
@@ -86,4 +86,4 @@
       ansible.builtin.file:
         path: "{{ _refresh_tmp.path }}"
         state: absent
-      delegate_to: localhost
+      delegate_to: canasta_controller

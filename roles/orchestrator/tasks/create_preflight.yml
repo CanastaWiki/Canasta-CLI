@@ -215,7 +215,7 @@
     - name: Read the custom env file for port overrides
       ansible.builtin.slurp:
         src: "{{ envfile }}"
-      delegate_to: localhost
+      delegate_to: canasta_controller
       vars:
         ansible_connection: local
       register: _preflight_envfile

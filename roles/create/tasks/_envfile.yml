@@ -18,7 +18,7 @@
     - name: Read custom env file
       ansible.builtin.slurp:
         src: "{{ envfile }}"
-      delegate_to: localhost
+      delegate_to: canasta_controller
       vars:
         ansible_connection: local
       register: _custom_env

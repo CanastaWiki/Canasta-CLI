@@ -33,7 +33,7 @@
       - StrictHostKeyChecking=accept-new
       - "{{ _cp_ssh_target }}"
       - systemctl is-active k3s
-  delegate_to: localhost
+  delegate_to: canasta_controller
   vars:
     ansible_connection: local
   register: _cp_k3s_active
@@ -66,7 +66,7 @@
       - >-
         sudo cat /var/lib/rancher/k3s/server/agent-token 2>/dev/null
         || sudo cat /var/lib/rancher/k3s/server/node-token
-  delegate_to: localhost
+  delegate_to: canasta_controller
   vars:
     ansible_connection: local
   register: _cp_token_raw
@@ -84,7 +84,7 @@
         k3s kubectl get nodes
         -l node-role.kubernetes.io/control-plane=true
         -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}'
-  delegate_to: localhost
+  delegate_to: canasta_controller
   vars:
     ansible_connection: local
   register: _cp_internal_ip_raw
@@ -146,7 +146,7 @@
       - StrictHostKeyChecking=accept-new
       - "{{ _cp_ssh_target }}"
       - sudo k3s kubectl get nodes -o wide
-  delegate_to: localhost
+  delegate_to: canasta_controller
   vars:
     ansible_connection: local
   register: _cp_post_join_nodes
