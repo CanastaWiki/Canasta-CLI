@@ -1,0 +1,5 @@
+---
+# Present in an instance directory from the moment create makes it until
+# just before the first container start. While it is there, everything in
+# the directory was written by that create's own tasks.
+canasta_create_marker: ".canasta-create-incomplete"

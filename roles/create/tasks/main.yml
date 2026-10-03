@@ -55,6 +55,19 @@
     instance_managed_cluster: false
     instance_devmode: false
 
+- name: Report replacing an unfinished create
+  ansible.builtin.debug:
+    msg: >-
+      Removing '{{ _target_path.stdout }}', left by an earlier create
+      of '{{ id }}' that did not finish...
+  when: _create_leftover | bool
+
+- name: Remove the directory left by an unfinished create
+  ansible.builtin.file:
+    path: "{{ _target_path.stdout }}"
+    state: absent
+  when: _create_leftover | bool
+
 # Record whether the target directory existed BEFORE this run so the
 # rescue handler in playbooks/create.yml can refuse to remove a
 # pre-existing directory on failure. The pre-flight check refuses to
@@ -74,6 +87,17 @@
     path: "{{ instance_path }}"
     state: directory
     mode: "0755"
+
+- name: Mark the instance directory as an unfinished create
+  ansible.builtin.copy:
+    dest: "{{ instance_path }}/{{ canasta_create_marker }}"
+    content: |
+      canasta create of '{{ id }}' has not finished. Running canasta create
+      for '{{ id }}' at this path again replaces this directory.
+    mode: "0644"
+  when:
+    - instance_dir_was_created | bool
+    - not (keep_config | default(false) | bool)
 
 # --- Step 4: Write stack files ---
 - name: Write stack files
@@ -166,6 +190,13 @@
   when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
 
 # --- Step 11: Start containers (without dev mode) ---
+# From here on containers write into the directory too, so a later
+# create must no longer treat it as this create's alone.
+- name: Clear the unfinished-create marker
+  ansible.builtin.file:
+    path: "{{ instance_path }}/{{ canasta_create_marker }}"
+    state: absent
+
 - name: Start containers (Compose) or sync config + Helm deploy (K8s)
   ansible.builtin.include_tasks: _start.yml
 
