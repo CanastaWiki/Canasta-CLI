@@ -1819,7 +1819,7 @@ commands:
     description: "Run MediaWiki maintenance update"
     long_description: |
       Run standard MediaWiki maintenance: update.php, runJobs.php,
-      and Semantic MediaWiki rebuildData.php.
+      and Semantic MediaWiki rebuildData.php on wikis that load SMW.
     examples:
       - "canasta maintenance update"
       - "canasta maintenance update -w mywiki --skip-jobs"

@@ -1688,9 +1688,13 @@ class TestHandleInteractiveExecStdin:
     bypasses Ansible, so the wiring lives in handle_interactive_exec."""
 
     def _run(self, monkeypatch, stdin_file, orchestrator="compose",
-             **inst_fields):
+             env=None, **inst_fields):
         from argparse import Namespace
+        from direct_commands import _helpers
         calls = {}
+        monkeypatch.setattr(
+            _helpers, "_read_env_for",
+            lambda _inst, key: (env or {}).get(key))
         inst = {
             "id": "rsdev", "orchestrator": orchestrator,
             "host": "localhost", "path": "/tmp/inst",
@@ -1744,6 +1748,33 @@ class TestHandleInteractiveExecStdin:
         assert remote_cmd.startswith(
             "export DOCKER_HOST=%s; cd " % shlex.quote(sock))
         assert "&& podman-compose exec web php edit" in remote_cmd
+
+    def test_local_podman_passes_active_profiles_before_exec(
+            self, monkeypatch):
+        calls = self._run(
+            monkeypatch, None, composeCommand="podman-compose",
+            env={"COMPOSE_PROFILES": "internal-db,varnish"})
+        _binary, argv = calls["execvp"]
+        assert argv[:6] == [
+            "podman-compose", "--profile", "internal-db",
+            "--profile", "varnish", "exec",
+        ]
+
+    def test_remote_podman_passes_active_profiles_before_exec(
+            self, monkeypatch):
+        calls = self._run(
+            monkeypatch, None, host="prod1.example.com",
+            composeCommand="podman-compose",
+            env={"COMPOSE_PROFILES": "internal-db"})
+        _binary, argv = calls["execvp"]
+        assert ("&& podman-compose --profile internal-db exec web php edit"
+                in argv[-1])
+
+    def test_docker_compose_gets_no_profile_flags(self, monkeypatch):
+        calls = self._run(monkeypatch, None,
+                          env={"COMPOSE_PROFILES": "internal-db"})
+        _binary, argv = calls["execvp"]
+        assert "--profile" not in argv
 
     def test_relative_stdin_file_resolves_against_the_callers_directory(
             self, monkeypatch):
