@@ -416,6 +416,72 @@ class TestBuildAnsibleArgs:
         assert "ForwardAgent=yes" in ssh_args
         assert "ServerAliveInterval=" in ssh_args
 
+    def test_default_ansible_ssh_args_share_one_connection(
+        self, data, monkeypatch, tmp_path,
+    ):
+        """ANSIBLE_SSH_ARGS replaces ansible.cfg's ssh_args, so the
+        default must carry ControlMaster/ControlPersist itself. Without
+        them a phase of many short tasks (create's template copy) opens
+        one SSH connection per operation and trips sshd rate limits."""
+        monkeypatch.delenv("ANSIBLE_SSH_ARGS", raising=False)
+        monkeypatch.delenv("ANSIBLE_SSH_CONTROL_PATH_DIR", raising=False)
+        monkeypatch.setattr(
+            canasta_cli, "ssh_control_path_dir",
+            lambda: str(tmp_path / "cp"),
+        )
+        from argparse import Namespace
+        args = Namespace(command="version", host=None, verbose=False)
+        canasta_cli.build_ansible_args(
+            "/usr/bin/ansible-playbook", "version", args, data,
+        )
+        ssh_args = os.environ["ANSIBLE_SSH_ARGS"]
+        assert "ControlMaster=auto" in ssh_args
+        assert "ControlPersist=" in ssh_args
+        assert os.environ["ANSIBLE_SSH_CONTROL_PATH_DIR"] == str(
+            tmp_path / "cp")
+
+    def test_no_connection_sharing_without_a_private_control_dir(
+        self, data, monkeypatch,
+    ):
+        monkeypatch.delenv("ANSIBLE_SSH_ARGS", raising=False)
+        monkeypatch.delenv("ANSIBLE_SSH_CONTROL_PATH_DIR", raising=False)
+        monkeypatch.setattr(canasta_cli, "ssh_control_path_dir", lambda: None)
+        from argparse import Namespace
+        args = Namespace(command="version", host=None, verbose=False)
+        canasta_cli.build_ansible_args(
+            "/usr/bin/ansible-playbook", "version", args, data,
+        )
+        assert "ControlMaster" not in os.environ["ANSIBLE_SSH_ARGS"]
+        assert "ANSIBLE_SSH_CONTROL_PATH_DIR" not in os.environ
+
+
+class TestSshControlPathDir:
+    def test_creates_a_private_per_user_dir(self, tmp_path):
+        path = canasta_cli.ssh_control_path_dir(str(tmp_path))
+        assert path == str(tmp_path / (".canasta-ssh-%d" % os.getuid()))
+        assert os.stat(path).st_mode & 0o777 == 0o700
+
+    def test_rejects_a_dir_others_can_reach(self, tmp_path):
+        d = tmp_path / (".canasta-ssh-%d" % os.getuid())
+        d.mkdir()
+        d.chmod(0o777)
+        assert canasta_cli.ssh_control_path_dir(str(tmp_path)) is None
+
+    def test_rejects_a_symlink(self, tmp_path):
+        real = tmp_path / "real"
+        real.mkdir(mode=0o700)
+        (tmp_path / (".canasta-ssh-%d" % os.getuid())).symlink_to(real)
+        assert canasta_cli.ssh_control_path_dir(str(tmp_path)) is None
+
+    def test_unwritable_base_disables_sharing(self, tmp_path):
+        base = tmp_path / "ro"
+        base.mkdir()
+        base.chmod(0o500)
+        try:
+            assert canasta_cli.ssh_control_path_dir(str(base)) is None
+        finally:
+            base.chmod(0o700)
+
 
 class TestHostCommandsBehavior:
     """Test that --host is passed through for commands that declare it

@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -1636,6 +1637,26 @@ def _cleanup_stale_vars_files():
             pass
 
 
+def ssh_control_path_dir(base="/tmp"):
+    """Return a directory for SSH control sockets, or None.
+
+    Per user, because Ansible refuses a control directory it cannot
+    write to, and private, because whoever can replace a socket in it
+    can stand in for the SSH connection. Kept under /tmp because the
+    socket path must fit in sun_path.
+    """
+    path = os.path.join(base, ".canasta-ssh-%d" % os.getuid())
+    try:
+        os.makedirs(path, mode=0o700, exist_ok=True)
+        st = os.lstat(path)
+    except OSError:
+        return None
+    if (not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid()
+            or st.st_mode & 0o077):
+        return None
+    return path
+
+
 def build_ansible_args(ansible_playbook, command_name, args, data):
     """Build the ansible-playbook command line.
 
@@ -1895,8 +1916,12 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     # target host. With no agent loaded the option is a no-op; with
     # one loaded, the user's keys flow through to the remote without
     # having to provision deploy keys on every gitops host.
-    os.environ.setdefault(
-        "ANSIBLE_SSH_ARGS",
+    #
+    # ANSIBLE_SSH_ARGS replaces ansible.cfg's ssh_args outright, so the
+    # connection-sharing options must be repeated here. Without them
+    # every task opens a new SSH connection, and a phase of many short
+    # tasks reaches sshd's connection-rate limits.
+    ssh_args = (
         "-o StrictHostKeyChecking=accept-new "
         "-o UserKnownHostsFile=~/.ssh/known_hosts "
         "-o ForwardAgent=yes "
@@ -1905,8 +1930,13 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         # firewall idle timeout. ServerAliveInterval keeps the SSH
         # session warm so the parent doesn't see a "Broken pipe"
         # while the remote is still working.
-        "-o ServerAliveInterval=30 -o ServerAliveCountMax=20",
+        "-o ServerAliveInterval=30 -o ServerAliveCountMax=20"
     )
+    control_dir = ssh_control_path_dir()
+    if control_dir:
+        ssh_args = "-o ControlMaster=auto -o ControlPersist=60s " + ssh_args
+        os.environ.setdefault("ANSIBLE_SSH_CONTROL_PATH_DIR", control_dir)
+    os.environ.setdefault("ANSIBLE_SSH_ARGS", ssh_args)
 
     # Hand the platform-correct config dir to Ansible. get_config_dir()
     # picks the macOS / Linux / root location; without exporting it,

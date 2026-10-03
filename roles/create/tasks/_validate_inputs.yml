@@ -77,6 +77,19 @@
     - _target_dir.stat.exists
     - _target_dir.stat.isdir | default(false)
 
+# A directory holding create's marker is what an earlier create left
+# when it stopped before starting containers without its rescue running
+# (an unreachable host skips the rescue). main.yml replaces it.
+- name: Probe target directory for an unfinished create
+  ansible.builtin.stat:
+    path: "{{ _target_path.stdout }}/{{ canasta_create_marker }}"
+  register: _create_marker
+  when: (_target_contents.matched | default(0)) > 0
+
+- name: Record whether the target is left over from an unfinished create
+  ansible.builtin.set_fact:
+    _create_leftover: "{{ _create_marker.stat.isreg | default(false) | bool }}"
+
 - name: Fail if target path exists but is not a directory
   ansible.builtin.fail:
     msg: >-
@@ -99,6 +112,7 @@
     - _target_dir.stat.exists
     - _target_dir.stat.isdir | default(false)
     - (_target_contents.matched | default(0)) > 0
+    - not _create_leftover
 
 # --- Stale-state check ---
 # Even when the registry has no entry for this instance, a prior
