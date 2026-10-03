@@ -11,6 +11,10 @@
     path: "{{ instance_path }}/config/backup-schedule.yml"
     state: absent
 
+- name: Stage the backup schedule for gitops
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/stage_backup_schedule.yml
+
 - name: Remove the schedule's crontab entry
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_unapply.yml

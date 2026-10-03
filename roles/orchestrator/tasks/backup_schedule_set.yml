@@ -31,6 +31,10 @@
          | to_nice_yaml }}
     mode: "0644"
 
+- name: Stage the backup schedule for gitops
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/stage_backup_schedule.yml
+
 - name: Materialize the schedule as a crontab entry
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_apply.yml
