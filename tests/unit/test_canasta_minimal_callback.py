@@ -285,3 +285,39 @@ class TestRunnerOnOkDebug:
         )
         cb.v2_runner_on_ok(result)
         assert cb._captured == []
+
+
+class TestRunnerItemOnOk:
+    """Each item of a looped debug task is rendered like a non-looped debug;
+    items of other modules stay silent."""
+
+    def _item(self, action="ansible.builtin.debug", **fields):
+        return SimpleNamespace(_result=dict(fields), _task=SimpleNamespace(action=action))
+
+    def test_each_debug_item_displayed(self):
+        cb = _make_callback()
+        cb.v2_runner_item_on_ok(self._item(msg="a — img:1", item="a"))
+        cb.v2_runner_item_on_ok(self._item(msg=["b", "c"], item="b"))
+        assert [m for (m, _, _) in cb._captured] == ["a — img:1", "b\nc"]
+
+    def test_non_debug_item_suppressed(self):
+        cb = _make_callback()
+        cb.v2_runner_item_on_ok(
+            self._item(action="ansible.builtin.command", msg="", stdout="x", item="a")
+        )
+        assert cb._captured == []
+
+    def test_censored_item_shows_nothing(self):
+        cb = _make_callback()
+        cb.v2_runner_item_on_ok(
+            self._item(censored="the output has been hidden due to the fact that"
+                       " 'no_log: true' was specified for this result")
+        )
+        assert cb._captured == []
+
+    def test_loop_aggregate_not_printed_again(self):
+        cb = _make_callback()
+        cb.v2_runner_on_ok(
+            self._item(msg="All items completed", results=[{"msg": "a"}])
+        )
+        assert cb._captured == []

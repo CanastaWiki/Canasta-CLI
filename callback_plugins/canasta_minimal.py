@@ -75,6 +75,12 @@ class CallbackModule(CallbackBase):
                     else:
                         self._display.display(msg_str)
 
+    def v2_runner_item_on_ok(self, result, *args, **kwargs):
+        # A looped task reports each item here and then an aggregate through
+        # v2_runner_on_ok whose msg is "All items completed", which is
+        # filtered there, so each item's debug msg is shown exactly once.
+        self.v2_runner_on_ok(result)
+
     def v2_runner_on_skipped(self, *args, **kwargs):
         # Ansible calls this with either (result) or (host, task, utr)
         # depending on whether it's a regular task or a meta task.
