@@ -13,21 +13,21 @@ metadata:
   namespace: {{ include "canasta.namespace" $ }}
   labels:
     {{- include "canasta.labels" $ | nindent 4 }}
-    app.kubernetes.io/component: {{ $sc.name }}
+    app.kubernetes.io/component: {{ $sc.name | quote }}
 spec:
   replicas: 1
   selector:
     matchLabels:
       {{- include "canasta.selectorLabels" $ | nindent 6 }}
-      app.kubernetes.io/component: {{ $sc.name }}
+      app.kubernetes.io/component: {{ $sc.name | quote }}
   template:
     metadata:
       labels:
         {{- include "canasta.selectorLabels" $ | nindent 8 }}
-        app.kubernetes.io/component: {{ $sc.name }}
+        app.kubernetes.io/component: {{ $sc.name | quote }}
     spec:
       containers:
-        - name: {{ $sc.name }}
+        - name: {{ $sc.name | quote }}
           {{- if $sc.build }}
           # Locally-built image, pushed to the in-cluster registry (see the
           # build/push step); re-pulled each rollout since the tag is reused.
@@ -49,32 +49,32 @@ spec:
           {{- if or $sc.env $sc.envSecret }}
           env:
             {{- range $k, $v := $sc.env }}
-            - name: {{ $k }}
+            - name: {{ $k | quote }}
               value: {{ $v | quote }}
             {{- end }}
             {{- range $sc.envSecret }}
-            - name: {{ . }}
+            - name: {{ . | quote }}
               valueFrom:
                 secretKeyRef:
                   name: {{ include "canasta.appSecretName" $ }}
-                  key: {{ . }}
+                  key: {{ . | quote }}
             {{- end }}
           {{- end }}
           {{- with $sc.ports }}
           ports:
             {{- range . }}
-            - containerPort: {{ . }}
+            - containerPort: {{ . | int }}
             {{- end }}
           {{- end }}
           {{- if or $sc.volumes $sc.files }}
           volumeMounts:
             {{- range $sc.volumes }}
-            - name: {{ .name }}
-              mountPath: {{ .mountPath }}
+            - name: {{ .name | quote }}
+              mountPath: {{ .mountPath | quote }}
             {{- end }}
             {{- range $i, $f := $sc.files }}
             - name: files
-              mountPath: {{ $f.mountPath }}
+              mountPath: {{ $f.mountPath | quote }}
               subPath: file-{{ $i }}
               readOnly: {{ $f.readOnly | default true }}
             {{- end }}
@@ -83,7 +83,7 @@ spec:
           resources:
             limits:
               {{- with .memory }}
-              memory: {{ . }}
+              memory: {{ . | quote }}
               {{- end }}
               {{- with .cpu }}
               cpu: {{ . | quote }}
@@ -98,7 +98,7 @@ spec:
       {{- if or (gt (len ($sc.volumes | default list)) 0) $sc.files }}
       volumes:
         {{- range $sc.volumes }}
-        - name: {{ .name }}
+        - name: {{ .name | quote }}
           {{- if .persistent }}
           persistentVolumeClaim:
             claimName: {{ include "canasta.fullname" $ }}-{{ $sc.name }}-{{ .name }}
@@ -117,20 +117,20 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ $sc.name }}
+  name: {{ $sc.name | quote }}
   namespace: {{ include "canasta.namespace" $ }}
   labels:
     {{- include "canasta.labels" $ | nindent 4 }}
-    app.kubernetes.io/component: {{ $sc.name }}
+    app.kubernetes.io/component: {{ $sc.name | quote }}
 spec:
   type: ClusterIP
   selector:
     {{- include "canasta.selectorLabels" $ | nindent 4 }}
-    app.kubernetes.io/component: {{ $sc.name }}
+    app.kubernetes.io/component: {{ $sc.name | quote }}
   ports:
     {{- range . }}
-    - port: {{ . }}
-      targetPort: {{ . }}
+    - port: {{ . | int }}
+      targetPort: {{ . | int }}
       protocol: TCP
     {{- end }}
 {{- end }}
@@ -144,7 +144,7 @@ metadata:
   namespace: {{ include "canasta.namespace" $ }}
   labels:
     {{- include "canasta.labels" $ | nindent 4 }}
-    app.kubernetes.io/component: {{ $sc.name }}
+    app.kubernetes.io/component: {{ $sc.name | quote }}
   annotations:
     # Keep a sidecar's data when the sidecar is removed (no surprise loss).
     helm.sh/resource-policy: keep
@@ -153,7 +153,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: {{ .size | default "1Gi" }}
+      storage: {{ .size | default "1Gi" | quote }}
 {{- end }}
 {{- end }}
 {{- if $sc.files }}
@@ -165,7 +165,7 @@ metadata:
   namespace: {{ include "canasta.namespace" $ }}
   labels:
     {{- include "canasta.labels" $ | nindent 4 }}
-    app.kubernetes.io/component: {{ $sc.name }}
+    app.kubernetes.io/component: {{ $sc.name | quote }}
 data:
   {{- range $i, $f := $sc.files }}
   file-{{ $i }}: |

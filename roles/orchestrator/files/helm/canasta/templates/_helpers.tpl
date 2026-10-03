@@ -94,14 +94,14 @@ exec:
     {{- toYaml .command | nindent 4 }}
 {{- else if .tcp }}
 tcpSocket:
-  port: {{ .tcp }}
+  port: {{ .tcp | int }}
 {{- else if .path }}
 httpGet:
-  path: {{ .path }}
-  port: {{ .port | default 80 }}
+  path: {{ .path | quote }}
+  port: {{ .port | default 80 | int }}
 {{- else }}
 tcpSocket:
-  port: {{ .port }}
+  port: {{ .port | int }}
 {{- end }}
 periodSeconds: 30
 timeoutSeconds: 5

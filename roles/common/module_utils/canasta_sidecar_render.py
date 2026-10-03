@@ -18,6 +18,8 @@ __metaclass__ = type
 import os
 import re
 
+from ansible.module_utils.canasta_validate import validate_sidecar_name
+
 _ENV_REF = re.compile(r"\$\{([A-Za-z_]\w*)(:-|-)?([^}]*)\}")
 
 
@@ -95,6 +97,83 @@ def validate_host_access(sidecars, instance_path):
                                           os.path.join(context, dockerfile)):
                 return ("sidecar '%s': build dockerfile must be inside the "
                         "instance directory" % name)
+    return None
+
+
+# --- Declaration shape ----------------------------------------------------- #
+# Values below are copied into the Compose override and interpolated into the
+# Helm chart, so only known build options pass through and every name or
+# quantity is held to a shape that cannot carry extra YAML or build options.
+
+_BUILD_KEYS = ("args", "context", "dockerfile")
+_ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\Z")
+_QUANTITY = re.compile(
+    r"^[0-9]+(\.[0-9]+)?([KMGTPE]i|[bkmgtpeKMGTPE][bB]?)?\Z")
+
+
+def _scalar(value):
+    return value is None or isinstance(value, (str, int, float, bool))
+
+
+def _quantity(value):
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return value >= 0
+    return isinstance(value, str) and bool(_QUANTITY.match(value))
+
+
+def validate_spec(sidecars):
+    """Return None if every sidecar's names, env keys, build options, and
+    resource quantities are well-formed, else an error."""
+    for sidecar in sidecars or []:
+        if not isinstance(sidecar, dict):
+            return "each sidecar must be a mapping"
+        name = sidecar.get("name")
+        if not isinstance(name, str):
+            return "each sidecar must have a name"
+        error = validate_sidecar_name(name)
+        if error:
+            return error
+        env = sidecar.get("env")
+        if env is not None and not isinstance(env, dict):
+            return "sidecar '%s': env must be a mapping" % name
+        for field, keys in (("env", list((env or {}).keys())),
+                            ("envSecret", sidecar.get("envSecret") or []),
+                            ("envPrivate", sidecar.get("envPrivate") or [])):
+            if not isinstance(keys, list):
+                return "sidecar '%s': %s must be a list" % (name, field)
+            for key in keys:
+                if not isinstance(key, str) or not _ENV_KEY.match(key):
+                    return ("sidecar '%s': %s key '%s' is invalid: use "
+                            "letters, digits, and underscores, not starting "
+                            "with a digit" % (name, field, key))
+        build = sidecar.get("build")
+        if isinstance(build, dict):
+            for key in build:
+                if key not in _BUILD_KEYS:
+                    return ("sidecar '%s': build option '%s' is not allowed "
+                            "(allowed: %s)"
+                            % (name, key, ", ".join(_BUILD_KEYS)))
+            args = build.get("args")
+            if args is not None and (
+                    not isinstance(args, dict)
+                    or not all(isinstance(k, str) and _scalar(v)
+                               for k, v in args.items())):
+                return ("sidecar '%s': build args must be a mapping of "
+                        "names to single values" % name)
+        elif build is not None and not isinstance(build, str):
+            return ("sidecar '%s': build must be a context path or a "
+                    "mapping" % name)
+        resources = sidecar.get("resources")
+        if resources is not None:
+            if not isinstance(resources, dict):
+                return "sidecar '%s': resources must be a mapping" % name
+            for key in ("memory", "cpu"):
+                if key in resources and not _quantity(resources[key]):
+                    return ("sidecar '%s': resources %s '%s' is not a "
+                            "quantity such as 512Mi or 0.5"
+                            % (name, key, resources[key]))
     return None
 
 
@@ -302,7 +381,7 @@ def render_k8s_values(sidecars, env, file_reader):
         if sidecar.get("files"):
             item["files"] = [
                 {"mountPath": fileref["mountPath"],
-                 "readOnly": fileref.get("readOnly", True),
+                 "readOnly": bool(fileref.get("readOnly", True)),
                  "content": file_reader(fileref["source"])}
                 for fileref in sidecar["files"]
             ]
