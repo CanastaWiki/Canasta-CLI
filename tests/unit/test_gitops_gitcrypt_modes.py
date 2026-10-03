@@ -106,6 +106,32 @@ class TestLockDetection:
         assert "_gitcrypt_unlock_sym.rc" in task["when"]
         assert "_gitcrypt_unlock_gpg.rc" in task["when"]
 
+    def test_dirty_tree_is_reported_before_any_unlock(self):
+        block = self._tasks()[1]["block"]
+        names = [t.get("name") for t in block]
+        fail = names.index("Fail when uncommitted changes block git-crypt unlock")
+        assert names.index(
+            "Check for uncommitted changes that block git-crypt unlock") < fail
+        assert fail < names.index("Unlock with the symmetric key")
+        assert fail < names.index("Run git-crypt unlock through the GPG agent")
+
+    def test_dirty_check_matches_git_crypt_and_ignores_untracked(self):
+        task = _named(self._tasks(),
+                      "Check for uncommitted changes that block git-crypt unlock")
+        cmd = task["ansible.builtin.command"]["cmd"]
+        assert "--porcelain" in cmd and "--untracked-files=no" in cmd
+
+    def test_dirty_message_says_how_to_reach_a_clean_tree(self):
+        task = _named(self._tasks(),
+                      "Fail when uncommitted changes block git-crypt unlock")
+        msg = task["ansible.builtin.fail"]["msg"]
+        assert "_gitcrypt_dirty.stdout" in task["when"]
+        assert "git stash push" in msg
+        assert "git stash pop --index" in msg
+        assert "git-crypt unlock /path/to/gitops.key" in msg
+        assert "forwarded agent" in msg
+        assert "private key" not in msg
+
 
 class TestStatusModeDetection:
     def test_gpg_recipient_file_means_gpg(self, tmp_path):
