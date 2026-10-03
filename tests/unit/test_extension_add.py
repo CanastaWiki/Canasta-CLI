@@ -5,7 +5,9 @@ must fail loudly.
 """
 
 import os
+import subprocess
 
+import pytest
 import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -28,6 +30,20 @@ def _walk(tasks):
         for nested in ("block", "rescue", "always"):
             if nested in t:
                 yield from _walk(t[nested])
+
+
+def _image_layout(w, item_type, bundled, user, broken=()):
+    # The web image's w/<type>: entries link into ../canasta-<type> for
+    # bundled items and ../user-<type> for the instance's own.
+    links = w / item_type
+    links.mkdir(parents=True, exist_ok=True)
+    for prefix, names in (("canasta", bundled), ("user", user)):
+        (w / f"{prefix}-{item_type}").mkdir(exist_ok=True)
+        for n in names:
+            (w / f"{prefix}-{item_type}" / n).mkdir()
+            (links / n).symlink_to(f"../{prefix}-{item_type}/{n}")
+    for n in broken:
+        (links / n).symlink_to(f"../canasta-{item_type}/{n}")
 
 
 def _cmd(t):
@@ -364,10 +380,36 @@ class TestBundledProbe:
         return next(t for t in _walk(_load(ADD))
                     if t.get("name", "").startswith("Probe bundled"))
 
-    def test_probe_lists_real_directories_not_symlinks(self):
+    def _run_probe(self, w, item_type):
         cmd = self._probe()["block"][0]["vars"]["exec_command"]
         assert "/var/www/mediawiki/w/{{ _item_type }}" in cmd
-        assert '[ -d "$d" ]' in cmd and '[ ! -L "$d" ]' in cmd
+        cmd = (cmd.replace("/var/www/mediawiki/w", str(w))
+                  .replace("{{ _item_type }}", item_type))
+        out = subprocess.run(["sh", "-c", cmd], capture_output=True,
+                             text=True, check=True).stdout
+        return sorted(out.split())
+
+    @pytest.mark.parametrize("item_type", ["extensions", "skins"])
+    def test_symlinks_into_canasta_dir_are_bundled(self, tmp_path, item_type):
+        _image_layout(tmp_path, item_type, bundled=["AJAXPoll", "Cite"],
+                      user=["MyExt"], broken=["Gone"])
+        assert self._run_probe(tmp_path, item_type) == ["AJAXPoll", "Cite"]
+
+    def test_user_override_of_bundled_name_is_not_bundled(self, tmp_path):
+        _image_layout(tmp_path, "extensions", bundled=["Cite"], user=[])
+        (tmp_path / "user-extensions" / "Cite").mkdir()
+        link = tmp_path / "extensions" / "Cite"
+        link.unlink()
+        link.symlink_to("../user-extensions/Cite")
+        assert self._run_probe(tmp_path, "extensions") == []
+
+    def test_real_directories_are_bundled(self, tmp_path):
+        (tmp_path / "extensions" / "Cite").mkdir(parents=True)
+        assert self._run_probe(tmp_path, "extensions") == ["Cite"]
+
+    def test_empty_directory_lists_nothing(self, tmp_path):
+        (tmp_path / "extensions").mkdir()
+        assert self._run_probe(tmp_path, "extensions") == []
 
     def test_probe_failure_fails_instead_of_assuming_not_bundled(self):
         rescue = self._probe()["rescue"]

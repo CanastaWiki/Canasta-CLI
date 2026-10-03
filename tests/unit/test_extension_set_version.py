@@ -4,7 +4,9 @@ refuse a name that isn't a registered submodule.
 """
 
 import os
+import subprocess
 
+import pytest
 import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -109,6 +111,44 @@ class TestExtensionSetVersion:
         assert "_ext_run_update" in text, (
             "--run-update must be able to skip update.php when the pinned "
             "version registers no schema updates")
+
+
+class TestBundledProbe:
+    def _run(self, w, name):
+        cmd = next(c for c in _exec_commands(_load(TASK))
+                   if "/var/www/mediawiki/w/extensions" in c)
+        cmd = (cmd.replace("/var/www/mediawiki/w", str(w))
+                  .replace("{{ extension_name | quote }}", name))
+        return subprocess.run(["sh", "-c", cmd], capture_output=True,
+                              text=True, check=True).stdout.strip()
+
+    @pytest.fixture
+    def w(self, tmp_path):
+        for d in ("extensions", "canasta-extensions/Cite",
+                  "user-extensions/MyExt", "canasta-extensions/Echo",
+                  "user-extensions/Echo"):
+            (tmp_path / d).mkdir(parents=True, exist_ok=True)
+        links = tmp_path / "extensions"
+        (links / "Cite").symlink_to("../canasta-extensions/Cite")
+        (links / "MyExt").symlink_to("../user-extensions/MyExt")
+        (links / "Echo").symlink_to("../user-extensions/Echo")
+        return tmp_path
+
+    def test_symlink_into_canasta_extensions_is_bundled(self, w):
+        assert self._run(w, "Cite") == "bundled"
+
+    def test_real_directory_is_bundled(self, w):
+        (w / "extensions" / "Legacy").mkdir()
+        assert self._run(w, "Legacy") == "bundled"
+
+    def test_user_extension_is_not_bundled(self, w):
+        assert self._run(w, "MyExt") == "other"
+
+    def test_user_override_of_bundled_name_is_not_bundled(self, w):
+        assert self._run(w, "Echo") == "other"
+
+    def test_missing_name_is_not_bundled(self, w):
+        assert self._run(w, "Nope") == "other"
 
 
 class TestCommandRegistered:
