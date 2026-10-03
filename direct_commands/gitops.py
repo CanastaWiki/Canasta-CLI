@@ -49,7 +49,8 @@ def _gitops_status_script(path, ssh_key=None):
         "echo '%(d)s'; "
         "cat hosts/hosts.yaml 2>/dev/null || echo MISSING; "
         "echo '%(d)s'; "
-        "git rev-parse --short HEAD 2>/dev/null || echo none; "
+        "git rev-parse --short HEAD 2>/dev/null "
+        "|| { [ -e .git ] && echo NOCOMMIT || echo none; }; "
         "echo '%(d)s'; "
         "cat .gitops-applied 2>/dev/null || echo none; "
         "echo '%(d)s'; "
@@ -217,6 +218,14 @@ def _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift):
     return lines
 
 
+# --ssh-key is not remembered between commands, so a host that needed it for
+# init, join, push or pull needs it again here.
+_FETCH_FAILED_HINT = (
+    "Check network access to the repository. If this host authenticates "
+    "with an SSH key file, pass it with --ssh-key <path>."
+)
+
+
 def _parse_remote_sync(section):
     """Parse the fetch-status + rev-list section into (ahead, behind, state).
 
@@ -250,6 +259,20 @@ def _parse_remote_sync(section):
         return int(fields[0]), int(fields[1]), "ok"
     except (ValueError, IndexError):
         return 0, 0, "no_upstream"
+
+
+def _unfinished_setup_message(instance_id, id_label):
+    """Status for a .git with no commit, which an init that stopped partway
+    leaves behind and which a plain retry of init refuses to run over."""
+    return "\n".join([
+        "%s%s" % (id_label, instance_id),
+        "GitOps:".ljust(len(id_label)) + "setup did not finish.",
+        "",
+        "This instance has a git repository with no commits: a previous "
+        "'canasta gitops init' stopped partway.",
+        "Start over with 'canasta gitops init --reinit' (new repo) or "
+        "'canasta gitops join --reinit' (existing repo).",
+    ])
 
 
 def _parse_gitops_status(stdout, instance_id):
@@ -295,6 +318,9 @@ def _parse_gitops_status(stdout, instance_id):
             "'canasta gitops join' (existing repo).",
         ])
 
+    if commit == "NOCOMMIT":
+        return _unfinished_setup_message(instance_id, "Canasta ID:     ")
+
     lines = [
         "Host:           %s" % hostname,
         "Role:           %s" % role,
@@ -313,8 +339,8 @@ def _parse_gitops_status(stdout, instance_id):
         lines.append("")
 
     if remote_state == "fetch_failed":
-        lines.append("Remote status unknown (could not fetch from the remote — "
-                     "check the deploy key / network).")
+        lines.append("Remote status unknown (could not fetch from the remote).")
+        lines.append(_FETCH_FAILED_HINT)
     elif remote_state == "no_upstream":
         lines.append("Remote status unknown (no upstream tracking configured).")
     elif ahead > 0:
@@ -419,6 +445,8 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
     if hostname == "MISSING":
         hostname = "unknown"
     commit = parts[2].strip() if len(parts) > 2 else "none"
+    if commit == "NOCOMMIT":
+        return _unfinished_setup_message(instance_id, "Canasta ID:       ")
     ahead, behind, remote_state = _parse_remote_sync(
         parts[6] if len(parts) > 6 else "")
 
@@ -443,6 +471,8 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
                   if remote_state == "fetch_failed"
                   else "no upstream tracking configured")
         lines.append("Remote status:    unknown (%s)" % reason)
+        if remote_state == "fetch_failed":
+            lines.append(_FETCH_FAILED_HINT)
     lines.append("")
     lines.extend(
         _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift)

@@ -108,6 +108,16 @@ class TestJoinUnlockChoice:
                       "Fail if symmetric git-crypt repo but no --key provided")
         assert task["when"] == "_join_unlock == 'none'"
 
+    def test_wrong_key_fails_without_raw_git_crypt_output(self):
+        unlock = _named(_load("join.yml"), "Unlock git-crypt with the key")
+        assert unlock["failed_when"] is False
+        explain = _named(_load("join.yml"),
+                         "Fail if the key does not unlock the repository")
+        assert explain["when"] == "_join_unlock_result.rc != 0"
+        msg = explain["ansible.builtin.fail"]["msg"]
+        assert "does not unlock this gitops repository" in msg
+        assert "_join_unlock_result" not in msg
+
     def test_kubernetes_join_requires_key(self):
         task = _named(_load("join_kubernetes.yml"),
                       "Require --key (the SSH deploy key basename)")

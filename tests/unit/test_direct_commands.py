@@ -2365,6 +2365,34 @@ class TestParseGitopsStatus:
         assert "Up to date with remote." not in result
         assert "No changes." not in result
 
+    def test_git_without_commit_reported_as_unfinished_setup(self):
+        # A .git with no commit is what an init that stopped partway leaves;
+        # init refuses to run over it without --reinit, so status must not
+        # claim there is no git repository.
+        out = self._make_output(hostname="MISSING", commit="NOCOMMIT",
+                                applied="none")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "no git repository" not in result
+        assert "setup did not finish" in result
+        assert "canasta gitops init --reinit" in result
+        assert "Up to date with remote." not in result
+
+    def test_script_distinguishes_empty_git_from_no_git(self, tmp_path):
+        script = direct_commands._gitops_status_script(str(tmp_path))
+        d = direct_commands._SENTINEL + "\n"
+
+        # Keep git from finding an enclosing repository above tmp_path.
+        env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(tmp_path.parent))
+
+        def commit_field():
+            out = subprocess.run(["bash", "-c", script], capture_output=True,
+                                 text=True, timeout=30, env=env).stdout
+            return out.split(d)[2].strip()
+
+        assert commit_field() == "none"
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        assert commit_field() == "NOCOMMIT"
+
     def test_with_staged_files(self):
         # git diff --name-status format: <CODE>\t<path>
         out = self._make_output(
@@ -2466,6 +2494,11 @@ class TestParseGitopsStatus:
         result = direct_commands._parse_gitops_status(out, "mysite")
         assert "Remote status unknown" in result
         assert "Up to date with remote." not in result
+
+    def test_fetch_failed_hint_names_ssh_key(self):
+        out = self._make_output(fetch="fail")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "--ssh-key" in result
 
     def test_no_upstream_reports_unknown(self):
         out = self._make_output(fetch="ok", revcount="REVLIST:fail")
@@ -2826,6 +2859,15 @@ class TestParseGitopsStatusK8s:
         assert "Sync status:    OutOfSync" in result
         assert "canasta gitops sync" in result
 
+    def test_git_without_commit_reported_as_unfinished_setup(self):
+        out = self._make_output(hostname="MISSING", commit="NOCOMMIT")
+        argocd = ("Unknown", "Unknown", "never", "unknown")
+        result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
+        assert "Canasta ID:       mysite" in result
+        assert "setup did not finish" in result
+        assert "canasta gitops init --reinit" in result
+        assert "NOCOMMIT" not in result
+
     def test_missing_host_file_shows_unknown(self):
         out = self._make_output(hostname="MISSING")
         argocd = ("Not registered", "N/A", "never", "unknown")
@@ -2847,6 +2889,14 @@ class TestParseGitopsStatusK8s:
         result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
         assert "Remote status:    unknown" in result
         assert "Ahead of remote:" not in result
+        assert "--ssh-key" in result
+
+    def test_no_upstream_has_no_ssh_key_hint(self):
+        out = self._make_output(fetch="ok", revcount="REVLIST:fail")
+        argocd = ("Synced", "Healthy", "never", "unknown")
+        result = direct_commands._parse_gitops_status_k8s(out, "mysite", argocd)
+        assert "no upstream tracking" in result
+        assert "--ssh-key" not in result
 
     def test_untracked_files_surfaced(self):
         # A K8s instance with an uncaptured file (e.g. wikis.yaml.template

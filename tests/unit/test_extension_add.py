@@ -294,21 +294,55 @@ class TestResolve:
 
 
 class TestFailedSubmoduleAdd:
-    def _submodule_block(self):
+    def _task(self, name):
         return next(t for t in _walk(_load(ADD_ONE))
-                    if t.get("name", "").startswith("Add {{ _item_type }} as a gitops submodule"))
+                    if t.get("name", "").startswith(name))
 
-    def test_rescue_deletes_clone_and_module_metadata(self):
-        block = self._submodule_block()
-        assert "submodule add" in _cmd(block["block"][0])
-        paths = block["rescue"][0]["loop"]
+    def test_failure_is_handled_not_displayed_raw(self):
+        add = self._task("Add {{ _item_type }} as a gitops submodule")
+        assert "submodule add" in _cmd(add)
+        assert add["register"] == "_submodule_add"
+        assert add["failed_when"] is False
+
+    def test_failure_deletes_clone_and_module_metadata(self):
+        cleanup = self._task("Delete the partial checkout of")
+        assert cleanup["when"] == "_submodule_add.rc | default(0) != 0"
+        paths = cleanup["loop"]
         assert any("/.git/modules/" in p for p in paths)
         assert any(p.endswith("{{ _item_dir }}/{{ item.name }}")
                    and ".git" not in p for p in paths)
 
-    def test_rescue_still_fails(self):
-        rescue = self._submodule_block()["rescue"]
-        assert "ansible.builtin.fail" in rescue[-1]
+    def test_failure_still_fails_after_cleanup(self):
+        tasks = _load(ADD_ONE)
+        names = _names(tasks)
+        fail = self._task("Fail: could not add")
+        assert "ansible.builtin.fail" in fail
+        assert fail["when"] == "_submodule_add.rc | default(0) != 0"
+        assert (_index(tasks, "Delete the partial checkout of")
+                < names.index(fail["name"]))
+
+    def test_missing_branch_gets_its_own_message(self):
+        msg = self._task("Fail: could not add")["ansible.builtin.fail"]["msg"]
+        assert "'is not a commit' in" in msg
+        assert "_missing_branch_msg" in msg
+
+
+class TestMissingBranchOnPlainClone:
+    def _task(self, name):
+        return next(t for t in _walk(_load(ADD_ONE))
+                    if t.get("name", "").startswith(name))
+
+    def test_message_names_branch_and_flag(self):
+        msg = self._task("Describe a missing branch for")[
+            "ansible.builtin.set_fact"]["_missing_branch_msg"]
+        assert "{{ item.branch }}" in msg and "--branch" in msg
+
+    def test_missing_branch_is_not_a_raw_clone_failure(self):
+        clone = self._task("Add {{ _item_type }} as a plain clone")
+        assert clone["register"] == "_plain_clone"
+        assert "'not found in upstream' not in" in clone["failed_when"]
+        fail = self._task("Fail: branch not found for")
+        assert fail["ansible.builtin.fail"]["msg"] == "{{ _missing_branch_msg }}"
 
     def test_branch_is_quoted(self):
         for t in _walk(_load(ADD_ONE)):
