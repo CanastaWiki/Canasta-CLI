@@ -19,6 +19,7 @@
   ansible.builtin.stat:
     path: "{{ _exported_key_path }}"
   register: _exported_key_stat
+  delegate_to: canasta_controller
 
 - name: Fail when the exported key did not land
   ansible.builtin.fail:
