@@ -109,6 +109,7 @@
         - not (keep_config | default(false) | bool)
         - instance_dir_was_created | default(false) | bool
       changed_when: true
+      register: _create_dir_removal
       ignore_errors: true  # Best-effort cleanup on failure
 
     - name: Deregister instance on failure
@@ -123,4 +124,10 @@
 
     - name: Report failure
       ansible.builtin.fail:
-        msg: "Instance creation failed.{{ (keep_config | default(false) | bool) | ternary(' Config files kept.', ' Files cleaned up.') }}"
+        msg: >-
+          Instance creation failed.{%
+          if instance_dir_was_created is defined
+             and (keep_config | default(false) | bool) %} Config files kept.{%
+          elif (_create_dir_removal.changed | default(false))
+               and not (_create_dir_removal.failed | default(false)) %} Files cleaned up.{%
+          endif %}
