@@ -59,6 +59,15 @@ class TestDevmodeGuards:
         assert any(n for n in fails if "in dev" in n.lower()
                    and "already" not in n.lower())
 
+    def test_empty_canasta_image_falls_back_to_default(self):
+        # canasta_env read returns "" for a missing key, so default() alone
+        # never fires.
+        tasks = _load(os.path.join(DEVMODE_TASKS, "enable.yml"))
+        task = next(t for t in tasks if isinstance(t, dict)
+                    and t.get("name") == "Set base image")
+        expr = task["ansible.builtin.set_fact"]["_dev_base_image"]
+        assert "default(canasta_default_image, true)" in expr
+
 
 class TestDevmodeRegistryUpdate:
     """Toggling dev mode must touch devMode and nothing else.

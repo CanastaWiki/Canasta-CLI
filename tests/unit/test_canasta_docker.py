@@ -434,15 +434,20 @@ class TestHostPWDEnvVar:
 
 
 @pytest.mark.skipif(os.getuid() == 0, reason="override applies to non-root")
-class TestRemoteTempIsPerUser:
-    """ANSIBLE_REMOTE_TEMP must not be a single /tmp path shared by every
-    account on an SSH target."""
+class TestRemoteTempIsLocalOnly:
+    """The /tmp remote temp dir must not reach SSH targets, where /tmp is
+    shared with other accounts."""
 
-    def test_remote_temp_references_target_user(self):
+    def test_remote_temp_not_set_globally(self):
         argv, _ = run_dry(["version"])
-        # Literal $USER: expanded on the target, not by the wrapper.
-        assert_env_var(argv, "ANSIBLE_REMOTE_TEMP",
-                       "/tmp/ansible-remote-$USER")
+        assert not any(
+            a.startswith("ANSIBLE_REMOTE_TEMP=") for a in argv
+        ), "\n".join(argv)
+
+    def test_local_remote_temp_is_passed(self):
+        argv, _ = run_dry(["version"])
+        assert_env_var(argv, "CANASTA_LOCAL_REMOTE_TEMP",
+                       "/tmp/ansible-remote")
 
     def test_user_is_set_in_container(self):
         argv, _ = run_dry(["version"])

@@ -212,7 +212,7 @@ services:
       - /var/lib/varnish:exec
 
   opensearch:
-    image: opensearchproject/opensearch:2.11.1
+    image: docker.io/opensearchproject/opensearch:2.11.1
     profiles:
       - observable
     restart: unless-stopped
@@ -231,7 +231,7 @@ services:
       - opensearch-data:/usr/share/opensearch/data
 
   logstash:
-    image: opensearchproject/logstash-oss-with-opensearch-output-plugin:8.9.0
+    image: docker.io/opensearchproject/logstash-oss-with-opensearch-output-plugin:8.9.0
     # root is required to read log files owned by other containers' users
     user: root
     profiles:
@@ -253,7 +253,7 @@ services:
       - "LS_JAVA_OPTS=-Xms256m -Xmx256m"
 
   opensearch-dashboards:
-    image: opensearchproject/opensearch-dashboards:2.11.1
+    image: docker.io/opensearchproject/opensearch-dashboards:2.11.1
     profiles:
       - observable
     restart: unless-stopped
@@ -287,7 +287,7 @@ services:
     # from CANASTA_ENABLE_CROWDSEC. It parses the Caddy access log,
     # correlates attack patterns, and publishes IP decisions that the
     # caddy-crowdsec-bouncer enforces.
-    image: crowdsecurity/crowdsec:v1.6.11
+    image: docker.io/crowdsecurity/crowdsec:v1.6.11
     profiles:
       - crowdsec
     restart: unless-stopped

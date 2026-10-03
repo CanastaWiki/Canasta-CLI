@@ -97,7 +97,7 @@ class TestCrowdsecComposeService:
 
     def test_crowdsec_image_is_pinned(self):
         svc = _load_compose()["services"]["crowdsec"]
-        assert svc["image"].startswith("crowdsecurity/crowdsec:v"), (
+        assert svc["image"].startswith("docker.io/crowdsecurity/crowdsec:v"), (
             "crowdsec image must be pinned to a specific tag, not floating"
         )
 

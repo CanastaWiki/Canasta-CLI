@@ -1,0 +1,18 @@
+---
+# Stage config/backup-schedule.yml (an add, edit, or removal) on a gitops
+# instance so the next push distributes it. No-op without the gitops marker.
+#
+# Input: instance_path, canasta_root.
+
+- name: Check for gitops instance
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _sbs_gitops
+
+- name: Stage the backup schedule for gitops
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/_stage_tracked_paths.yml
+  vars:
+    _stage_paths:
+      - config/backup-schedule.yml
+  when: _sbs_gitops.stat.exists

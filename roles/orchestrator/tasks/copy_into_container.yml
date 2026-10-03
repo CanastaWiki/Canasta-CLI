@@ -1,17 +1,55 @@
 ---
 # Copy a file from the target host into a service container/pod.
-# Compose: docker compose cp. Kubernetes: kubectl cp into the running pod.
+# Compose: docker compose cp, or podman cp into the service's running
+# container under Podman. Kubernetes: kubectl cp into the running pod.
 # Input:
 #   instance_path, instance_orchestrator, instance_id
 #   copy_service - component/service to copy into (e.g. db)
 #   copy_src     - source path on the target host
 #   copy_dest    - destination path inside the container/pod
 
+# podman-compose has no `cp`, so Podman copies against the container itself.
+- name: Find the running service container (Podman)
+  ansible.builtin.command:
+    argv:
+      - "{{ inspect_command | default('podman') }}"
+      - ps
+      - -q
+      - --filter
+      - status=running
+      - --filter
+      - "label=com.docker.compose.project={{ instance_path | basename | lower }}"
+      - --filter
+      - "label=com.docker.compose.service={{ copy_service }}"
+  register: _copy_podman_ps
+  changed_when: false
+  when:
+    - instance_orchestrator | default('compose') == 'compose'
+    - compose_command is search('podman')
+
+- name: Fail when the service container is not running (Podman)
+  ansible.builtin.fail:
+    msg: "No running '{{ copy_service }}' container found in {{ instance_path }}."
+  when:
+    - instance_orchestrator | default('compose') == 'compose'
+    - compose_command is search('podman')
+    - _copy_podman_ps.stdout | trim | length == 0
+
+- name: Choose the copy command (Compose)
+  ansible.builtin.set_fact:
+    _copy_cli: >-
+      {{ (inspect_command | default('podman'))
+         if compose_command is search('podman') else compose_command }}
+    _copy_target: >-
+      {{ _copy_podman_ps.stdout_lines[0]
+         if compose_command is search('podman') else copy_service }}
+  when: instance_orchestrator | default('compose') == 'compose'
+
 - name: Copy file into container (Compose)
   ansible.builtin.command:
     cmd: >-
-      {{ compose_command }} cp {{ copy_src | quote }}
-      {{ (copy_service + ':' + copy_dest) | quote }}
+      {{ _copy_cli }} cp {{ copy_src | quote }}
+      {{ (_copy_target + ':' + copy_dest) | quote }}
     chdir: "{{ instance_path }}"
   changed_when: true
   when: instance_orchestrator | default('compose') == 'compose'
