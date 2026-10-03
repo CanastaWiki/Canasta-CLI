@@ -43,16 +43,15 @@ def _task(path, name):
 
 
 @pytest.mark.parametrize("value", AWKWARD)
-def test_vars_yaml_round_trips(tmp_path, value):
+def test_vars_yaml_round_trips(value):
     task = _task(INIT, "Build vars content (placeholder values + wiki URLs + admin passwords)")
-    (tmp_path / "admin-password_main").write_text(value)
     templar = Templar(loader=DataLoader(), variables={
         "_gitops_env": {"variables": {"MYSQL_PASSWORD": value, "HTTP_PORT": "80"}},
         "canasta_secret_key_regex": "PASSWORD",
         "canasta_host_specific_nonsecret": ["HTTP_PORT"],
         "_gitops_wikis": {"wikis": [{"id": "main", "url": value}],
                           "wiki_ids": ["main"]},
-        "instance_path": str(tmp_path),
+        "_gitops_admin_passwords": {"admin_password_main": value},
     })
     rendered = templar.template(
         trust_as_template(task["ansible.builtin.copy"]["content"]))

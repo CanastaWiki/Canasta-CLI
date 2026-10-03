@@ -12,6 +12,7 @@ import subprocess
 import pytest
 import yaml
 
+import canasta_override_migrate
 import canasta_render_sidecars
 import canasta_sidecar_render as render
 import canasta_sidecars_yaml
@@ -63,6 +64,82 @@ def test_build_options_outside_the_allowlist_are_refused(build, key):
     assert error is not None
     assert "build option '%s' is not allowed" % key in error
     assert "args, context, dockerfile" in error
+
+
+ALLOWED_KEYS = ("name, image, build, command, env, envSecret, envPrivate, "
+                "ports, volumes, files, depends_on, healthcheck, resources")
+
+
+def test_every_documented_key_is_accepted():
+    sidecar = {
+        "name": "helper", "image": "example/helper:1.0",
+        "command": ["serve", "--port", "8080"],
+        "env": {"A": "1", "B": "${B:-x}"}, "envSecret": ["S"],
+        "envPrivate": ["A"], "ports": [8080],
+        "volumes": [{"name": "data", "mountPath": "/data",
+                     "persistent": True, "size": "1Gi"}],
+        "files": [{"source": "config/x.conf", "mountPath": "/etc/x.conf"}],
+        "depends_on": ["cache"],
+        "healthcheck": {"path": "/health", "port": 8080},
+        "resources": {"memory": "256Mi", "cpu": "0.5"},
+    }
+    assert render.validate_spec([sidecar]) is None
+    assert canasta_sidecars_yaml.validate_sidecars([sidecar]) is None
+    built = dict(sidecar, build="sidecars/helper")
+    del built["image"]
+    assert render.validate_spec([built]) is None
+
+
+@pytest.mark.parametrize("key, hint", [
+    ("port", "ports"),
+    ("depends-on", "depends_on"),
+    ("replicas", None),
+    ("privileged", None),
+    ("environment", None),
+])
+def test_unknown_sidecar_keys_are_refused(key, hint):
+    error = render.validate_spec(_one(**{key: 80}))
+    assert error is not None
+    assert "sidecar 'helper': key '%s' is not allowed" % key in error
+    assert ALLOWED_KEYS in error
+    if hint:
+        assert "did you mean '%s'?" % hint in error
+    else:
+        assert "did you mean" not in error
+
+
+def test_sidecar_add_refuses_an_unknown_key():
+    error = canasta_sidecars_yaml.validate_sidecars(_one(port=80))
+    assert error is not None and "key 'port' is not allowed" in error
+
+
+def test_sidecar_add_module_refuses_an_unknown_key(tmp_dir):
+    _, failed, msg = run_module_with_params(canasta_sidecars_yaml, {
+        "instance_path": tmp_dir, "state": "import",
+        "definitions": "name: helper\nimage: example/helper:1.0\nport: 80\n"})
+    assert failed
+    assert "key 'port' is not allowed" in msg
+    assert not os.path.exists(os.path.join(tmp_dir, "config", "sidecars.yaml"))
+
+
+def test_migrated_sidecars_validate():
+    override = {"services": {
+        "helper": {
+            "image": "example/helper:1.0", "restart": "unless-stopped",
+            "command": ["serve"], "environment": ["A=1", "B=2"],
+            "expose": ["8080"], "ports": ["9090:9090"],
+            "volumes": ["data:/data", "./config/x.conf:/etc/x.conf:ro",
+                        "/scratch"],
+            "depends_on": ["cache"],
+            "healthcheck": {"test": ["CMD", "true"]},
+            "deploy": {"resources": {"limits": {"memory": "512M",
+                                                "cpus": "0.5"}}},
+        },
+        "cache": {"build": "sidecars/cache"},
+    }}
+    plan = canasta_override_migrate.plan_migration(override)
+    assert plan["migrated"] == ["helper", "cache"]
+    assert canasta_sidecars_yaml.validate_sidecars(plan["sidecars"]) is None
 
 
 @pytest.mark.parametrize("args", [
@@ -132,6 +209,19 @@ def test_render_module_refuses_and_writes_nothing(tmp_dir, orchestrator, artifac
     assert failed
     assert "Refusing config/sidecars.yaml" in msg
     assert "additional_contexts" in msg
+    assert not os.path.exists(os.path.join(tmp_dir, artifact))
+
+
+@pytest.mark.parametrize("orchestrator, artifact", [
+    ("compose", "docker-compose.sidecars.yml"),
+    ("kubernetes", "values-sidecars.yaml"),
+])
+def test_render_module_refuses_an_unknown_key(tmp_dir, orchestrator, artifact):
+    _write_sidecars(tmp_dir, _one(port=80))
+    _, failed, msg = run_module_with_params(canasta_render_sidecars, {
+        "instance_path": tmp_dir, "orchestrator": orchestrator})
+    assert failed
+    assert "key 'port' is not allowed" in msg
     assert not os.path.exists(os.path.join(tmp_dir, artifact))
 
 
