@@ -1,0 +1,34 @@
+---
+# Fingerprint what .env and config/wikis.yaml say, not how they are laid out.
+# A host's files written by create or config differ from a render of the
+# templates in quoting, blank lines, and key order while meaning the same
+# thing, so a byte checksum would flag a restart for a render that changes
+# nothing.
+#
+# Input:  instance_path
+# Output: _rendered_fingerprint, {'env': <sha1>, 'wikis': <sha1>}; a missing
+#         file fingerprints as ''.
+
+- name: Read .env for fingerprinting
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _rendered_fp_env
+  no_log: true  # registers the whole .env, including passwords
+
+- name: Read config/wikis.yaml for fingerprinting
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/wikis.yaml"
+  register: _rendered_fp_wikis
+  failed_when: false
+
+- name: Fingerprint .env and config/wikis.yaml
+  ansible.builtin.set_fact:
+    _rendered_fingerprint:
+      env: >-
+        {{ (_rendered_fp_env.variables | default({}) | to_json(sort_keys=true) | hash('sha1'))
+           if (_rendered_fp_env.variables | default({}) | length > 0) else '' }}
+      wikis: >-
+        {{ (_rendered_fp_wikis.content | b64decode | from_yaml | to_json(sort_keys=true) | hash('sha1'))
+           if _rendered_fp_wikis.content is defined else '' }}
+  no_log: true

@@ -21,6 +21,8 @@ import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 PULL = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "pull_compose.yml")
+FINGERPRINT = os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
+                           "_rendered_fingerprint.yml")
 GITIGNORE = os.path.join(REPO_ROOT, "roles", "gitops", "files", "gitignore.default")
 BASELINE = ".gitops-pull-baseline"
 
@@ -71,10 +73,8 @@ def _env():
     return env
 
 
-def _stat(*checksums):
-    return {"results": [
-        {"stat": {"exists": True, "checksum": c}} for c in checksums
-    ]}
+def _fp(env, wikis):
+    return {"env": env, "wikis": wikis}
 
 
 class TestAppliedMarkerIsWrittenLast:
@@ -134,11 +134,11 @@ class TestRestartSignalSurvivesAPartialPull:
                     if t.get("name") == "Set the pre-render baseline")
         out = _env().from_string(
             task["ansible.builtin.set_fact"]["_pull_baseline"]
-        ).render(_pull_baseline_raw=raw, _pull_pre_render_stat=pre).strip()
+        ).render(_pull_baseline_raw=raw, _rendered_fingerprint=pre).strip()
         return yaml.safe_load(out)
 
     def test_first_attempt_records_the_current_files(self):
-        assert self._baseline({}, _stat("old-env", "old-wikis")) == {
+        assert self._baseline({}, _fp("old-env", "old-wikis")) == {
             "env": "old-env", "wikis": "old-wikis",
         }
 
@@ -149,7 +149,7 @@ class TestRestartSignalSurvivesAPartialPull:
         raw = {"content": base64.b64encode(
             json.dumps({"env": "old-env", "wikis": "old-wikis"}).encode()
         ).decode()}
-        assert self._baseline(raw, _stat("new-env", "new-wikis")) == {
+        assert self._baseline(raw, _fp("new-env", "new-wikis")) == {
             "env": "old-env", "wikis": "old-wikis",
         }
 
@@ -160,23 +160,68 @@ class TestRestartSignalSurvivesAPartialPull:
             task["ansible.builtin.set_fact"]["_pull_needs_restart"]
         ).render(
             _pull_baseline=baseline,
-            _pull_post_render_stat=post,
+            _rendered_fingerprint=post,
             _pull_changed_files={"stdout_lines": list(changed)},
         ).strip()
         return out == "True"
 
     def test_restart_is_judged_against_the_baseline(self):
         baseline = {"env": "old-env", "wikis": "w"}
-        assert self._needs_restart(baseline, _stat("new-env", "w"))
-        assert not self._needs_restart(baseline, _stat("old-env", "w"))
+        assert self._needs_restart(baseline, _fp("new-env", "w"))
+        assert not self._needs_restart(baseline, _fp("old-env", "w"))
 
     def test_wikis_change_needs_restart(self):
         baseline = {"env": "e", "wikis": "old"}
-        assert self._needs_restart(baseline, _stat("e", "new"))
+        assert self._needs_restart(baseline, _fp("e", "new"))
 
     def test_first_render_needs_restart(self):
-        assert self._needs_restart({"env": "", "wikis": ""}, _stat("e", ""))
+        assert self._needs_restart({"env": "", "wikis": ""}, _fp("e", ""))
 
     def test_restart_decision_does_not_read_this_runs_starting_files(self):
         src = open(PULL).read()
         assert "_pull_old_env" not in src and "_pull_old_wikis" not in src
+
+
+class TestFingerprintIgnoresLayout:
+    """The source host's .env and wikis.yaml were written by create, not
+    rendered from the templates, so its first pull re-renders them with the
+    same meaning in a different layout. That alone must not read as a
+    change."""
+
+    def _fingerprint(self, variables, wikis_text):
+        import base64
+
+        with open(FINGERPRINT) as f:
+            tasks = yaml.safe_load(f)
+        task = next(t for t in tasks
+                    if t.get("name") == "Fingerprint .env and config/wikis.yaml")
+        exprs = task["ansible.builtin.set_fact"]["_rendered_fingerprint"]
+        wikis = ({"content": base64.b64encode(wikis_text.encode()).decode()}
+                 if wikis_text is not None else {})
+        return {
+            k: _env().from_string(v).render(
+                _rendered_fp_env={"variables": variables},
+                _rendered_fp_wikis=wikis,
+            ).strip()
+            for k, v in exprs.items()
+        }
+
+    def test_key_order_and_yaml_layout_do_not_matter(self):
+        a = self._fingerprint(
+            {"A": "1", "B": "2"},
+            "wikis:\n- id: main\n  url: a.example.com\n",
+        )
+        b = self._fingerprint(
+            {"B": "2", "A": "1"},
+            "wikis:\n  -   id: main\n      url: 'a.example.com'\n\n\n",
+        )
+        assert a == b
+        assert a["env"] and a["wikis"]
+
+    def test_a_value_change_is_detected(self):
+        a = self._fingerprint({"A": "1"}, "wikis: []\n")
+        b = self._fingerprint({"A": "2"}, "wikis: []\n")
+        assert a["env"] != b["env"]
+
+    def test_missing_files_fingerprint_empty(self):
+        assert self._fingerprint({}, None) == {"env": "", "wikis": ""}

@@ -177,13 +177,8 @@
 # still refuse. Whether a restart is needed must be judged against what
 # those files held before the first attempt to apply this commit, so the
 # baseline stays on disk until the pull completes and a retry reuses it.
-- name: Checksum .env and wikis.yaml before rendering
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/{{ item }}"
-  loop:
-    - .env
-    - config/wikis.yaml
-  register: _pull_pre_render_stat
+- name: Fingerprint .env and wikis.yaml before rendering
+  ansible.builtin.include_tasks: "_rendered_fingerprint.yml"
 
 - name: Read the baseline left by an unfinished pull
   ansible.builtin.slurp:
@@ -196,8 +191,7 @@
     _pull_baseline: >-
       {{ (_pull_baseline_raw.content | b64decode | from_json)
          if _pull_baseline_raw.content is defined
-         else {'env': _pull_pre_render_stat.results[0].stat.checksum | default(''),
-               'wikis': _pull_pre_render_stat.results[1].stat.checksum | default('')} }}
+         else _rendered_fingerprint }}
 
 - name: Keep the baseline until the pull completes
   ansible.builtin.copy:
@@ -313,21 +307,14 @@
   register: _pull_changed_files
   changed_when: false
 
-- name: Checksum .env and wikis.yaml after rendering
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/{{ item }}"
-  loop:
-    - .env
-    - config/wikis.yaml
-  register: _pull_post_render_stat
+- name: Fingerprint .env and wikis.yaml after rendering
+  ansible.builtin.include_tasks: "_rendered_fingerprint.yml"
 
 - name: Determine if restart is needed
   ansible.builtin.set_fact:
     _pull_needs_restart: >-
-      {{ (_pull_baseline.env | default('') !=
-          _pull_post_render_stat.results[0].stat.checksum | default(''))
-         or (_pull_baseline.wikis | default('') !=
-             _pull_post_render_stat.results[1].stat.checksum | default(''))
+      {{ (_pull_baseline.env | default('') != _rendered_fingerprint.env)
+         or (_pull_baseline.wikis | default('') != _rendered_fingerprint.wikis)
          or (_pull_changed_files.stdout_lines | default([])
              | select('match',
                '^(env\.template|config/Caddyfile|docker-compose\.override\.yml)')
