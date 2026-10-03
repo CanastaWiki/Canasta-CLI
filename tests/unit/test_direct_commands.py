@@ -4320,18 +4320,83 @@ class TestMaintenanceUpdate:
         assert any("update.php" in c for c in commands)
         assert not any("runJobs.php" in c for c in commands)
 
-    def test_smw_runs_when_present(self, monkeypatch):
-        self._patch_resolve(monkeypatch, wikis=["main"])
-        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
-            lambda *a, **kw: (0, "yes\n"),
-        )
+    @staticmethod
+    def _fake_smw_exec(probe_results):
+        """Stub _exec_in_container: the bundled-file probe says yes, and
+        each per-wiki eval probe returns probe_results[wiki]."""
+        probes = []
+
+        def fake_exec(inst_id, inst, command, service="web"):
+            if command.startswith("test -f"):
+                return 0, "yes\n"
+            assert "maintenance/run.php eval" in command
+            wiki = command.rsplit("--wiki=", 1)[1].strip("'")
+            probes.append(wiki)
+            return probe_results[wiki]
+        return fake_exec, probes
+
+    def _stream_recorder(self, monkeypatch):
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
             lambda iid, i, c, service="web", retry_on_reset=False:
                 commands.append(c) or 0,
         )
+        return commands
+
+    def test_smw_runs_when_loaded(self, monkeypatch):
+        self._patch_resolve(monkeypatch, wikis=["main"])
+        fake_exec, _ = self._fake_smw_exec({"main": (0, "SMW_LOADED=1\n")})
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
+                            fake_exec)
+        commands = self._stream_recorder(monkeypatch)
         direct_commands.cmd_maintenance_update(self._args())
         assert any("rebuildData.php" in c for c in commands)
+
+    def test_smw_runs_only_on_wikis_that_load_it(self, monkeypatch):
+        self._patch_resolve(monkeypatch, wikis=["main", "draft"])
+        fake_exec, probes = self._fake_smw_exec({
+            "main": (0, "SMW_LOADED=1\n"),
+            "draft": (0, "PHP Notice: something\nSMW_LOADED=0\n"),
+        })
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
+                            fake_exec)
+        commands = self._stream_recorder(monkeypatch)
+        rc = direct_commands.cmd_maintenance_update(self._args())
+        assert rc == 0
+        assert probes == ["main", "draft"]
+        rebuilds = [c for c in commands if "rebuildData.php" in c]
+        assert rebuilds == [
+            "php extensions/SemanticMediaWiki/maintenance/"
+            "rebuildData.php --wiki='main'"
+        ]
+
+    def test_smw_probe_failure_skips_with_warning(self, monkeypatch, capsys):
+        self._patch_resolve(monkeypatch, wikis=["main", "draft"])
+        fake_exec, _ = self._fake_smw_exec({
+            "main": (1, ""),
+            "draft": (0, "garbage\n"),
+        })
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
+                            fake_exec)
+        commands = self._stream_recorder(monkeypatch)
+        rc = direct_commands.cmd_maintenance_update(self._args())
+        assert rc == 0
+        assert not any("rebuildData.php" in c for c in commands)
+        err = capsys.readouterr().err
+        assert "wiki 'main'" in err
+        assert "wiki 'draft'" in err
+        assert "skipping rebuildData.php" in err
+
+    def test_smw_not_bundled_skips_probe(self, monkeypatch):
+        self._patch_resolve(monkeypatch, wikis=["main"])
+        calls = []
+        monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
+            lambda iid, i, c, service="web": calls.append(c) or (0, "no\n"),
+        )
+        commands = self._stream_recorder(monkeypatch)
+        direct_commands.cmd_maintenance_update(self._args())
+        assert len(calls) == 1
+        assert not any("rebuildData.php" in c for c in commands)
 
     def test_skip_smw_skips_rebuilddata(self, monkeypatch):
         self._patch_resolve(monkeypatch, wikis=["main"])

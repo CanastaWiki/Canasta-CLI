@@ -63,6 +63,32 @@ def _resolve_wiki_targets(args, inst):
     return ids
 
 
+_SMW_PROBE_PHP = (
+    'echo "SMW_LOADED=" . (ExtensionRegistry::getInstance()'
+    '->isLoaded("SemanticMediaWiki") ? 1 : 0);'
+)
+
+
+def _smw_loaded(inst_id, inst, wiki):
+    """Return True/False for whether SemanticMediaWiki is loaded for the
+    wiki, or None if the probe failed."""
+    rc, out = _helpers._exec_in_container(
+        inst_id, inst,
+        "echo %s | php maintenance/run.php eval --wiki=%s" % (
+            _helpers._shell_quote(_SMW_PROBE_PHP), _helpers._shell_quote(wiki),
+        ),
+    )
+    if rc != 0:
+        return None
+    for line in out.splitlines():
+        line = line.strip()
+        if line == "SMW_LOADED=1":
+            return True
+        if line == "SMW_LOADED=0":
+            return False
+    return None
+
+
 @register("maintenance_script")
 def cmd_maintenance_script(args):
     inst_id, inst = _helpers._resolve_instance(args)
@@ -143,8 +169,6 @@ def cmd_maintenance_update(args):
                 overall_rc = rc
 
     if not skip_smw:
-        # Probe for SemanticMediaWiki rebuildData.php; cheap one-shot,
-        # not worth streaming. If it's there, run rebuildData per wiki.
         rc, out = _helpers._exec_in_container(
             inst_id, inst,
             "test -f extensions/SemanticMediaWiki/maintenance/rebuildData.php "
@@ -152,6 +176,17 @@ def cmd_maintenance_update(args):
         )
         if rc == 0 and out.strip() == "yes":
             for w in wikis:
+                loaded = _smw_loaded(inst_id, inst, w)
+                if loaded is None:
+                    print(
+                        "\nWarning: could not determine whether "
+                        "SemanticMediaWiki is loaded for wiki '%s'; "
+                        "skipping rebuildData.php." % w,
+                        file=sys.stderr,
+                    )
+                    continue
+                if not loaded:
+                    continue
                 print("\n=== rebuildData.php (%s) ===" % w)
                 # Match the playbook: SMW rebuild failures don't
                 # poison the overall rc — the wiki may simply not have
