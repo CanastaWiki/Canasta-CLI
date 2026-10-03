@@ -29,6 +29,34 @@
       changed_when: false
       failed_when: false
 
+    # The same check git-crypt unlock makes before refusing to run.
+    - name: Check for uncommitted changes that block git-crypt unlock
+      ansible.builtin.command:
+        cmd: "git status --porcelain --untracked-files=no"
+        chdir: "{{ instance_path }}"
+      register: _gitcrypt_dirty
+      changed_when: false
+
+    - name: Fail when uncommitted changes block git-crypt unlock
+      ansible.builtin.fail:
+        msg: |-
+          git-crypt is locked in this checkout, and it cannot be unlocked
+          while tracked files have uncommitted changes:
+          {{ _gitcrypt_dirty.stdout }}
+          Set the changes aside, unlock, and restore them, then retry. In
+          {{ instance_path }}:
+
+            git stash push --message canasta-gitcrypt-unlock
+          {% if key | default('', true) | length > 0 or _gitcrypt_mode.stdout | default('') != 'gpg' %}
+            git-crypt unlock /path/to/gitops.key
+          {% else %}
+            git-crypt unlock            # needs the GPG key / forwarded agent
+          {% endif %}
+            git stash pop --index
+
+          Or discard them with 'git checkout HEAD -- <file>' and retry.
+      when: _gitcrypt_dirty.stdout | trim | length > 0
+
     # --key names a file on the controller; git-crypt runs on the target.
     - name: Unlock with the symmetric key
       when: key | default('', true) | length > 0
