@@ -96,6 +96,41 @@ class TestRegistryTasksDelegateToTheController:
         )
 
 
+class TestExecStdinFilesAreWrittenOnTheController:
+    """exec.yml reads exec_stdin with lookup('file'), which runs on the
+    controller, so a file staged for it must be written there too."""
+
+    def _stdin_files(self):
+        found = []
+        for path in _task_files():
+            with open(path) as f:
+                raw = f.read()
+            if not re.search(r"^\s*exec_stdin:", raw, re.M):
+                continue
+            rel = os.path.relpath(path, REPO_ROOT)
+            if rel == os.path.join("roles", "orchestrator", "tasks",
+                                   "exec.yml"):
+                continue
+            found.append((rel, list(_tasks(yaml.safe_load(raw)))))
+        return found
+
+    def test_there_are_stdin_callers_to_check(self):
+        assert len(self._stdin_files()) >= 2
+
+    def test_delegated_tasks_target_the_controller(self):
+        wrong = [
+            (path, task.get("name"), task["delegate_to"])
+            for path, tasks in self._stdin_files()
+            for task in tasks
+            if isinstance(task, dict) and "delegate_to" in task
+            and task["delegate_to"] != "canasta_controller"
+        ]
+        assert wrong == [], (
+            "files handed to exec_stdin must be written on "
+            "canasta_controller: %s" % wrong
+        )
+
+
 class TestTheControllerHostExists:
     def test_canasta_yml_adds_the_controller_host(self):
         with open(MAIN_PLAYBOOK) as f:
