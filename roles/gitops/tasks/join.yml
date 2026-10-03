@@ -384,20 +384,15 @@
                 | list)
          ) }}
 
+- name: Read admin passwords
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_read_admin_passwords.yml"
+  vars:
+    admin_password_wiki_ids: "{{ _join_wikis.wiki_ids | default([]) }}"
+
 - name: Add admin password vars
   ansible.builtin.set_fact:
-    _join_vars: >-
-      {{ _join_vars | combine(
-           dict(_join_wikis.wiki_ids | default([])
-                | map('regex_replace', '^', 'admin_password_')
-                | zip(_join_wikis.wiki_ids | default([])
-                      | map('extract', lookup('file',
-                          instance_path ~ '/admin-password_' ~ item,
-                          errors='ignore') | default(''))
-                      | list)
-                | list)
-         ) }}
-  ignore_errors: true  # OK if some admin password files don't exist
+    _join_vars: "{{ _join_vars | combine(_gitops_admin_passwords) }}"
+  no_log: true
 
 # --- Step 7: Add host to config and write vars ---
 # Upsert: drop any existing entry with this name before appending, so a
