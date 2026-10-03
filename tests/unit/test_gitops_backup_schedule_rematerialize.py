@@ -134,3 +134,58 @@ def test_set_persists_the_policy_it_was_given():
         "the retention policy has to be written to the file, not only to "
         "the crontab, or nothing can re-materialize it"
     )
+
+
+SCHEDULE_SET = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_set.yml"
+)
+SCHEDULE_REMOVE = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_remove.yml"
+)
+STAGE_SCHEDULE = os.path.join(
+    REPO_ROOT, "roles", "gitops", "tasks", "stage_backup_schedule.yml"
+)
+GITIGNORE = os.path.join(REPO_ROOT, "roles", "gitops", "files", "gitignore.default")
+
+
+def _index_of(tasks, pred):
+    return next(i for i, t in enumerate(tasks) if pred(t))
+
+
+def test_schedule_set_stages_the_file_it_writes():
+    tasks = _tasks(SCHEDULE_SET)
+    write = _index_of(tasks, lambda t: str(
+        (t.get("ansible.builtin.copy") or {}).get("dest", "")
+    ).endswith("/config/backup-schedule.yml"))
+    stage = _index_of(tasks, lambda t: "stage_backup_schedule.yml" in _includes(t))
+    assert write < stage
+
+
+def test_schedule_remove_stages_the_deletion():
+    tasks = _tasks(SCHEDULE_REMOVE)
+    drop = _index_of(tasks, lambda t: (t.get("ansible.builtin.file") or {}).get(
+        "state") == "absent")
+    stage = _index_of(tasks, lambda t: "stage_backup_schedule.yml" in _includes(t))
+    assert drop < stage
+
+
+def test_schedule_is_staged_only_on_gitops_instances():
+    tasks = _tasks(STAGE_SCHEDULE)
+    marker = tasks[0]["ansible.builtin.stat"]["path"]
+    assert marker.endswith("/.gitops-host")
+    stage = tasks[1]
+    assert stage["vars"]["_stage_paths"] == ["config/backup-schedule.yml"]
+    assert "stat.exists" in str(stage["when"])
+
+
+def test_schedule_file_is_not_gitignored(tmp_path):
+    import shutil
+    import subprocess
+
+    shutil.copy(GITIGNORE, tmp_path / ".gitignore")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    rc = subprocess.run(
+        ["git", "check-ignore", "-q", "config/backup-schedule.yml"],
+        cwd=tmp_path,
+    ).returncode
+    assert rc == 1, "config/backup-schedule.yml must be shareable through gitops"
