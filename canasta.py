@@ -43,6 +43,7 @@ EXIT_INSTANCE_BUSY = 4
 sys.path.append(os.path.join(SCRIPT_DIR, "roles", "common", "module_utils"))
 import canasta_config  # noqa: E402
 from direct_commands._helpers import (  # noqa: E402
+    _compose_profile_args,
     _is_local_target,
     _read_env,
     _resolve_compose_cmd,
@@ -1345,7 +1346,8 @@ def handle_interactive_exec(args):
         # payload reaches the command: `docker compose exec -T` (no TTY).
         # Without it, omit -T to preserve the interactive shell behavior.
         stdin_file = getattr(args, "stdin_file", None)
-        docker_cmd = _resolve_compose_cmd(inst) + ["exec"]
+        docker_cmd = (_resolve_compose_cmd(inst)
+                      + _compose_profile_args(inst) + ["exec"])
         if stdin_file:
             docker_cmd.append("-T")
         docker_cmd += [service] + command

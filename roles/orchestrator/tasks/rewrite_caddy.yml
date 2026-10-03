@@ -35,7 +35,8 @@
     _tls_cert: "{{ _env_caddy.variables.CADDY_TLS_CERT | default('origin.crt', true) }}"
     _tls_key: "{{ _env_caddy.variables.CADDY_TLS_KEY | default('origin.key', true) }}"
     _os_user: "{{ _env_caddy.variables.OS_USER | default('admin') }}"
-    _os_password_hash: "{{ _env_caddy.variables.OS_PASSWORD_HASH | default('') }}"
+    # .env stores the hash Compose-escaped ($$); Caddy needs the bcrypt text.
+    _os_password_hash: "{{ _env_caddy.variables.OS_PASSWORD_HASH | default('') | replace('$$', '$') }}"
     _is_k8s: "{{ instance_orchestrator | default('compose') in ['kubernetes', 'k8s'] }}"
     # CrowdSec enabled (engine runs) vs. active (bouncer enforces). The
     # engine parses the access log as soon as it's enabled, so the K8s

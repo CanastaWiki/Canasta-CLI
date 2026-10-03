@@ -8,6 +8,16 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/common/tasks/validate_wiki_id.yml
 
+- name: Check the input files are on the controller
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/check_controller_files.yml
+  vars:
+    controller_files:
+      - label: Database dump
+        path: "{{ database | default('') }}"
+      - label: Settings file
+        path: "{{ wiki_settings | default('') }}"
+
 - name: Wait for database
   ansible.builtin.include_role:
     name: mediawiki

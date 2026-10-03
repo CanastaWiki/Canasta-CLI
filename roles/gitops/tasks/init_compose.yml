@@ -319,6 +319,11 @@
     state: read
   register: _gitops_wikis
 
+- name: Read admin passwords
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_read_admin_passwords.yml"
+  vars:
+    admin_password_wiki_ids: "{{ _gitops_wikis.wiki_ids | default([]) }}"
+
 # Values go through to_json: a JSON string is a valid YAML double-quoted
 # scalar with its quotes and backslashes escaped.
 - name: Build vars content (placeholder values + wiki URLs + admin passwords)
@@ -335,9 +340,8 @@
       wiki_url_{{ w.id }}: {{ w.url | to_json }}
       {% endfor %}
       # Admin passwords
-      {% for wid in _gitops_wikis.wiki_ids | default([]) %}
-      {% set pw_file = instance_path + '/admin-password_' + wid %}
-      admin_password_{{ wid }}: {{ lookup('file', pw_file, errors='ignore') | default('') | to_json }}
+      {% for k, v in _gitops_admin_passwords.items() %}
+      {{ k }}: {{ v | to_json }}
       {% endfor %}
     dest: "{{ instance_path }}/hosts/{{ host_name }}/vars.yaml"
     mode: "0644"
