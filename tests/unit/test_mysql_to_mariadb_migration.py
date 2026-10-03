@@ -31,6 +31,7 @@ failure-path dump.
 """
 
 import os
+import re
 
 import yaml
 
@@ -311,3 +312,24 @@ class TestFailurePathDumpIgnored:
         assert "mysql8_dump.sql" in content, (
             "gitignore.default must ignore the preserved migration dump"
         )
+
+
+class TestPasswordOffDockerArgv:
+    def test_env_flags_are_bare_with_value_in_task_environment(self):
+        # `-e NAME=value` puts the value in the docker CLI's argv; a bare
+        # `-e NAME` makes docker read it from its own environment.
+        found = 0
+        for t in _all_tasks():
+            cmd = t.get("ansible.builtin.command")
+            if isinstance(cmd, dict):
+                cmd = cmd.get("cmd", "")
+            if not isinstance(cmd, str):
+                continue
+            for name in re.findall(r"-e\s+(MYSQL_\w+)", cmd):
+                found += 1
+                assert not re.search(r"-e\s+%s=" % name, cmd), cmd
+                assert name in (t.get("environment") or {}), (
+                    "task %r passes -e %s without setting it in "
+                    "environment" % (t.get("name"), name))
+                assert t.get("no_log") is True, t.get("name")
+        assert found == 3

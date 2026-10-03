@@ -29,25 +29,19 @@
       {{ _install_env.variables.MYSQL_HOST | default('db') }}:{{ _install_env.variables.MYSQL_PORT | default('3306') }}
 
 - name: "Run install.php for wiki '{{ _wiki.id }}'"
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+  ansible.builtin.include_tasks: run_install_php.yml
   vars:
-    exec_service: web
-    exec_no_log: true
-    exec_long: true
-    exec_command: >-
-      env -u MW_SECRET_KEY php maintenance/install.php
+    install_php_long: true
+    install_php_db_password: "{{ install_root_db_password }}"
+    install_php_admin_password: "{{ install_admin_password }}"
+    install_php_args: >-
       --skins='Vector'
       --dbserver={{ _install_dbserver }}
       --dbname={{ _wiki.id }}
       --confpath=/tmp/canasta-install/
       --scriptpath=/w
       --server=https://{{ _install_domain }}
-      --installdbuser={{ _install_env.variables.MYSQL_USER | default('root', true) | quote }}
-      --installdbpass={{ install_root_db_password | quote }}
       --dbuser={{ _install_env.variables.MYSQL_USER | default('root', true) | quote }}
-      --dbpass={{ install_root_db_password | quote }}
-      --pass={{ install_admin_password | quote }}
       {{ _wiki.id | quote }} {{ install_admin_name | quote }}
 
 - name: Save admin password to file

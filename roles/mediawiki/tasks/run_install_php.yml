@@ -1,0 +1,82 @@
+---
+# Run maintenance/install.php in the web container with the DB and admin
+# passwords read from files instead of the command line.
+#
+# The passwords reach the container on the exec's stdin and are written to
+# 0600 files that install.php reads through --dbpassfile and --passfile.
+# Without --installdbuser, install.php installs as the --dbuser account.
+#
+# Input:
+#   instance_path, instance_orchestrator, instance_id
+#   install_php_db_password (str)
+#   install_php_admin_password (str)
+#   install_php_args (str) - the remaining install.php options and
+#     arguments, already shell-quoted; must not carry a password
+#   install_php_long (bool, optional) - run detached + polled (default false)
+
+- name: Set install.php password file paths
+  ansible.builtin.set_fact:
+    _ip_db_file: /tmp/canasta-install/.dbpass
+    _ip_admin_file: /tmp/canasta-install/.pass
+
+- name: Create a temp file for the install.php passwords
+  ansible.builtin.tempfile:
+    state: file
+    suffix: .install
+  register: _ip_stdin
+  delegate_to: localhost
+
+- name: Run install.php with file-based passwords
+  block:
+    # The trailing line keeps the stdin lookup's whitespace stripping off
+    # the admin password.
+    - name: Write the install.php passwords
+      ansible.builtin.copy:
+        dest: "{{ _ip_stdin.path }}"
+        mode: "0600"
+        content: |
+          {{ install_php_db_password }}
+          {{ install_php_admin_password }}
+          .
+      delegate_to: localhost
+      no_log: true
+
+    - name: Stage the install.php password files in the container
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+      vars:
+        exec_service: web
+        exec_no_log: true
+        exec_stdin: "{{ _ip_stdin.path }}"
+        exec_command: >-
+          umask 077 && mkdir -p /tmp/canasta-install &&
+          IFS= read -r p && printf '%s' "$p" > {{ _ip_db_file }} &&
+          IFS= read -r p && printf '%s' "$p" > {{ _ip_admin_file }}
+
+    - name: Run install.php
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+      vars:
+        exec_service: web
+        exec_no_log: true
+        exec_long: "{{ install_php_long | default(false) }}"
+        exec_command: >-
+          env -u MW_SECRET_KEY php maintenance/install.php
+          --dbpassfile={{ _ip_db_file }}
+          --passfile={{ _ip_admin_file }}
+          {{ install_php_args }}
+  always:
+    - name: Remove the install.php password files from the container
+      ansible.builtin.include_tasks:
+        file: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+        apply:
+          ignore_errors: true
+      vars:
+        exec_service: web
+        exec_command: "rm -f {{ _ip_db_file }} {{ _ip_admin_file }}"
+
+    - name: Remove the install.php passwords temp file
+      ansible.builtin.file:
+        path: "{{ _ip_stdin.path }}"
+        state: absent
+      delegate_to: localhost
