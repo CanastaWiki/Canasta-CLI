@@ -633,12 +633,37 @@ def _sync_compose_profiles(inst):
             profile_flags = []
             for p in removed:
                 profile_flags += ["--profile", p]
-            _run_compose(
-                inst.get("id"), inst,
-                profile_flags + ["rm", "-sf"] + stale_services,
-            )
+            if _is_podman_compose(inst):
+                _remove_podman_service_containers(inst, stale_services)
+            else:
+                _run_compose(
+                    inst.get("id"), inst,
+                    profile_flags + ["rm", "-sf"] + stale_services,
+                )
 
     return env
+
+
+def _remove_podman_service_containers(inst, services):
+    """Stop and remove the instance's containers for `services`.
+
+    podman-compose has no `rm`, so the containers are found by their
+    compose labels. Podman ANDs repeated label filters, hence one query
+    per service.
+    """
+    runtime = _resolve_inspect_cmd(inst)
+    project = _compose_project(inst.get("path", ""))
+    ids = []
+    for svc in services:
+        rc, out = _runtime_capture(inst, [
+            runtime, "ps", "-aq",
+            "--filter", "label=com.docker.compose.project=%s" % project,
+            "--filter", "label=com.docker.compose.service=%s" % svc,
+        ])
+        if rc == 0:
+            ids += [i for i in out.split() if i not in ids]
+    if ids:
+        _runtime_capture(inst, [runtime, "rm", "-f"] + ids, timeout=120)
 
 
 def _dump_compose_failure(inst, include_sidecars=False):

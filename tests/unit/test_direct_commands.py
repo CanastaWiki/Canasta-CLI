@@ -1986,6 +1986,66 @@ class TestSyncComposeProfiles:
             direct_commands._helpers._MANAGED_PROFILE_SERVICES["observable"]
         )
 
+    def _podman_inst(self, tmp_path):
+        return {
+            "path": str(tmp_path / "MySite"), "host": "localhost",
+            "composeCommand": "podman-compose", "inspectCommand": "podman",
+        }
+
+    def _stub_runtime(self, monkeypatch, ids_by_service):
+        calls = []
+
+        def fake(inst, argv, timeout=30):
+            calls.append(argv)
+            if argv[1] == "ps":
+                svc = argv[-1].rsplit("=", 1)[1]
+                return 0, "".join(i + "\n" for i in ids_by_service.get(svc, []))
+            return 0, ""
+
+        monkeypatch.setattr(direct_commands._helpers, "_runtime_capture", fake)
+        return calls
+
+    def test_podman_removes_stale_containers_by_label(
+            self, tmp_path, monkeypatch):
+        inst = self._podman_inst(tmp_path)
+        os.makedirs(inst["path"])
+        with open(os.path.join(inst["path"], ".env"), "w") as f:
+            f.write(
+                "CANASTA_ENABLE_OBSERVABILITY=false\n"
+                "CANASTA_ENABLE_VARNISH=true\n"
+                "COMPOSE_PROFILES=observable,varnish\n"
+            )
+        calls = self._stub_runtime(
+            monkeypatch, {"opensearch": ["aaa"], "logstash": ["bbb"]})
+        direct_commands._sync_compose_profiles(inst)
+        assert self.compose_calls == []
+        ps_calls = [c for c in calls if c[1] == "ps"]
+        services = direct_commands._helpers._MANAGED_PROFILE_SERVICES[
+            "observable"]
+        assert len(ps_calls) == len(services)
+        for c in ps_calls:
+            assert c[:3] == ["podman", "ps", "-aq"]
+            assert "label=com.docker.compose.project=mysite" in c
+        assert sorted(c[-1].rsplit("=", 1)[1] for c in ps_calls) == sorted(
+            services)
+        assert [c for c in calls if c[1] == "rm"] == [
+            ["podman", "rm", "-f", "aaa", "bbb"]]
+
+    def test_podman_no_matching_containers_skips_rm(
+            self, tmp_path, monkeypatch):
+        inst = self._podman_inst(tmp_path)
+        os.makedirs(inst["path"])
+        with open(os.path.join(inst["path"], ".env"), "w") as f:
+            f.write(
+                "CANASTA_ENABLE_ELASTICSEARCH=false\n"
+                "CANASTA_ENABLE_VARNISH=true\n"
+                "COMPOSE_PROFILES=elasticsearch,varnish\n"
+            )
+        calls = self._stub_runtime(monkeypatch, {})
+        direct_commands._sync_compose_profiles(inst)
+        assert self.compose_calls == []
+        assert [c[1] for c in calls] == ["ps"]
+
     def test_no_teardown_when_nothing_deactivated(self, tmp_path):
         # Adding a profile (or steady state) must not tear anything down.
         (tmp_path / ".env").write_text(
