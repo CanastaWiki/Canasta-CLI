@@ -105,12 +105,14 @@
     - _detached_is_pin | default(false)
   ansible.builtin.debug:
     msg: >-
-      {{ _item_type | capitalize }} '{{ item.name }}' is checked out detached
+      {{ _item_type[:-1] | capitalize }} '{{ item.name }}' is checked out detached
       at {{ (_pinned_sha.stdout | default('') | trim)[:8] }}, which is on the
       expected branch {{ item.branch }} — treating it as a deliberate pin
-      (e.g. from `canasta {{ _item_type }} set-version --ref`). The checkout
+      {%- if _item_type == 'extensions' %}
+      (e.g. from `canasta extension set-version --ref`). The checkout
       was not changed; to move it to the branch tip, run
-      `canasta {{ _item_type }} set-version {{ item.name }} --ref {{ item.branch }}`.
+      `canasta extension set-version {{ item.name }} --ref {{ item.branch }}`.
+      {%- else %}. The checkout was not changed.{% endif %}
 
 - name: "Re-align {{ _item_type }} to the expected branch"
   when:
