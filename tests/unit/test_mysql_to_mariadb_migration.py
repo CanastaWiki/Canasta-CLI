@@ -26,12 +26,13 @@ its data mangled; these tests lock the Go-faithful behavior back in.
 
 Hardening guards covered below: the internal-db gate, the volume-existence
 check before the detection probe, the empty-database-list dump path, the
-quote-filtered dump script, the non-root-user warning, and the gitignored
-failure-path dump.
+quote-filtered dump script, the non-root-user warning, the gitignored
+failure-path dump, and the owner-only dump file mode.
 """
 
 import os
 import re
+import shlex
 
 import yaml
 
@@ -333,3 +334,60 @@ class TestPasswordOffDockerArgv:
                     "environment" % (t.get("name"), name))
                 assert t.get("no_log") is True, t.get("name")
         assert found == 3
+
+
+class TestDumpFileMode:
+    COMPOSE = os.path.join(
+        REPO_ROOT, "roles", "orchestrator", "files", "compose",
+        "docker-compose.yml",
+    )
+
+    def test_dump_script_sets_umask_before_writing(self):
+        # The dump holds every wiki database; written under the default
+        # umask it is 0644, and docker cp carries that mode to the host.
+        script = next(c for c in _shell_text() if "mysqldump" in c)
+        assert script.lstrip().startswith("umask 077;"), (
+            "the dump script must set umask 077 before anything is written"
+        )
+        assert script.index("umask 077") < script.index("/tmp/dump.sql")
+
+    def test_host_copy_restricted_to_owner(self):
+        names = _ordered_names()
+        restrict = next(
+            t for t in _all_tasks()
+            if t.get("name") == "Restrict the host-side dump to its owner"
+        )
+        f = restrict["ansible.builtin.file"]
+        assert f["path"] == "{{ _mig_dump_host }}"
+        assert str(f["mode"]) == "0600"
+        assert "state" not in f, "must not create or remove the file"
+        idx = names.index("Restrict the host-side dump to its owner")
+        assert _index_of("Copy the dump out of the temporary container") < idx
+        assert idx < _index_of("Copy the dump into the MariaDB container"), (
+            "the host copy must be restricted before anything else uses it"
+        )
+
+    def test_import_reads_owner_only_dump_as_root(self):
+        # A 0600 dump copied into the db container is only readable by root,
+        # so the import shell (compose exec, no --user) must run as root.
+        with open(self.COMPOSE) as f:
+            compose = yaml.safe_load(f)
+        assert compose["services"]["db"].get("user") == "root"
+        imp = next(
+            t for t in _all_tasks()
+            if t.get("name") == "Import the dump into MariaDB"
+        )
+        v = imp["vars"]
+        assert v["exec_service"] == "db"
+        assert "exec_user" not in v
+        assert shlex.split(v["exec_command"])[-2:] == ["<", "/tmp/dump.sql"]
+
+    def test_in_container_dump_removed_after_import(self):
+        cleanup = next(
+            t for t in _all_tasks()
+            if t.get("name") == "Clean up the dump inside the container"
+        )
+        assert cleanup["vars"]["exec_command"] == "rm -f /tmp/dump.sql"
+        assert _index_of("Import the dump into MariaDB") < _index_of(
+            "Clean up the dump inside the container"
+        )
