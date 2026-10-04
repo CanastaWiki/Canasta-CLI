@@ -1688,7 +1688,8 @@ def resolve_instance_host_path(name, value, host):
         return value
     print(
         "Error: --%s is relative ('%s'), but the instance is on %s. "
-        "Give an absolute path on %s, or one starting with '~'."
+        "Give an absolute path on %s, or one starting with a quoted '~' "
+        "(for example '~/x')."
         % (name.replace("_", "-"), value, host, host),
         file=sys.stderr,
     )

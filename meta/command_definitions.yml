@@ -404,7 +404,7 @@ commands:
         mutual_exclusion: canasta_image
         description: >-
           Build from a source directory on the instance's host (with --host,
-          an absolute path or one starting with '~')
+          an absolute path or one starting with a quoted '~' (for example '~/x'))
       - name: build_arg
         type: string
         multi: true
@@ -1209,7 +1209,7 @@ commands:
         description: >-
           Output file path on the instance's host (default: <wikiID>.sql, use
           .gz for compression). For an instance on a remote host, an absolute
-          path or one starting with '~'
+          path or one starting with a quoted '~' (for example '~/x')
 
   # ---------------------------------------------------------------------------
   # Config management
@@ -2801,7 +2801,7 @@ commands:
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
           <ssh-key> ...". On a remote host, give an absolute path or one
-          starting with '~'. Omit to keep the default: ssh-agent forwarding on
+          starting with a quoted '~' (for example '~/x'). Omit to keep the default: ssh-agent forwarding on
           Compose, or the generated `<key>.ssh` deploy key on Kubernetes.
       - name: force
         type: bool
@@ -2905,7 +2905,7 @@ commands:
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
           <ssh-key> ...". On a remote host, give an absolute path or one
-          starting with '~'. Omit to keep the default: ssh-agent forwarding on
+          starting with a quoted '~' (for example '~/x'). Omit to keep the default: ssh-agent forwarding on
           Compose, or the generated `<key>.ssh` deploy key on Kubernetes.
       - name: reinit
         type: bool
@@ -2997,7 +2997,7 @@ commands:
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
           <ssh-key> ...". On a remote host, give an absolute path or one
-          starting with '~'. Omit to keep the default: ssh-agent forwarding on
+          starting with a quoted '~' (for example '~/x'). Omit to keep the default: ssh-agent forwarding on
           Compose, or the staged deploy key on Kubernetes.
       - name: key
         type: path
@@ -3029,7 +3029,7 @@ commands:
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
           <ssh-key> ...". On a remote host, give an absolute path or one
-          starting with '~'. Omit to keep the default: ssh-agent forwarding on
+          starting with a quoted '~' (for example '~/x'). Omit to keep the default: ssh-agent forwarding on
           Compose, or the staged deploy key on Kubernetes.
       - name: key
         type: path
@@ -3556,7 +3556,7 @@ commands:
         required: true
         description: >-
           Docker build context directory on the target host (with --host,
-          an absolute path or one starting with '~')
+          an absolute path or one starting with a quoted '~' (for example '~/x'))
       - name: image_name
         long: name
         type: string
