@@ -122,6 +122,8 @@
     rx_cmd: "{{ _exec_full_cmd }}"
     rx_chdir: "{{ _exec_chdir | default(omit) }}"
     rx_async: "{{ exec_long_async | default(3600) }}"
+    # Poll for as long as the command may run (one poll every 10 seconds).
+    rx_retries: "{{ ((exec_long_async | default(3600) | int) / 10) | int }}"
     rx_no_log: "{{ exec_no_log | default(false) }}"
   when: exec_long | default(false) | bool
 
