@@ -33,11 +33,19 @@ def _load(path):
         return yaml.safe_load(f) or []
 
 
+def _walk(tasks):
+    for t in tasks or []:
+        if not isinstance(t, dict):
+            continue
+        yield t
+        for key in ("block", "rescue", "always"):
+            yield from _walk(t.get(key))
+
+
 class TestResilientExecFailsFast:
     def test_completion_poll_does_not_fail_on_nonzero_rc(self):
-        tasks = _load(RESILIENT_EXEC)
         waits = [
-            t for t in tasks
+            t for t in _walk(_load(RESILIENT_EXEC))
             if isinstance(t, dict)
             and ("ansible.builtin.async_status" in t or "async_status" in t)
             and "until" in t
@@ -52,9 +60,8 @@ class TestResilientExecFailsFast:
                 ": %r" % t.get("name"))
 
     def test_report_failure_task_present(self):
-        tasks = _load(RESILIENT_EXEC)
-        fails = [t for t in tasks if isinstance(t, dict)
-                 and ("ansible.builtin.fail" in t or "fail" in t)]
+        fails = [t for t in _walk(_load(RESILIENT_EXEC))
+                 if ("ansible.builtin.fail" in t or "fail" in t)]
         assert fails, (
             "resilient_exec.yml must keep a 'Report failure' task that surfaces "
             "the job's rc/stderr")
