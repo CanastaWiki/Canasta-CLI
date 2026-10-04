@@ -1659,6 +1659,57 @@ def ssh_control_path_dir(base="/tmp"):
     return path
 
 
+def instance_host_for_paths(cmd_def, args):
+    """Return the host whose filesystem a path_kind: instance_host value names.
+
+    A command that declares --host targets that host (or this machine);
+    any other command acts on a registered instance, whose host is in the
+    registry on this machine.
+    """
+    if any(p["name"] == "host" for p in cmd_def.get("parameters", [])):
+        return getattr(args, "host", None) or "localhost"
+    if not os.path.isfile(get_config_file_path()):
+        return "localhost"
+    inst = resolve_instance(getattr(args, "id", None), required=False)
+    return (inst or {}).get("host") or "localhost"
+
+
+def resolve_instance_host_path(name, value, host):
+    """Resolve a path on the instance's host, or exit if it cannot be.
+
+    On this machine the value is expanded and anchored to the working
+    directory. On another host it is passed through for that host to
+    expand, so it must not depend on a working directory there.
+    """
+    value = str(value)
+    if _is_local_target(host):
+        return os.path.abspath(os.path.expanduser(value))
+    if os.path.isabs(value) or value.startswith("~"):
+        return value
+    print(
+        "Error: --%s is relative ('%s'), but the instance is on %s. "
+        "Give an absolute path on %s, or one starting with '~'."
+        % (name.replace("_", "-"), value, host, host),
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def apply_instance_host_paths(cmd_def, args):
+    """Resolve every path_kind: instance_host parameter set on args."""
+    host = None
+    for param in cmd_def.get("parameters", []):
+        if param.get("path_kind") != "instance_host":
+            continue
+        value = getattr(args, param["name"], None)
+        if value is None:
+            continue
+        if host is None:
+            host = instance_host_for_paths(cmd_def, args)
+        setattr(args, param["name"],
+                resolve_instance_host_path(param["name"], value, host))
+
+
 def build_ansible_args(ansible_playbook, command_name, args, data):
     """Build the ansible-playbook command line.
 
@@ -1673,6 +1724,8 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
 
     # Build extra vars as a dict, written to a JSON file
     extra_vars = {"command": command_name}
+
+    apply_instance_host_paths(cmd_def, args)
 
     # Pass target_host when the command declares --host. Commands
     # without a --host parameter resolve the target from the instance
@@ -1750,7 +1803,10 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
             # or for the no-host case. Those still resolve against
             # the laptop cwd as before.
             path_kind = param.get("path_kind", "local")
-            if host_value and path_kind == "remote":
+            if path_kind == "instance_host":
+                # Already resolved by apply_instance_host_paths.
+                extra_vars[name] = str(value)
+            elif host_value and path_kind == "remote":
                 # Default "." (or empty) becomes the canonical
                 # remote default. Ansible expands ~ on the target.
                 if str(value) in (".", ""):
@@ -2119,6 +2175,9 @@ def main():
     for code, message in collect_cli_param_errors(cmd_def, args):
         print(message, file=sys.stderr)
         sys.exit(code)
+
+    # Before the direct-command dispatch, so both paths read these the same.
+    apply_instance_host_paths(cmd_def, args)
 
     # Pre-flight: a duplicate instance ID is an expected refusal, not a
     # crash. Catch it here so it exits with EXIT_ALREADY_EXISTS instead

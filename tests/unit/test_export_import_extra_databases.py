@@ -105,3 +105,30 @@ class TestImportFindsTheSiblings:
         v = self._run(tmp_path, ["main.sql", "main.main_cargo.sql"], [])
         assert v["_import_extra_dumps"] == {}
         assert v["_import_undeclared"] == ["main_cargo"]
+
+
+class TestExportOutputPath:
+    def _resolve(self, monkeypatch, host, file=None):
+        monkeypatch.setenv("PWD", "/home/me/work")
+        monkeypatch.delenv("CANASTA_HOST_PWD", raising=False)
+        variables = {"wiki": "main", "_instance_host": host}
+        if file is not None:
+            variables["file"] = file
+        for name in ("Set output file", "Resolve output path"):
+            task = _by_name(EXPORT, name)
+            for key, expr in task["ansible.builtin.set_fact"].items():
+                variables[key] = _render(expr, variables)
+        return variables["_export_file"]
+
+    def test_local_default_in_working_directory(self, monkeypatch):
+        assert self._resolve(monkeypatch, "localhost") == "/home/me/work/main.sql"
+
+    def test_remote_default_in_ssh_user_home(self, monkeypatch):
+        assert self._resolve(monkeypatch, "admin@prod") == "~/main.sql"
+
+    def test_remote_tilde_kept_for_the_target(self, monkeypatch):
+        assert self._resolve(
+            monkeypatch, "admin@prod", "~/d/x.sql.gz") == "~/d/x.sql.gz"
+
+    def test_absolute_kept(self, monkeypatch):
+        assert self._resolve(monkeypatch, "admin@prod", "/srv/x.sql") == "/srv/x.sql"

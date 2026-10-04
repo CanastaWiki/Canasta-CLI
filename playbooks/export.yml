@@ -11,16 +11,22 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/common/tasks/validate_wiki_id.yml
 
-- name: Set output file (resolve relative paths against user's working directory)
+- name: Set output file
   ansible.builtin.set_fact:
     _export_raw: "{{ file | default(wiki + '.sql') }}"
 
+# A relative path resolves against the user's working directory when the
+# instance is on this machine, and against the SSH user's home on a remote
+# host. A '~' path is expanded on the instance's host by the tasks that
+# write the file.
 - name: Resolve output path
   ansible.builtin.set_fact:
     _export_file: >-
-      {{ _export_raw if _export_raw.startswith('/')
-      else (lookup('env', 'CANASTA_HOST_PWD')
-      | default(lookup('env', 'PWD'), true)) + '/' + _export_raw }}
+      {{ _export_raw if _export_raw is match('[/~]')
+      else ((lookup('env', 'CANASTA_HOST_PWD')
+             | default(lookup('env', 'PWD'), true))
+            if _instance_host in ['localhost', '', '127.0.0.1', '::1']
+            else '~') + '/' + _export_raw }}
 
 - name: Check if gzip requested
   ansible.builtin.set_fact:
