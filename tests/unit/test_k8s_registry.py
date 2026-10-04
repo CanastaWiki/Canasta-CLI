@@ -198,3 +198,74 @@ def test_upgrade_restarts_rebuilt_build_from_instances():
 def test_build_from_forces_a_repull():
     text = _text(VALUES_TPL)
     assert "pullPolicy" in text and "Always" in text
+
+
+# --- API server readiness and failure messages ---
+
+def _ensure_tasks():
+    return list(_walk(yaml.safe_load(_text(ENSURE))))
+
+
+def _task_named(prefix):
+    return next(t for t in _ensure_tasks()
+                if t.get("name", "").startswith(prefix))
+
+
+def _render(template, **variables):
+    import jinja2
+    return " ".join(
+        jinja2.Environment().from_string(template).render(**variables).split())
+
+
+def test_ensure_waits_for_api_server_before_apply():
+    names = [t.get("name", "") for t in _ensure_tasks()]
+    wait = names.index("Wait for the Kubernetes API server to be ready")
+    apply = names.index("Deploy the in-cluster image registry and per-node trust")
+    assert wait < apply
+    task = _task_named("Wait for the Kubernetes API server")
+    assert "get --raw /readyz" in task["ansible.builtin.command"]["cmd"]
+    assert "when" not in task
+    assert task["failed_when"] is False
+    assert task["retries"] * task["delay"] >= 120
+
+
+def test_api_server_timeout_fails_with_a_clear_message():
+    task = _task_named("Fail if the Kubernetes API server")
+    msg = _render(task["ansible.builtin.fail"]["msg"], _registry_api_ready={
+        "rc": 1, "stdout": "",
+        "stderr": "dial tcp 127.0.0.1:6443: connect: connection refused"})
+    assert msg.startswith(
+        "The Kubernetes API server did not become ready")
+    assert "connection refused" in msg
+    assert "10.43" not in msg
+
+
+def test_apply_still_retries_transient_errors():
+    task = _task_named("Deploy the in-cluster image registry")
+    assert task["retries"] >= 1 and "rc == 0" in task["until"]
+
+
+def _apply_failure_msg(stderr):
+    task = _task_named("Explain a registry deploy failure")
+    return _render(task["ansible.builtin.fail"]["msg"],
+                   _registry_apply={"rc": 1, "stdout": "", "stderr": stderr})
+
+
+def test_apply_failure_blames_cidr_only_on_clusterip_errors():
+    for stderr in (
+            'Service "registry" is invalid: spec.clusterIP: Invalid value: '
+            '"10.43.0.2": provided IP is not in the valid range',
+            'Service "registry" is invalid: spec.clusterIPs: Invalid value: '
+            '["10.43.0.2"]: failed to allocate IP 10.43.0.2: '
+            'provided IP is already allocated'):
+        msg = _apply_failure_msg(stderr)
+        assert "service CIDR" in msg and "10.43.0.2 is already in use" in msg
+        assert msg.endswith(stderr)
+
+
+def test_apply_failure_reports_other_errors_without_cidr_guess():
+    stderr = ('error validating "/tmp/k8s_registry.yaml": failed to download '
+              'openapi: dial tcp 127.0.0.1:6443: connect: connection refused')
+    msg = _apply_failure_msg(stderr)
+    assert msg == ("Could not deploy the in-cluster image registry. kubectl: "
+                   + stderr)
