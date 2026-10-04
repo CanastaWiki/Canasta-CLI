@@ -19,6 +19,10 @@
 #   path_kind         - For type:path. 'remote' = remote target dir (default with
 #                       --host is '~/canasta'; relative paths rejected with --host).
 #                       Omit or 'local' = path on the laptop, resolved against cwd.
+#                       'instance_host' = path on the instance's host (from --host,
+#                       else the registry); resolved against cwd when that host is
+#                       this machine, else passed through for the host to expand
+#                       (relative paths rejected).
 
 global_flags:
   # --help/-h is provided automatically by argparse on every parser;
@@ -396,8 +400,11 @@ commands:
         description: "Custom Canasta image reference"
       - name: build_from
         type: path
+        path_kind: instance_host
         mutual_exclusion: canasta_image
-        description: "Build from a source directory on the instance's host"
+        description: >-
+          Build from a source directory on the instance's host (with --host,
+          an absolute path or one starting with a quoted '~' (for example '~/x'))
       - name: build_arg
         type: string
         multi: true
@@ -1170,8 +1177,9 @@ commands:
     long_description: |
       Export a wiki's database as a SQL dump file. The instance must
       be running. By default the dump is saved to `<wikiID>.sql` in
-      the current directory. Use a `.gz` extension on the output
-      path to get a gzip-compressed dump.
+      the current directory, or, for an instance on a remote host, in
+      the home directory of the SSH user there. Use a `.gz` extension
+      on the output path to get a gzip-compressed dump.
 
       Each extra database the wiki declares (see `canasta backup
       databases`) is exported to its own file beside the main one,
@@ -1197,7 +1205,11 @@ commands:
       - name: file
         short: f
         type: path
-        description: "Output file path on the instance's host (default: <wikiID>.sql, use .gz for compression)"
+        path_kind: instance_host
+        description: >-
+          Output file path on the instance's host (default: <wikiID>.sql, use
+          .gz for compression). For an instance on a remote host, an absolute
+          path or one starting with a quoted '~' (for example '~/x')
 
   # ---------------------------------------------------------------------------
   # Config management
@@ -2784,10 +2796,12 @@ commands:
           is exported, so --key is not needed.
       - name: ssh_key
         type: path
+        path_kind: instance_host
         description: >-
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
-          <ssh-key> ...". Omit to keep the default: ssh-agent forwarding on
+          <ssh-key> ...". On a remote host, give an absolute path or one
+          starting with a quoted '~' (for example '~/x'). Omit to keep the default: ssh-agent forwarding on
           Compose, or the generated `<key>.ssh` deploy key on Kubernetes.
       - name: force
         type: bool
@@ -2886,10 +2900,12 @@ commands:
           (<key>.ssh).
       - name: ssh_key
         type: path
+        path_kind: instance_host
         description: >-
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
-          <ssh-key> ...". Omit to keep the default: ssh-agent forwarding on
+          <ssh-key> ...". On a remote host, give an absolute path or one
+          starting with a quoted '~' (for example '~/x'). Omit to keep the default: ssh-agent forwarding on
           Compose, or the generated `<key>.ssh` deploy key on Kubernetes.
       - name: reinit
         type: bool
@@ -2976,10 +2992,12 @@ commands:
         description: "Commit message (defaults to 'Configuration update')"
       - name: ssh_key
         type: path
+        path_kind: instance_host
         description: >-
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
-          <ssh-key> ...". Omit to keep the default: ssh-agent forwarding on
+          <ssh-key> ...". On a remote host, give an absolute path or one
+          starting with a quoted '~' (for example '~/x'). Omit to keep the default: ssh-agent forwarding on
           Compose, or the staged deploy key on Kubernetes.
       - name: key
         type: path
@@ -3006,10 +3024,12 @@ commands:
         description: "Canasta instance ID"
       - name: ssh_key
         type: path
+        path_kind: instance_host
         description: >-
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
-          <ssh-key> ...". Omit to keep the default: ssh-agent forwarding on
+          <ssh-key> ...". On a remote host, give an absolute path or one
+          starting with a quoted '~' (for example '~/x'). Omit to keep the default: ssh-agent forwarding on
           Compose, or the staged deploy key on Kubernetes.
       - name: key
         type: path
@@ -3034,10 +3054,12 @@ commands:
         description: "Canasta instance ID"
       - name: ssh_key
         type: path
+        path_kind: instance_host
         description: >-
           Path on the instance's host to an SSH private key for the remote
           fetch. When set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key>
-          ...". Omit to keep the default: ssh-agent forwarding on Compose, or
+          ...". On a remote host, give an absolute path or one starting with
+          '~'. Omit to keep the default: ssh-agent forwarding on Compose, or
           the staged deploy key on Kubernetes.
 
   - name: gitops_diff
@@ -3414,7 +3436,7 @@ commands:
         description: "Path to the Canasta instance directory"
       - name: file
         short: f
-        type: string
+        type: path
         required: true
         description: >-
           Path on the controller (the machine running canasta) to a YAML file
@@ -3534,7 +3556,7 @@ commands:
         required: true
         description: >-
           Docker build context directory on the target host (with --host,
-          an absolute path or one starting with '~')
+          an absolute path or one starting with a quoted '~' (for example '~/x'))
       - name: image_name
         long: name
         type: string
