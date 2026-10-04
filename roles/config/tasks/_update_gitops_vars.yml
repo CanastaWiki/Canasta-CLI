@@ -13,6 +13,32 @@
     src: "{{ instance_path }}/.gitops-host"
   register: _config_host_raw
 
+# Side effects generate the OpenSearch credentials straight into .env, so
+# they are not in the typed settings. Persist them like typed keys, with the
+# value exactly as .env holds it (the hash is $$-escaped), because the render
+# copies stored values back into .env verbatim.
+- name: Read final .env for generated credentials
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _config_env_generated
+  no_log: true  # registers the whole .env, including passwords
+
+- name: Collect generated credentials to propagate
+  ansible.builtin.set_fact:
+    _config_generated_settings: >-
+      {{ _gen_items | map(attribute='key')
+         | zip(_gen_items | map(attribute='value'))
+         | map('join', '=') | list }}
+  vars:
+    _gen_items: >-
+      {{ _config_env_generated.variables | dict2items
+         | selectattr('key', 'in', ['OS_USER', 'OS_PASSWORD', 'OS_PASSWORD_HASH'])
+         | rejectattr('key', 'in', _config_settings.split() | map('regex_replace', '=.*$', '') | list)
+         | rejectattr('value', 'equalto', '')
+         | list }}
+  no_log: true
+
 # If config set introduces a new credential key (SMTP_PASSWORD,
 # AWS_*, etc.) that wasn't in .env at gitops init time, env.template
 # won't have a placeholder for it. Add one so the map-building step
@@ -20,7 +46,7 @@
 - name: Ensure env.template has placeholders for new credential keys
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/config/tasks/_ensure_env_template_placeholder.yml
-  loop: "{{ _config_settings.split() }}"
+  loop: "{{ _config_settings.split() + _config_generated_settings }}"
   loop_control:
     loop_var: _ep_setting
     label: "{{ _ep_setting.split('=', 1)[0] }}"
@@ -49,7 +75,7 @@
 - name: Update vars.yaml for each changed key
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/config/tasks/_update_gitops_var.yml
-  loop: "{{ _config_settings.split() }}"
+  loop: "{{ _config_settings.split() + _config_generated_settings }}"
   loop_control:
     loop_var: _config_setting
     label: "{{ _config_setting.split('=', 1)[0] }}"
