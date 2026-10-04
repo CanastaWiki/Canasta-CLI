@@ -24,10 +24,17 @@ def _render(expr, **ctx):
     return jinja2.Environment().from_string(expr).render(**ctx)
 
 
+def _walk(tasks):
+    for t in tasks or []:
+        yield t
+        for key in ("block", "rescue", "always"):
+            yield from _walk(t.get(key))
+
+
 def _poll_delay():
     with open(RESILIENT) as f:
         tasks = yaml.safe_load(f)
-    poll = next(t for t in tasks if "until" in t)
+    poll = next(t for t in _walk(tasks) if "until" in t)
     return int(_render(poll["delay"]))
 
 

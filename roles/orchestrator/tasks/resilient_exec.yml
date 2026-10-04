@@ -24,8 +24,10 @@
 #   rx_retries  - number of completion polls (default: 180)
 #   rx_delay    - seconds between polls (default: 10)
 #   rx_fail     - fail the play on non-zero rc (default: true)
-#   rx_no_log   - hide the command and its output, for secrets in rx_cmd
-#                 (default: false)
+#   rx_no_log   - hide the command and its output from Ansible's display
+#                 (default: false). It does not protect the async job file,
+#                 which holds the command line and output on the target
+#                 while the job runs, so rx_cmd must never carry a secret.
 # Output:
 #   rx_result   - async_status result (.rc, .stdout, .stderr, .finished)
 #
@@ -50,42 +52,49 @@
   changed_when: true
   no_log: "{{ rx_no_log | default(false) | bool }}"
 
-- name: "Wait for completion: {{ rx_name }}"
-  ansible.builtin.async_status:
-    jid: "{{ _rx_job.ansible_job_id }}"
-  register: rx_result
-  until: rx_result.finished | default(false) | bool
-  retries: "{{ rx_retries | default(180) | int }}"
-  delay: "{{ rx_delay | default(10) | int }}"
-  # An unreachable poll registers a result with no `.finished`, so the
-  # until-loop simply retries — transient resets during the wait don't
-  # abort the operation, which keeps running on the target.
-  ignore_unreachable: true
-  # A completed job with a non-zero rc makes async_status return the wrapped
-  # failure, which would abort this poll (and, on older ansible, retry the
-  # deterministic failure until retries drain) before "Report failure" runs.
-  # Keep the rc decision in "Report failure" so the loop only waits for the
-  # job to finish, deterministic failures stop immediately, and rx_fail is
-  # honored.
-  failed_when: false
-  # async_status returns the wrapped job's result, including its `cmd`, so
-  # honor rx_no_log here too — otherwise a secret in rx_cmd (e.g. the k3s
-  # join token) surfaces in this task's output under -v.
-  no_log: "{{ rx_no_log | default(false) | bool }}"
+# The async job file holds the command line and its output, so it is
+# removed whether the job succeeded, failed or outlived the poll window. A
+# job still running after the last poll is not stopped, and writes the file
+# again when it ends.
+- name: "Wait for and check: {{ rx_name }}"
+  block:
+    - name: "Wait for completion: {{ rx_name }}"
+      ansible.builtin.async_status:
+        jid: "{{ _rx_job.ansible_job_id }}"
+      register: rx_result
+      until: rx_result.finished | default(false) | bool
+      retries: "{{ rx_retries | default(180) | int }}"
+      delay: "{{ rx_delay | default(10) | int }}"
+      # An unreachable poll registers a result with no `.finished`, so the
+      # until-loop simply retries — transient resets during the wait don't
+      # abort the operation, which keeps running on the target.
+      ignore_unreachable: true
+      # A completed job with a non-zero rc makes async_status return the
+      # wrapped failure, which would abort this poll (and, on older ansible,
+      # retry the deterministic failure until retries drain) before "Report
+      # failure" runs. Keep the rc decision in "Report failure" so the loop
+      # only waits for the job to finish, deterministic failures stop
+      # immediately, and rx_fail is honored.
+      failed_when: false
+      # async_status returns the wrapped job's result, including its `cmd` and
+      # output, so honor rx_no_log here too.
+      no_log: "{{ rx_no_log | default(false) | bool }}"
 
-- name: "Report failure: {{ rx_name }}"
-  ansible.builtin.fail:
-    msg: >-
-      {{ rx_name }} failed (rc={{ rx_result.rc | default('unknown') }}):
-      {{ (rx_result.stderr | default('')) | trim
-         | default(rx_result.stdout | default(''), true) }}
-  when:
-    - rx_fail | default(true) | bool
-    - (rx_result.rc | default(1) | int) != 0
-  no_log: "{{ rx_no_log | default(false) | bool }}"
-
-- name: "Clean up async job file: {{ rx_name }}"
-  ansible.builtin.async_status:
-    jid: "{{ _rx_job.ansible_job_id }}"
-    mode: cleanup
-  no_log: "{{ rx_no_log | default(false) | bool }}"
+    - name: "Report failure: {{ rx_name }}"
+      ansible.builtin.fail:
+        msg: >-
+          {{ rx_name }} failed (rc={{ rx_result.rc | default('unknown') }}):
+          {{ (rx_result.stderr | default('')) | trim
+             | default(rx_result.stdout | default(''), true) }}
+      when:
+        - rx_fail | default(true) | bool
+        - (rx_result.rc | default(1) | int) != 0
+      no_log: "{{ rx_no_log | default(false) | bool }}"
+  always:
+    - name: "Clean up async job file: {{ rx_name }}"
+      ansible.builtin.async_status:
+        jid: "{{ _rx_job.ansible_job_id }}"
+        mode: cleanup
+      ignore_errors: true
+      ignore_unreachable: true
+      no_log: "{{ rx_no_log | default(false) | bool }}"

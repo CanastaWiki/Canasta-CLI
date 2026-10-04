@@ -1115,8 +1115,8 @@ class TestResilientExec:
         assert "ansible.builtin.shell" in launch
         # Completion is polled with async_status in an until-loop that
         # tolerates transient unreachable polls.
-        poll = next(t for t in tasks if "ansible.builtin.async_status" in t)
-        assert "until" in poll
+        poll = next(t for t in self._walk(tasks) if "until" in t)
+        assert "ansible.builtin.async_status" in poll
         assert poll.get("ignore_unreachable") is True
 
     def test_launch_collapses_only_newlines(self):
@@ -1150,13 +1150,38 @@ class TestResilientExec:
                     assert "\n" not in re.sub(r"[\r\n]+", " ", rx).strip(), rel
 
     def test_poll_and_cleanup_honor_no_log(self):
-        # async_status returns the job's `cmd`, so the poll + cleanup tasks
-        # must honor rx_no_log or a secret in rx_cmd (e.g. the k3s join
-        # token) leaks under -v.
+        # async_status returns the job's `cmd` and output, so the poll +
+        # cleanup tasks must honor rx_no_log.
         tasks = yaml.safe_load(open(self.PRIMITIVE))
         for name in ("Wait for completion", "Clean up async job file"):
-            t = next(x for x in tasks if str(x.get("name", "")).startswith(name))
+            t = next(x for x in self._walk(tasks)
+                     if str(x.get("name", "")).startswith(name))
             assert "rx_no_log" in str(t.get("no_log", "")), name
+
+    def test_job_file_cleaned_up_on_every_outcome(self):
+        # The job file holds the command and its output, so its removal sits
+        # in the `always` of the block that polls and reports failure — a
+        # failed or timed-out job is cleaned up too — and a failing cleanup
+        # never masks the job's own outcome.
+        tasks = yaml.safe_load(open(self.PRIMITIVE))
+        guarded = next(t for t in tasks if "block" in t)
+        names = [str(t.get("name", "")) for t in guarded["block"]]
+        assert any(n.startswith("Wait for completion") for n in names)
+        assert any(n.startswith("Report failure") for n in names)
+        cleanup = [
+            t for t in guarded.get("always", [])
+            if (t.get("ansible.builtin.async_status") or {}).get("mode")
+            == "cleanup"
+        ]
+        assert len(cleanup) == 1
+        assert cleanup[0].get("ignore_errors") is True
+        assert cleanup[0].get("ignore_unreachable") is True
+        top_cleanups = [
+            t for t in tasks
+            if (t.get("ansible.builtin.async_status") or {}).get("mode")
+            == "cleanup"
+        ]
+        assert not top_cleanups
 
     @staticmethod
     def _walk(tasks):

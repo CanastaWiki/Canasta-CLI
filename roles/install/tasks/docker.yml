@@ -113,13 +113,22 @@
           register: _docker_pkg_job
 
         - name: Wait for Docker packages to install (apt)
-          ansible.builtin.async_status:
-            jid: "{{ _docker_pkg_job.ansible_job_id }}"
-          register: _docker_pkg
-          until: _docker_pkg.finished | default(false) | bool
-          retries: 60
-          delay: 10
-          ignore_unreachable: true
+          block:
+            - name: Poll the Docker package install (apt)
+              ansible.builtin.async_status:
+                jid: "{{ _docker_pkg_job.ansible_job_id }}"
+              register: _docker_pkg
+              until: _docker_pkg.finished | default(false) | bool
+              retries: 60
+              delay: 10
+              ignore_unreachable: true
+          always:
+            - name: Clean up the Docker package install job file (apt)
+              ansible.builtin.async_status:
+                jid: "{{ _docker_pkg_job.ansible_job_id }}"
+                mode: cleanup
+              ignore_errors: true
+              ignore_unreachable: true
 
     - name: Install Docker (RHEL/CentOS/Fedora)
       when: ansible_os_family == 'RedHat'
@@ -151,13 +160,22 @@
           register: _docker_pkg_job
 
         - name: Wait for Docker packages to install (dnf)
-          ansible.builtin.async_status:
-            jid: "{{ _docker_pkg_job.ansible_job_id }}"
-          register: _docker_pkg
-          until: _docker_pkg.finished | default(false) | bool
-          retries: 60
-          delay: 10
-          ignore_unreachable: true
+          block:
+            - name: Poll the Docker package install (dnf)
+              ansible.builtin.async_status:
+                jid: "{{ _docker_pkg_job.ansible_job_id }}"
+              register: _docker_pkg
+              until: _docker_pkg.finished | default(false) | bool
+              retries: 60
+              delay: 10
+              ignore_unreachable: true
+          always:
+            - name: Clean up the Docker package install job file (dnf)
+              ansible.builtin.async_status:
+                jid: "{{ _docker_pkg_job.ansible_job_id }}"
+                mode: cleanup
+              ignore_errors: true
+              ignore_unreachable: true
 
     - name: Enable and start Docker
       ansible.builtin.systemd:
