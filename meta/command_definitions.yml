@@ -1519,8 +1519,8 @@ commands:
       `canasta gitops push` afterwards to distribute a gitops removal to
       other hosts.
     examples:
-      - "canasta skin remove Citizen"
-      - "canasta skin remove Citizen,Columbia"
+      - "canasta skin remove Mirage"
+      - "canasta skin remove Mirage,Cosmos"
     playbook: skin_remove.yml
     parameters:
       - name: id
@@ -1773,8 +1773,8 @@ commands:
       supported.
     examples:
       - "canasta skin add Timeless"
-      - "canasta skin add Citizen --clone"
-      - "canasta skin add Citizen --clone --mw-version 1.43.2"
+      - "canasta skin add Mirage --clone"
+      - "canasta skin add Mirage --clone --mw-version 1.43.2"
     playbook: skin_add.yml
     parameters:
       - name: id
