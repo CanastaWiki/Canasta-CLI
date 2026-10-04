@@ -1399,8 +1399,9 @@ commands:
   - name: extension_list
     description: "Lists all the installed Canasta extensions"
     long_description: |
-      List all Canasta extensions available in the instance. Each
-      extension is shown with its enabled/disabled status.
+      List the names of the extensions available in the instance: those
+      bundled in the Canasta image plus any user extensions. Whether an
+      extension is enabled is not shown.
     examples:
       - "canasta extension list"
     playbook: extension_list.yml
@@ -1519,8 +1520,8 @@ commands:
       `canasta gitops push` afterwards to distribute a gitops removal to
       other hosts.
     examples:
-      - "canasta skin remove Citizen"
-      - "canasta skin remove Citizen,Columbia"
+      - "canasta skin remove Mirage"
+      - "canasta skin remove Mirage,Cosmos"
     playbook: skin_remove.yml
     parameters:
       - name: id
@@ -1661,8 +1662,9 @@ commands:
   - name: skin_list
     description: "Lists all the installed Canasta skins"
     long_description: |
-      List all Canasta skins available in the instance. Each skin is
-      shown with its enabled/disabled status.
+      List the names of the skins available in the instance: those
+      bundled in the Canasta image plus any user skins. Whether a skin is
+      enabled is not shown.
     examples:
       - "canasta skin list"
     playbook: skin_list.yml
@@ -1773,8 +1775,8 @@ commands:
       supported.
     examples:
       - "canasta skin add Timeless"
-      - "canasta skin add Citizen --clone"
-      - "canasta skin add Citizen --clone --mw-version 1.43.2"
+      - "canasta skin add Mirage --clone"
+      - "canasta skin add Mirage --clone --mw-version 1.43.2"
     playbook: skin_add.yml
     parameters:
       - name: id

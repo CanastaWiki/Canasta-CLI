@@ -7,6 +7,7 @@ must fail loudly.
 import os
 import subprocess
 
+import jinja2
 import pytest
 import yaml
 
@@ -171,6 +172,27 @@ class TestGitUrlHandling:
         assert "_detached_is_pin" in when and "not" in when, (
             "the re-align must not fire when the detached commit is a "
             "deliberate pin")
+
+    @pytest.mark.parametrize("item_type", ["extensions", "skins"])
+    def test_detached_pin_message_names_real_commands(self, item_type):
+        # The command groups are singular (`canasta extension`), and only
+        # extensions have set-version.
+        tasks = list(_walk(_load(ADD_ONE)))
+        pins = [t for t in tasks
+                if "deliberate pin" in str(t.get("name", ""))]
+        assert pins, "there must be a deliberate-pin report"
+        msg = jinja2.Template(pins[0]["ansible.builtin.debug"]["msg"]).render(
+            _item_type=item_type,
+            item={"name": "Foo", "branch": "REL1_43"},
+            _pinned_sha={"stdout": "0123456789abcdef"})
+        assert "canasta extensions" not in msg
+        assert "canasta skins" not in msg
+        assert msg.startswith(item_type[:-1].capitalize() + " 'Foo'")
+        if item_type == "extensions":
+            assert ("`canasta extension set-version Foo --ref REL1_43`"
+                    in msg)
+        else:
+            assert "set-version" not in msg
 
     def test_realign_reports_commit_range(self):
         # The re-align notification must name the commits it moved between
