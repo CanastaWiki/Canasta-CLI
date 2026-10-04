@@ -12,46 +12,68 @@
 # Input: instance_path, instance_orchestrator, instance_id,
 #        import_wiki_id, import_images_path
 
-- name: Transfer images tarball to target host
-  ansible.builtin.copy:
-    src: "{{ import_images_path }}"
-    dest: "/tmp/canasta-images-import.tar"
-    mode: "0644"
+- name: Create a private temp file on the target host for the tarball
+  ansible.builtin.tempfile:
+    state: file
+    suffix: .tar
+  register: _import_images_host_tmp
 
-# Orchestrator dispatch (docker compose cp vs kubectl cp) into the web
-# container, which mounts the images volume/PVC.
-- name: Copy images tarball into the web container
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/copy_into_container.yml"
-  vars:
-    copy_service: web
-    copy_src: "/tmp/canasta-images-import.tar"
-    copy_dest: "/tmp/canasta-images-import.tar"
+- name: Set the container-side tarball path
+  ansible.builtin.set_fact:
+    _import_images_container_file: "/tmp/{{ _import_images_host_tmp.path | basename }}"
 
-- name: Clean up transferred tarball from target host
-  ansible.builtin.file:
-    path: "/tmp/canasta-images-import.tar"
-    state: absent
+- name: Place the images in the wiki's uploads dir
+  block:
+    - name: Transfer images tarball to target host
+      ansible.builtin.copy:
+        src: "{{ import_images_path }}"
+        dest: "{{ _import_images_host_tmp.path }}"
+        mode: "0600"
 
-# Extract the hash-dir tree into the wiki's uploads dir and fix ownership.
-# A single leading images/ parent (someone tarred the parent dir instead of
-# its contents) is elided so files always land at the hash-directory level.
-# exec_long: a large media tree can take a while, so run detached + polled
-# (survives a controller-side SSH reset).
-- name: Extract images into the wiki's uploads dir (owned by www-data)
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-  vars:
-    exec_service: web
-    exec_long: true
-    exec_command: >-
-      set -e;
-      dest="/var/www/mediawiki/w/images/{{ import_wiki_id }}";
-      mkdir -p "$dest";
-      stage="$(mktemp -d)";
-      tar xf /tmp/canasta-images-import.tar -C "$stage";
-      if [ -d "$stage/images" ] && [ "$(ls -A "$stage" | wc -l)" = "1" ];
-      then src="$stage/images";
-      else src="$stage";
-      fi;
-      cp -a "$src/." "$dest/";
-      chown -R www-data:www-data "$dest";
-      rm -rf "$stage" /tmp/canasta-images-import.tar
+    # Orchestrator dispatch (docker compose cp vs kubectl cp) into the web
+    # container, which mounts the images volume/PVC.
+    - name: Copy images tarball into the web container
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/copy_into_container.yml"
+      vars:
+        copy_service: web
+        copy_src: "{{ _import_images_host_tmp.path }}"
+        copy_dest: "{{ _import_images_container_file }}"
+
+    # Extract the hash-dir tree into the wiki's uploads dir and fix ownership.
+    # A single leading images/ parent (someone tarred the parent dir instead of
+    # its contents) is elided so files always land at the hash-directory level.
+    # exec_long: a large media tree can take a while, so run detached + polled
+    # (survives a controller-side SSH reset).
+    - name: Extract images into the wiki's uploads dir (owned by www-data)
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: web
+        exec_long: true
+        exec_command: >-
+          set -e;
+          dest="/var/www/mediawiki/w/images/{{ import_wiki_id }}";
+          mkdir -p "$dest";
+          stage="$(mktemp -d)";
+          tar xf {{ _import_images_container_file | quote }} -C "$stage";
+          if [ -d "$stage/images" ] && [ "$(ls -A "$stage" | wc -l)" = "1" ];
+          then src="$stage/images";
+          else src="$stage";
+          fi;
+          cp -a "$src/." "$dest/";
+          chown -R www-data:www-data "$dest";
+          rm -rf "$stage"
+  always:
+    - name: Clean up transferred tarball from target host
+      ansible.builtin.file:
+        path: "{{ _import_images_host_tmp.path }}"
+        state: absent
+      ignore_errors: true
+
+    - name: Clean up images tarball in the web container
+      ansible.builtin.include_tasks:
+        file: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+        apply:
+          ignore_errors: true
+      vars:
+        exec_service: web
+        exec_command: "rm -f {{ _import_images_container_file | quote }}"
