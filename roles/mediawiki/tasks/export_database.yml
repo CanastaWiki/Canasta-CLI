@@ -34,6 +34,16 @@
     path: "{{ export_dest }}"
     state: touch
     mode: "0600"
+  register: _export_touch
+  failed_when: false
+
+- name: Fail when the export file cannot be created
+  ansible.builtin.fail:
+    msg: >-
+      Could not create {{ export_dest }} on the instance's host
+      ({{ ansible_host | default('localhost') }}): {{ _export_touch.msg | default('') }}.
+      Check that its directory exists there.
+  when: _export_touch.failed | default(false)
 
 # The orchestrator owns how a file is copied out of the db container
 # (docker compose cp vs kubectl cp); dispatch.
