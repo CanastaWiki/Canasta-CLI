@@ -18,7 +18,7 @@
 - name: Refuse Kubernetes (unsupported)
   ansible.builtin.fail:
     msg: >-
-      'canasta {{ _item_type }} remove' is only supported on Compose (including
+      'canasta {{ _item_type[:-1] }} remove' is only supported on Compose (including
       gitops) instances; Kubernetes user extensions live in a PVC and are not
       managed this way.
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
