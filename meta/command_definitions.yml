@@ -1399,8 +1399,9 @@ commands:
   - name: extension_list
     description: "Lists all the installed Canasta extensions"
     long_description: |
-      List all Canasta extensions available in the instance. Each
-      extension is shown with its enabled/disabled status.
+      List the names of the extensions available in the instance: those
+      bundled in the Canasta image plus any user extensions. Whether an
+      extension is enabled is not shown.
     examples:
       - "canasta extension list"
     playbook: extension_list.yml
@@ -1661,8 +1662,9 @@ commands:
   - name: skin_list
     description: "Lists all the installed Canasta skins"
     long_description: |
-      List all Canasta skins available in the instance. Each skin is
-      shown with its enabled/disabled status.
+      List the names of the skins available in the instance: those
+      bundled in the Canasta image plus any user skins. Whether a skin is
+      enabled is not shown.
     examples:
       - "canasta skin list"
     playbook: skin_list.yml
