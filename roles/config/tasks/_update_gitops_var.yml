@@ -7,6 +7,7 @@
   ansible.builtin.set_fact:
     _ugv_key: "{{ _config_setting.split('=', 1)[0] }}"
     _ugv_value: "{{ _config_setting.split('=', 1)[1] | default('') }}"
+  no_log: "{{ _config_setting.split('=', 1)[0] is match(canasta_secret_key_regex) }}"
 
 - name: Look up placeholder name
   ansible.builtin.set_fact:
