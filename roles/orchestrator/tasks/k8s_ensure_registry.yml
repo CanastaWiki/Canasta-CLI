@@ -22,6 +22,26 @@
     - k8s_registry.yaml
     - k8s_registry_trust.yaml
 
+# The API server can drop out briefly after k3s starts, even once
+# cluster-info has answered.
+- name: Wait for the Kubernetes API server to be ready
+  ansible.builtin.command:
+    cmd: kubectl get --raw /readyz
+  register: _registry_api_ready
+  changed_when: false
+  failed_when: false
+  until: _registry_api_ready.rc == 0 and _registry_api_ready.stdout | trim == 'ok'
+  retries: 36
+  delay: 5
+
+- name: Fail if the Kubernetes API server did not become ready
+  ansible.builtin.fail:
+    msg: >-
+      The Kubernetes API server did not become ready within 3 minutes, so the
+      in-cluster image registry could not be deployed.
+      kubectl: {{ _registry_api_ready.stderr or _registry_api_ready.stdout }}
+  when: _registry_api_ready.rc != 0 or _registry_api_ready.stdout | trim != 'ok'
+
 - name: Deploy the in-cluster image registry and per-node trust
   ansible.builtin.command:
     cmd: >-
@@ -40,12 +60,16 @@
   retries: 4
   delay: 5
 
-- name: Explain a registry deploy failure (often a fixed-ClusterIP conflict)
+- name: Explain a registry deploy failure
   ansible.builtin.fail:
     msg: >-
-      Could not deploy the in-cluster image registry. Its fixed ClusterIP
-      10.43.0.2 is unavailable if the cluster uses a non-default Kubernetes
-      service CIDR (not 10.43.0.0/16) or 10.43.0.2 is already in use.
+      Could not deploy the in-cluster image registry.
+      {% if 'already allocated' in _registry_apply.stderr
+            or 'Invalid value' in _registry_apply.stderr %}
+      Its fixed ClusterIP 10.43.0.2 is unavailable if the cluster uses a
+      non-default Kubernetes service CIDR (not 10.43.0.0/16) or 10.43.0.2 is
+      already in use.
+      {% endif %}
       kubectl: {{ _registry_apply.stderr | default('') }}
   when: _registry_apply.rc != 0
 
