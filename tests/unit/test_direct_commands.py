@@ -2547,6 +2547,17 @@ class TestParseGitopsStatus:
         result = direct_commands._parse_gitops_status(out, "mysite")
         assert "Behind remote by 2 commit(s)." in result
 
+    def test_diverged_from_remote_reports_both_counts(self):
+        out = self._make_output(revcount="1\t2")
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert (
+            "Diverged from remote: 1 local commit(s) not pushed, "
+            "2 remote commit(s) not pulled. Run 'canasta gitops pull', "
+            "then 'canasta gitops push'."
+        ) in result
+        assert "Ahead of remote" not in result
+        assert "Behind remote" not in result
+
     def test_fetch_failed_reports_unknown_not_in_sync(self):
         # A failed fetch left origin stale; rev-list may still print 0\t0
         # against the stale ref. Must NOT read as in-sync.
