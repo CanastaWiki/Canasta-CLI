@@ -62,7 +62,7 @@ def run_module():
 
     override = _read_yaml(override_path)
     if not override or not (override.get("services")):
-        module.exit_json(changed=False, migrated=[], skipped=[],
+        module.exit_json(changed=False, migrated=[], unmigrated=[],
                          assumptions=[], dry_run=dry_run,
                          message="No docker-compose.override.yml services to migrate.")
         return
@@ -73,7 +73,7 @@ def run_module():
 
     result = dict(
         migrated=plan["migrated"],
-        skipped=plan["skipped"],
+        unmigrated=plan["skipped"],
         assumptions=plan["assumptions"],
         dry_run=dry_run,
         changed=bool(plan["migrated"]) and not dry_run,
