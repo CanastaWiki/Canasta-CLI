@@ -696,6 +696,23 @@ class TestRemainderFlagHoisting:
         assert args.id == "mysite"
         assert args.exec_args == ["ls", "-la", "/var/www"]
 
+    def test_exec_wiki_flag_stays_with_the_inner_command(self, parser):
+        args = self._parse_and_hoist(parser, [
+            "maintenance", "exec", "-i", "mysite",
+            "php", "maintenance/run.php", "showSiteStats", "--wiki", "draft"
+        ])
+        assert not hasattr(args, "wiki")
+        assert args.exec_args == [
+            "php", "maintenance/run.php", "showSiteStats", "--wiki", "draft"
+        ]
+
+    def test_exec_refuses_wiki_flag(self, parser):
+        with pytest.raises(SystemExit):
+            parser.parse_args([
+                "maintenance", "exec", "-i", "mysite", "-w", "draft",
+                "--", "ls",
+            ])
+
     def test_hoist_noop_on_non_remainder_commands(self, parser):
         # config set uses a non-REMAINDER positional; hoist should leave it
         # alone.
