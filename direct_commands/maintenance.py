@@ -51,9 +51,16 @@ def _resolve_wiki_targets(args, inst):
     """Pick which wikis a maintenance command should run against.
     If --wiki was passed, that one. Otherwise every wiki in wikis.yaml."""
     wiki = getattr(args, "wiki", None)
-    if wiki:
-        return [wiki]
     ids = _read_wiki_ids(inst)
+    if wiki:
+        if ids and wiki not in ids:
+            print(
+                "Error: wiki '%s' is not in this instance. Present wikis: %s."
+                % (wiki, ", ".join(ids)),
+                file=sys.stderr,
+            )
+            return []
+        return [wiki]
     if not ids:
         print(
             "Error: no wikis found in config/wikis.yaml; "

@@ -4217,6 +4217,16 @@ class TestMaintenanceScript:
         assert commands == []
         assert "no wikis found" in capsys.readouterr().err
 
+    def test_unknown_wiki_is_refused(self, monkeypatch, capsys):
+        self._patch_resolve(monkeypatch, wikis=["main", "draft"])
+        commands = self._record_streams(monkeypatch)
+        rc = direct_commands.cmd_maintenance_script(
+            self._args(script_args="rebuildall.php", wiki="nope"),
+        )
+        assert rc == 1
+        assert commands == []
+        assert "wiki 'nope' is not in this instance" in capsys.readouterr().err
+
 
 class TestMaintenanceExtension:
     def _args(self, **kw):
@@ -4379,6 +4389,16 @@ class TestMaintenanceExtension:
         assert rc == 1
         assert commands == []
         assert "no wikis found" in capsys.readouterr().err
+
+    def test_unknown_wiki_is_refused(self, monkeypatch, capsys):
+        self._patch_resolve(monkeypatch, wikis=["main", "draft"])
+        commands = self._record_streams(monkeypatch)
+        rc = direct_commands.cmd_maintenance_extension(
+            self._args(script_args="Cite:fixHTMLOutputForCite", wiki="nope"),
+        )
+        assert rc == 1
+        assert commands == []
+        assert "wiki 'nope' is not in this instance" in capsys.readouterr().err
 
 
 class TestMaintenanceUpdate:
