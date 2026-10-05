@@ -12,7 +12,8 @@ the app Secret (envSecret) — at render, and already at `sidecar add` and
 `sidecar migrate`.
 
 On Compose the bridge is rendered per host and gitignored; the upgrade's
-.gitignore refresh untracks it in existing repos.
+.gitignore refresh untracks it in existing repos, and an upgrade that does
+not restart the instance re-renders it, so no secret stays in it.
 """
 
 import os
@@ -370,6 +371,68 @@ def test_report_prints_omitted_secrets(tmp_path):
             "still receive them. If MediaWiki needs them, use 'canasta config "
             "set --secret --web KEY=VALUE'.") in proc.stdout
     assert "canasta config set --secret --web KEY=VALUE" in proc.stdout
+
+
+# --- Upgrade re-render ----------------------------------------------------- #
+
+UPGRADE_MAIN = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "main.yml")
+
+
+def _upgrade_rerender_task():
+    tasks = _yaml(UPGRADE_MAIN)
+    names = [t.get("name") for t in tasks]
+    found = [t for t in tasks if (t.get("ansible.builtin.include_role") or {})
+             .get("tasks_from") == "rerender_compose_layers.yml"]
+    assert len(found) == 1
+    assert names.index(found[0]["name"]) > names.index("Restart containers")
+    return found[0]
+
+
+def _old_instance(tmp_path):
+    """A Compose instance whose bridge predates leaving secrets out."""
+    inst = _instance(tmp_path, [LINKER], dict(ENV, MAPS_KEY="m"),
+                     {"config/secret-keys": "LINKER_API\nMAPS_KEY\n",
+                      "config/secret-keys-web": "MAPS_KEY\n"})
+    (inst / BRIDGE).parent.mkdir(parents=True)
+    (inst / BRIDGE).write_text("<?php putenv('MYSQL_PASSWORD=dbpw');\n")
+    return inst
+
+
+@pytest.mark.parametrize("restart_needed,was_running,rendered", [
+    (False, True, True), (False, False, True), (True, False, True),
+    (True, True, False)])
+def test_upgrade_rerenders_when_not_restarted(tmp_path, restart_needed,
+                                              was_running, rendered):
+    inst = _old_instance(tmp_path)
+    proc = _play(tmp_path, inst, [
+        {"ansible.builtin.set_fact": {"_restart_needed": restart_needed,
+                                      "_was_running": was_running}},
+        _upgrade_rerender_task()])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    bridge = _bridge(inst)
+    if not rendered:
+        assert "dbpw" in bridge
+        assert not (inst / "docker-compose.sidecars.yml").exists()
+        return
+    assert "dbpw" not in bridge and "MYSQL_PASSWORD" not in bridge
+    assert "putenv('LINKER_HOST=linker.internal');" in bridge
+    assert (inst / "docker-compose.sidecars.yml").exists()
+    assert "MAPS_KEY=${MAPS_KEY}" in (
+        inst / "docker-compose.web-env.yml").read_text()
+    assert ("because they are secrets: LINKER_API, MYSQL_PASSWORD."
+            in proc.stdout)
+
+
+def test_upgrade_rerender_skips_kubernetes(tmp_path):
+    inst = _old_instance(tmp_path)
+    proc = _play(tmp_path, inst, [
+        {"ansible.builtin.set_fact": {"_restart_needed": False,
+                                      "_was_running": True}},
+        _upgrade_rerender_task()], orchestrator="kubernetes")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "dbpw" in _bridge(inst)
+    assert not (inst / "values-sidecars.yaml").exists()
+    assert not (inst / "docker-compose.web-env.yml").exists()
 
 
 # --- Gitignore ------------------------------------------------------------- #
