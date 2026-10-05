@@ -29,15 +29,15 @@
 
 - name: Report services left in the override
   ansible.builtin.debug:
-    msg: "{{ _skipped_lines }}"
+    msg: "{{ _unmigrated_lines }}"
   vars:
-    _skipped_lines: "{{ ['Left in docker-compose.override.yml (could not fully model):']
-      + [_s.name ~ ' — ' ~ (_s.reasons | join(', ')) for _s in _migrate.skipped] }}"
-  when: _migrate.skipped | length > 0
+    _unmigrated_lines: "{{ ['Left in docker-compose.override.yml (could not fully model):']
+      + [_s.name ~ ' — ' ~ (_s.reasons | join(', ')) for _s in _migrate.unmigrated] }}"
+  when: _migrate.unmigrated | length > 0
 
 - name: Report nothing to migrate
   ansible.builtin.debug:
     msg: "{{ _migrate.message | default('Nothing to migrate.') }}"
   when:
     - _migrate.migrated | length == 0
-    - _migrate.skipped | length == 0
+    - _migrate.unmigrated | length == 0
