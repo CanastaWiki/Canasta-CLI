@@ -89,6 +89,23 @@ def _smw_loaded(inst_id, inst, wiki):
     return None
 
 
+def _run_on_each_wiki(args, inst_id, inst, tokens):
+    """Run a maintenance script once per target wiki, with a header naming
+    each. Returns the last non-zero rc, or 0 if every run succeeded."""
+    wikis = _resolve_wiki_targets(args, inst)
+    if not wikis:
+        return 1
+    overall_rc = 0
+    for w in wikis:
+        print("\n=== %s (%s) ===" % (tokens[0], w))
+        rc = _helpers._stream_in_container(
+            inst_id, inst, _helpers._maint_run_command(tokens, w),
+        )
+        if rc != 0:
+            overall_rc = rc
+    return overall_rc
+
+
 @register("maintenance_script")
 def cmd_maintenance_script(args):
     inst_id, inst = _helpers._resolve_instance(args)
@@ -106,9 +123,7 @@ def cmd_maintenance_script(args):
         print(_INVALID_NAME_MSG % tokens[0], file=sys.stderr)
         return 1
 
-    wiki = getattr(args, "wiki", "") or ""
-    cmd = _helpers._maint_run_command(tokens, wiki)
-    return _helpers._stream_in_container(inst_id, inst, cmd)
+    return _run_on_each_wiki(args, inst_id, inst, tokens)
 
 
 @register("maintenance_extension")
@@ -132,9 +147,7 @@ def cmd_maintenance_extension(args):
         print(_INVALID_NAME_MSG % tokens[0], file=sys.stderr)
         return 1
 
-    wiki = getattr(args, "wiki", "") or ""
-    cmd = _helpers._maint_run_command(tokens, wiki)
-    return _helpers._stream_in_container(inst_id, inst, cmd)
+    return _run_on_each_wiki(args, inst_id, inst, tokens)
 
 
 @register("maintenance_update")
