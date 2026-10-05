@@ -1248,6 +1248,14 @@ def _filter_by_host(instances, host):
     }
 
 
+def forward_agent_option():
+    """The ssh -o ForwardAgent setting: yes unless CANASTA_FORWARD_AGENT
+    turns it off."""
+    value = os.environ.get("CANASTA_FORWARD_AGENT", "").strip().lower()
+    off = value in ("0", "no", "false", "off")
+    return "ForwardAgent=%s" % ("no" if off else "yes")
+
+
 def _ssh_args():
     # ForwardAgent in the fallback matches the default canasta.py
     # plants when running through Ansible — direct commands that SSH
@@ -1259,8 +1267,9 @@ def _ssh_args():
     # "Broken pipe" while the remote is still working.
     extra = os.environ.get(
         "ANSIBLE_SSH_ARGS",
-        "-o StrictHostKeyChecking=accept-new -o ForwardAgent=yes "
-        "-o ServerAliveInterval=30 -o ServerAliveCountMax=20",
+        "-o StrictHostKeyChecking=accept-new -o %s "
+        "-o ServerAliveInterval=30 -o ServerAliveCountMax=20"
+        % forward_agent_option(),
     )
     return extra.split() if extra else []
 
