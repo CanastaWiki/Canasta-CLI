@@ -120,7 +120,7 @@ class TestComposeLayering:
 
     def test_start_renders_and_layers_before_override(self):
         body = _read(os.path.join(ORCH_TASKS, "start.yml"))
-        assert "canasta_render_web_env" in body
+        assert "render_web_env.yml" in body
         assert self._order(body, "docker-compose.sidecars.yml",
                            "docker-compose.web-env.yml")
         assert self._order(body, "docker-compose.web-env.yml",
@@ -134,13 +134,30 @@ class TestComposeLayering:
 
     def test_update_config_renders_on_compose_only(self):
         tasks = _load(os.path.join(ORCH_TASKS, "update_config.yml"))
-        render = [t for t in tasks if "canasta_render_web_env" in t]
+        render = [t for t in tasks
+                  if "render_web_env.yml" in str(t.get(
+                      "ansible.builtin.include_tasks", ""))]
         assert render and "compose" in str(render[0]["when"])
 
     def test_gitops_pull_renders_and_restarts_on_list_change(self):
         body = _read(os.path.join(GITOPS_TASKS, "pull_compose.yml"))
-        assert "canasta_render_web_env" in body
+        assert "render_web_env.yml" in body
         assert "config/secret-keys-web$" in body
+
+    def test_render_reports_keys_without_a_value(self):
+        tasks = _load(os.path.join(ORCH_TASKS, "render_web_env.yml"))
+        assert "canasta_render_web_env" in tasks[0]
+        report = tasks[1]
+        assert "ansible.builtin.debug" in report
+        assert "missing" in report["when"]
+
+    def test_every_render_goes_through_the_shared_tasks(self):
+        for root in (CONFIG_TASKS, ORCH_TASKS, GITOPS_TASKS):
+            for name in os.listdir(root):
+                if name == "render_web_env.yml" or not name.endswith(".yml"):
+                    continue
+                assert "canasta_render_web_env:" not in _read(
+                    os.path.join(root, name)), name
 
     def test_generated_layer_ignored_and_lists_tracked(self):
         rules = _read(GITIGNORE).splitlines()

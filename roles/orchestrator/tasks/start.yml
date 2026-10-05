@@ -15,8 +15,7 @@
         orchestrator: compose
 
     - name: Render web secret keys to a compose override layer
-      canasta_render_web_env:
-        instance_path: "{{ instance_path }}"
+      ansible.builtin.include_tasks: render_web_env.yml
 
     - name: Check for docker-compose.sidecars.yml
       ansible.builtin.stat:

@@ -285,8 +285,7 @@
 
 # --- Step 7e: Render the web secret key list to its compose layer ---
 - name: Render web secret keys to a compose override layer
-  canasta_render_web_env:
-    instance_path: "{{ instance_path }}"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/render_web_env.yml"
 
 # --- Step 8: Write admin password files ---
 - name: Write admin password files from vars
