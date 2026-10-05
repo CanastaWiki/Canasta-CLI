@@ -26,6 +26,8 @@
   when:
     - _gi_stats.results[0].stat.exists | default(false)
     - _gi_stats.results[1].stat.exists | default(false)
+  vars:
+    _gi_bridge: config/settings/global/00-canasta-sidecar-env.php
   block:
     - name: Read the shipped ignore rules
       ansible.builtin.set_fact:
@@ -98,5 +100,3 @@
               {{ _gi_bridge }} is now rendered on each host and no longer
               tracked. The change is staged; publish it with
               'canasta gitops push'.
-  vars:
-    _gi_bridge: config/settings/global/00-canasta-sidecar-env.php
