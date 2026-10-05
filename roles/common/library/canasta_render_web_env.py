@@ -3,10 +3,12 @@
 
 """Ansible module: render config/secret-keys-web to a Compose override layer.
 
-Writes `docker-compose.web-env.yml`, which passes each listed key from .env
-to the web service as `KEY=${KEY}`, or removes the file when the list is
-empty or absent. Only key names are written; Compose interpolates the
-values from .env.
+Writes `docker-compose.web-env.yml`, which passes each listed key that this
+host's .env defines to the web service as `KEY=${KEY}`, or removes the file
+when there are none. Only key names are written; Compose interpolates the
+values from .env. A listed key this host has no value for is left out:
+Compose would pass it as an empty string and podman-compose as the literal
+`${KEY}`.
 """
 
 from __future__ import absolute_import, division, print_function
@@ -17,7 +19,8 @@ DOCUMENTATION = r"""
 module: canasta_render_web_env
 short_description: Render config/secret-keys-web to docker-compose.web-env.yml
 description:
-  - "Adds KEY=${KEY} to the web service environment for each listed key."
+  - "Adds KEY=${KEY} to the web service environment for each listed key
+    that .env defines."
   - "Removes docker-compose.web-env.yml when no keys are listed."
 options:
   instance_path:
@@ -50,6 +53,20 @@ def read_keys(instance_path):
             if name and not name.startswith("#") and name not in keys:
                 keys.append(name)
     return keys
+
+
+def read_env_names(instance_path):
+    """Names defined in the instance .env."""
+    path = os.path.join(instance_path, ".env")
+    names = set()
+    if not os.path.exists(path):
+        return names
+    with open(path) as handle:
+        for line in handle:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                names.add(line.split("=", 1)[0].strip())
+    return names
 
 
 def render(keys):
@@ -97,9 +114,17 @@ def run_module():
         module.fail_json(
             msg="Refusing %s: %s %s not a valid environment variable name."
             % (LIST_FILE, ", ".join(bad), "is" if len(bad) == 1 else "are"))
+    defined = read_env_names(instance_path)
+    missing = [k for k in keys if k not in defined]
+    keys = [k for k in keys if k in defined]
+    if missing:
+        module.warn(
+            "Not passed to the web container because this host has no value "
+            "for %s; set %s with 'canasta config set --secret --web KEY=VALUE'."
+            % (", ".join(missing), "it" if len(missing) == 1 else "them"))
     dest = os.path.join(instance_path, OVERLAY_FILE)
     changed = write_or_remove(dest, render(keys), module.check_mode)
-    module.exit_json(changed=changed, keys=keys, path=dest)
+    module.exit_json(changed=changed, keys=keys, missing=missing, path=dest)
 
 
 def main():

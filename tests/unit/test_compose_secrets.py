@@ -38,11 +38,15 @@ def _load(path):
     return yaml.safe_load(_read(path))
 
 
-def _write_list(inst, keys):
+def _write_list(inst, keys, defined=None):
+    """List keys for --web; .env defines `defined` (default: all of them)."""
     cfg = os.path.join(inst, "config")
     os.makedirs(cfg, exist_ok=True)
     with open(os.path.join(cfg, "secret-keys-web"), "w") as f:
         f.write("".join(k + "\n" for k in keys))
+    with open(os.path.join(inst, ".env"), "w") as f:
+        f.write("".join("%s=v\n" % k
+                        for k in (keys if defined is None else defined)))
 
 
 class TestRenderModule:
@@ -81,6 +85,27 @@ class TestRenderModule:
         result, _, _ = run_module_with_params(
             canasta_render_web_env, {"instance_path": tmp_dir})
         assert result["changed"] is False
+
+    def test_leaves_out_keys_this_host_has_no_value_for(self, tmp_dir):
+        _write_list(tmp_dir, ["SET_HERE", "SET_ELSEWHERE"],
+                    defined=["SET_HERE"])
+        result, failed, _ = run_module_with_params(
+            canasta_render_web_env, {"instance_path": tmp_dir})
+        assert not failed
+        assert result["keys"] == ["SET_HERE"]
+        assert result["missing"] == ["SET_ELSEWHERE"]
+        data = yaml.safe_load(
+            _read(os.path.join(tmp_dir, "docker-compose.web-env.yml")))
+        assert data == {"services": {"web": {"environment": [
+            "SET_HERE=${SET_HERE}"]}}}
+
+    def test_no_layer_when_no_listed_key_has_a_value(self, tmp_dir):
+        _write_list(tmp_dir, ["SET_ELSEWHERE"], defined=[])
+        result, failed, _ = run_module_with_params(
+            canasta_render_web_env, {"instance_path": tmp_dir})
+        assert not failed and result["keys"] == []
+        assert not os.path.exists(
+            os.path.join(tmp_dir, "docker-compose.web-env.yml"))
 
     def test_rejects_invalid_names(self, tmp_dir):
         _write_list(tmp_dir, ["bad-name"])
