@@ -24,4 +24,4 @@
       {{ (_gitattributes_tracked.stdout if _gitattributes_tracked.rc == 0 else '')
          | canasta_gitattributes_missing_rules(
              lookup('ansible.builtin.file',
-                    role_path ~ '/files/gitattributes.default')) }}
+                    canasta_root ~ '/roles/gitops/files/gitattributes.default')) }}
