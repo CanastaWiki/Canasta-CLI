@@ -10,9 +10,11 @@
 #
 # Requires: instance_path.
 
-# For each staged file whose git-crypt attribute is set, emit its path when the
-# staged blob is missing the git-crypt magic header (\0GITCRYPT\0). Deletions
-# are skipped (no index blob to inspect).
+# For each staged file whose git-crypt attribute is set, and for every staged
+# file under hosts/ whatever .gitattributes says, emit its path when the staged
+# blob is missing the git-crypt magic header (\0GITCRYPT\0), tagged with which
+# of the two made it subject to the check. Deletions are skipped (no index blob
+# to inspect).
 - name: Detect staged git-crypt files stored as plaintext
   ansible.builtin.shell:
     cmd: |
@@ -20,10 +22,16 @@
       git diff --cached --name-only --diff-filter=ACMRT -z \
         | while IFS= read -r -d '' f; do
             attr="$(git check-attr filter -- "$f" 2>/dev/null | sed 's/.*: //')"
-            [ "$attr" = "git-crypt" ] || continue
+            if [ "$attr" = "git-crypt" ]; then
+              why=inactive
+            elif [ "${f#hosts/}" != "$f" ]; then
+              why=unmarked
+            else
+              continue
+            fi
             magic="$(git cat-file -p ":$f" 2>/dev/null | head -c 10 \
                      | od -An -tx1 | tr -d ' \n')"
-            [ "$magic" = "00474954435259505400" ] || printf '%s\n' "$f"
+            [ "$magic" = "00474954435259505400" ] || printf '%s\t%s\n' "$why" "$f"
           done
   args:
     chdir: "{{ instance_path }}"
@@ -31,13 +39,25 @@
   register: _gitcrypt_plaintext
   changed_when: false
 
+- name: Sort the plaintext files by cause
+  ansible.builtin.set_fact:
+    _gitcrypt_inactive: >-
+      {{ _gitcrypt_plaintext.stdout_lines
+         | select('match', '^inactive\t')
+         | map('regex_replace', '^[^\t]*\t', '') | list }}
+    _gitcrypt_unmarked: >-
+      {{ _gitcrypt_plaintext.stdout_lines
+         | select('match', '^unmarked\t')
+         | map('regex_replace', '^[^\t]*\t', '') | list }}
+
 - name: Refuse to commit unencrypted git-crypt files
   ansible.builtin.fail:
     msg: |-
+      {% if _gitcrypt_inactive | length > 0 %}
       Refusing to commit: git-crypt is not active in this checkout, so the
       file(s) below — which .gitattributes marks as encrypted — would be
       committed and pushed in CLEARTEXT:
-      {% for f in _gitcrypt_plaintext.stdout_lines %}
+      {% for f in _gitcrypt_inactive %}
         - {{ f }}
       {% endfor %}
       This happens when the repo was cloned, reset, or restored without running
@@ -50,4 +70,23 @@
 
       Verify with: head -c 20 hosts/hosts.yaml | od -An -c
       (it should read as plaintext YAML, not the GITCRYPT header).
+      {% endif %}
+      {% if _gitcrypt_unmarked | length > 0 %}
+      Refusing to commit: the file(s) below are not encrypted although every
+      file under hosts/ must be — .gitattributes does not mark them for
+      git-crypt — so they would be committed and pushed in CLEARTEXT:
+      {% for f in _gitcrypt_unmarked %}
+        - {{ f }}
+      {% endfor %}
+      Fix {{ instance_path }}/.gitattributes so it encrypts all of hosts/: it
+      needs the line(s) below, and no other line may unset the filter for
+      these files:
+      {% for line in '' | canasta_gitattributes_missing_rules(lookup('ansible.builtin.file', role_path ~ '/files/gitattributes.default')) %}
+        {{ line }}
+      {% endfor %}
+
+      Then run 'canasta gitops add .gitattributes', re-stage the files so they
+      are encrypted with 'git add --renormalize -- hosts' in
+      {{ instance_path }}, and retry the push.
+      {% endif %}
   when: _gitcrypt_plaintext.stdout | trim | length > 0
