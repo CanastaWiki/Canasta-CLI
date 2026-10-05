@@ -260,6 +260,50 @@ def _refs(value):
     return [match.group(1) for match in _ENV_REF.finditer(value)]
 
 
+def read_env(instance_path, relpath=".env"):
+    """Parse an instance env file (default .env) into a dict."""
+    path = os.path.join(instance_path, relpath)
+    env = {}
+    if not os.path.exists(path):
+        return env
+    with open(path) as handle:
+        for line in handle:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            env[key.strip()] = value.strip()
+    return env
+
+
+def read_names(instance_path, relpath):
+    """Whitespace-separated names in an instance file (empty if absent)."""
+    path = os.path.join(instance_path, relpath)
+    if not os.path.exists(path):
+        return set()
+    with open(path) as handle:
+        return set(handle.read().split())
+
+
+def read_recorded_secret_names(instance_path):
+    """Names set with `config set --secret`: config/secret-keys on Compose,
+    the keys of config/secrets.env on Kubernetes."""
+    names = set(read_env(instance_path, os.path.join("config", "secrets.env")))
+    return names | read_names(instance_path,
+                              os.path.join("config", "secret-keys"))
+
+
+def secret_classifier(instance_path, secret_key_regex):
+    """Predicate for secret variables: names matching the classifier regex
+    or set with `config set --secret`."""
+    secret_re = re.compile(secret_key_regex)
+    recorded = read_recorded_secret_names(instance_path)
+
+    def is_secret(name):
+        return name in recorded or bool(secret_re.match(name))
+    return is_secret
+
+
 def validate_k8s_secret_refs(sidecars, is_secret):
     """Return None unless a sidecar would get a secret variable as a literal
     in the rendered Kubernetes values, else an error. Only env keys listed in

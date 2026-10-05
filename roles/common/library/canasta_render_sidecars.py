@@ -51,16 +51,18 @@ bridge_omitted:
 """
 
 import os
-import re
 
 import yaml
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.canasta_sidecar_render import (
     bridge_omitted_secrets,
+    read_env,
+    read_names,
     render_compose,
     render_env_bridge,
     render_k8s_values,
+    secret_classifier,
     validate_host_access,
     validate_k8s_secret_refs,
     validate_spec,
@@ -76,39 +78,6 @@ def read_sidecars(instance_path):
     with open(path) as handle:
         data = yaml.safe_load(handle) or {}
     return data.get("sidecars", [])
-
-
-def read_env(instance_path, relpath=".env"):
-    """Parse the instance .env into a dict (for ${VAR} resolution on k8s)."""
-    path = os.path.join(instance_path, relpath)
-    env = {}
-    if not os.path.exists(path):
-        return env
-    with open(path) as handle:
-        for line in handle:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            env[key.strip()] = value.strip()
-    return env
-
-
-def read_names(instance_path, relpath):
-    """Whitespace-separated names in an instance file (empty if absent)."""
-    path = os.path.join(instance_path, relpath)
-    if not os.path.exists(path):
-        return set()
-    with open(path) as handle:
-        return set(handle.read().split())
-
-
-def read_recorded_secret_names(instance_path):
-    """Names set with `config set --secret`: config/secret-keys on Compose,
-    the keys of config/secrets.env on Kubernetes."""
-    names = set(read_env(instance_path, os.path.join("config", "secrets.env")))
-    return names | read_names(instance_path,
-                              os.path.join("config", "secret-keys"))
 
 
 def read_web_secret_names(instance_path):
@@ -153,11 +122,8 @@ def run_module():
     instance_path = module.params["instance_path"]
     orchestrator = module.params["orchestrator"]
     sidecars = read_sidecars(instance_path)
-    secret_re = re.compile(module.params["secret_key_regex"])
-    recorded = read_recorded_secret_names(instance_path)
-
-    def is_secret(name):
-        return name in recorded or bool(secret_re.match(name))
+    is_secret = secret_classifier(instance_path,
+                                  module.params["secret_key_regex"])
 
     error = (validate_spec(sidecars)
              or validate_host_access(sidecars, instance_path))

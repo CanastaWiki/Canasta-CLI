@@ -8,7 +8,8 @@ Compose interpolates a sidecar's ${VAR} from .env at runtime, so the only
 cleartext copy would be the web env bridge: secrets are left out of it, and
 each start names them. Kubernetes resolves ${VAR} into the rendered values,
 so a plain reference to a secret is refused unless the env key is taken from
-the app Secret (envSecret).
+the app Secret (envSecret) — at render, and already at `sidecar add` and
+`sidecar migrate`.
 
 On Compose the bridge is rendered per host and gitignored; the upgrade's
 .gitignore refresh untracks it in existing repos.
@@ -22,7 +23,9 @@ import pytest
 import yaml
 
 import canasta_render_sidecars
+import canasta_sidecar_migrate
 import canasta_sidecar_render as render
+import canasta_sidecars_yaml
 from _classifier import secret_key_regex
 from mock_ansible import run_module_with_params
 
@@ -175,6 +178,86 @@ class TestKubernetesRefusal:
         assert not failed, msg
 
 
+def _add(inst, sidecars, orchestrator):
+    return run_module_with_params(canasta_sidecars_yaml, {
+        "instance_path": str(inst), "state": "import",
+        "definitions": yaml.safe_dump(sidecars),
+        "orchestrator": orchestrator, "secret_key_regex": SECRET_RE})
+
+
+def _migrate(inst, services, orchestrator, dry_run=False):
+    (inst / "docker-compose.override.yml").write_text(
+        yaml.safe_dump({"services": services}))
+    return run_module_with_params(canasta_sidecar_migrate, {
+        "instance_path": str(inst), "dry_run": dry_run,
+        "orchestrator": orchestrator, "secret_key_regex": SECRET_RE})
+
+
+TOKEN = {"name": "x", "image": "x:1", "env": {"TOKEN": "${K8S_TOKEN}"}}
+
+
+class TestAddRefusal:
+    def test_kubernetes_refuses_with_render_message(self, tmp_path):
+        inst = _instance(tmp_path, [], {},
+                         {"config/secrets.env": "K8S_TOKEN=abc\n"})
+        _, failed, msg = _add(inst, [TOKEN], "kubernetes")
+        assert failed
+        assert msg == render.validate_k8s_secret_refs(
+            [TOKEN], lambda name: name == "K8S_TOKEN")
+        assert yaml.safe_load(
+            (inst / "config" / "sidecars.yaml").read_text()) == {
+                "sidecars": []}
+        _, failed, render_msg = _render(inst, "kubernetes")
+        assert not failed, render_msg
+
+    def test_kubernetes_refuses_classified_secret(self, tmp_path):
+        inst = _instance(tmp_path, [], ENV)
+        _, failed, msg = _add(inst, [LINKER], "kubernetes")
+        assert failed and "MYSQL_PASSWORD" in msg
+
+    def test_kubernetes_allows_envsecret(self, tmp_path):
+        inst = _instance(tmp_path, [], {},
+                         {"config/secrets.env": "K8S_TOKEN=abc\n"})
+        sidecar = dict(TOKEN, envSecret=["TOKEN"])
+        result, failed, msg = _add(inst, [sidecar], "kubernetes")
+        assert not failed, msg
+        assert result["names"] == ["x"]
+
+    def test_compose_accepts(self, tmp_path):
+        inst = _instance(tmp_path, [], ENV,
+                         {"config/secret-keys": "K8S_TOKEN\n"})
+        _, failed, msg = _add(inst, [TOKEN, LINKER], "compose")
+        assert not failed, msg
+
+    def test_kubernetes_requires_classifier(self, tmp_path):
+        inst = _instance(tmp_path, [], {})
+        _, failed, msg = run_module_with_params(canasta_sidecars_yaml, {
+            "instance_path": str(inst), "state": "import",
+            "definitions": yaml.safe_dump([TOKEN]),
+            "orchestrator": "kubernetes", "secret_key_regex": None})
+        assert failed and "secret_key_regex" in msg
+
+
+class TestMigrateRefusal:
+    SERVICES = {"linker": {"image": "example/linker:1.0",
+                           "environment": {"DB_PASS": "${MYSQL_PASSWORD}"}}}
+
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_kubernetes_refuses(self, tmp_path, dry_run):
+        inst = _instance(tmp_path, [], ENV)
+        _, failed, msg = _migrate(inst, self.SERVICES, "kubernetes", dry_run)
+        assert failed
+        assert "sidecar 'linker'" in msg and "MYSQL_PASSWORD" in msg
+        assert "linker" in (inst / "docker-compose.override.yml").read_text()
+        assert "linker" not in (inst / "config" / "sidecars.yaml").read_text()
+
+    def test_compose_migrates(self, tmp_path):
+        inst = _instance(tmp_path, [], ENV)
+        result, failed, msg = _migrate(inst, self.SERVICES, "compose")
+        assert not failed, msg
+        assert result["migrated"] == ["linker"]
+
+
 def test_validate_is_pure():
     def is_secret(name):
         return name == "S"
@@ -218,6 +301,18 @@ def test_every_render_passes_the_classifier():
     for path, task in sites:
         assert task["canasta_render_sidecars"].get("secret_key_regex") == (
             "{{ canasta_secret_key_regex }}"), path
+
+
+@pytest.mark.parametrize("playbook,module", [
+    ("sidecar_add.yml", "canasta_sidecars_yaml"),
+    ("sidecar_migrate.yml", "canasta_sidecar_migrate")])
+def test_sidecar_writers_pass_orchestrator_and_classifier(playbook, module):
+    tasks = _yaml(os.path.join(REPO_ROOT, "playbooks", playbook))
+    args = [t[module] for t in tasks if module in t]
+    assert len(args) == 1
+    assert args[0]["orchestrator"] == (
+        "{{ instance_orchestrator | default('compose') }}")
+    assert args[0]["secret_key_regex"] == "{{ canasta_secret_key_regex }}"
 
 
 def test_start_reports_omitted_secrets_after_each_render():

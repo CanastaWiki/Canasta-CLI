@@ -19,6 +19,8 @@
     instance_path: "{{ instance_path }}"
     state: import
     definitions: "{{ _sidecar_defs }}"
+    orchestrator: "{{ instance_orchestrator | default('compose') }}"
+    secret_key_regex: "{{ canasta_secret_key_regex }}"
   register: _sidecar_import
 
 - name: Report
