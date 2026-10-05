@@ -1948,6 +1948,9 @@ commands:
       example, piping wikitext to `maintenance/run.php edit <page>`. The
       file is read on the controller, so it works for local, remote, and
       Kubernetes targets alike. Content is read as text (UTF-8).
+
+      On a wiki farm, choose the wiki in the command itself, for example
+      `php maintenance/run.php edit --wiki=<id> <page>`.
     examples:
       - "canasta maintenance exec -- ls /var/www/mediawiki"
       - "canasta maintenance exec -s db -- mariadb-admin ping -h localhost"
@@ -1962,10 +1965,6 @@ commands:
         short: s
         type: string
         description: "Service name (default: web)"
-      - name: wiki
-        short: w
-        type: string
-        description: "Wiki ID"
       - name: stdin_file
         type: path
         description: "File fed to the command's standard input (e.g. wikitext for an edit), read as UTF-8 on the controller."

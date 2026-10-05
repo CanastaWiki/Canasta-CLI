@@ -726,7 +726,10 @@ def hoist_flags_from_remainder(args):
             # Hoist only when the canasta flag isn't already set. If the user
             # typed the flag twice, preserve the second occurrence in the
             # positional list so it can be passed through to the inner script.
-            if dest and i + 1 < len(val) and not getattr(args, dest, None):
+            # A flag the command does not define (maintenance exec has no
+            # --wiki) belongs to the inner command and stays in the list.
+            if (dest and hasattr(args, dest) and i + 1 < len(val)
+                    and not getattr(args, dest, None)):
                 setattr(args, dest, val[i + 1])
                 i += 2
                 continue
