@@ -283,6 +283,10 @@
   vars:
     media_hosts_vars: "{{ _pull_vars }}"
 
+# --- Step 7e: Render the web secret key list to its compose layer ---
+- name: Render web secret keys to a compose override layer
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/render_web_env.yml"
+
 # --- Step 8: Write admin password files ---
 - name: Write admin password files from vars
   ansible.builtin.copy:
@@ -310,6 +314,13 @@
 - name: Fingerprint .env and wikis.yaml after rendering
   ansible.builtin.include_tasks: "_rendered_fingerprint.yml"
 
+# A pull that untracks the sidecar env bridge deletes this host's copy; a
+# restart renders it again.
+- name: Check for the sidecar env bridge
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/settings/global/00-canasta-sidecar-env.php"
+  register: _pull_bridge
+
 - name: Determine if restart is needed
   ansible.builtin.set_fact:
     _pull_needs_restart: >-
@@ -317,8 +328,11 @@
          or (_pull_baseline.wikis | default('') != _rendered_fingerprint.wikis)
          or (_pull_changed_files.stdout_lines | default([])
              | select('match',
-               '^(env\.template|config/Caddyfile|docker-compose\.override\.yml)')
-             | list | length > 0) }}
+               '^(env\.template|config/Caddyfile|config/secret-keys-web$|docker-compose\.override\.yml)')
+             | list | length > 0)
+         or ('config/settings/global/00-canasta-sidecar-env.php'
+             in (_pull_changed_files.stdout_lines | default([]))
+             and not _pull_bridge.stat.exists) }}
     _pull_needs_maintenance: >-
       {{ _pull_changed_files.stdout_lines | default([])
          | select('match', '^(extensions/|skins/)')

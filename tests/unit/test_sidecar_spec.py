@@ -16,7 +16,10 @@ import canasta_override_migrate
 import canasta_render_sidecars
 import canasta_sidecar_render as render
 import canasta_sidecars_yaml
+from _classifier import secret_key_regex
 from mock_ansible import run_module_with_params
+
+SECRET_RE = secret_key_regex()
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 CHART = os.path.join(
@@ -205,7 +208,8 @@ def test_render_module_refuses_and_writes_nothing(tmp_dir, orchestrator, artifac
     _write_sidecars(tmp_dir, _built(
         {"context": ".", "additional_contexts": {"h": "/"}}))
     _, failed, msg = run_module_with_params(canasta_render_sidecars, {
-        "instance_path": tmp_dir, "orchestrator": orchestrator})
+        "instance_path": tmp_dir, "orchestrator": orchestrator,
+        "secret_key_regex": SECRET_RE})
     assert failed
     assert "Refusing config/sidecars.yaml" in msg
     assert "additional_contexts" in msg
@@ -219,7 +223,8 @@ def test_render_module_refuses_and_writes_nothing(tmp_dir, orchestrator, artifac
 def test_render_module_refuses_an_unknown_key(tmp_dir, orchestrator, artifact):
     _write_sidecars(tmp_dir, _one(port=80))
     _, failed, msg = run_module_with_params(canasta_render_sidecars, {
-        "instance_path": tmp_dir, "orchestrator": orchestrator})
+        "instance_path": tmp_dir, "orchestrator": orchestrator,
+        "secret_key_regex": SECRET_RE})
     assert failed
     assert "key 'port' is not allowed" in msg
     assert not os.path.exists(os.path.join(tmp_dir, artifact))
@@ -229,7 +234,8 @@ def test_compose_render_keeps_allowed_build_options(tmp_dir):
     build = {"context": ".", "dockerfile": "Dockerfile", "args": {"V": "1"}}
     _write_sidecars(tmp_dir, _built(build))
     _, failed, msg = run_module_with_params(canasta_render_sidecars, {
-        "instance_path": tmp_dir, "orchestrator": "compose"})
+        "instance_path": tmp_dir, "orchestrator": "compose",
+        "secret_key_regex": SECRET_RE})
     assert not failed, msg
     with open(os.path.join(tmp_dir, "docker-compose.sidecars.yml")) as handle:
         rendered = yaml.safe_load(handle)

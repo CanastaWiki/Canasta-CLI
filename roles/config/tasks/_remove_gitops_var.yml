@@ -5,6 +5,13 @@
 # _update_gitops_var.yml on the set side.
 # Input: _config_key (str), _config_placeholder_map (dict),
 #        _config_host_raw, instance_path
+# Optional: _config_secret_names (keys set with --secret)
+
+- name: Classify the key
+  ansible.builtin.set_fact:
+    _rgv_secret: >-
+      {{ _config_key is match(canasta_secret_key_regex)
+         or _config_key in (_config_secret_names | default([])) }}
 
 - name: Look up placeholder name
   ansible.builtin.set_fact:
@@ -24,7 +31,7 @@
       ansible.builtin.slurp:
         src: "{{ _rgv_vars_file }}"
       register: _rgv_vars_raw
-      no_log: "{{ _config_key is match(canasta_secret_key_regex) }}"
+      no_log: "{{ _rgv_secret | bool }}"
 
     - name: Drop placeholder from vars
       ansible.builtin.set_fact:
@@ -32,7 +39,7 @@
           {{ (_rgv_vars_raw.content | b64decode | from_yaml | default({}, true))
              | dict2items | rejectattr('key', 'equalto', _rgv_placeholder)
              | items2dict }}
-      no_log: "{{ _config_key is match(canasta_secret_key_regex) }}"
+      no_log: "{{ _rgv_secret | bool }}"
 
     - name: Write updated vars.yaml
       ansible.builtin.copy:

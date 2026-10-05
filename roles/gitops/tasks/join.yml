@@ -321,9 +321,19 @@
 # Classify via the canonical secret classifier so join and init agree — a
 # host that joins must placeholder exactly the keys init would (secrets +
 # host-specific), or it silently diverges from the rest of the farm.
+- name: Read the keys set with config set --secret
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/secret-keys"
+  register: _join_opaque_names_raw
+  failed_when: false
+
+# Keys set with `config set --secret` are secrets whatever their names, so
+# they are carried with the host-specific keys.
 - name: Classify keys via the canonical secret classifier
   ansible.builtin.set_fact:
-    _join_host_specific_keys: "{{ canasta_host_specific_nonsecret }}"
+    _join_host_specific_keys: >-
+      {{ canasta_host_specific_nonsecret
+         + (_join_opaque_names_raw.content | default('') | b64decode).split() }}
     _join_secret_regex: "{{ canasta_secret_key_regex }}"
 
 - name: Read current .env

@@ -56,8 +56,12 @@ class TestStructure:
             "no_log"] is True
         assert _task(tasks, "Collect generated credentials to propagate")[
             "no_log"] is True
-        parse = _task(_load(UPDATE_VAR), "Parse key and value")
-        assert "canasta_secret_key_regex" in str(parse.get("no_log", ""))
+        tasks = _load(UPDATE_VAR)
+        parse = _task(tasks, "Parse key and value")
+        assert "_ugv_secret" in str(parse.get("no_log", ""))
+        classify = str(_task(tasks, "Classify the key"))
+        assert "canasta_secret_key_regex" in classify
+        assert "_config_secret_names" in classify
 
 
 def _run(tmp_path, settings, env_lines, template_lines):

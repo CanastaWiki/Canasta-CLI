@@ -16,6 +16,7 @@
   canasta_render_sidecars:
     instance_path: "{{ instance_path }}"
     orchestrator: "{{ instance_orchestrator | default('compose') }}"
+    secret_key_regex: "{{ canasta_secret_key_regex }}"
   check_mode: true
 
 - name: Stop containers

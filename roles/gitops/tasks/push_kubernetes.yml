@@ -43,6 +43,7 @@
   canasta_render_sidecars:
     instance_path: "{{ instance_path }}"
     orchestrator: kubernetes
+    secret_key_regex: "{{ canasta_secret_key_regex }}"
 
 - name: Read values.yaml from remote
   ansible.builtin.slurp:

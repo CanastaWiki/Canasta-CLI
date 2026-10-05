@@ -115,17 +115,29 @@ def _resolve_instance_by_cwd(args):
     return (None, None)
 
 
-def _read_env_content(path, host):
-    """Read raw .env file content. Returns '' if missing or unreadable."""
-    env_path = os.path.join(path, ".env")
+def _read_instance_file(path, host, relpath):
+    """Read a file in the instance directory. Returns '' if missing or
+    unreadable."""
+    file_path = os.path.join(path, relpath)
     if _is_localhost(host):
         try:
-            with open(env_path) as f:
+            with open(file_path) as f:
                 return f.read()
         except OSError:
             return ""
-    rc, content = _ssh_run(host, "cat %s 2>/dev/null" % _shell_quote(env_path))
+    rc, content = _ssh_run(host, "cat %s 2>/dev/null" % _shell_quote(file_path))
     return content if rc == 0 else ""
+
+
+def _read_env_content(path, host):
+    """Read raw .env file content. Returns '' if missing or unreadable."""
+    return _read_instance_file(path, host, ".env")
+
+
+def _read_secret_key_names(path, host):
+    """Names of the keys set with `config set --secret` on Compose."""
+    return set(_read_instance_file(
+        path, host, os.path.join("config", "secret-keys")).split())
 
 
 def _instance_has_sidecars(inst):
@@ -326,6 +338,9 @@ def _compose_file_args(path, host, devmode=False, include_sidecars=False):
     Callers must pass it only when config/sidecars.yaml declares
     sidecars: the rendered file can linger after `sidecar remove`, and
     layering it into `up -d` would recreate the removed sidecar.
+
+    docker-compose.web-env.yml is layered whenever present: every change
+    to its key list re-renders or removes it.
     """
     def _exists(name):
         full = os.path.join(path, name)
@@ -337,6 +352,8 @@ def _compose_file_args(path, host, devmode=False, include_sidecars=False):
     files = ["docker-compose.yml"]
     if include_sidecars and _exists("docker-compose.sidecars.yml"):
         files.append("docker-compose.sidecars.yml")
+    if _exists("docker-compose.web-env.yml"):
+        files.append("docker-compose.web-env.yml")
     if _exists("docker-compose.override.yml"):
         files.append("docker-compose.override.yml")
     if devmode:
@@ -1719,9 +1736,12 @@ def _is_secret_key(key):
     return re.search(pattern, name) is not None
 
 
-def redact(key, value, show_secrets=False):
-    """The value to print for `key`, masked unless disclosure is asked for."""
-    if show_secrets or not value or not _is_secret_key(key):
+def redact(key, value, show_secrets=False, secret_keys=()):
+    """The value to print for `key`, masked unless disclosure is asked for.
+    `secret_keys` names keys that are secrets whatever they are called."""
+    if show_secrets or not value:
+        return value
+    if key not in secret_keys and not _is_secret_key(key):
         return value
     return "********"
 

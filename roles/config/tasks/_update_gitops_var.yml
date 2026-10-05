@@ -2,12 +2,19 @@
 # Update the gitops vars.yaml for a single KEY=VALUE setting.
 # Input: _config_setting (str), _config_placeholder_map (dict),
 #        _config_host_raw, instance_path
+# Optional: _config_secret_names (keys set with --secret)
+
+- name: Classify the key
+  ansible.builtin.set_fact:
+    _ugv_secret: >-
+      {{ _config_setting.split('=', 1)[0] is match(canasta_secret_key_regex)
+         or _config_setting.split('=', 1)[0] in (_config_secret_names | default([])) }}
 
 - name: Parse key and value
   ansible.builtin.set_fact:
     _ugv_key: "{{ _config_setting.split('=', 1)[0] }}"
     _ugv_value: "{{ _config_setting.split('=', 1)[1] | default('') }}"
-  no_log: "{{ _config_setting.split('=', 1)[0] is match(canasta_secret_key_regex) }}"
+  no_log: "{{ _ugv_secret | bool }}"
 
 - name: Look up placeholder name
   ansible.builtin.set_fact:
@@ -28,14 +35,14 @@
       ansible.builtin.slurp:
         src: "{{ _ugv_vars_file }}"
       register: _ugv_vars_raw
-      no_log: "{{ _ugv_key is match(canasta_secret_key_regex) }}"
+      no_log: "{{ _ugv_secret | bool }}"
 
     - name: Update var value
       ansible.builtin.set_fact:
         _ugv_updated_vars: >-
           {{ (_ugv_vars_raw.content | b64decode | from_yaml)
              | combine({_ugv_placeholder: _ugv_value}) }}
-      no_log: "{{ _ugv_key is match(canasta_secret_key_regex) }}"
+      no_log: "{{ _ugv_secret | bool }}"
 
     - name: Write updated vars.yaml
       ansible.builtin.copy:

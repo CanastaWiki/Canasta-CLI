@@ -289,6 +289,12 @@
 - name: Move MediaWiki to its own database account
   ansible.builtin.include_tasks: migrate_wiki_db_account.yml
 
+- name: Re-render generated compose layers
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: rerender_compose_layers.yml
+  when: not (_restart_needed | bool and _was_running | bool)
+
 # Without a restart, a running Caddy would keep the previous Caddyfile.
 - name: Reload Caddy with the regenerated Caddyfile
   ansible.builtin.include_tasks: >-

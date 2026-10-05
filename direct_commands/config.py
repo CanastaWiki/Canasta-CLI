@@ -65,9 +65,10 @@ def cmd_config_get(args):
         _warn_env_hygiene([k for k in keys if k in quoted_keys], has_crlf)
         return 0
 
+    secret_keys = _helpers._read_secret_key_names(path, host)
     redacted = 0
     for k in sorted(env_vars.keys()):
-        value = _helpers.redact(k, env_vars[k], show_secrets)
+        value = _helpers.redact(k, env_vars[k], show_secrets, secret_keys)
         if value != env_vars[k]:
             redacted += 1
         print("%s=%s" % (k, value))

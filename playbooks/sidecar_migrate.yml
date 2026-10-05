@@ -10,6 +10,8 @@
   canasta_sidecar_migrate:
     instance_path: "{{ instance_path }}"
     dry_run: "{{ dry_run | default(false) }}"
+    orchestrator: "{{ instance_orchestrator | default('compose') }}"
+    secret_key_regex: "{{ canasta_secret_key_regex }}"
   register: _migrate
 
 - name: Report migrated sidecars

@@ -153,7 +153,9 @@
 # --- Step 7: Write .gitignore and .gitattributes ---
 - name: Write .gitignore
   ansible.builtin.copy:
-    src: "{{ role_path }}/files/gitignore.default"
+    content: |
+      {{ lookup('file', role_path + '/files/gitignore.default') }}
+      {{ lookup('file', role_path + '/files/gitignore.compose') }}
     dest: "{{ instance_path }}/.gitignore"
     mode: "0644"
 
@@ -250,6 +252,19 @@
 # syntax; other values stay literal. Classification is the canonical one
 # (canasta_secret_key_regex + canasta_host_specific_nonsecret) so any secret
 # is encrypted into vars.yaml, never left literal in the committed template.
+# Keys set with `config set --secret` (config/secret-keys) are secrets
+# whatever their names.
+
+- name: Read the keys set with config set --secret
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/secret-keys"
+  register: _gitops_opaque_names_raw
+  failed_when: false
+
+- name: List the keys set with config set --secret
+  ansible.builtin.set_fact:
+    _gitops_secret_keys: >-
+      {{ (_gitops_opaque_names_raw.content | default('') | b64decode).split() }}
 
 - name: Read raw .env file for template extraction
   ansible.builtin.slurp:
@@ -271,7 +286,7 @@
       {{ line }}
       {% elif '=' in line %}
       {% set key = line.split('=', 1)[0] %}
-      {% if (key | regex_search(canasta_secret_key_regex)) or (key in canasta_host_specific_nonsecret) %}
+      {% if (key | regex_search(canasta_secret_key_regex)) or (key in canasta_host_specific_nonsecret) or (key in _gitops_secret_keys) %}
       {{ key }}={{ '{{' }}{{ key | lower }}{{ '}}' }}
       {% else %}
       {{ line }}
@@ -331,7 +346,7 @@
     content: |
       # Secret + host-specific values (the keys placeholdered in env.template)
       {% for k, v in _gitops_env.variables.items() %}
-      {% if (k | regex_search(canasta_secret_key_regex)) or (k in canasta_host_specific_nonsecret) %}
+      {% if (k | regex_search(canasta_secret_key_regex)) or (k in canasta_host_specific_nonsecret) or (k in _gitops_secret_keys) %}
       {{ k | lower }}: {{ v | to_json }}
       {% endif %}
       {% endfor %}

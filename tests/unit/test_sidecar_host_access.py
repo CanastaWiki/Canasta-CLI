@@ -13,7 +13,10 @@ import yaml
 
 import canasta_render_sidecars
 import canasta_sidecar_render as render
+from _classifier import secret_key_regex
 from mock_ansible import run_module_with_params
+
+SECRET_RE = secret_key_regex()
 
 
 def _base(**extra):
@@ -66,7 +69,8 @@ def test_module_refuses_and_writes_nothing(tmp_dir):
         yaml.safe_dump({"sidecars": _base(
             volumes=[{"name": "root", "mountPath": "/:/host"}])}, handle)
     result, failed, msg = run_module_with_params(canasta_render_sidecars, {
-        "instance_path": tmp_dir, "orchestrator": "compose"})
+        "instance_path": tmp_dir, "orchestrator": "compose",
+        "secret_key_regex": SECRET_RE})
     assert failed
     assert "Refusing config/sidecars.yaml" in msg
     assert not os.path.exists(os.path.join(tmp_dir, "docker-compose.sidecars.yml"))

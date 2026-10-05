@@ -52,8 +52,8 @@ def _debug_msg(task):
 # --- the .env path wires the gitops check + dispatch (mirrors _set_config.yml) ---
 
 def test_unset_dispatches_secret_and_env_paths():
-    """--secret keys live in config/secrets.env and have no .env, side
-    effects, or gitops vars; the two paths must stay separate."""
+    """--secret keys skip .env validation and side effects; the two paths
+    must stay separate."""
     tasks = _load(UNSET)
     secret = _find(tasks, "Remove opaque secret values")
     env = _find(tasks, "Remove .env config values")

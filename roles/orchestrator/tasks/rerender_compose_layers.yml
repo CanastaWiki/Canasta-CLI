@@ -1,0 +1,24 @@
+---
+# Re-render the generated Compose layers (sidecars, the sidecar env bridge,
+# web env) when no start follows to do it. The bridge is read live by
+# MediaWiki from config/settings/global, so its new content applies at once;
+# the compose layers apply at the next start. Kubernetes renders its sidecar
+# values at deploy time, so this is a no-op there.
+#
+# Input: instance_path, instance_orchestrator
+
+- name: Render sidecars to a compose override layer
+  canasta_render_sidecars:
+    instance_path: "{{ instance_path }}"
+    orchestrator: compose
+    secret_key_regex: "{{ canasta_secret_key_regex }}"
+  register: _sidecar_render
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Report secret variables left out of the sidecar env bridge
+  ansible.builtin.include_tasks: report_bridge_omitted.yml
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Render web secret keys to a compose override layer
+  ansible.builtin.include_tasks: render_web_env.yml
+  when: instance_orchestrator | default('compose') == 'compose'

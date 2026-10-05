@@ -11,7 +11,10 @@ import yaml
 
 import canasta_render_sidecars
 import canasta_sidecar_render as render
+from _classifier import secret_key_regex
 from mock_ansible import run_module_with_params
+
+SECRET_RE = secret_key_regex()
 
 CACHE = {"name": "cache", "image": "redis:7-alpine",
          "command": "redis-server --maxmemory ${REDIS_MAX_MEMORY:-100mb}",
@@ -255,18 +258,18 @@ class TestEnvPrivate:
 class TestModuleBridge:
     def test_writes_bridge_fragment(self, tmp_dir):
         with open(os.path.join(tmp_dir, ".env"), "w") as handle:
-            handle.write("CITATION_SHARED_SECRET=s3cr3t\n")
+            handle.write("CITATION_HOST=citoid\n")
         _write_sidecars(tmp_dir, [{"name": "citation",
                                    "image": "example/citoid:1.0",
-                                   "env": {"SHARED_SECRET":
-                                           "${CITATION_SHARED_SECRET:-}"}}])
+                                   "env": {"HOST": "${CITATION_HOST:-}"}}])
         result, failed, _ = run_module_with_params(canasta_render_sidecars, {
-            "instance_path": tmp_dir, "orchestrator": "kubernetes"})
+            "instance_path": tmp_dir, "orchestrator": "kubernetes",
+            "secret_key_regex": SECRET_RE})
         assert not failed and result["changed"] is True
         bridge = os.path.join(tmp_dir, "config", "settings", "global",
                               "00-canasta-sidecar-env.php")
         with open(bridge) as handle:
-            assert "putenv('CITATION_SHARED_SECRET=s3cr3t');" in handle.read()
+            assert "putenv('CITATION_HOST=citoid');" in handle.read()
 
     def test_bridge_removed_when_no_refs(self, tmp_dir):
         bridge = os.path.join(tmp_dir, "config", "settings", "global",
@@ -276,7 +279,8 @@ class TestModuleBridge:
             handle.write("<?php putenv('X=1');\n")
         _write_sidecars(tmp_dir, [])
         run_module_with_params(canasta_render_sidecars, {
-            "instance_path": tmp_dir, "orchestrator": "compose"})
+            "instance_path": tmp_dir, "orchestrator": "compose",
+            "secret_key_regex": SECRET_RE})
         assert not os.path.exists(bridge)
 
 
@@ -291,7 +295,8 @@ class TestModuleCompose:
     def test_writes_override(self, tmp_dir):
         _write_sidecars(tmp_dir, [CACHE])
         result, failed, _ = run_module_with_params(canasta_render_sidecars, {
-            "instance_path": tmp_dir, "orchestrator": "compose"})
+            "instance_path": tmp_dir, "orchestrator": "compose",
+            "secret_key_regex": SECRET_RE})
         assert not failed and result["changed"] is True
         path = os.path.join(tmp_dir, "docker-compose.sidecars.yml")
         with open(path) as handle:
@@ -305,16 +310,19 @@ class TestModuleCompose:
             handle.write("services: {}\n")
         _write_sidecars(tmp_dir, [])
         result, failed, _ = run_module_with_params(canasta_render_sidecars, {
-            "instance_path": tmp_dir, "orchestrator": "compose"})
+            "instance_path": tmp_dir, "orchestrator": "compose",
+            "secret_key_regex": SECRET_RE})
         assert not failed and result["changed"] is True
         assert not os.path.exists(path)
 
     def test_idempotent(self, tmp_dir):
         _write_sidecars(tmp_dir, [CACHE])
         run_module_with_params(canasta_render_sidecars, {
-            "instance_path": tmp_dir, "orchestrator": "compose"})
+            "instance_path": tmp_dir, "orchestrator": "compose",
+            "secret_key_regex": SECRET_RE})
         result, _, _ = run_module_with_params(canasta_render_sidecars, {
-            "instance_path": tmp_dir, "orchestrator": "compose"})
+            "instance_path": tmp_dir, "orchestrator": "compose",
+            "secret_key_regex": SECRET_RE})
         assert result["changed"] is False
 
 
@@ -324,7 +332,8 @@ class TestModuleK8s:
             handle.write("REDIS_MAX_MEMORY=256mb\n")
         _write_sidecars(tmp_dir, [CACHE])
         result, failed, _ = run_module_with_params(canasta_render_sidecars, {
-            "instance_path": tmp_dir, "orchestrator": "kubernetes"})
+            "instance_path": tmp_dir, "orchestrator": "kubernetes",
+            "secret_key_regex": SECRET_RE})
         assert not failed
         with open(os.path.join(tmp_dir, "values-sidecars.yaml")) as handle:
             data = yaml.safe_load(handle)
@@ -333,7 +342,8 @@ class TestModuleK8s:
     def test_empty_writes_empty_list(self, tmp_dir):
         _write_sidecars(tmp_dir, [])
         run_module_with_params(canasta_render_sidecars, {
-            "instance_path": tmp_dir, "orchestrator": "kubernetes"})
+            "instance_path": tmp_dir, "orchestrator": "kubernetes",
+            "secret_key_regex": SECRET_RE})
         path = os.path.join(tmp_dir, "values-sidecars.yaml")
         with open(path) as handle:
             data = yaml.safe_load(handle)

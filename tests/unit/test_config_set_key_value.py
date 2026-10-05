@@ -53,7 +53,7 @@ def test_check_runs_before_either_dispatch():
     apply = names.index("Apply the settings")
     assert check < apply
     dispatch = [t.get("name") for t in _tasks()[apply]["block"]]
-    assert dispatch == ["Set opaque secret values (config/secrets.env)",
+    assert dispatch == ["Set opaque secret values",
                         "Set .env config values"]
 
 

@@ -1,0 +1,19 @@
+---
+# Render config/secret-keys-web to docker-compose.web-env.yml (Compose), and
+# say which listed keys this host has no value for, since they are left out.
+#
+# Input: instance_path
+
+- name: Render web secret keys to a compose override layer
+  canasta_render_web_env:
+    instance_path: "{{ instance_path }}"
+  register: _web_env_render
+
+- name: Report web secret keys this host has no value for
+  ansible.builtin.debug:
+    msg: >-
+      Not passed to the web container because this host has no value for
+      {{ _web_env_render.missing | join(', ') }}; set
+      {{ 'it' if _web_env_render.missing | length == 1 else 'them' }} with
+      'canasta config set --secret --web KEY=VALUE'.
+  when: _web_env_render.missing | default([]) | length > 0

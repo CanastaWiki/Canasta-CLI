@@ -13,25 +13,39 @@
       canasta_render_sidecars:
         instance_path: "{{ instance_path }}"
         orchestrator: compose
+        secret_key_regex: "{{ canasta_secret_key_regex }}"
+      register: _sidecar_render
+
+    - name: Report secret variables left out of the sidecar env bridge
+      ansible.builtin.include_tasks: report_bridge_omitted.yml
+
+    - name: Render web secret keys to a compose override layer
+      ansible.builtin.include_tasks: render_web_env.yml
 
     - name: Check for docker-compose.sidecars.yml
       ansible.builtin.stat:
         path: "{{ instance_path }}/docker-compose.sidecars.yml"
       register: _sidecars_exists
 
+    - name: Check for docker-compose.web-env.yml
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/docker-compose.web-env.yml"
+      register: _web_env_exists
+
     - name: Check for docker-compose.override.yml
       ansible.builtin.stat:
         path: "{{ instance_path }}/docker-compose.override.yml"
       register: _override_exists
 
-    # Layer order: base, then generated sidecars, then the user override
-    # (so a service-name clash lets the operator's raw override win), then
-    # devmode last.
+    # Layer order: base, then the generated sidecars and web-env layers,
+    # then the user override (so a clash lets the operator's raw override
+    # win), then devmode last.
     - name: Build compose file arguments
       ansible.builtin.set_fact:
         _compose_files: >-
           {{ ['-f', 'docker-compose.yml'] +
              (_sidecars_exists.stat.exists | ternary(['-f', 'docker-compose.sidecars.yml'], [])) +
+             (_web_env_exists.stat.exists | ternary(['-f', 'docker-compose.web-env.yml'], [])) +
              (_override_exists.stat.exists | ternary(['-f', 'docker-compose.override.yml'], [])) +
              ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
 
@@ -477,6 +491,11 @@
       canasta_render_sidecars:
         instance_path: "{{ instance_path }}"
         orchestrator: kubernetes
+        secret_key_regex: "{{ canasta_secret_key_regex }}"
+      register: _sidecar_render
+
+    - name: Report secret variables left out of the sidecar env bridge
+      ansible.builtin.include_tasks: report_bridge_omitted.yml
 
     - name: Build + push locally-built sidecar images
       ansible.builtin.include_tasks: k8s_build_sidecars.yml

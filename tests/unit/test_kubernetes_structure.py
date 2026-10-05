@@ -1503,7 +1503,7 @@ class TestK8sAppSecrets:
         REPO_ROOT, "roles", "gitops", "files", "gitignore.default")
     SET = os.path.join(REPO_ROOT, "roles", "config", "tasks", "set.yml")
     SET_SECRET = os.path.join(
-        REPO_ROOT, "roles", "config", "tasks", "_set_secret.yml")
+        REPO_ROOT, "roles", "config", "tasks", "_set_secret_kubernetes.yml")
 
     @staticmethod
     def _read(path):
@@ -1550,7 +1550,7 @@ class TestK8sWebAppSecrets:
         REPO_ROOT, "roles", "gitops", "files", "gitignore.default")
     SET = os.path.join(REPO_ROOT, "roles", "config", "tasks", "set.yml")
     SET_SECRET = os.path.join(
-        REPO_ROOT, "roles", "config", "tasks", "_set_secret.yml")
+        REPO_ROOT, "roles", "config", "tasks", "_set_secret_kubernetes.yml")
 
     @staticmethod
     def _read(path):

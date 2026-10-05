@@ -8,7 +8,7 @@
 # Gitops-only: .gitignore is written by 'gitops init', so this no-ops when
 # the gitops marker or the .gitignore is absent.
 #
-# Input: instance_path, canasta_root.
+# Input: instance_path, canasta_root, instance_orchestrator.
 
 - name: Stat gitops marker and .gitignore
   ansible.builtin.stat:
@@ -18,15 +18,24 @@
     - .gitignore
   register: _gi_stats
 
+- name: Note whether this is a Compose instance
+  ansible.builtin.set_fact:
+    _gi_compose: "{{ instance_orchestrator | default('compose') not in ['kubernetes', 'k8s'] }}"
+
 - name: Refresh managed ignore rules
   when:
     - _gi_stats.results[0].stat.exists | default(false)
     - _gi_stats.results[1].stat.exists | default(false)
+  vars:
+    _gi_bridge: config/settings/global/00-canasta-sidecar-env.php
   block:
     - name: Read the shipped ignore rules
       ansible.builtin.set_fact:
         _gi_shipped_rules: >-
-          {{ lookup('file', canasta_root ~ '/roles/gitops/files/gitignore.default').splitlines()
+          {{ (lookup('file', canasta_root ~ '/roles/gitops/files/gitignore.default')
+              ~ '\n'
+              ~ (lookup('file', canasta_root ~ '/roles/gitops/files/gitignore.compose')
+                 if _gi_compose | bool else '')).splitlines()
              | map('trim')
              | reject('match', '^#')
              | reject('equalto', '')
@@ -55,3 +64,39 @@
         - skins
         - public_assets
         - wikis
+
+    # A file that is tracked stays tracked after it is ignored. Untrack the
+    # sidecar env bridge now that each host renders its own; --cached keeps
+    # this host's copy. Staged with the new rule so one push publishes both.
+    - name: Check whether the sidecar env bridge is tracked
+      ansible.builtin.command:
+        cmd: "git ls-files --error-unmatch -- {{ _gi_bridge }}"
+        chdir: "{{ instance_path }}"
+      register: _gi_bridge_tracked
+      changed_when: false
+      failed_when: false
+      when: _gi_compose | bool
+
+    - name: Untrack the sidecar env bridge
+      when:
+        - _gi_compose | bool
+        - _gi_bridge_tracked.rc | default(1) == 0
+      block:
+        - name: Remove the sidecar env bridge from the index
+          ansible.builtin.command:
+            cmd: "git rm --cached -q -- {{ _gi_bridge }}"
+            chdir: "{{ instance_path }}"
+          changed_when: true
+
+        - name: Stage the updated .gitignore
+          ansible.builtin.command:
+            cmd: "git add -- .gitignore"
+            chdir: "{{ instance_path }}"
+          changed_when: true
+
+        - name: Report the sidecar env bridge untrack
+          ansible.builtin.debug:
+            msg: >-
+              {{ _gi_bridge }} is now rendered on each host and no longer
+              tracked. The change is staged; publish it with
+              'canasta gitops push'.

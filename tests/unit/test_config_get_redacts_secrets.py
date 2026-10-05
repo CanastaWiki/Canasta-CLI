@@ -122,3 +122,25 @@ class TestClassificationMatchesAnsible:
     def test_an_empty_value_is_not_masked_into_looking_set(self):
         # Masking "" would make an unset key look configured.
         assert direct_commands._helpers.redact("MYSQL_PASSWORD", "") == ""
+
+
+class TestKeysSetWithSecret:
+    def test_listed_keys_are_masked_whatever_their_names(
+            self, monkeypatch, capsys):
+        monkeypatch.setattr(
+            direct_commands._helpers, "_read_secret_key_names",
+            lambda *a: {"OAUTH_CLIENT"})
+        env = dict(ENV, OAUTH_CLIENT="client-material")
+        monkeypatch.setattr(
+            direct_commands._helpers, "_resolve_instance",
+            lambda args: ("test", {"path": "/srv/test", "host": "localhost"}))
+        monkeypatch.setattr(
+            direct_commands._helpers, "_read_env_file", lambda *a: env)
+        monkeypatch.setattr(
+            direct_commands._helpers, "_read_env_content", lambda *a: "")
+        args = type("Args", (), {
+            "id": "test", "keys": [], "show_secrets": False})()
+        assert direct_commands.cmd_config_get(args) == 0
+        out = capsys.readouterr().out
+        assert "client-material" not in out
+        assert "OAUTH_CLIENT=********" in out

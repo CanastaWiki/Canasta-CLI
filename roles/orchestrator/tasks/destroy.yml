@@ -10,6 +10,11 @@
         path: "{{ instance_path }}/docker-compose.sidecars.yml"
       register: _destroy_sidecars
 
+    - name: Check for docker-compose.web-env.yml
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/docker-compose.web-env.yml"
+      register: _destroy_web_env
+
     - name: Check for docker-compose.override.yml
       ansible.builtin.stat:
         path: "{{ instance_path }}/docker-compose.override.yml"
@@ -26,6 +31,7 @@
         _destroy_compose_files: >-
           {{ ['-f', 'docker-compose.yml'] +
              (_destroy_sidecars.stat.exists | ternary(['-f', 'docker-compose.sidecars.yml'], [])) +
+             (_destroy_web_env.stat.exists | ternary(['-f', 'docker-compose.web-env.yml'], [])) +
              (_destroy_override.stat.exists | ternary(['-f', 'docker-compose.override.yml'], [])) }}
 
     # podman-compose ignores COMPOSE_PROFILES from .env, so we must pass

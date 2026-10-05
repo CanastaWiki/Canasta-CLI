@@ -27,6 +27,11 @@
         path: "{{ instance_path }}/docker-compose.sidecars.yml"
       register: _sidecars_exists
 
+    - name: Check for docker-compose.web-env.yml
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/docker-compose.web-env.yml"
+      register: _web_env_exists
+
     - name: Check for docker-compose.override.yml
       ansible.builtin.stat:
         path: "{{ instance_path }}/docker-compose.override.yml"
@@ -37,6 +42,7 @@
         _compose_files: >-
           {{ ['-f', 'docker-compose.yml'] +
              ((_sidecars_exists.stat.exists) | ternary(['-f', 'docker-compose.sidecars.yml'], [])) +
+             ((_web_env_exists.stat.exists) | ternary(['-f', 'docker-compose.web-env.yml'], [])) +
              ((_override_exists.stat.exists) | ternary(['-f', 'docker-compose.override.yml'], [])) +
              ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
 

@@ -29,6 +29,18 @@ options:
     description: Report the plan without writing any files.
     type: bool
     default: false
+  orchestrator:
+    description:
+      - The instance orchestrator. On Kubernetes, a migrated sidecar with a
+        plain C(${VAR}) reference to a secret variable is refused.
+    type: str
+    choices: [compose, k8s, kubernetes]
+    default: compose
+  secret_key_regex:
+    description:
+      - The secret classifier (canasta_secret_key_regex); required on
+        Kubernetes.
+    type: str
 """
 
 import os
@@ -37,6 +49,10 @@ import yaml
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.canasta_override_migrate import plan_migration
+from ansible.module_utils.canasta_sidecar_render import (
+    secret_classifier,
+    validate_k8s_secret_refs,
+)
 
 
 def _read_yaml(path):
@@ -51,6 +67,9 @@ def run_module():
         argument_spec=dict(
             instance_path=dict(type="str", required=True),
             dry_run=dict(type="bool", default=False),
+            orchestrator=dict(type="str", default="compose",
+                              choices=["compose", "k8s", "kubernetes"]),
+            secret_key_regex=dict(type="str", required=False),
         ),
         supports_check_mode=True,
     )
@@ -70,6 +89,18 @@ def run_module():
     existing = (_read_yaml(sidecars_path) or {}).get("sidecars", []) or []
     existing_names = [s.get("name") for s in existing]
     plan = plan_migration(override, existing_names=existing_names)
+
+    if (module.params.get("orchestrator") or "compose") != "compose":
+        regex = module.params.get("secret_key_regex")
+        if not regex:
+            module.fail_json(
+                msg="secret_key_regex is required on Kubernetes")
+            return
+        error = validate_k8s_secret_refs(
+            plan["sidecars"], secret_classifier(instance_path, regex))
+        if error:
+            module.fail_json(msg=error)
+            return
 
     result = dict(
         migrated=plan["migrated"],
