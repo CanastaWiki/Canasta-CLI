@@ -42,13 +42,29 @@
   vars:
     _settings_action: Enable
 
-- name: Run update.php
+# Without --wiki the item is enabled for every wiki, so each one needs
+# its schema updates.
+- name: Read wikis for update.php
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _enable_wikis
+  when:
+    - not (skip_update | default(false) | bool)
+    - wiki | default('') == ''
+
+- name: Run update.php for each affected wiki
   when: not (skip_update | default(false) | bool)
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: web
-    exec_command: "php maintenance/update.php --wiki={{ wiki | default('') | quote }}"
+    exec_command: "php maintenance/update.php --wiki={{ _enable_wiki | quote }}"
     exec_long: true
+  loop: >-
+    {{ [wiki] if (wiki | default('') != '')
+       else (_enable_wikis.wiki_ids | default([])) }}
+  loop_control:
+    loop_var: _enable_wiki
 
 - name: "Report {{ _item_type }} enabled"
   ansible.builtin.debug:
