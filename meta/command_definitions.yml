@@ -1949,7 +1949,9 @@ commands:
       file is read on the controller, so it works for local, remote, and
       Kubernetes targets alike. Content is read as text (UTF-8).
 
-      On a wiki farm, choose the wiki in the command itself, for example
+      On a wiki farm, a MediaWiki command run without --wiki uses the
+      first wiki listed in config/wikis.yaml. Pass --wiki=<id> in the
+      command itself, for example
       `php maintenance/run.php edit --wiki=<id> <page>`.
     examples:
       - "canasta maintenance exec -- ls /var/www/mediawiki"
