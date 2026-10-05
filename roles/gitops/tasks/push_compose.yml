@@ -53,6 +53,28 @@
 - name: Install and register the git-crypt merge driver
   ansible.builtin.include_tasks: "_ensure_merge_driver.yml"
 
+# The index is what the commit below will hold, so check it rather than the
+# working tree.
+- name: Check .gitattributes keeps the encryption rules
+  ansible.builtin.include_tasks: "_check_gitattributes_rules.yml"
+  vars:
+    gitattributes_rev: ""
+
+- name: Refuse to push without the encryption rules
+  ansible.builtin.fail:
+    msg: |-
+      Refusing to push: .gitattributes lacks the encryption rule(s) below, so
+      host secrets under hosts/ would no longer be encrypted on the remote.
+
+      Missing from .gitattributes:
+      {% for line in _gitattributes_missing %}
+        {{ line }}
+      {% endfor %}
+
+      Put the line(s) back in {{ instance_path }}/.gitattributes, then run
+      'canasta gitops add .gitattributes' and 'canasta gitops push'.
+  when: _gitattributes_missing | length > 0
+
 # --- Migrate pre-classifier cleartext secret literals into vars.yaml ---
 # Runs before the shared-key migration so a freshly-encrypted secret can still
 # be promoted to _shared if it qualifies.
@@ -286,6 +308,22 @@
 - name: Direct push to main
   when: not (_push_pr_mode | bool)
   block:
+    # Commits made on this host reflect what the instance already runs, but a
+    # commit that arrived from the remote may not be applied yet if a pull
+    # stopped early. Advance the applied marker only when every commit since
+    # it is local, so 'gitops pull' still re-applies an unfinished pull.
+    - name: Check that every commit since the last apply is local
+      ansible.builtin.shell:
+        cmd: >-
+          applied=$(cat .gitops-applied) &&
+          git merge-base --is-ancestor "$applied" HEAD &&
+          git merge-base --is-ancestor
+          "$(git merge-base HEAD @{upstream})" "$applied"
+        chdir: "{{ instance_path }}"
+      register: _push_applied_is_local
+      changed_when: false
+      failed_when: false
+
     - name: Commit staged changes
       ansible.builtin.command:
         cmd: >-
@@ -294,6 +332,15 @@
         chdir: "{{ instance_path }}"
       changed_when: true
       when: _push_has_staged
+
+    # Recorded before pushing: a rejected push leaves the commit local, and
+    # the pull that follows must diff only the remote's changes against it.
+    - name: Record HEAD as the applied commit
+      ansible.builtin.shell:
+        cmd: "git rev-parse HEAD > .gitops-applied"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      when: _push_applied_is_local.rc == 0
 
     # The commit above is already made, so on a rejection the operator's work
     # is safe locally. Catch the push failure and translate git's raw

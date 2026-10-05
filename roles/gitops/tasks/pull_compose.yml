@@ -79,6 +79,44 @@
     - name: Report why the pull could not be replayed
       ansible.builtin.include_tasks: "_explain_pull_failure.yml"
 
+# Applying a commit whose .gitattributes no longer encrypts host vars would
+# have this host's next write commit secrets in cleartext. Nothing has been
+# rendered or checked out in submodules yet, so resetting to the pre-pull
+# commit restores the instance exactly, local commits included.
+- name: Check the pulled .gitattributes keeps the encryption rules
+  ansible.builtin.include_tasks: "_check_gitattributes_rules.yml"
+  vars:
+    gitattributes_rev: HEAD
+
+- name: Refuse a pull that weakens encryption
+  when: _gitattributes_missing | length > 0
+  block:
+    - name: Roll back to the pre-pull commit
+      ansible.builtin.command:
+        cmd: "git reset --hard --quiet {{ _pull_prev_commit.stdout }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+
+    - name: Explain the missing encryption rules
+      ansible.builtin.fail:
+        msg: |-
+          Cannot pull: the .gitattributes this pull would apply lacks the
+          encryption rule(s) below, so host secrets under hosts/ would no
+          longer be encrypted.
+          {% if _pull_result is changed %}
+          The pull was rolled back — the instance is exactly as it was and the
+          local commit(s) are intact.
+          {% endif %}
+
+          Missing from .gitattributes:
+          {% for line in _gitattributes_missing %}
+            {{ line }}
+          {% endfor %}
+
+          Put the line(s) back in .gitattributes on the remote branch — in any
+          checkout of it, add them, commit, and push — then retry
+          'canasta gitops pull'.
+
 - name: Update submodules
   ansible.builtin.include_tasks: "_update_submodules.yml"
 
