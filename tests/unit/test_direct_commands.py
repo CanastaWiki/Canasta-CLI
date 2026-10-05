@@ -3994,13 +3994,16 @@ class TestMaintenanceScript:
         defaults.update(kw)
         return type("Args", (), defaults)()
 
-    def _patch_resolve(self, monkeypatch):
+    def _patch_resolve(self, monkeypatch, wikis=None):
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
                 "orchestrator": "compose",
                 "host": "localhost",
             }),
+        )
+        monkeypatch.setattr(direct_commands.maintenance, "_read_wiki_ids",
+            lambda inst: wikis if wikis is not None else ["main"],
         )
 
     def test_registered(self):
@@ -4161,6 +4164,69 @@ class TestMaintenanceScript:
         assert "php maintenance/run.php rebuildall.php" in captured["command"]
         assert "--wiki='main'" in captured["command"]
 
+    def _record_streams(self, monkeypatch, rcs=None):
+        commands = []
+
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
+            commands.append(command)
+            return (rcs or {}).get(len(commands), 0)
+
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
+        return commands
+
+    def test_farm_runs_on_every_wiki_without_wiki_flag(self, monkeypatch, capsys):
+        self._patch_resolve(monkeypatch, wikis=["main", "draft"])
+        commands = self._record_streams(monkeypatch)
+        rc = direct_commands.cmd_maintenance_script(
+            self._args(script_args="rebuildall.php"),
+        )
+        assert rc == 0
+        assert len(commands) == 2
+        assert "--wiki='main'" in commands[0]
+        assert "--wiki='draft'" in commands[1]
+        out = capsys.readouterr().out
+        assert "=== rebuildall.php (main) ===" in out
+        assert "=== rebuildall.php (draft) ===" in out
+
+    def test_wiki_flag_limits_farm_run_to_that_wiki(self, monkeypatch):
+        self._patch_resolve(monkeypatch, wikis=["main", "draft"])
+        commands = self._record_streams(monkeypatch)
+        direct_commands.cmd_maintenance_script(
+            self._args(script_args="rebuildall.php", wiki="draft"),
+        )
+        assert len(commands) == 1
+        assert "--wiki='draft'" in commands[0]
+
+    def test_failure_on_one_wiki_fails_the_command(self, monkeypatch):
+        self._patch_resolve(monkeypatch, wikis=["main", "draft"])
+        commands = self._record_streams(monkeypatch, rcs={1: 3})
+        rc = direct_commands.cmd_maintenance_script(
+            self._args(script_args="rebuildall.php"),
+        )
+        assert rc == 3
+        assert len(commands) == 2
+
+    def test_no_wikis_found_runs_nothing(self, monkeypatch, capsys):
+        self._patch_resolve(monkeypatch, wikis=[])
+        commands = self._record_streams(monkeypatch)
+        rc = direct_commands.cmd_maintenance_script(
+            self._args(script_args="rebuildall.php"),
+        )
+        assert rc == 1
+        assert commands == []
+        assert "no wikis found" in capsys.readouterr().err
+
+    def test_unknown_wiki_is_refused(self, monkeypatch, capsys):
+        self._patch_resolve(monkeypatch, wikis=["main", "draft"])
+        commands = self._record_streams(monkeypatch)
+        rc = direct_commands.cmd_maintenance_script(
+            self._args(script_args="rebuildall.php", wiki="nope"),
+        )
+        assert rc == 1
+        assert commands == []
+        assert "wiki 'nope' is not in this instance" in capsys.readouterr().err
+
 
 class TestMaintenanceExtension:
     def _args(self, **kw):
@@ -4168,13 +4234,16 @@ class TestMaintenanceExtension:
         defaults.update(kw)
         return type("Args", (), defaults)()
 
-    def _patch_resolve(self, monkeypatch):
+    def _patch_resolve(self, monkeypatch, wikis=None):
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
                 "orchestrator": "compose",
                 "host": "localhost",
             }),
+        )
+        monkeypatch.setattr(direct_commands.maintenance, "_read_wiki_ids",
+            lambda inst: wikis if wikis is not None else ["main"],
         )
 
     def test_registered(self):
@@ -4267,6 +4336,69 @@ class TestMaintenanceExtension:
             in captured["command"]
         )
         assert "--wiki='main'" in captured["command"]
+
+    def _record_streams(self, monkeypatch, rcs=None):
+        commands = []
+
+        def fake_stream(inst_id, inst, command, service="web",
+                        retry_on_reset=False):
+            commands.append(command)
+            return (rcs or {}).get(len(commands), 0)
+
+        monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
+        return commands
+
+    def test_farm_runs_on_every_wiki_without_wiki_flag(self, monkeypatch, capsys):
+        self._patch_resolve(monkeypatch, wikis=["main", "draft"])
+        commands = self._record_streams(monkeypatch)
+        rc = direct_commands.cmd_maintenance_extension(
+            self._args(script_args="Cite:fixHTMLOutputForCite"),
+        )
+        assert rc == 0
+        assert len(commands) == 2
+        assert "--wiki='main'" in commands[0]
+        assert "--wiki='draft'" in commands[1]
+        out = capsys.readouterr().out
+        assert "=== Cite:fixHTMLOutputForCite (main) ===" in out
+        assert "=== Cite:fixHTMLOutputForCite (draft) ===" in out
+
+    def test_wiki_flag_limits_farm_run_to_that_wiki(self, monkeypatch):
+        self._patch_resolve(monkeypatch, wikis=["main", "draft"])
+        commands = self._record_streams(monkeypatch)
+        direct_commands.cmd_maintenance_extension(
+            self._args(script_args="Cite:fixHTMLOutputForCite", wiki="draft"),
+        )
+        assert len(commands) == 1
+        assert "--wiki='draft'" in commands[0]
+
+    def test_failure_on_one_wiki_fails_the_command(self, monkeypatch):
+        self._patch_resolve(monkeypatch, wikis=["main", "draft"])
+        commands = self._record_streams(monkeypatch, rcs={1: 3})
+        rc = direct_commands.cmd_maintenance_extension(
+            self._args(script_args="Cite:fixHTMLOutputForCite"),
+        )
+        assert rc == 3
+        assert len(commands) == 2
+
+    def test_no_wikis_found_runs_nothing(self, monkeypatch, capsys):
+        self._patch_resolve(monkeypatch, wikis=[])
+        commands = self._record_streams(monkeypatch)
+        rc = direct_commands.cmd_maintenance_extension(
+            self._args(script_args="Cite:fixHTMLOutputForCite"),
+        )
+        assert rc == 1
+        assert commands == []
+        assert "no wikis found" in capsys.readouterr().err
+
+    def test_unknown_wiki_is_refused(self, monkeypatch, capsys):
+        self._patch_resolve(monkeypatch, wikis=["main", "draft"])
+        commands = self._record_streams(monkeypatch)
+        rc = direct_commands.cmd_maintenance_extension(
+            self._args(script_args="Cite:fixHTMLOutputForCite", wiki="nope"),
+        )
+        assert rc == 1
+        assert commands == []
+        assert "wiki 'nope' is not in this instance" in capsys.readouterr().err
 
 
 class TestMaintenanceUpdate:
