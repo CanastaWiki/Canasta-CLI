@@ -343,6 +343,11 @@ def _parse_gitops_status(stdout, instance_id):
         lines.append(_FETCH_FAILED_HINT)
     elif remote_state == "no_upstream":
         lines.append("Remote status unknown (no upstream tracking configured).")
+    elif ahead > 0 and behind > 0:
+        lines.append(
+            "Diverged from remote: %d local commit(s) not pushed, "
+            "%d remote commit(s) not pulled. Run 'canasta gitops pull', "
+            "then 'canasta gitops push'." % (ahead, behind))
     elif ahead > 0:
         lines.append("Ahead of remote by %d commit(s)." % ahead)
     elif behind > 0:
