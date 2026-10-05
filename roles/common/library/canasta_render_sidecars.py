@@ -31,18 +31,38 @@ options:
     type: str
     required: true
     choices: [compose, k8s, kubernetes]
+  secret_key_regex:
+    description:
+      - The secret classifier (canasta_secret_key_regex). A referenced
+        variable whose name matches it, or that was set with
+        C(config set --secret), is a secret variable.
+    type: str
+    required: true
+"""
+
+RETURN = r"""
+bridge_omitted:
+  description:
+    - Secret variables left out of the web env bridge that are not already
+      passed to the web tier with C(config set --secret --web).
+  type: list
+  elements: str
+  returned: always
 """
 
 import os
+import re
 
 import yaml
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.canasta_sidecar_render import (
+    bridge_omitted_secrets,
     render_compose,
     render_env_bridge,
     render_k8s_values,
     validate_host_access,
+    validate_k8s_secret_refs,
     validate_spec,
 )
 
@@ -58,9 +78,9 @@ def read_sidecars(instance_path):
     return data.get("sidecars", [])
 
 
-def read_env(instance_path):
+def read_env(instance_path, relpath=".env"):
     """Parse the instance .env into a dict (for ${VAR} resolution on k8s)."""
-    path = os.path.join(instance_path, ".env")
+    path = os.path.join(instance_path, relpath)
     env = {}
     if not os.path.exists(path):
         return env
@@ -72,6 +92,30 @@ def read_env(instance_path):
             key, value = line.split("=", 1)
             env[key.strip()] = value.strip()
     return env
+
+
+def read_names(instance_path, relpath):
+    """Whitespace-separated names in an instance file (empty if absent)."""
+    path = os.path.join(instance_path, relpath)
+    if not os.path.exists(path):
+        return set()
+    with open(path) as handle:
+        return set(handle.read().split())
+
+
+def read_recorded_secret_names(instance_path):
+    """Names set with `config set --secret`: config/secret-keys on Compose,
+    the keys of config/secrets.env on Kubernetes."""
+    names = set(read_env(instance_path, os.path.join("config", "secrets.env")))
+    return names | read_names(instance_path,
+                              os.path.join("config", "secret-keys"))
+
+
+def read_web_secret_names(instance_path):
+    """Names set with `config set --secret --web`, which already reach the
+    web tier."""
+    return (read_names(instance_path, os.path.join("config", "secret-keys-web"))
+            | read_names(instance_path, os.path.join("config", "secrets-web")))
 
 
 def write_or_remove(path, content, check_mode):
@@ -101,6 +145,7 @@ def run_module():
             instance_path=dict(type="str", required=True),
             orchestrator=dict(type="str", required=True,
                               choices=["compose", "k8s", "kubernetes"]),
+            secret_key_regex=dict(type="str", required=True),
         ),
         supports_check_mode=True,
     )
@@ -108,8 +153,16 @@ def run_module():
     instance_path = module.params["instance_path"]
     orchestrator = module.params["orchestrator"]
     sidecars = read_sidecars(instance_path)
+    secret_re = re.compile(module.params["secret_key_regex"])
+    recorded = read_recorded_secret_names(instance_path)
+
+    def is_secret(name):
+        return name in recorded or bool(secret_re.match(name))
+
     error = (validate_spec(sidecars)
              or validate_host_access(sidecars, instance_path))
+    if not error and orchestrator != "compose":
+        error = validate_k8s_secret_refs(sidecars, is_secret)
     if error:
         module.fail_json(msg="Refusing config/sidecars.yaml: %s." % error)
     env = read_env(instance_path)
@@ -135,7 +188,7 @@ def run_module():
 
     # Bridge referenced .env vars into the web tier's getenv() (both
     # orchestrators sync config/settings/global/*.php to the web container).
-    bridge = render_env_bridge(sidecars, env)
+    bridge = render_env_bridge(sidecars, env, is_secret)
     bridge_dest = os.path.join(
         instance_path, "config", "settings", "global",
         "00-canasta-sidecar-env.php")
@@ -151,8 +204,12 @@ def run_module():
             "values; on k8s this is committed to the gitops repo. Use a real "
             "secret store for highly sensitive values.")
 
+    web = read_web_secret_names(instance_path)
+    omitted = [name for name in bridge_omitted_secrets(sidecars, env, is_secret)
+               if name not in web]
     module.exit_json(changed=changed or bridge_changed,
-                     count=len(sidecars), path=dest, bridge=bridge_dest)
+                     count=len(sidecars), path=dest, bridge=bridge_dest,
+                     bridge_omitted=omitted)
 
 
 def main():

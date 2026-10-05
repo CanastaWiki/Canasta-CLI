@@ -13,6 +13,11 @@
       canasta_render_sidecars:
         instance_path: "{{ instance_path }}"
         orchestrator: compose
+        secret_key_regex: "{{ canasta_secret_key_regex }}"
+      register: _sidecar_render
+
+    - name: Report secret variables left out of the sidecar env bridge
+      ansible.builtin.include_tasks: report_bridge_omitted.yml
 
     - name: Render web secret keys to a compose override layer
       ansible.builtin.include_tasks: render_web_env.yml
@@ -486,6 +491,11 @@
       canasta_render_sidecars:
         instance_path: "{{ instance_path }}"
         orchestrator: kubernetes
+        secret_key_regex: "{{ canasta_secret_key_regex }}"
+      register: _sidecar_render
+
+    - name: Report secret variables left out of the sidecar env bridge
+      ansible.builtin.include_tasks: report_bridge_omitted.yml
 
     - name: Build + push locally-built sidecar images
       ansible.builtin.include_tasks: k8s_build_sidecars.yml

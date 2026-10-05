@@ -1,0 +1,4 @@
+
+# Rendered on each host from config/sidecars.yaml and .env (Compose only;
+# Kubernetes tracks it)
+config/settings/global/00-canasta-sidecar-env.php

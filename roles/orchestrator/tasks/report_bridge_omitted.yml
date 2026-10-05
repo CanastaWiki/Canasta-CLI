@@ -1,0 +1,21 @@
+---
+# Name the secret variables the sidecar render left out of the web env
+# bridge, so a Settings.php that read them through getenv() can be switched
+# to a --web secret.
+#
+# Input: _sidecar_render (registered canasta_render_sidecars result)
+
+- name: Report secret variables left out of the sidecar env bridge
+  ansible.builtin.debug:
+    msg: >-
+      Not passed to MediaWiki through
+      config/settings/global/00-canasta-sidecar-env.php because
+      {{ _one | ternary('it is a secret', 'they are secrets') }}:
+      {{ _omitted | join(', ') }}. Sidecars still receive
+      {{ _it }}. If MediaWiki needs {{ _it }}, use
+      'canasta config set --secret --web KEY=VALUE'.
+  vars:
+    _omitted: "{{ _sidecar_render.bridge_omitted | default([]) }}"
+    _one: "{{ _omitted | length == 1 }}"
+    _it: "{{ _one | ternary('it', 'them') }}"
+  when: _sidecar_render.bridge_omitted | default([]) | length > 0

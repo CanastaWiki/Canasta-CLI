@@ -153,7 +153,9 @@
 # --- Step 7: Write .gitignore and .gitattributes ---
 - name: Write .gitignore
   ansible.builtin.copy:
-    src: "{{ role_path }}/files/gitignore.default"
+    content: |
+      {{ lookup('file', role_path + '/files/gitignore.default') }}
+      {{ lookup('file', role_path + '/files/gitignore.compose') }}
     dest: "{{ instance_path }}/.gitignore"
     mode: "0644"
 
