@@ -5,5 +5,10 @@
 - name: Regenerate Caddyfile
   ansible.builtin.include_tasks: rewrite_caddy.yml
 
+- name: Render web secret keys to a compose override layer
+  canasta_render_web_env:
+    instance_path: "{{ instance_path }}"
+  when: instance_orchestrator | default('compose') == 'compose'
+
 # Kubernetes: configuration changes go into values.yaml and are applied
 # via helm upgrade on next start/restart.

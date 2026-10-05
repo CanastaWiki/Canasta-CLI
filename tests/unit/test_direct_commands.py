@@ -1525,6 +1525,30 @@ class TestComposeFileArgs:
         args = direct_commands._compose_file_args(str(tmp_path), "localhost")
         assert args == ["-f", "docker-compose.yml"]
 
+    def test_web_env_layered_before_override(self, tmp_path):
+        (tmp_path / "docker-compose.sidecars.yml").write_text("")
+        (tmp_path / "docker-compose.web-env.yml").write_text("")
+        (tmp_path / "docker-compose.override.yml").write_text("")
+        args = direct_commands._compose_file_args(
+            str(tmp_path), "localhost", include_sidecars=True,
+        )
+        assert args == [
+            "-f", "docker-compose.yml",
+            "-f", "docker-compose.sidecars.yml",
+            "-f", "docker-compose.web-env.yml",
+            "-f", "docker-compose.override.yml",
+        ]
+
+    def test_web_env_layered_without_sidecars(self, tmp_path):
+        # Unlike the sidecars layer, it never lingers stale, so every
+        # compose invocation must see it (stop, start, rebuild, logs).
+        (tmp_path / "docker-compose.web-env.yml").write_text("")
+        args = direct_commands._compose_file_args(str(tmp_path), "localhost")
+        assert args == [
+            "-f", "docker-compose.yml",
+            "-f", "docker-compose.web-env.yml",
+        ]
+
 
 # ---------------------------------------------------------------------------
 # Start / stop / restart tests

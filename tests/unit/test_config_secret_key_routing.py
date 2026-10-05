@@ -1,10 +1,10 @@
 """`config set --secret` must refuse keys that belong in .env.
 
---secret writes config/secrets.env, which nothing on Compose reads and which
-on K8s feeds only the sidecar app Secret. A recognized key written there is
-stored where nothing reads it while .env keeps its old value, so
-`RESTIC_PASSWORD=... --secret` reports success and the next backup still
-fails on the previous password.
+--secret skips .env validation and side effects, and on K8s writes
+config/secrets.env, which feeds only the sidecar app Secret. A recognized key
+written there is stored where nothing reads it while .env keeps its old
+value, so `RESTIC_PASSWORD=... --secret` reports success and the next backup
+still fails on the previous password.
 
 "Recognized" is the set `config set` already accepts without --force:
 canasta_known_keys plus the canasta_secret_prefixes credential prefixes. The
@@ -68,12 +68,13 @@ def test_recognized_keys_are_rejected():
 
 
 def test_rejection_precedes_the_write():
-    """A guard after the write would leave the value in secrets.env."""
+    """A guard after the write would leave the value stored."""
     tasks = _load(SET_SECRET)
     reject = _index(tasks, "Reject recognized .env keys")
-    write = _index(tasks, "Write each secret")
-    assert 0 <= reject < write, (
-        "the rejection must come before config/secrets.env is written")
+    store = _index(tasks, "Store the secrets for this orchestrator")
+    assert 0 <= reject < store, (
+        "the rejection must come before any orchestrator stores the value")
+    assert all("Write" not in t.get("name", "") for t in tasks[:reject])
 
 
 def test_guard_covers_named_keys_and_credential_prefixes():

@@ -10,6 +10,7 @@ my.cnf
 
 # Managed by Canasta CLI
 docker-compose.yml
+docker-compose.web-env.yml
 docker-compose.override.yml.example
 config/default.vcl
 config/settings/global/README

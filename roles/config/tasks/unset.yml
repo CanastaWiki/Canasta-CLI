@@ -5,9 +5,9 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-# Dispatch: --secret removes from the gitignored config/secrets.env
-# (no .env validation/side effects); otherwise the normal .env config path.
-- name: Remove opaque secret values (config/secrets.env)
+# Dispatch: --secret removes values set with `config set --secret` (no .env
+# validation/side effects); otherwise the normal .env config path.
+- name: Remove opaque secret values
   ansible.builtin.include_tasks: _unset_secret.yml
   when: secret | default(false) | bool
 

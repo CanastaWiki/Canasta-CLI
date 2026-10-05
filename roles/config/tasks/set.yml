@@ -50,15 +50,15 @@
     - web | default(false) | bool
     - not (secret | default(false) | bool)
 
-# Dispatch: --secret writes opaque values to the gitignored config/secrets.env
-# (no .env validation/side effects); otherwise the normal .env config path.
+# Dispatch: --secret stores opaque values without .env validation or side
+# effects (_set_secret.yml); otherwise the normal .env config path.
 #
 # Once MYSQL_PASSWORD has been changed in the database, the running wiki
 # still holds the old one, so a failure in any later step must still
 # restart the instance before reporting the error.
 - name: Apply the settings
   block:
-    - name: Set opaque secret values (config/secrets.env)
+    - name: Set opaque secret values
       ansible.builtin.include_tasks: _set_secret.yml
       when: secret | default(false) | bool
 

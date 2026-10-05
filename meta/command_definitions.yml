@@ -1260,6 +1260,7 @@ commands:
       changing HTTPS_PORT).
     examples:
       - "canasta config set MW_SITE_SERVER=https://example.com"
+      - "canasta config set --secret --web MAPS_API_KEY=abc123"
     playbook: config_set.yml
     parameters:
       - name: id
@@ -1284,18 +1285,26 @@ commands:
         type: bool
         default: false
         description: >-
-          Write to the gitignored config/secrets.env instead of .env (opaque
-          app secrets; on K8s these feed a per-instance Secret consumed by
-          sidecars via secretKeyRef). Bypasses .env validation and side
-          effects. Recognized configuration keys are rejected: they are read
-          from .env, so a value written here would never take effect.
+          Store opaque app secrets such as a sidecar credential or a
+          Settings.php API key, bypassing .env validation and side effects.
+          On Compose the value goes in .env, where a sidecar's env can
+          reference it as ${KEY}, and the key name is recorded in
+          config/secret-keys; on a gitops instance it is also stored in the
+          encrypted host vars. On Kubernetes it goes in the gitignored
+          config/secrets.env, which feeds a per-instance Secret consumed by
+          sidecars via secretKeyRef. Recognized configuration keys are
+          rejected; set them without --secret.
       - name: web
         type: bool
         default: false
         description: >-
-          With --secret, also expose the key(s) to the web and jobrunner pods
-          via secretKeyRef (for a secret the MediaWiki process itself needs).
-          Recorded in config/secrets-web (key names only).
+          With --secret, also pass the key(s) to MediaWiki, which reads them
+          with getenv() in Settings.php. On Compose the key is listed in
+          config/secret-keys-web and added to the web container's
+          environment (which also runs the job runner) through the generated
+          docker-compose.web-env.yml. On Kubernetes it is listed in
+          config/secrets-web and exposed to the web and jobrunner pods via
+          secretKeyRef.
 
   - name: config_regenerate
     description: "Regenerate rendered config files (e.g. Caddyfile) from current sources"
@@ -1372,8 +1381,11 @@ commands:
       reverted before the key is removed. The instance is then
       restarted unless `--no-restart` is specified.
 
-      With `--secret`, the keys are removed from the gitignored
-      `config/secrets.env` instead of `.env`.
+      With `--secret`, the keys set with `config set --secret` are
+      removed, along with any `--web` exposure: on Compose from `.env`
+      (and the gitops vars), `config/secret-keys`, and
+      `config/secret-keys-web`; on Kubernetes from the gitignored
+      `config/secrets.env` and `config/secrets-web`.
     examples:
       - "canasta config unset MW_SITE_SERVER"
       - "canasta config unset MY_SIDECAR_TOKEN --secret"
@@ -1401,9 +1413,8 @@ commands:
         type: bool
         default: false
         description: >-
-          Remove the key(s) from the gitignored config/secrets.env, and from
-          config/secrets-web, instead of .env — the counterpart to
-          'config set --secret'.
+          Remove key(s) set with 'config set --secret', including their
+          --web exposure, instead of plain .env keys.
 
   # ---------------------------------------------------------------------------
   # Extensions

@@ -5,7 +5,8 @@
 # placeholder line; a literal key is dropped from env.template. Mirrors
 # _update_gitops_vars.yml on the set side. Compose-only guard lives in the
 # caller, roles/orchestrator/tasks/config_remove_gitops_vars.yml.
-# Input: instance_path, keys, _config_gitops_stat
+# Input: instance_path, keys (or _config_unset_keys, a list that takes its
+#        place), _config_gitops_stat
 
 - name: Load gitops placeholder definitions
   ansible.builtin.include_vars:
@@ -40,6 +41,6 @@
 - name: Remove each unset key from vars.yaml / env.template
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/config/tasks/_remove_gitops_var.yml
-  loop: "{{ keys.split() }}"
+  loop: "{{ _config_unset_keys | default(keys.split()) }}"
   loop_control:
     loop_var: _config_key

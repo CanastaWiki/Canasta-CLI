@@ -283,6 +283,11 @@
   vars:
     media_hosts_vars: "{{ _pull_vars }}"
 
+# --- Step 7e: Render the web secret key list to its compose layer ---
+- name: Render web secret keys to a compose override layer
+  canasta_render_web_env:
+    instance_path: "{{ instance_path }}"
+
 # --- Step 8: Write admin password files ---
 - name: Write admin password files from vars
   ansible.builtin.copy:
@@ -317,7 +322,7 @@
          or (_pull_baseline.wikis | default('') != _rendered_fingerprint.wikis)
          or (_pull_changed_files.stdout_lines | default([])
              | select('match',
-               '^(env\.template|config/Caddyfile|docker-compose\.override\.yml)')
+               '^(env\.template|config/Caddyfile|config/secret-keys-web$|docker-compose\.override\.yml)')
              | list | length > 0) }}
     _pull_needs_maintenance: >-
       {{ _pull_changed_files.stdout_lines | default([])
