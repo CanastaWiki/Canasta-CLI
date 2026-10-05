@@ -53,6 +53,28 @@
 - name: Install and register the git-crypt merge driver
   ansible.builtin.include_tasks: "_ensure_merge_driver.yml"
 
+# The index is what the commit below will hold, so check it rather than the
+# working tree.
+- name: Check .gitattributes keeps the encryption rules
+  ansible.builtin.include_tasks: "_check_gitattributes_rules.yml"
+  vars:
+    gitattributes_rev: ""
+
+- name: Refuse to push without the encryption rules
+  ansible.builtin.fail:
+    msg: |-
+      Refusing to push: .gitattributes lacks the encryption rule(s) below, so
+      host secrets under hosts/ would no longer be encrypted on the remote.
+
+      Missing from .gitattributes:
+      {% for line in _gitattributes_missing %}
+        {{ line }}
+      {% endfor %}
+
+      Put the line(s) back in {{ instance_path }}/.gitattributes, then run
+      'canasta gitops add .gitattributes' and 'canasta gitops push'.
+  when: _gitattributes_missing | length > 0
+
 # --- Migrate pre-classifier cleartext secret literals into vars.yaml ---
 # Runs before the shared-key migration so a freshly-encrypted secret can still
 # be promoted to _shared if it qualifies.

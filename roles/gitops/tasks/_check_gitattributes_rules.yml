@@ -1,0 +1,27 @@
+---
+# Find the git-crypt rules a revision's .gitattributes is missing.
+#
+# Which paths git-crypt encrypts is decided by the tracked .gitattributes, so
+# a commit that drops or mistypes a rule turns later writes of host secrets
+# into cleartext. The required rules are the git-crypt lines of the file init
+# writes; other lines (Git LFS, say) do not matter.
+#
+# Requires: instance_path, gitattributes_rev ('HEAD' for the checked-out
+# commit, '' for the index, which is what the next commit will hold).
+# Sets: _gitattributes_missing (the required lines that are absent).
+
+- name: Read the tracked .gitattributes
+  ansible.builtin.command:
+    cmd: "git show {{ gitattributes_rev }}:.gitattributes"
+    chdir: "{{ instance_path }}"
+  register: _gitattributes_tracked
+  changed_when: false
+  failed_when: false
+
+- name: List the required encryption rules it lacks
+  ansible.builtin.set_fact:
+    _gitattributes_missing: >-
+      {{ (_gitattributes_tracked.stdout if _gitattributes_tracked.rc == 0 else '')
+         | canasta_gitattributes_missing_rules(
+             lookup('ansible.builtin.file',
+                    role_path ~ '/files/gitattributes.default')) }}
