@@ -43,6 +43,7 @@ EXIT_INSTANCE_BUSY = 4
 sys.path.append(os.path.join(SCRIPT_DIR, "roles", "common", "module_utils"))
 import canasta_config  # noqa: E402
 from direct_commands._helpers import (  # noqa: E402
+    forward_agent_option,
     _compose_profile_args,
     _is_local_target,
     _read_env,
@@ -1975,6 +1976,7 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     # target host. With no agent loaded the option is a no-op; with
     # one loaded, the user's keys flow through to the remote without
     # having to provision deploy keys on every gitops host.
+    # CANASTA_FORWARD_AGENT=no turns it off.
     #
     # ANSIBLE_SSH_ARGS replaces ansible.cfg's ssh_args outright, so the
     # connection-sharing options must be repeated here. Without them
@@ -1983,14 +1985,14 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     ssh_args = (
         "-o StrictHostKeyChecking=accept-new "
         "-o UserKnownHostsFile=~/.ssh/known_hosts "
-        "-o ForwardAgent=yes "
+        "-o %s "
         # Long-running remote commands (helm upgrade --wait, gitops
         # init's git push, maintenance update) can outlast a NAT or
         # firewall idle timeout. ServerAliveInterval keeps the SSH
         # session warm so the parent doesn't see a "Broken pipe"
         # while the remote is still working.
         "-o ServerAliveInterval=30 -o ServerAliveCountMax=20"
-    )
+    ) % forward_agent_option()
     control_dir = ssh_control_path_dir()
     if control_dir:
         ssh_args = "-o ControlMaster=auto -o ControlPersist=60s " + ssh_args

@@ -816,6 +816,9 @@ fi
 # tag too (the part after the last colon) so 'canasta version' can tell a
 # release (semver tag) from a dev build (':latest').
 DOCKER_RUN_FLAGS+=(-e CANASTA_RUN_MODE=docker)
+if [[ -n "${CANASTA_FORWARD_AGENT:-}" ]]; then
+    DOCKER_RUN_FLAGS+=(-e "CANASTA_FORWARD_AGENT=$CANASTA_FORWARD_AGENT")
+fi
 DOCKER_RUN_FLAGS+=(-e "CANASTA_CLI_IMAGE_TAG=${IMAGE##*:}")
 DOCKER_RUN_FLAGS+=(-e "CANASTA_CLI_BIN=$CANASTA_CLI_BIN")
 # Names this controller in an instance's command lock; the container's own

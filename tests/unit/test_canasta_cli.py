@@ -405,6 +405,7 @@ class TestBuildAnsibleArgs:
         Guard against any of those silently disappearing.
         """
         monkeypatch.delenv("ANSIBLE_SSH_ARGS", raising=False)
+        monkeypatch.delenv("CANASTA_FORWARD_AGENT", raising=False)
         from argparse import Namespace
         args = Namespace(command="version", host=None, verbose=False)
         canasta_cli.build_ansible_args(
@@ -415,6 +416,40 @@ class TestBuildAnsibleArgs:
         assert "UserKnownHostsFile=" in ssh_args
         assert "ForwardAgent=yes" in ssh_args
         assert "ServerAliveInterval=" in ssh_args
+
+    @pytest.mark.parametrize("value", ["no", "NO", "0", "false", "off"])
+    def test_forward_agent_can_be_turned_off(self, data, monkeypatch, value):
+        monkeypatch.delenv("ANSIBLE_SSH_ARGS", raising=False)
+        monkeypatch.setenv("CANASTA_FORWARD_AGENT", value)
+        from argparse import Namespace
+        args = Namespace(command="version", host=None, verbose=False)
+        canasta_cli.build_ansible_args(
+            "/usr/bin/ansible-playbook", "version", args, data,
+        )
+        ssh_args = os.environ["ANSIBLE_SSH_ARGS"]
+        assert "ForwardAgent=no" in ssh_args
+        assert "ForwardAgent=yes" not in ssh_args
+
+    def test_direct_commands_follow_the_same_setting(self, monkeypatch):
+        from direct_commands import _helpers
+        monkeypatch.delenv("ANSIBLE_SSH_ARGS", raising=False)
+        monkeypatch.delenv("CANASTA_FORWARD_AGENT", raising=False)
+        assert "ForwardAgent=yes" in _helpers._ssh_args()
+        monkeypatch.setenv("CANASTA_FORWARD_AGENT", "no")
+        assert "ForwardAgent=no" in _helpers._ssh_args()
+        assert "ForwardAgent=yes" not in _helpers._ssh_args()
+
+    @pytest.mark.parametrize("value", ["", "yes", "1", "true", "anything"])
+    def test_forward_agent_stays_on_otherwise(self, monkeypatch, value):
+        from direct_commands import _helpers
+        monkeypatch.setenv("CANASTA_FORWARD_AGENT", value)
+        assert _helpers.forward_agent_option() == "ForwardAgent=yes"
+
+    def test_canasta_docker_passes_the_setting_into_the_container(self):
+        with open(os.path.join(os.path.dirname(canasta_cli.__file__),
+                               "canasta-docker")) as f:
+            wrapper = f.read()
+        assert '-e "CANASTA_FORWARD_AGENT=$CANASTA_FORWARD_AGENT"' in wrapper
 
     def test_default_ansible_ssh_args_share_one_connection(
         self, data, monkeypatch, tmp_path,
