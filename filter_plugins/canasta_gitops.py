@@ -3,7 +3,13 @@
 # Loaded via the `filter_plugins` path in ansible.cfg (role-local plugin
 # auto-discovery does not fire under include_role / include_tasks).
 
+import re
+
 ENCRYPTION_FILTER = "git-crypt"
+
+# wikis.yaml.template is not parseable YAML (its urls are {{wiki_url_<id>}}
+# placeholders), but its writer emits each wiki as a column-0 "- id:" line.
+_TEMPLATE_WIKI_ID = re.compile(r"""^- id:\s*["']?([^"'\s]+)""", re.MULTILINE)
 
 
 def _rules(content):
@@ -52,9 +58,15 @@ def canasta_gitattributes_missing_rules(content, required_content):
     return missing
 
 
+def canasta_wikis_template_ids(content):
+    """Return the wiki IDs declared in a wikis.yaml.template, in order."""
+    return _TEMPLATE_WIKI_ID.findall(str(content or ""))
+
+
 class FilterModule(object):
     def filters(self):
         return {
             "canasta_gitattributes_missing_rules":
                 canasta_gitattributes_missing_rules,
+            "canasta_wikis_template_ids": canasta_wikis_template_ids,
         }
