@@ -206,6 +206,47 @@
     | selectattr('name', 'equalto', host_name)
     | list | length > 0
 
+# Each wiki's url on this host comes from this instance's wikis.yaml, so
+# every wiki in the repo's farm must already exist here. Check before the
+# instance is changed.
+- name: Check for the repo's wikis template
+  ansible.builtin.stat:
+    path: "{{ _join_tmpdir.path }}/wikis.yaml.template"
+  register: _join_template_stat
+
+- name: Read the repo's wikis template
+  ansible.builtin.slurp:
+    src: "{{ _join_tmpdir.path }}/wikis.yaml.template"
+  register: _join_template_raw
+  when: _join_template_stat.stat.exists
+
+- name: Read this instance's wikis
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _join_local_wikis
+
+- name: Find the repo's wikis this instance lacks
+  ansible.builtin.set_fact:
+    _join_missing_wikis: >-
+      {{ ((_join_template_raw.content | default('') | b64decode)
+          | canasta_wikis_template_ids)
+         | difference(_join_local_wikis.wiki_ids | default([])) }}
+    _join_example_host: >-
+      {{ ((_join_local_wikis.wikis | default([]) | first | default({})).url
+          | default('<domain>')).split('/') | first }}
+
+- name: Fail if this instance lacks some of the repo's wikis
+  ansible.builtin.fail:
+    msg: |
+      This gitops repository's wiki farm has wiki(s) that instance '{{ instance_id }}' does not: {{ _join_missing_wikis | join(', ') }}.
+      Each wiki's URL on this host is taken from the instance, so add them before joining, for example:
+      {% for w in _join_missing_wikis %}
+        canasta add -i {{ instance_id }} -w {{ w }} -u {{ _join_example_host }}/{{ w }}
+      {% endfor %}
+      Then run 'canasta gitops join' again. Nothing was changed.
+  when: _join_missing_wikis | length > 0
+
 # --- Step 5: Move .git into instance directory ---
 - name: Remove legacy .gitignore files
   ansible.builtin.file:

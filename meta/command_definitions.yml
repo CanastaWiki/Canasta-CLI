@@ -2875,6 +2875,12 @@ commands:
       file. Use `canasta gitops init` to bootstrap a new gitops
       repository instead.
 
+      On Compose, each wiki's URL on this host is taken from the
+      instance, so when the repository holds a wiki farm, the instance
+      must already have every wiki in it. Add any it lacks with
+      `canasta add -w <id> -u <url>` before joining; otherwise join
+      stops before changing anything and names them.
+
       Account-wide credentials (the AWS keys, SMTP) are shared across
       every host in the repo. Backup credentials are not: a password
       that unlocks one specific repository belongs with the per-host
