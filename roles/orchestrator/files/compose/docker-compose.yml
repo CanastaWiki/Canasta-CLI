@@ -291,6 +291,31 @@ services:
     profiles:
       - crowdsec
     restart: unless-stopped
+    # Runs the image's own entrypoint, but holds a failed start for 10
+    # minutes before exiting. The engine exits at startup when the Central
+    # API refuses it, and each attempt makes about three logins; restarting
+    # every minute keeps a free-tier IP over the login limit, so its ban is
+    # renewed before it can expire. Signals reach the engine directly, so
+    # stopping it is unaffected.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        stopping=0
+        trap 'stopping=1; kill -TERM "$$pid" 2>/dev/null' TERM INT
+        started=$$(date +%s)
+        /bin/bash /docker_start.sh &
+        pid=$$!
+        wait "$$pid"
+        rc=$$?
+        while kill -0 "$$pid" 2>/dev/null; do wait "$$pid"; rc=$$?; done
+        if [ "$$stopping" = 0 ] && [ "$$rc" -ne 0 ] &&
+           [ $$(( $$(date +%s) - started )) -lt 300 ]; then
+          echo "crowdsec exited with status $$rc within 5 minutes of starting; waiting 10 minutes before exiting so restarts stay under the Central API login limit" >&2
+          sleep 600 &
+          wait $$!
+        fi
+        exit "$$rc"
     <<: *default-network
     logging: *default-logging
     environment:
