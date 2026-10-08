@@ -25,6 +25,7 @@ from direct_commands import _helpers  # noqa: E402
 UPGRADE = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks")
 MIGRATE = os.path.join(UPGRADE, "migrate_wiki_db_account.yml")
 DEFAULTS = os.path.join(REPO_ROOT, "roles", "config", "defaults", "main.yml")
+CONFIG_SET = os.path.join(REPO_ROOT, "roles", "config", "tasks", "set.yml")
 
 
 def _load(path):
@@ -116,6 +117,25 @@ class TestSwitchAndRollback:
         assert roll["vars"]["config_settings_override"] == "WIKI_DB_USER=root"
         assert names.index("Roll back to the root account") < \
             names.index("Restart on the root account")
+
+    def test_config_set_does_not_advise_reconcile_before_its_own_restart(self):
+        switch = self._switch()
+        for tasks, name in ((switch["block"], "Record the account in .env"),
+                            (switch["rescue"], "Roll back to the root account")):
+            assert _named(tasks, name)["vars"]["config_restart_by_caller"] is True
+
+    @pytest.mark.parametrize("no_restart, by_caller, advised", [
+        (True, False, True),
+        (True, True, False),
+        (False, False, False),
+    ])
+    def test_reconcile_advice(self, no_restart, by_caller, advised):
+        report = _named(_load(CONFIG_SET), "Report settings applied")
+        variables = {"no_restart": no_restart}
+        if by_caller:
+            variables["config_restart_by_caller"] = True
+        msg = _render(report["ansible.builtin.debug"]["msg"], **variables)
+        assert ("canasta reconcile" in msg) is advised
 
     def test_runs_after_upgrades_restart(self):
         names = [t.get("name") for t in _load(os.path.join(UPGRADE, "main.yml"))]
