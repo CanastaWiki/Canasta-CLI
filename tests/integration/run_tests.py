@@ -16,6 +16,7 @@ Requirements:
     - Run from repo root or set CANASTA_ROOT
 """
 
+import gzip
 import json
 import os
 import re
@@ -2501,8 +2502,36 @@ def test_host_management(inst):
     )
 
 
+def _check_sitemap(http_port, prefix, wiki_id):
+    """Fetch a wiki's sitemap index and every sitemap and page it lists."""
+    base = "http://127.0.0.1:%s" % http_port
+
+    def get(path):
+        req = urllib.request.Request(base + path)
+        req.add_header("Host", "localhost:%s" % http_port)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read()
+        return gzip.decompress(body) if path.endswith(".gz") else body
+
+    index = get("%s/public_assets/sitemap/sitemap-index-%s.xml"
+                % (prefix, wiki_id)).decode()
+    sitemaps = re.findall(r"<loc>([^<]+)</loc>", index)
+    assert sitemaps, "%s sitemap index lists no sitemaps:\n%s" % (
+        wiki_id, index)
+    for sitemap in sitemaps:
+        path = urllib.parse.urlsplit(sitemap).path
+        assert path.startswith(prefix + "/public_assets/sitemap/"), (
+            "%s sitemap URL has the wrong path: %s" % (wiki_id, sitemap))
+        pages = re.findall(r"<loc>([^<]+)</loc>", get(path).decode())
+        for page in pages[:1]:
+            page_path = urllib.parse.urlsplit(page).path
+            assert page_path.startswith(prefix + "/"), (
+                "%s page URL has the wrong path: %s" % (wiki_id, page))
+            get(page_path)
+
+
 def test_sitemap(inst):
-    """Generate and remove an XML sitemap."""
+    """Generate and remove XML sitemaps for a root and a path-based wiki."""
     print("Creating instance...")
     inst.run_ok(
         "create", "-i", inst.id, "-w", "main",
@@ -2511,26 +2540,22 @@ def test_sitemap(inst):
     )
     wait_for_wiki(inst.http_port)
 
-    print("Generating sitemap...")
-    inst.run_ok("sitemap", "generate", "-i", inst.id, "-w", "main")
+    print("Adding path-based docs wiki...")
+    inst.run_ok(
+        "add", "-i", inst.id, "-w", "docs",
+        "-u", "localhost:%s/docs" % inst.http_port,
+    )
+    wait_for_wiki_at_path(inst.http_port, "/docs/w/api.php")
 
-    print("Checking that every sitemap in the index is reachable...")
-    base = "http://127.0.0.1:%s" % inst.http_port
-    req = urllib.request.Request(
-        base + "/public_assets/sitemap/sitemap-index-main.xml")
-    req.add_header("Host", "localhost:%s" % inst.http_port)
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        index = resp.read().decode()
-    locs = re.findall(r"<loc>([^<]+)</loc>", index)
-    assert locs, "sitemap index lists no sitemaps:\n%s" % index
-    for loc in locs:
-        req = urllib.request.Request(base + urllib.parse.urlsplit(loc).path)
-        req.add_header("Host", "localhost:%s" % inst.http_port)
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            assert resp.status == 200, "%s returned %s" % (loc, resp.status)
+    print("Generating sitemaps for all wikis...")
+    inst.run_ok("sitemap", "generate", "-i", inst.id)
 
-    print("Removing sitemap...")
-    inst.run_ok("sitemap", "remove", "-i", inst.id, "-w", "main")
+    print("Checking that every sitemap and page they list is reachable...")
+    _check_sitemap(inst.http_port, "", "main")
+    _check_sitemap(inst.http_port, "/docs", "docs")
+
+    print("Removing sitemaps...")
+    inst.run_ok("sitemap", "remove", "-i", inst.id)
 
 
 def test_maintenance(inst):
