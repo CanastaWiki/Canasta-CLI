@@ -2093,6 +2093,13 @@ commands:
     long_description: |
       Show the bouncers registered with the CrowdSec engine and the IP
       decisions (bans, captchas) currently in effect. Read-only.
+
+      Also shows whether the engine is registered with the Central API and
+      when the community blocklist last updated. Updates normally arrive
+      every 2 hours; if none has arrived for 3 hours, the line is a warning
+      instead: the engine cannot reach the Central API, or it is being
+      refused. All of this is read from the engine's local state, so the
+      command never contacts the Central API.
     examples:
       - "canasta crowdsec status"
       - "canasta crowdsec status -i mysite"
