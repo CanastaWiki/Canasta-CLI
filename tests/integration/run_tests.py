@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 
 REPO_ROOT = os.environ.get(
@@ -2512,6 +2513,21 @@ def test_sitemap(inst):
 
     print("Generating sitemap...")
     inst.run_ok("sitemap", "generate", "-i", inst.id, "-w", "main")
+
+    print("Checking that every sitemap in the index is reachable...")
+    base = "http://127.0.0.1:%s" % inst.http_port
+    req = urllib.request.Request(
+        base + "/public_assets/sitemap/sitemap-index-main.xml")
+    req.add_header("Host", "localhost:%s" % inst.http_port)
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        index = resp.read().decode()
+    locs = re.findall(r"<loc>([^<]+)</loc>", index)
+    assert locs, "sitemap index lists no sitemaps:\n%s" % index
+    for loc in locs:
+        req = urllib.request.Request(base + urllib.parse.urlsplit(loc).path)
+        req.add_header("Host", "localhost:%s" % inst.http_port)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            assert resp.status == 200, "%s returned %s" % (loc, resp.status)
 
     print("Removing sitemap...")
     inst.run_ok("sitemap", "remove", "-i", inst.id, "-w", "main")

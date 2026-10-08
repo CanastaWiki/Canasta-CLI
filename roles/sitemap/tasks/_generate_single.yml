@@ -1,6 +1,17 @@
 ---
 # Generate sitemap for a single wiki.
-# Input: _sitemap_wiki (str), instance_path, _sitemap_server
+# Input: _sitemap_wiki (str), instance_path, _sitemap_server, _sitemap_wikis,
+#        _sitemap_scheme
+
+- name: "Determine server URL for {{ _sitemap_wiki }}"
+  ansible.builtin.set_fact:
+    _sitemap_wiki_url: >-
+      {{ (_sitemap_wikis.wikis | selectattr('id', 'equalto', _sitemap_wiki)
+          | map(attribute='url', default='') | first) | default('', true) }}
+
+- name: "Set server URL for {{ _sitemap_wiki }}"
+  ansible.builtin.set_fact:
+    _sitemap_wiki_server: "{{ (_sitemap_scheme ~ _sitemap_wiki_url) if _sitemap_wiki_url else _sitemap_server.value }}"
 
 - name: "Create sitemap directory for {{ _sitemap_wiki }}"
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
@@ -16,8 +27,8 @@
       php maintenance/generateSitemap.php
       --wiki={{ _sitemap_wiki | quote }}
       --fspath=/mediawiki/public_assets/{{ _sitemap_wiki | quote }}/sitemap
-      --urlpath=/sitemap/{{ _sitemap_wiki | quote }}
-      --server={{ _sitemap_server.value | quote }}
+      --urlpath=/public_assets/sitemap
+      --server={{ _sitemap_wiki_server | quote }}
       --skip-redirects
 
 - name: "Set ownership for {{ _sitemap_wiki }} sitemap"
