@@ -110,10 +110,76 @@ def canasta_crowdsec_blocklist_breakdown(raw):
             + "\n".join(lines) + note)
 
 
+def canasta_crowdsec_capi_line(last_pull_json, registered, ip_count,
+                               now=None, stale_after_hours=3):
+    """The ``Central API (community blocklist):`` line for ``crowdsec status``.
+
+    ``last_pull_json`` is ``cscli alerts list --origin CAPI -l 1 -o json``:
+    each community-blocklist pull that brings decisions records an
+    ``update : +N/-M IPs`` alert, and the engine itself treats the newest one
+    as its last pull when deciding whether to pull again. Pulls run every
+    2 hours, so a newest alert older than ``stale_after_hours`` means pulls
+    are failing even though the engine is registered and still holds
+    ``ip_count`` decisions from earlier pulls.
+
+    ``registered`` is whether the engine has Central API credentials;
+    ``now`` is an aware datetime, defaulting to the current UTC time.
+    """
+    import datetime
+    import json
+
+    if not registered:
+        return ("not registered (no community blocklist; auto-registers on "
+                "the next start)")
+
+    try:
+        count = int(str(ip_count).strip() or 0)
+    except ValueError:
+        count = 0
+
+    try:
+        alerts = json.loads(last_pull_json or "null") or []
+    except ValueError:
+        alerts = []
+    created = alerts[0].get("created_at") if alerts and isinstance(
+        alerts[0], dict) else None
+    last = None
+    if created:
+        try:
+            last = datetime.datetime.strptime(
+                created, "%Y-%m-%dT%H:%M:%SZ"
+            ).replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            last = None
+
+    if now is None:
+        now = datetime.datetime.now(datetime.timezone.utc)
+    loaded = "%d IPs still loaded from earlier pulls" % count
+
+    if last is None:
+        return ("registered — WARNING: no community-blocklist update yet"
+                + ("; %s" % loaded if count else "")
+                + ". Check the crowdsec container logs for Central API "
+                "errors.")
+
+    when = last.strftime("%Y-%m-%d %H:%M UTC")
+    if now - last > datetime.timedelta(hours=stale_after_hours):
+        return ("registered — WARNING: no community-blocklist update since "
+                "%s (expected every 2 hours)" % when
+                + ("; %s" % loaded if count else "")
+                + ". Check the crowdsec container logs for Central API "
+                "errors.")
+
+    detail = ("%d IPs loaded, last update %s" % (count, when)) if count \
+        else "last update %s" % when
+    return "registered — community blocklist active (%s)" % detail
+
+
 class FilterModule(object):
     def filters(self):
         return {
             "canasta_crowdsec_status_bouncers": canasta_crowdsec_status_bouncers,
             "canasta_crowdsec_blocklist_breakdown":
                 canasta_crowdsec_blocklist_breakdown,
+            "canasta_crowdsec_capi_line": canasta_crowdsec_capi_line,
         }
