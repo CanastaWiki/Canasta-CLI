@@ -86,20 +86,43 @@ class TestRenderedReportText:
                 {"stdout": "Deleted: sha256:beef"},
                 {"stdout": "nothing happened"},
             ]},
+            _reclaim_built_removed={"results": [
+                {"stdout": "Untagged: site-web:custom"},
+            ]},
+            _reclaim_built_skipped=False,
             _reclaim_dangling={"stdout_lines": [
                 "Total reclaimed space: 1.5GB"]},
         )
         assert out == (
-            "Docker: removed 2 Canasta tag(s); Total reclaimed space: 1.5GB")
+            "Docker: removed 2 Canasta tag(s) and 1 unused built image(s); "
+            "Total reclaimed space: 1.5GB")
 
     def test_docker_report_without_dangling_output(self):
         msg = _debug_messages()["Report Docker reclaim"]
         out = _render(
             msg,
             _reclaim_removed={"results": []},
+            _reclaim_built_removed={"results": []},
+            _reclaim_built_skipped=False,
             _reclaim_dangling={"stdout_lines": []},
         )
-        assert out == "Docker: removed 0 Canasta tag(s); no dangling layers"
+        assert out == (
+            "Docker: removed 0 Canasta tag(s) and 0 unused built image(s); "
+            "no dangling layers")
+
+    def test_docker_report_says_when_built_images_were_kept(self):
+        msg = _debug_messages()["Report Docker reclaim"]
+        out = _render(
+            msg,
+            _reclaim_removed={"results": []},
+            _reclaim_built_removed={"results": []},
+            _reclaim_built_skipped=True,
+            _reclaim_dangling={"stdout_lines": []},
+        )
+        assert out == (
+            "Docker: removed 0 Canasta tag(s) and 0 unused built image(s) "
+            "(kept built images: an instance compose project could not be "
+            "read); no dangling layers")
 
     def test_containerd_report_reads_as_one_sentence(self):
         msg = _debug_messages()["Report containerd reclaim"]
