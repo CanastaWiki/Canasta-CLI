@@ -18,7 +18,10 @@ something structural string-greps wouldn't detect.
 
 import os
 import re
+import signal
+import subprocess
 import sys
+import time
 
 import jinja2
 import pytest
@@ -138,6 +141,69 @@ class TestCrowdsecComposeService:
         assert "profiles" in svc and svc["profiles"], (
             "crowdsec must always be profile-gated"
         )
+
+
+class TestCrowdsecStartupBackoff:
+    """A failed engine start is held before the container exits, so Docker's
+    restart loop cannot keep a free-tier IP over the Central API login limit.
+    The script is taken from the compose file and run under /bin/sh, with the
+    image's entrypoint replaced by stubs and the hold shortened."""
+
+    START = "/bin/bash /docker_start.sh"
+
+    def _script(self, start, hold="1", started=None):
+        svc = _load_compose()["services"]["crowdsec"]
+        script = svc["entrypoint"][2].replace("$$", "$")
+        assert self.START in script and "sleep 600" in script
+        script = script.replace(self.START, start)
+        script = script.replace("sleep 600", "sleep %s" % hold)
+        if started is not None:
+            script = script.replace("started=$(date +%s)",
+                                    "started=%s" % started)
+        return script
+
+    def _run(self, script, timeout=20):
+        return subprocess.run(["/bin/sh", "-c", script], capture_output=True,
+                              text=True, timeout=timeout)
+
+    def test_entrypoint_wraps_the_image_entrypoint(self):
+        svc = _load_compose()["services"]["crowdsec"]
+        assert svc["entrypoint"][:2] == ["/bin/sh", "-c"]
+        assert self.START in svc["entrypoint"][2]
+        assert svc.get("restart") == "unless-stopped"
+
+    def test_fast_failure_is_held_then_keeps_its_status(self):
+        start = time.monotonic()
+        result = self._run(self._script("sh -c 'exit 3'"))
+        assert result.returncode == 3
+        assert "waiting 10 minutes" in result.stderr
+        assert time.monotonic() - start >= 1
+
+    def test_clean_exit_is_not_held(self):
+        result = self._run(self._script("sh -c 'exit 0'", hold="30"),
+                           timeout=10)
+        assert result.returncode == 0
+        assert "waiting" not in result.stderr
+
+    def test_failure_after_a_long_run_is_not_held(self):
+        result = self._run(self._script("sh -c 'exit 4'", hold="30",
+                                        started="0"), timeout=10)
+        assert result.returncode == 4
+        assert "waiting" not in result.stderr
+
+    def test_stop_signal_reaches_the_engine_without_a_hold(self):
+        script = self._script(
+            "sh -c 'sleep 30 & s=$!; trap \"kill $s; exit 143\" TERM; "
+            "wait'", hold="30")
+        proc = subprocess.Popen(["/bin/sh", "-c", script],
+                                stderr=subprocess.PIPE, text=True)
+        time.sleep(1)
+        start = time.monotonic()
+        proc.send_signal(signal.SIGTERM)
+        _, err = proc.communicate(timeout=10)
+        assert time.monotonic() - start < 5
+        assert proc.returncode == 143
+        assert "waiting" not in err
 
 
 class TestCaddyImageOverride:
