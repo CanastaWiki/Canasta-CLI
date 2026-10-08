@@ -30,13 +30,27 @@
   register: _crowdsec_decisions
   changed_when: false
 
-# Read-only probes: CAPI registration gates the community blocklist;
-# console status reflects whether the engine is wired to the Console.
-- name: Get Central API (community blocklist) status
+# Central API state is read from the engine's local files and database, never
+# by contacting the Central API: `cscli capi status` only exercises login, so
+# it passes while every pull is refused, and each call counts toward the
+# free-tier login limit whose overrun bans the host's IP.
+- name: Check for Central API (community blocklist) credentials
   ansible.builtin.command:
-    cmd: "{{ _cscli_prefix }} cscli capi status"
+    cmd: >-
+      {{ _cscli_prefix }} sh -c
+      'grep -qs "^login:" /etc/crowdsec/online_api_credentials.yaml'
     chdir: "{{ _cscli_chdir | default(omit) }}"
-  register: _crowdsec_capi
+  register: _crowdsec_capi_creds
+  changed_when: false
+  failed_when: false
+
+# Each pull that brings decisions records an alert; the engine itself uses
+# the newest one as its last pull time.
+- name: Find the last community-blocklist pull
+  ansible.builtin.command:
+    cmd: "{{ _cscli_prefix }} cscli alerts list --origin CAPI -l 1 -o json"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
+  register: _crowdsec_capi_last
   changed_when: false
   failed_when: false
 
@@ -71,13 +85,10 @@
 
 - name: Summarize Central API and console state
   ansible.builtin.set_fact:
-    # Show the loaded-IP count when registered.
     _crowdsec_capi_line: >-
-      {{ ('registered — community blocklist active'
-          ~ ((' (' ~ (_crowdsec_capi_count.stdout | trim) ~ ' IPs loaded)')
-             if (_crowdsec_capi_count.stdout | trim | int) > 0 else ''))
-         if _crowdsec_capi.rc == 0
-         else 'not registered (no community blocklist; auto-registers on the next start)' }}
+      {{ (_crowdsec_capi_last.stdout | default(''))
+         | canasta_crowdsec_capi_line(_crowdsec_capi_creds.rc == 0,
+                                      _crowdsec_capi_count.stdout | default('0')) }}
     # Console blocklists (origin 'lists') are observable; enrollment is not —
     # confirming it needs PAPI. They are additional to the CAPI community
     # blocklist above, so say that is unaffected or "none" reads as unprotected.

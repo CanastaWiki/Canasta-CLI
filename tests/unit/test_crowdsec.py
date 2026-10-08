@@ -16,6 +16,8 @@ inputs so a flipped condition or wrong directive name is caught —
 something structural string-greps wouldn't detect.
 """
 
+import datetime
+import json
 import os
 import re
 import sys
@@ -33,6 +35,7 @@ sys.path.insert(
 from canasta_crowdsec import (  # noqa: E402
     canasta_crowdsec_status_bouncers,
     canasta_crowdsec_blocklist_breakdown,
+    canasta_crowdsec_capi_line,
 )
 from canasta_caddy import meld_caddy_global_blocks  # noqa: E402
 
@@ -804,6 +807,56 @@ class TestCrowdsecStatusBouncersDisplay:
         assert "stale" not in out2
 
 
+class TestCrowdsecCapiLine:
+    """The Central API status line is built from local state only: whether
+    credentials exist, and the newest community-blocklist pull alert. Pulls
+    run every 2 hours; a newest pull older than 3 hours must read as a
+    warning even while decisions from earlier pulls are still loaded."""
+
+    NOW = datetime.datetime(2026, 10, 8, 4, 0, tzinfo=datetime.timezone.utc)
+
+    @staticmethod
+    def _pull(created_at):
+        return json.dumps([{
+            "created_at": created_at,
+            "scenario": "update : +15000/-0 IPs",
+        }])
+
+    def test_not_registered(self):
+        line = canasta_crowdsec_capi_line("null", False, "0", now=self.NOW)
+        assert line.startswith("not registered")
+
+    def test_recent_pull_is_active_with_time_and_count(self):
+        line = canasta_crowdsec_capi_line(
+            self._pull("2026-10-08T03:21:03Z"), True, "23923\n", now=self.NOW)
+        assert line == ("registered — community blocklist active "
+                        "(23923 IPs loaded, last update 2026-10-08 03:21 UTC)")
+
+    def test_stale_pull_warns_even_with_ips_loaded(self):
+        line = canasta_crowdsec_capi_line(
+            self._pull("2026-10-07T15:46:25Z"), True, "21402", now=self.NOW)
+        assert "WARNING" in line
+        assert "since 2026-10-07 15:46 UTC" in line
+        assert "21402 IPs still loaded from earlier pulls" in line
+        assert "active" not in line
+
+    def test_pull_just_inside_threshold_is_active(self):
+        line = canasta_crowdsec_capi_line(
+            self._pull("2026-10-08T01:00:01Z"), True, "100", now=self.NOW)
+        assert "WARNING" not in line
+
+    def test_no_pull_yet_warns(self):
+        for raw in ("null", "", "[]", None):
+            line = canasta_crowdsec_capi_line(raw, True, "0", now=self.NOW)
+            assert "WARNING: no community-blocklist update yet" in line
+            assert "IPs still loaded" not in line
+
+    def test_unparseable_output_is_treated_as_no_pull(self):
+        line = canasta_crowdsec_capi_line(
+            "Error: cannot connect to LAPI", True, "", now=self.NOW)
+        assert "WARNING: no community-blocklist update yet" in line
+
+
 class TestCrowdsecBlocklistBreakdown:
     HEADER = ("id,source,ip,reason,action,country,as,events_count,"
               "expiration,simulated,alert_id")
@@ -884,15 +937,25 @@ class TestCrowdsecStatusWiring:
         )
 
     def test_status_reports_capi_and_console(self):
-        """status must surface Central API registration (the community
-        blocklist) so an un-registered engine is no longer a silent failure,
-        and must report the console blocklists actually pulled. Console
-        enrollment itself cannot be confirmed locally, so it is not claimed."""
+        """status must surface Central API registration and the last
+        community-blocklist pull, and must report the console blocklists
+        actually pulled. Console enrollment itself cannot be confirmed
+        locally, so it is not claimed."""
         content = _read(os.path.join(
             REPO_ROOT, "roles", "crowdsec", "tasks", "status.yml",
         ))
-        assert "cscli capi status" in content, (
-            "status must probe Central API registration (community blocklist)"
+        assert "online_api_credentials.yaml" in content, (
+            "status must check for Central API credentials locally"
+        )
+        assert "cscli alerts list --origin CAPI" in content, (
+            "status must read the last community-blocklist pull"
+        )
+        assert "canasta_crowdsec_capi_line" in content
+        assert not re.search(r"_cscli_prefix \}\}\s+cscli capi status",
+                             content), (
+            "status must not log in to the Central API: capi status passes "
+            "while pulls are refused, and each login counts toward the "
+            "free-tier limit"
         )
         assert "--origin lists" in content, (
             "status must report the console blocklists actually pulled, "
