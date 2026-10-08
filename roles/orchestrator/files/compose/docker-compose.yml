@@ -291,12 +291,10 @@ services:
     profiles:
       - crowdsec
     restart: unless-stopped
-    # Runs the image's own entrypoint, but holds a failed start for 10
-    # minutes before exiting. The engine exits at startup when the Central
-    # API refuses it, and each attempt makes about three logins; restarting
-    # every minute keeps a free-tier IP over the login limit, so its ban is
-    # renewed before it can expire. Signals reach the engine directly, so
-    # stopping it is unaffected.
+    # Runs the image's own entrypoint. A start that fails within 5 minutes is
+    # held for 10 minutes before the container exits, keeping restarts under
+    # the Central API's free-tier login limit. Signals are forwarded to the
+    # engine.
     entrypoint:
       - /bin/sh
       - -c
