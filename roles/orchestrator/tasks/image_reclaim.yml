@@ -125,11 +125,8 @@
       failed_when: false
       when: not (reclaim_dry_run | default(false) | bool)
 
-    # A `build:` service with a named image leaves that image behind once the
-    # instance stops building it. Compose labels what it builds with the
-    # project, so only images built for an instance on this host are
-    # candidates; registry digests can't tell a local build apart, because the
-    # containerd image store gives every image one.
+    # Images Compose built carry their project's label. Those built for an
+    # instance on this host that no instance references or pins are removed.
     - name: Find the instance directories on this host
       ansible.builtin.stat:
         path: "{{ _reclaim_dir.value.path }}"

@@ -1,11 +1,9 @@
-"""The image reclaim removes images Compose built that no instance uses.
+"""The Docker image reclaim removes images Compose built that no instance uses.
 
-An instance can build its own web image (`build:` plus a named `image:` in
-docker-compose.override.yml). Once the instance stops building it, the
-built tag stayed on the host forever: the reclaim only considered
-ghcr.io/canastawiki/canasta tags and dangling layers. Registry digests
-can't identify a local build — the containerd image store gives every
-image one — so candidates are found by the compose project label.
+Candidates are the images labeled with the compose project of an instance
+directory on the host. An image any instance's compose project references,
+or any instance pins, is kept, and nothing built is removed when an
+instance's references can't be read.
 """
 
 import os
