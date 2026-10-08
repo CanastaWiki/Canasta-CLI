@@ -127,6 +127,7 @@
               WIKI_DB_USER=mediawiki WIKI_DB_PASSWORD={{ _generated_password }}
             force: true
             no_restart: true
+            config_restart_by_caller: true
 
         - name: Restart onto the new account
           ansible.builtin.include_role:
@@ -177,6 +178,7 @@
             config_settings_override: "WIKI_DB_USER=root"
             force: true
             no_restart: true
+            config_restart_by_caller: true
 
         - name: Restart on the root account
           ansible.builtin.include_role:
