@@ -125,6 +125,103 @@
       failed_when: false
       when: not (reclaim_dry_run | default(false) | bool)
 
+    # A `build:` service with a named image leaves that image behind once the
+    # instance stops building it. Compose labels what it builds with the
+    # project, so only images built for an instance on this host are
+    # candidates; registry digests can't tell a local build apart, because the
+    # containerd image store gives every image one.
+    - name: Find the instance directories on this host
+      ansible.builtin.stat:
+        path: "{{ _reclaim_dir.value.path }}"
+      loop: "{{ _reclaim_instances.instances | default({}) | dict2items }}"
+      loop_control:
+        loop_var: _reclaim_dir
+        label: "{{ _reclaim_dir.key }}"
+      register: _reclaim_dirs
+
+    - name: Note the instance directories present here
+      ansible.builtin.set_fact:
+        _reclaim_local_paths: >-
+          {{ _reclaim_dirs.results | default([])
+             | selectattr('stat', 'defined')
+             | selectattr('stat.isdir', 'defined')
+             | selectattr('stat.isdir')
+             | map(attribute='_reclaim_dir.value.path')
+             | unique | list }}
+
+    # Every profile, so a built image for a disabled profile still counts as
+    # referenced.
+    - name: List the images each instance's compose project references
+      ansible.builtin.command:
+        cmd: "{{ compose_command | default('docker compose') }} --profile '*' config --images"
+        chdir: "{{ _reclaim_compose_path }}"
+      loop: "{{ _reclaim_local_paths }}"
+      loop_control:
+        loop_var: _reclaim_compose_path
+      register: _reclaim_compose_images
+      changed_when: false
+      failed_when: false
+
+    - name: List the images Compose built for those instances
+      ansible.builtin.command:
+        cmd: >-
+          docker images
+          --filter label=com.docker.compose.project={{ _reclaim_compose_path | basename | lower }}
+          --format {% raw %}'{{.Repository}}:{{.Tag}}'{% endraw %}
+      loop: "{{ _reclaim_local_paths }}"
+      loop_control:
+        loop_var: _reclaim_compose_path
+      register: _reclaim_built_images
+      changed_when: false
+      failed_when: false
+
+    # If any instance's references could not be read, nothing built is
+    # removed: an unreadable project could still need its image.
+    - name: Select the built images no instance references
+      ansible.builtin.set_fact:
+        _reclaim_built_removable: >-
+          {{ (_reclaim_built_images.results | default([])
+              | selectattr('stdout_lines', 'defined')
+              | map(attribute='stdout_lines') | flatten
+              | reject('search', ':<none>') | reject('equalto', '')
+              | unique | list
+              | difference(_reclaim_compose_images.results | default([])
+                           | selectattr('stdout_lines', 'defined')
+                           | map(attribute='stdout_lines') | flatten | list)
+              | difference(_reclaim_pinned))
+             if (_reclaim_compose_images.results | default([])
+                 | rejectattr('rc', 'equalto', 0) | list | length == 0)
+                and (_reclaim_built_images.results | default([])
+                     | rejectattr('rc', 'equalto', 0) | list | length == 0)
+             else [] }}
+        _reclaim_built_skipped: >-
+          {{ (_reclaim_compose_images.results | default([])
+              | rejectattr('rc', 'equalto', 0) | list | length > 0)
+             or (_reclaim_built_images.results | default([])
+                 | rejectattr('rc', 'equalto', 0) | list | length > 0) }}
+
+    - name: Report the built-image reclaim that would run
+      ansible.builtin.debug:
+        msg: >-
+          Dry run - would remove {{ _reclaim_built_removable | length }}
+          locally built image(s) no instance references
+          ({{ (_reclaim_built_removable | join(', ')) or 'none' }}).
+          {{ 'An instance compose project could not be read, so built
+          images are kept.' if _reclaim_built_skipped | bool else '' }}
+      when: reclaim_dry_run | default(false) | bool
+
+    # No --force, as above: an image a container still uses is refused.
+    - name: Remove built images no instance references
+      ansible.builtin.command:
+        cmd: "{{ inspect_command | default('docker') }} image rm {{ _reclaim_image_ref }}"
+      loop: "{{ _reclaim_built_removable }}"
+      loop_control:
+        loop_var: _reclaim_image_ref
+      register: _reclaim_built_removed
+      changed_when: false
+      failed_when: false
+      when: not (reclaim_dry_run | default(false) | bool)
+
     # Dangling (<none>) layers orphaned by rebuilding `build:` sidecars under
     # the same tag, plus intermediate build layers. Referenced by nothing, so
     # this cannot affect a stopped instance or any volume.
@@ -143,7 +240,13 @@
           | selectattr('stdout', 'defined')
           | selectattr('stdout', 'search', 'Untagged|Deleted')
           | list | length }}
-          Canasta tag(s);
+          Canasta tag(s) and
+          {{ _reclaim_built_removed.results | default([])
+          | selectattr('stdout', 'defined')
+          | selectattr('stdout', 'search', 'Untagged|Deleted')
+          | list | length }}
+          unused built image(s){{ ' (kept built images: an instance compose
+          project could not be read)' if _reclaim_built_skipped | bool else '' }};
           {{ ((_reclaim_dangling.stdout_lines | default([])
           | select('search', 'Total reclaimed space')
           | list) or ['no dangling layers']) | first }}
