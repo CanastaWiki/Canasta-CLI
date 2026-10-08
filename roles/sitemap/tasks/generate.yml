@@ -23,6 +23,10 @@
   ansible.builtin.set_fact:
     _sitemap_targets: "{{ [wiki] if (wiki | default('') != '') else _sitemap_wikis.wiki_ids }}"
 
+- name: Determine URL scheme for sitemap URLs
+  ansible.builtin.set_fact:
+    _sitemap_scheme: "{{ (_sitemap_server.value | default('', true) | regex_search('^https?://')) or 'https://' }}"
+
 - name: Create sitemap directories and generate for each wiki
   ansible.builtin.include_tasks: _generate_single.yml
   loop: "{{ _sitemap_targets }}"
