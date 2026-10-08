@@ -30,8 +30,10 @@
   register: _crowdsec_decisions
   changed_when: false
 
-# Central API state is read from the engine's local files and database;
-# nothing here contacts the Central API.
+# Central API state is read from the engine's local files and database, never
+# by contacting the Central API: `cscli capi status` only exercises login, so
+# it passes while every pull is refused, and each call counts toward the
+# free-tier login limit whose overrun bans the host's IP.
 - name: Check for Central API (community blocklist) credentials
   ansible.builtin.command:
     cmd: >-
