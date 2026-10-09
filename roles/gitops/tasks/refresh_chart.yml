@@ -36,10 +36,15 @@
   loop:
     - values.yaml
     - chart-defaults.yaml
+    - values-configdata.yaml
+    - values-sidecars.yaml
   register: _rc_reads
   failed_when: false
   when: _rc_applies | bool
 
+# 'gitops push' replaces the keys of values-configdata.yaml and
+# values-sidecars.yaml wholesale, so they are left for it to own.
+#
 # Repos written before chart-defaults.yaml existed don't record their
 # defaults. For them, a value counts as an untouched default only if it is a
 # default some earlier release shipped and moving off it is safe. The
@@ -56,7 +61,10 @@
            ({} if _rc_reads.results[1].content is defined else {
              'elasticsearch.image': ['elasticsearch:7.10.2'],
              'crowdsec.image': ['crowdsecurity/crowdsec:v1.6.11'],
-           })) }}
+           }),
+           _rc_reads.results[2:] | selectattr('content', 'defined')
+           | map(attribute='content') | map('b64decode') | map('from_yaml')
+           | map('default', {}, true) | map('list') | flatten) }}
   vars:
     _rc_current: "{{ _rc_reads.results[0].content | b64decode | from_yaml }}"
     _rc_shipped: >-

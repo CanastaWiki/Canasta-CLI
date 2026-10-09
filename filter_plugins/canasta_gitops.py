@@ -86,7 +86,8 @@ def _refresh_values(values, base, shipped, former, path):
     return out
 
 
-def canasta_chart_values_refresh(values, shipped, base=None, former=None):
+def canasta_chart_values_refresh(values, shipped, base=None, former=None,
+                                 keep=None):
     """Bring a gitops repo's values.yaml up to date with the shipped chart.
 
     The repo's values.yaml carries a full copy of the chart defaults, because
@@ -95,9 +96,16 @@ def canasta_chart_values_refresh(values, shipped, base=None, former=None):
     `former` (dotted path -> values), follows the shipped default, and is
     dropped when the chart no longer has it. Anything else is the operator's
     and is kept. Keys the chart added are filled in. Lists are compared whole.
+    Top-level keys in `keep` are left exactly as they are, or absent.
     """
-    return _refresh_values(values or {}, base or {}, shipped or {},
-                           former or {}, "")
+    values = values or {}
+    keep = set(keep or [])
+    out = _refresh_values(values, base or {}, shipped or {}, former or {}, "")
+    for key in keep:
+        out.pop(key, None)
+        if key in values:
+            out[key] = values[key]
+    return out
 
 
 class FilterModule(object):
