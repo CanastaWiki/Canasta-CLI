@@ -1059,12 +1059,19 @@ class TestK8sStartProgressMessages:
     def test_rollout_wait_has_progress_message(self):
         assert "Waiting for pods to become ready" in self._start()
 
-    def test_crowdsec_enroll_has_progress_message(self):
-        # The enroll tail (with its progress line) is shared by start + create
-        # via crowdsec_autoenroll.yml, included from the start path.
+    def test_crowdsec_enroll_reports_only_real_actions(self):
+        # The enroll tail is shared by start + create via
+        # crowdsec_autoenroll.yml. Its steps are no-ops once CrowdSec is
+        # registered, so progress is announced by the step that acts, not
+        # unconditionally before the checks.
         assert "crowdsec_autoenroll.yml" in self._start()
         with open(os.path.join(ORCHESTRATOR_TASKS, "crowdsec_autoenroll.yml")) as f:
-            assert "enrolling the Caddy bouncer" in f.read()
+            assert "ansible.builtin.debug" not in f.read()
+        crowdsec_tasks = os.path.join(REPO_ROOT, "roles", "crowdsec", "tasks")
+        with open(os.path.join(crowdsec_tasks, "ensure_capi.yml")) as f:
+            assert "Registering the CrowdSec engine" in f.read()
+        with open(os.path.join(crowdsec_tasks, "bouncer_enroll.yml")) as f:
+            assert "Registered bouncer 'canasta-caddy'" in f.read()
 
 
 class TestK8sDeleteWaitsForNamespace:
