@@ -584,26 +584,27 @@ commands:
         description: "Canasta instance ID"
 
   - name: reconcile
-    description: "Apply configuration changes to the running instance"
+    description: "Bring an instance's config files and running containers into agreement"
     long_description: |
-      Apply edits to an instance's configuration files (config/settings,
-      config/wikis.yaml, .env, Caddyfile.site) to the running instance
-      without a full restart. Run it after editing any of those files.
+      Make an instance consistent, without a full restart: its generated
+      config files match their sources, and its running containers match
+      its config files. Safe to run at any time, and the fix for drift
+      reported by 'canasta doctor'.
 
-      On Docker Compose it recreates only the containers whose
-      configuration changed and reloads Caddy; on Kubernetes it re-syncs
-      the ConfigMaps and runs 'helm upgrade', rolling only the pods whose
-      configuration changed. It also regenerates the Caddyfile and
-      re-derives COMPOSE_PROFILES from the feature flags.
+      The most common use is applying edits to config/settings,
+      config/wikis.yaml, .env, or Caddyfile.site. On Docker Compose it
+      recreates only the containers whose configuration changed and
+      reloads Caddy; on Kubernetes it re-syncs the ConfigMaps and runs
+      'helm upgrade', rolling only the pods whose configuration changed.
+      It also regenerates the Caddyfile, re-derives COMPOSE_PROFILES from
+      the feature flags, and starts any containers that should be running
+      but are not.
 
       On a gitops instance, config/wikis.yaml and wikis.yaml.template are
       brought into agreement first: edit either one, and the other is
       updated to match. If both were edited and disagree, reconcile stops
       without changing either. Run 'canasta gitops push' afterwards to
       share the change.
-
-      Safe to run at any time; it is also the fix for drift reported by
-      'canasta doctor'.
     examples:
       - "canasta reconcile"
       - "canasta reconcile --id mysite"
@@ -1321,9 +1322,8 @@ commands:
       config/wikis.yaml from wikis.yaml.template (keeping an edit made to
       either one, as reconcile does), and the admin password files.
 
-      Use it when generated files no longer match their sources: after
-      'canasta backup restore', which brings in the source host's copies,
-      or after adding hosts/_shared/vars.yaml.
+      Use it after editing env.template or a host's vars.yaml (including
+      hosts/_shared/vars.yaml) by hand, so .env picks up the change.
     examples:
       - "canasta config regenerate"
     playbook: config_regenerate.yml
