@@ -107,17 +107,6 @@ crowdsec:
       cpu: 250m
       memory: 256Mi
 
-# Job runner
-jobrunner:
-  enabled: true
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-
 # Ingress
 ingress:
   enabled: true
@@ -159,7 +148,7 @@ secrets:
   mwSecretName: ""      # set by Ansible: <instance_id>-mw-secrets
   appSecretName: ""     # set by Ansible: <instance_id>-app-secrets
 
-# App secret keys exposed to the web + jobrunner pods via secretKeyRef from
+# App secret keys exposed to the web pods via secretKeyRef from
 # the app Secret. Populated from config/secrets-web (keys set with
 # `config set --secret --web`) by k8s_sync_config.yml; empty by default so
 # existing instances render no extra env.
