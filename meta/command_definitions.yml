@@ -1147,6 +1147,10 @@ commands:
       `.sql`/`.sql.gz` extension. An extra database with no such dump is
       left as it is, and reported.
 
+      After the import, update.php runs for the wiki so an older dump's
+      schema matches the installed MediaWiki and extensions. Pass
+      --skip-update to leave the schema as the dump has it.
+
       To create a new wiki from a database dump, use the `--database`
       flag with `canasta create` or `canasta add` instead.
     examples:
@@ -1171,6 +1175,10 @@ commands:
         short: l
         type: path
         description: "Path on the controller (the machine running canasta) to a per-wiki Settings.php to replace the current one"
+      - name: skip_update
+        type: bool
+        default: false
+        description: "Skip running update.php after importing"
 
   - name: export
     description: "Export the database of a wiki in a Canasta instance"
