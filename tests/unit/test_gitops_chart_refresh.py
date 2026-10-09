@@ -213,3 +213,19 @@ class TestKubernetesIgnoreRules:
                      "Remove the chart copy from the index")
         assert task["ansible.builtin.command"]["cmd"] == (
             "git rm -r --cached -q -- _chart")
+
+
+class TestPushOwnedKeys:
+    def test_kept_keys_are_left_alone(self):
+        values = {"configData": {"web": {"x": "y"}}, "a": 1}
+        shipped = {"configData": {"web": {}, "db": {}}, "a": 2,
+                   "sidecars": []}
+        out = refresh(values, shipped, {"a": 1}, None,
+                      ["configData", "sidecars"])
+        assert out == {"configData": {"web": {"x": "y"}}, "a": 2}
+
+    def test_refresh_keeps_what_push_rebuilds(self):
+        task = _find(REFRESH_CHART,
+                     "Read the repo's values.yaml and recorded chart defaults")
+        assert task["loop"][2:] == ["values-configdata.yaml",
+                                    "values-sidecars.yaml"]
