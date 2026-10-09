@@ -18,6 +18,11 @@
 - name: Install and register the git-crypt merge driver
   ansible.builtin.include_tasks: "_ensure_merge_driver.yml"
 
+# An uncaptured config/wikis.yaml edit would be overwritten by the render
+# below; capture it first so the uncommitted-changes check stops the pull.
+- name: Sync wikis.yaml with its gitops template
+  ansible.builtin.include_tasks: "sync_wikis_yaml.yml"
+
 # --- Step 1: Check for uncommitted changes ---
 # Only tracked files are a hazard: a pull can overwrite a locally modified
 # tracked file. Untracked files cannot be clobbered unless an incoming commit
