@@ -1,5 +1,5 @@
 {{- /*
-Environment variable ConfigMap for the web and jobrunner pods.
+Environment variable ConfigMap for the web pods.
 
 Populated by k8s_sync_config.yml on the controller, which parses .env
 on the instance and extracts the subset of keys that should reach the
