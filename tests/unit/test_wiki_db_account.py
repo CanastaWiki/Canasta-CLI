@@ -112,12 +112,38 @@ class TestWiring:
         with open(os.path.join(TASKS, name)) as f:
             return yaml.safe_load(f)
 
-    def test_start_ensures_after_web_is_healthy(self):
+    def _compose_start(self):
         play = next(t for t in self._tasks("start.yml")
                     if "Docker Compose" in str(t.get("name", "")))
-        names = [t.get("name") for t in play["block"]]
+        return play["block"]
+
+    def test_start_ensures_before_web_starts(self):
+        # web runs update.php for every wiki as soon as it boots, so the
+        # account must exist before the full `up` starts it.
+        tasks = self._compose_start()
+        names = [t.get("name") for t in tasks]
+        db_first = names.index("Start the database before MediaWiki")
+        ensure = names.index(
+            "Ensure MediaWiki's database account before web starts")
+        up = names.index("Start containers")
+        assert db_first < ensure < up
+        assert tasks[db_first]["ansible.builtin.command"]["cmd"].endswith(
+            "up -d db")
+
+    def test_start_still_ensures_when_nothing_was_started(self):
+        tasks = self._compose_start()
+        names = [t.get("name") for t in tasks]
+        late = tasks[names.index("Ensure MediaWiki's database account")]
         assert (names.index("Wait for web container to report healthy")
                 < names.index("Ensure MediaWiki's database account"))
+        assert "_start_account_ensured" in str(late["when"])
+
+    def test_bundled_db_is_pinged_over_tcp(self):
+        ping = next(
+            t for t in self._tasks("ensure_wiki_db_account.yml")[-1]["block"]
+            if t.get("name") == "Wait for the database to accept root logins")
+        assert "--protocol=tcp -h 127.0.0.1" in (
+            ping["ansible.builtin.command"]["cmd"])
 
     def test_skipped_for_external_db_root_and_kubernetes(self):
         decide = next(t for t in self._tasks("ensure_wiki_db_account.yml")
