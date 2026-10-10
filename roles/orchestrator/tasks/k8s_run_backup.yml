@@ -488,3 +488,22 @@
     name: "{{ _backup_job_name }}"
     namespace: "{{ _k8s_namespace }}"
   ignore_errors: true  # OK if job already cleaned up by TTL
+
+# After the Job is deleted, so a failed run does not linger until its TTL.
+# The tail of the log is enough to show restic's error; a long backup's
+# log is mostly progress lines.
+- name: Fail when restic fails
+  ansible.builtin.fail:
+    msg: >-
+      restic {{ _restic_failed_command }} failed (Job
+      {{ _backup_job_name }} in namespace {{ _k8s_namespace }} did not
+      succeed).{{ _restic_failed_output }}
+  vars:
+    _restic_commands: [backup, restore, snapshots, init, forget, prune,
+                       check, diff, ls, unlock, dump, stats, tag, find]
+    _restic_failed_command: "{{ backup_args | select('in', _restic_commands) | first | default('') }}"
+    # Double-quoted so YAML, not Jinja, turns \n into a newline.
+    _restic_log_tail: "{{ (_restic_log.stdout | default('') | trim).splitlines()[-20:] | join('\n') }}"
+    _restic_failed_output: >-
+      {{ (' restic output: ' ~ _restic_log_tail) if _restic_log_tail else '' }}
+  when: _restic_result.rc | int != 0
