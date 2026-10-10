@@ -1328,8 +1328,9 @@ def handle_interactive_exec(args):
                 'if [ -z "$pod" ]; then '
                 "echo \"Error: no running pod found for service '%s'\" >&2; "
                 "exit 1; fi; "
-                'exec kubectl exec %s "$pod" -n %s -- %s'
+                'exec kubectl exec %s "$pod" -n %s -c %s -- %s'
                 % (lookup, service, tty_flags, shlex.quote(ns),
+                   shlex.quote(service),
                    " ".join(shlex.quote(a) for a in command))
             )
             try:
@@ -1367,7 +1368,8 @@ def handle_interactive_exec(args):
             )
             sys.exit(1)
         pod = result.stdout.strip()
-        exec_args = ["kubectl", "exec", tty_flags, pod, "-n", ns, "--"]
+        exec_args = ["kubectl", "exec", tty_flags, pod, "-n", ns,
+                     "-c", service, "--"]
         exec_args.extend(command)
         _redirect_stdin_from_file(stdin_file)
         try:

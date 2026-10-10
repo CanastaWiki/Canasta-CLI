@@ -219,7 +219,7 @@ def _read_instance_image(inst_id, inst):
             "-l app.kubernetes.io/component=web "
             "--field-selector=status.phase=Running "
             "-o jsonpath='{.items[0].metadata.name}' 2>/dev/null)\"; "
-            "[ -n \"$pod\" ] && kubectl exec \"$pod\" -n %s -- "
+            "[ -n \"$pod\" ] && kubectl exec \"$pod\" -n %s -c web -- "
             "sh -c 'sed -n 2p /tmp/canasta-version' 2>/dev/null"
             % (_helpers._shell_quote(ns), _helpers._shell_quote(ns))
         )

@@ -1020,9 +1020,9 @@ def _k8s_remote_exec_cmd(inst_id, service, command, forward_stdin=True):
         'if [ -z "$pod" ]; then '
         "echo \"Error: no running pod found for service '%s'\" >&2; "
         "exit 1; fi; "
-        'exec kubectl exec%s "$pod" -n %s -- /bin/bash -c %s'
+        'exec kubectl exec%s "$pod" -n %s -c %s -- /bin/bash -c %s'
         % (lookup, service, " -i" if forward_stdin else "",
-           ns, _shell_quote(command))
+           ns, service, _shell_quote(command))
     )
 
 
@@ -1042,7 +1042,7 @@ def _exec_in_container(inst_id, inst, command, service="web"):
             return 1, ""
         try:
             result = subprocess.run(
-                ["kubectl", "exec", pod, "-n", ns, "--",
+                ["kubectl", "exec", pod, "-n", ns, "-c", service, "--",
                  "/bin/bash", "-c", command],
                 capture_output=True, text=True, timeout=30,
             )
@@ -1127,7 +1127,7 @@ def _stream_in_container(inst_id, inst, command, service="web",
             # `canasta maintenance script eval < probe.php` work on K8s
             # too.
             argv = [
-                "kubectl", "exec", "-i", pod, "-n", ns, "--",
+                "kubectl", "exec", "-i", pod, "-n", ns, "-c", service, "--",
                 "/bin/bash", "-c", wrapped,
             ]
             cwd = None
