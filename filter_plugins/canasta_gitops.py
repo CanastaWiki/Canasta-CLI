@@ -5,11 +5,15 @@
 
 import re
 
+import yaml
+
 ENCRYPTION_FILTER = "git-crypt"
 
 # wikis.yaml.template is not parseable YAML (its urls are {{wiki_url_<id>}}
 # placeholders), but its writer emits each wiki as a column-0 "- id:" line.
 _TEMPLATE_WIKI_ID = re.compile(r"""^- id:\s*["']?([^"'\s]+)""", re.MULTILINE)
+_URL_LINE = re.compile(r"^[ \t]*url:.*$", re.MULTILINE)
+_URL_PLACEHOLDER = re.compile(r"\{\{\s*wiki_url_([^\s}]+)\s*\}\}")
 
 
 def _rules(content):
@@ -63,6 +67,74 @@ def canasta_wikis_template_ids(content):
     return _TEMPLATE_WIKI_ID.findall(str(content or ""))
 
 
+def _wikis_fields(content):
+    """Map each wiki id to its fields other than url; None if unparseable.
+
+    url is host-specific (a placeholder in the template), so it is left out
+    of every comparison between the template and the live file.
+    """
+    try:
+        doc = yaml.safe_load(_URL_LINE.sub("", str(content or ""))) or {}
+    except yaml.YAMLError:
+        return None
+    if not isinstance(doc, dict):
+        return None
+    out = {}
+    for w in doc.get("wikis") or []:
+        if isinstance(w, dict) and "id" in w:
+            out[str(w["id"])] = {k: v for k, v in w.items() if k != "url"}
+    return out
+
+
+def canasta_wikis_sync_action(live, template, base):
+    """Decide which way to sync config/wikis.yaml and wikis.yaml.template.
+
+    ``base`` is the template as last applied to this host; it is what both
+    files agreed on before either was edited. Returns "none", "render"
+    (template was edited), "capture" (live file was edited), or "conflict"
+    (both were edited and disagree). With no ``base`` the live file wins.
+    """
+    live_f = _wikis_fields(live)
+    tmpl_f = _wikis_fields(template)
+    if live_f is None or tmpl_f is None or live_f == tmpl_f:
+        return "none"
+    base_f = _wikis_fields(base) if str(base or "").strip() else None
+    if base_f is None:
+        return "capture"
+    if live_f == base_f:
+        return "render"
+    if tmpl_f == base_f:
+        return "capture"
+    return "conflict"
+
+
+def canasta_wikis_render_with_live_urls(template, live):
+    """Render a wikis.yaml.template using each wiki's url from the live file.
+
+    Raises when the template names a wiki the live file has no url for, so
+    a wiki is never written with a blank url.
+    """
+    try:
+        doc = yaml.safe_load(str(live or "")) or {}
+    except yaml.YAMLError:
+        doc = {}
+    wikis = (doc.get("wikis") if isinstance(doc, dict) else None) or []
+    urls = {
+        str(w["id"]): w["url"]
+        for w in wikis
+        if isinstance(w, dict) and w.get("id") is not None and w.get("url")
+    }
+    missing = [i for i in _URL_PLACEHOLDER.findall(str(template or ""))
+               if i not in urls]
+    if missing:
+        raise ValueError(
+            "wikis.yaml.template names wiki(s) %s that config/wikis.yaml has "
+            "no url for; add a wiki with 'canasta add' rather than by editing "
+            "the template" % ", ".join(missing))
+    return _URL_PLACEHOLDER.sub(lambda m: str(urls[m.group(1)]),
+                                str(template or ""))
+
+
 _ABSENT = object()
 
 
@@ -114,5 +186,8 @@ class FilterModule(object):
             "canasta_gitattributes_missing_rules":
                 canasta_gitattributes_missing_rules,
             "canasta_wikis_template_ids": canasta_wikis_template_ids,
+            "canasta_wikis_sync_action": canasta_wikis_sync_action,
+            "canasta_wikis_render_with_live_urls":
+                canasta_wikis_render_with_live_urls,
             "canasta_chart_values_refresh": canasta_chart_values_refresh,
         }

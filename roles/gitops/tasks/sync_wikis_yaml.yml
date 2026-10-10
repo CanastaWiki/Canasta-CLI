@@ -1,0 +1,86 @@
+---
+# Bring config/wikis.yaml and wikis.yaml.template into agreement, whichever
+# one was edited.
+#
+# Both are compared with the template as last applied to this host (the
+# .gitops-applied commit, else HEAD): an edited template is rendered into
+# config/wikis.yaml, keeping this host's urls; an edited config/wikis.yaml
+# is captured into the template; edits to both that disagree stop the run
+# rather than drop one. url is per-host and is not compared.
+#
+# A no-op unless both files exist, so it is safe on K8s gitops and
+# non-gitops instances.
+#
+# Input: instance_path.
+
+- name: Stat live wikis.yaml for sync
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/wikis.yaml"
+  register: _sync_wikis_live_stat
+
+- name: Stat wikis.yaml.template for sync
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/wikis.yaml.template"
+  register: _sync_wikis_tmpl_stat
+
+- name: Default to no sync
+  ansible.builtin.set_fact:
+    _sync_wikis_action: "none"
+
+- name: Read live wikis.yaml for sync
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/wikis.yaml"
+  register: _sync_wikis_live_raw
+  when: _sync_wikis_live_stat.stat.exists and _sync_wikis_tmpl_stat.stat.exists
+
+- name: Read wikis.yaml.template for sync
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/wikis.yaml.template"
+  register: _sync_wikis_tmpl_raw
+  when: _sync_wikis_live_stat.stat.exists and _sync_wikis_tmpl_stat.stat.exists
+
+- name: Read the template as last applied
+  ansible.builtin.shell:
+    cmd: >-
+      applied=$(cat .gitops-applied 2>/dev/null);
+      git show "${applied:-HEAD}:wikis.yaml.template" 2>/dev/null
+      || git show HEAD:wikis.yaml.template 2>/dev/null
+      || true
+    chdir: "{{ instance_path }}"
+  register: _sync_wikis_base
+  changed_when: false
+  when: _sync_wikis_live_stat.stat.exists and _sync_wikis_tmpl_stat.stat.exists
+
+- name: Decide which way to sync
+  ansible.builtin.set_fact:
+    _sync_wikis_live: "{{ _sync_wikis_live_raw.content | b64decode }}"
+    _sync_wikis_tmpl: "{{ _sync_wikis_tmpl_raw.content | b64decode }}"
+    _sync_wikis_action: >-
+      {{ (_sync_wikis_live_raw.content | b64decode)
+         | canasta_wikis_sync_action(
+             _sync_wikis_tmpl_raw.content | b64decode,
+             _sync_wikis_base.stdout) }}
+  when: _sync_wikis_live_stat.stat.exists and _sync_wikis_tmpl_stat.stat.exists
+
+- name: Fail when both files were edited and disagree
+  ansible.builtin.fail:
+    msg: >-
+      config/wikis.yaml and wikis.yaml.template were both edited and no
+      longer agree. Make the change in one of them, restore the other
+      (git checkout -- wikis.yaml.template restores the template), then
+      retry.
+  when: _sync_wikis_action == 'conflict'
+
+- name: Capture config/wikis.yaml edits into the template
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/_reconcile_wikis_template.yml
+  when: _sync_wikis_action == 'capture'
+
+- name: Render template edits into config/wikis.yaml
+  ansible.builtin.copy:
+    content: >-
+      {{ _sync_wikis_tmpl
+         | canasta_wikis_render_with_live_urls(_sync_wikis_live) }}
+    dest: "{{ instance_path }}/config/wikis.yaml"
+    mode: "0644"
+  when: _sync_wikis_action == 'render'
