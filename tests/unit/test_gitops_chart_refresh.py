@@ -111,6 +111,19 @@ class TestSyncChart:
         assert task["ansible.builtin.file"]["state"] == "absent"
         assert "_sync_chart_stale" in str(task["loop"])
 
+    def test_creates_the_destination_before_copying_files_into_it(self):
+        """A file copy does not create its parent, and a new instance has
+        no _chart directory yet."""
+        tasks = _load(SYNC_CHART)
+        mkdir = next(i for i, t in enumerate(tasks)
+                     if t.get("ansible.builtin.file", {}).get("state")
+                     == "directory")
+        first_copy = next(i for i, t in enumerate(tasks)
+                          if "ansible.builtin.copy" in t)
+        assert mkdir < first_copy
+        assert tasks[mkdir]["ansible.builtin.file"]["path"] == (
+            "{{ _sync_chart_dest }}")
+
     def test_copies_files_dir(self):
         task = _find(SYNC_CHART, "Copy the chart's templates and files")
         assert task["loop"] == ["templates", "files"]
