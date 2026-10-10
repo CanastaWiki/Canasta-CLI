@@ -141,6 +141,41 @@
         - _container_running | default(false) | bool
         - _missing_services | length > 0
 
+    - name: Decide whether containers need starting
+      ansible.builtin.set_fact:
+        _start_needed: >-
+          {{ not (_container_running | default(false) | bool)
+             or _missing_services | length > 0 }}
+        _start_account_ensured: false
+
+    # web runs update.php for every wiki as soon as it boots, so MediaWiki's
+    # database account and its grants must be in place before web starts.
+    # Start the bundled database on its own and ensure the account first.
+    # A failure here is left for the full `up` below to report.
+    - name: Start the database before MediaWiki
+      ansible.builtin.command:
+        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} up -d db"
+        chdir: "{{ instance_path }}"
+      register: _start_db_first
+      changed_when: true
+      failed_when: false
+      when:
+        - _start_needed | bool
+        - "'db' in (_expected_services.stdout | default('')).split()"
+
+    - name: Ensure MediaWiki's database account before web starts
+      ansible.builtin.include_tasks: ensure_wiki_db_account.yml
+      when:
+        - _start_db_first is not skipped
+        - _start_db_first.rc | default(1) == 0
+
+    - name: Record that the account was ensured before web started
+      ansible.builtin.set_fact:
+        _start_account_ensured: true
+      when:
+        - _start_db_first is not skipped
+        - _start_db_first.rc | default(1) == 0
+
     - name: Start containers
       ansible.builtin.command:
         cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} up -d"
@@ -432,9 +467,10 @@
 
     # The account lives in the database server, so a restored or rebuilt db
     # volume can lack it while .env still names it. Put it back on every
-    # start.
+    # start that did not already do so before web started.
     - name: Ensure MediaWiki's database account
       ansible.builtin.include_tasks: ensure_wiki_db_account.yml
+      when: not (_start_account_ensured | bool)
 
     # Rootless Podman: run-all.sh rsyncs with --chown=www-data at container
     # startup, which resets ownership of config/, extensions/, skins/ to the

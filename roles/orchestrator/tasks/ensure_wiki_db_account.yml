@@ -3,12 +3,12 @@
 #
 # Account state lives only in the database server: no backup captures it,
 # and a restore onto a fresh host, a gitops join or a rebuilt db volume
-# starts without it. So this runs after every `up`, and after anything that
-# changes the wiki database set, and puts the account back the way .env and
-# wikis.yaml say it should be. ensure_wiki_db_account.sh does the work
-# inside the db container, which reads WIKI_DB_USER and WIKI_DB_PASSWORD
-# from its own environment, so it must run after the `up` that gave the
-# container the current values.
+# starts without it. So this runs on every start, before web boots and
+# runs update.php, and after anything that changes the wiki database set,
+# and puts the account back the way .env and wikis.yaml say it should be.
+# ensure_wiki_db_account.sh does the work inside the db container, which
+# reads WIKI_DB_USER and WIKI_DB_PASSWORD from its own environment, so it
+# must run after the `up` that gave the db container the current values.
 #
 # Nothing to do for an external database (the operator owns its accounts)
 # or while MediaWiki still connects as root.
@@ -60,12 +60,16 @@
           brought up to date when it next starts.
       when: _ensure_running.rc != 0
 
+    # On a new volume the image's first-run setup serves the socket from a
+    # temporary server with networking off, then restarts. Ping the bundled
+    # database over TCP so only the real server answers.
     - name: Wait for the database to accept root logins
       when: _ensure_running.rc == 0
       ansible.builtin.command:
         cmd: >-
           {{ _db_admin_exec }} sh -c
-          '{{ _db_admin_pwd }} mariadb-admin ping {{ _db_admin_args }}'
+          '{{ _db_admin_pwd }} mariadb-admin ping {{ _db_admin_args }}
+          {{ "--protocol=tcp -h 127.0.0.1" if _db_admin_service == "db" else "" }}'
         chdir: "{{ instance_path }}"
       register: _ensure_ping
       changed_when: false
