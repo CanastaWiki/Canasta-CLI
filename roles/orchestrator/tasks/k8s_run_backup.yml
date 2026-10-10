@@ -450,20 +450,66 @@
   retries: 120
   delay: 5
 
-- name: Get restic Job pod name
-  ansible.builtin.command:
-    cmd: >-
-      kubectl get pods -n {{ _k8s_namespace }}
-      -l job-name={{ _backup_job_name }}
-      -o jsonpath='{.items[0].metadata.name}'
-  register: _backup_pod_name
-  changed_when: false
+# The Job is deleted however reading its output goes, so a failed run does
+# not linger until its TTL.
+- name: Read the restic Job's output and delete the Job
+  block:
+    - name: Get restic Job pod name
+      ansible.builtin.command:
+        cmd: >-
+          kubectl get pods -n {{ _k8s_namespace }}
+          -l job-name={{ _backup_job_name }}
+          -o jsonpath='{.items[0].metadata.name}'
+      register: _backup_pod_name
+      changed_when: false
 
-- name: Get restic output
-  ansible.builtin.command:
-    cmd: "kubectl logs -n {{ _k8s_namespace }} {{ _backup_pod_name.stdout | trim }}"
-  register: _restic_log
-  changed_when: false
+    # When an init container fails, restic never starts and has no logs;
+    # the failed init container's logs are read instead.
+    - name: Get restic output
+      ansible.builtin.command:
+        cmd: "kubectl logs -n {{ _k8s_namespace }} {{ _backup_pod_name.stdout | trim }}"
+      register: _restic_log
+      changed_when: false
+      failed_when:
+        - _restic_log.rc != 0
+        - _backup_job_status.resources[0].status.succeeded | default(0) > 0
+
+    - name: Get the init containers' exit codes
+      ansible.builtin.command:
+        cmd: >-
+          kubectl get pod -n {{ _k8s_namespace }}
+          {{ _backup_pod_name.stdout | trim }}
+          -o jsonpath='{range .status.initContainerStatuses[*]}{.name}={.state.terminated.exitCode}{" "}{end}'
+      register: _backup_init_status
+      changed_when: false
+      failed_when: false
+      when: _restic_log.rc != 0
+
+    - name: Find the init container that failed
+      ansible.builtin.set_fact:
+        _backup_failed_init: >-
+          {{ (_backup_init_status.stdout | default('')).split()
+             | select('match', '^[^=]+=[1-9][0-9]*$')
+             | map('split', '=') | map('first') | first | default('') }}
+
+    - name: Get the failed init container's output
+      ansible.builtin.command:
+        cmd: >-
+          kubectl logs -n {{ _k8s_namespace }}
+          {{ _backup_pod_name.stdout | trim }} -c {{ _backup_failed_init }}
+      register: _backup_init_log
+      changed_when: false
+      failed_when: false
+      when: _backup_failed_init != ''
+  always:
+    - name: Delete completed Job
+      kubernetes.core.k8s:
+        state: absent
+        api_version: batch/v1
+        kind: Job
+        name: "{{ _backup_job_name }}"
+        namespace: "{{ _k8s_namespace }}"
+      ignore_errors: true  # OK if job already cleaned up by TTL
 
 - name: Set restic result
   ansible.builtin.set_fact:
@@ -480,16 +526,20 @@
          | map('trim') | list }}
   when: _is_backup_op | bool
 
-- name: Delete completed Job
-  kubernetes.core.k8s:
-    state: absent
-    api_version: batch/v1
-    kind: Job
-    name: "{{ _backup_job_name }}"
-    namespace: "{{ _k8s_namespace }}"
-  ignore_errors: true  # OK if job already cleaned up by TTL
+- name: Fail when an init container fails
+  ansible.builtin.fail:
+    msg: >-
+      The backup's {{ _backup_failed_init }} step failed, so restic did not
+      run (Job {{ _backup_job_name }} in namespace {{ _k8s_namespace }} did
+      not succeed).{{ _backup_init_output }}
+  vars:
+    _backup_init_tail: "{{ (_backup_init_log.stdout | default('') | trim).splitlines()[-20:] | join('\n') }}"
+    _backup_init_output: >-
+      {{ (' ' ~ _backup_failed_init ~ ' output: ' ~ _backup_init_tail) if _backup_init_tail else '' }}
+  when:
+    - _restic_result.rc | int != 0
+    - _backup_failed_init != ''
 
-# After the Job is deleted, so a failed run does not linger until its TTL.
 # The tail of the log is enough to show restic's error; a long backup's
 # log is mostly progress lines.
 - name: Fail when restic fails
