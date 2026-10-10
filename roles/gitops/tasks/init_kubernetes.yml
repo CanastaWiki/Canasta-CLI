@@ -604,19 +604,15 @@
 # The keys named in the message below as things to store securely are
 # checked first — the K8s path writes them controller-side the same way
 # the Compose path writes the git-crypt key (#1443).
-- name: Set the advice for a key that did not land
+# A missing export is not a lost key: init keeps its own copy of each, so
+# the advice is where to copy it from.
+- name: Explain why an exported key can be missing
   ansible.builtin.set_fact:
-    _k8s_key_remedy_prefix: >-
-      {{ (lookup('ansible.builtin.env', 'CANASTA_RUN_MODE') == 'docker')
-      | ternary(_k8s_key_docker_note ~ ' ', '') }}Re-run with --reinit
-      and --force (the initial commit already reached the remote) and
-      --key under your home directory (for example
-      --key ~/canasta-gitops.key), then store the file somewhere safe:
-  vars:
     _k8s_key_docker_note: >-
-      Under canasta-docker the file is written inside the CLI container,
-      which is discarded when the command exits, so a path outside a
-      mounted directory is lost.
+      {{ (lookup('ansible.builtin.env', 'CANASTA_RUN_MODE') == 'docker')
+      | ternary('Under canasta-docker the file is written inside the CLI
+      container, which is discarded when the command exits, so a path
+      outside a mounted directory is lost. ', '') }}
 
 - name: Verify the SSH deploy key reached the requested path
   ansible.builtin.include_tasks: _verify_exported_key.yml
@@ -624,8 +620,9 @@
     _exported_key_path: "{{ _ssh_key_path }}"
     _exported_key_label: "SSH deploy key"
     _exported_key_remedy: >-
-      {{ _k8s_key_remedy_prefix }} it is the key other environments use
-      to reach the gitops repository.
+      {{ _k8s_key_docker_note }}The same key is at
+      {{ _ssh_key_target_path }} on the instance's host. Copy it somewhere
+      safe: other environments use it to reach the gitops repository.
 
 - name: Verify the SOPS age key reached the requested path
   ansible.builtin.include_tasks: _verify_exported_key.yml
@@ -633,9 +630,10 @@
     _exported_key_path: "{{ key }}.age"
     _exported_key_label: "SOPS age key"
     _exported_key_remedy: >-
-      {{ _k8s_key_remedy_prefix }} it decrypts this instance's Secrets in
-      the gitops repository, and on a rebuilt controller it is the only
-      way back into them.
+      {{ _k8s_key_docker_note }}The key's main copy is {{ _sops_age_key }}
+      on this controller. Copy it somewhere safe: it decrypts this
+      instance's Secrets in the gitops repository, and on a rebuilt
+      controller it is the only way back into them.
   when: gitops_sops_secrets | default(false) | bool
 
 - name: Report gitops initialized
