@@ -99,6 +99,13 @@
     name: orchestrator
     tasks_from: reload_caddy.yml
 
+# A configuration change can alter every rendered page, and nothing else
+# tells Varnish that what it cached is stale.
+- name: Clear the Varnish cache
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: varnish_ban.yml
+
 - name: Report reconciled
   ansible.builtin.debug:
     msg: >-

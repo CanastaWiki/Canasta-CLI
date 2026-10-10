@@ -597,8 +597,9 @@ commands:
       reloads Caddy; on Kubernetes it re-syncs the ConfigMaps and runs
       'helm upgrade', rolling only the pods whose configuration changed.
       It also regenerates the Caddyfile, re-derives COMPOSE_PROFILES from
-      the feature flags, and starts any containers that should be running
-      but are not.
+      the feature flags, starts any containers that should be running but
+      are not, and clears the Varnish cache so no page is served with the
+      old configuration.
 
       On a gitops instance, each generated file and its sources are
       brought into agreement first, whichever one was edited:
