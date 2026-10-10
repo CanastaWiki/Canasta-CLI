@@ -1,0 +1,45 @@
+---
+# Invalidate every object Varnish has cached, so pages rendered before a
+# configuration change stop being served. A ban is lazy: each object is
+# fetched again on its next request, with no restart and no outage.
+#
+# Input: instance_path, instance_id, instance_orchestrator
+
+- name: Read the Varnish flag for the cache ban
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: CANASTA_ENABLE_VARNISH
+  register: _ban_varnish_flag
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Read values.yaml for the cache ban
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values.yaml"
+  register: _ban_values_raw
+  failed_when: false
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+
+- name: Decide whether Varnish is in use
+  ansible.builtin.set_fact:
+    _ban_varnish_enabled: >-
+      {{ (_ban_varnish_flag.value | default('true', true) | lower == 'true')
+         if instance_orchestrator | default('compose') == 'compose'
+         else ((_ban_values_raw.content | default('') | b64decode | from_yaml
+                or {}).varnish | default({})).enabled | default(false) | bool }}
+
+- name: Ban everything Varnish has cached
+  block:
+    - name: Ban every cached object
+      ansible.builtin.include_tasks: exec.yml
+      vars:
+        exec_service: varnish
+        exec_command: "varnishadm 'ban req.url ~ .'"
+      when: _ban_varnish_enabled | bool
+  rescue:
+    - name: Warn that the Varnish cache was not cleared
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: could not clear the Varnish cache, so pages it cached
+          before this change may be served until they expire.
+          'canasta restart -i {{ instance_id }}' clears it.
