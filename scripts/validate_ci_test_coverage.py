@@ -53,6 +53,9 @@ def tests_named_by_ci():
             named.update(re.findall(r"[a-z][a-z0-9-]{2,}", match.group(1)))
         for match in re.finditer(r"tests=\(([^)]*)\)", text):
             named.update(re.findall(r"[a-z][a-z0-9-]{2,}", match.group(1)))
+        # ...or a string, where the list is passed through `sg ... -c`.
+        for match in re.finditer(r'tests="([^"]*)"', text):
+            named.update(re.findall(r"[a-z][a-z0-9-]{2,}", match.group(1)))
     return named
 
 
