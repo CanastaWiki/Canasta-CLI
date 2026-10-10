@@ -168,3 +168,39 @@ class TestNoCallerSwallowsTheFailure:
                         task.get("ansible.builtin.include_tasks", "")):
                     assert "ignore_errors" not in task, name
                     assert "failed_when" not in task, name
+
+
+class TestJobThatNeverFinishes:
+    """A pod stuck before restic runs (an image it cannot pull) never makes
+    the Job succeed or fail; the wait used to time out silently and leave
+    the Job behind."""
+
+    def _top(self):
+        with open(JOB) as f:
+            return yaml.safe_load(f)
+
+    def test_the_wait_does_not_fail_the_run(self):
+        wait = next(t for t in self._top()
+                    if t.get("name") == "Wait for restic Job to complete")
+        assert wait["failed_when"] is False
+
+    def test_it_is_reported_after_the_job_is_deleted(self):
+        names = [t.get("name") for t in self._top()]
+        block = names.index("Read the restic Job's output and delete the Job")
+        fail = names.index("Fail when the Job did not finish")
+        assert block < fail < names.index("Set restic result")
+
+    def test_the_message_keeps_only_containers_that_are_waiting(self):
+        from ansible.parsing.dataloader import DataLoader
+        from ansible.template import Templar, trust_as_template
+        task = next(t for t in self._top()
+                    if t.get("name") == "Fail when the Job did not finish")
+        expr = task["vars"]["_backup_stuck_waiting"]
+        out = ("dump-databases: ImagePullBackOff Back-off pulling image "
+               "\"canasta:local\"\ndump-secrets:  \n restic:  \n")
+        templar = Templar(loader=DataLoader(), variables={
+            "_backup_stuck_status": {"stdout": out}})
+        result = templar.template(trust_as_template(expr))
+        assert list(result) == [
+            "dump-databases: ImagePullBackOff Back-off pulling image "
+            "\"canasta:local\""]

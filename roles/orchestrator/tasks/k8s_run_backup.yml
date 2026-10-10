@@ -449,6 +449,16 @@
      _backup_job_status.resources[0].status.failed | default(0) > 0)
   retries: 120
   delay: 5
+  # A Job that never finishes (a pod stuck pulling its image) is reported
+  # below, after it is deleted.
+  failed_when: false
+
+- name: Record whether the Job finished
+  ansible.builtin.set_fact:
+    _backup_job_finished: >-
+      {{ (_backup_job_status.resources | default([])) | length > 0 and
+         (_backup_job_status.resources[0].status.succeeded | default(0) > 0 or
+          _backup_job_status.resources[0].status.failed | default(0) > 0) }}
 
 # The Job is deleted however reading its output goes, so a failed run does
 # not linger until its TTL.
@@ -501,6 +511,26 @@
       changed_when: false
       failed_when: false
       when: _backup_failed_init != ''
+
+    - name: Get why the Job's pod is stuck
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - pod
+          - -n
+          - "{{ _k8s_namespace }}"
+          - "{{ _backup_pod_name.stdout | trim }}"
+          - -o
+          - >-
+            jsonpath={range .status.initContainerStatuses[*]}{.name}:
+            {.state.waiting.reason} {.state.waiting.message}{"\n"}{end}
+            {range .status.containerStatuses[*]}{.name}:
+            {.state.waiting.reason} {.state.waiting.message}{"\n"}{end}
+      register: _backup_stuck_status
+      changed_when: false
+      failed_when: false
+      when: not (_backup_job_finished | bool)
   always:
     - name: Delete completed Job
       kubernetes.core.k8s:
@@ -510,6 +540,19 @@
         name: "{{ _backup_job_name }}"
         namespace: "{{ _k8s_namespace }}"
       ignore_errors: true  # OK if job already cleaned up by TTL
+
+- name: Fail when the Job did not finish
+  ansible.builtin.fail:
+    msg: >-
+      The backup Job {{ _backup_job_name }} in namespace
+      {{ _k8s_namespace }} did not finish within 10 minutes and was
+      deleted.{{ (' Its pod was waiting: ' ~ _backup_stuck_waiting | join('; '))
+                  if _backup_stuck_waiting else '' }}
+  vars:
+    _backup_stuck_waiting: >-
+      {{ (_backup_stuck_status.stdout | default('')).splitlines()
+         | map('trim') | reject('match', '^[^:]+:$') | list }}
+  when: not (_backup_job_finished | bool)
 
 - name: Set restic result
   ansible.builtin.set_fact:
