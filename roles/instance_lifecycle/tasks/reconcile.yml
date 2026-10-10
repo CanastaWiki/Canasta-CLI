@@ -40,6 +40,13 @@
         - _reconcile_gitops_stat.stat.exists | default(false)
         - _reconcile_env_image.found | default(false)
 
+# Make config/wikis.yaml and wikis.yaml.template agree before anything reads
+# wikis.yaml, whichever of the two was edited. Compose gitops only.
+- name: Sync wikis.yaml with its gitops template
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/sync_wikis_yaml.yml
+  when: instance_orchestrator | default('compose') == 'compose'
+
 # Regenerate rendered config (e.g. the Caddyfile from the current wikis.yaml)
 # so the converge below picks up drift between sources and rendered state.
 - name: Regenerate config

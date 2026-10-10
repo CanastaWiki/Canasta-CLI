@@ -24,6 +24,7 @@ ADD_YML = os.path.join(GITOPS_TASKS, "add.yml")
 REGENERATE = os.path.join(REPO_ROOT, "playbooks", "config_regenerate.yml")
 
 RECONCILE_INCLUDE = "_reconcile_wikis_template.yml"
+SYNC_INCLUDE = "sync_wikis_yaml.yml"
 
 
 def _walk(tasks):
@@ -199,11 +200,11 @@ class TestWiring:
             "changed it, or a regenerate-then-add leaves the edit unstaged"
         )
 
-    def test_regenerate_captures_before_rerender(self):
+    def test_regenerate_syncs_before_rerender(self):
         raw = _flat_text(REGENERATE)
-        recon_idx = next(
+        sync_idx = next(
             (i for i, t in enumerate(raw)
-             if isinstance(t, dict) and RECONCILE_INCLUDE in _include_path(t)),
+             if isinstance(t, dict) and SYNC_INCLUDE in _include_path(t)),
             None,
         )
         render_idx = next(
@@ -211,8 +212,12 @@ class TestWiring:
              if isinstance(t, dict) and "render_gitops_config.yml" in _include_path(t)),
             None,
         )
-        assert recon_idx is not None, "regenerate must capture wikis.yaml edits"
+        assert sync_idx is not None, "regenerate must sync wikis.yaml edits"
         assert render_idx is not None
-        assert recon_idx < render_idx, (
-            "capture must run before re-render or regenerate clobbers the edit"
+        assert sync_idx < render_idx, (
+            "sync must run before re-render or regenerate clobbers the edit"
         )
+        assert not any(
+            isinstance(t, dict) and RECONCILE_INCLUDE in _include_path(t)
+            for t in raw
+        ), "regenerate must not capture unconditionally; that drops template edits"
