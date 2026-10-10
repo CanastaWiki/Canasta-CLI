@@ -3169,7 +3169,10 @@ def test_gitops_fix_submodules_orphan(inst):
     # repo keeps the test off the network.
     print("Creating a fake extension with a git repo...")
     ext_origin = os.path.join(inst.work_dir, "OrphanExt.git")
-    subprocess.run(["git", "init", "--bare", ext_origin],
+    # Its HEAD must name the branch pushed below, or a clone has nothing
+    # to check out; git's default branch name differs between hosts.
+    subprocess.run(["git", "init", "--bare", "--initial-branch=main",
+                    ext_origin],
                    capture_output=True, check=True)
     ext_dir = os.path.join(inst_path, "extensions", "OrphanExt")
     os.makedirs(ext_dir, exist_ok=True)
