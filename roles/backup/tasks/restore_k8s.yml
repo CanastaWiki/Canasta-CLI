@@ -451,6 +451,11 @@
   changed_when: false
   ignore_errors: true
 
+- name: Mark the databases phase
+  ansible.builtin.include_tasks: _restore_marker.yml
+  vars:
+    restore_marker_phase: databases
+
 - name: Import each DB dump
   when: _restore_db_files is succeeded and _restore_db_files.stdout | trim | length > 0
   ansible.builtin.shell:
@@ -519,6 +524,12 @@
           .data.MYSQL_ROOT_PASSWORD | default('')) | b64decode }}
   when: _restore_secrets_filename != ''
   no_log: true
+
+- name: Mark the secrets phase
+  ansible.builtin.include_tasks: _restore_marker.yml
+  vars:
+    restore_marker_phase: secrets
+  when: _restore_secrets_filename != ''
 
 - name: Restore canasta-managed K8s Secrets from snapshot
   when: _restore_secrets_filename != ''
