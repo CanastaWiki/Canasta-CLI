@@ -530,8 +530,28 @@
       kubectl apply -n {{ _k8s_namespace }} -f -
   args:
     executable: /bin/bash
+  register: _restore_secrets_apply
   changed_when: true
+  failed_when: false
   no_log: true
+
+# no_log above hides the failure along with the Secret. Its output is not
+# repeated here: kubectl apply's errors can quote the manifest, Secret
+# data included.
+- name: Fail when the Secrets could not be restored
+  ansible.builtin.fail:
+    msg: >-
+      Restoring the canasta-managed Secrets from
+      {{ _restore_secrets_filename }} in the snapshot failed
+      (exit {{ _restore_secrets_apply.rc }}). The error is not shown
+      because it can contain Secret values. The restic-restore pod is
+      left in place, so it can be reproduced with
+      'kubectl exec -n {{ _k8s_namespace }} restic-restore -- cat
+      /currentsnapshot/config/backup/{{ _restore_secrets_filename }} |
+      kubectl apply -n {{ _k8s_namespace }} --dry-run=server -f -'.
+  when:
+    - _restore_secrets_filename != ''
+    - _restore_secrets_apply.rc | default(0) != 0
 
 # Preserve the running cluster's DB credentials over the snapshot's
 # values. The strategic-merge patch updates only MYSQL_PASSWORD and
