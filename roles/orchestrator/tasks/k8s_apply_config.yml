@@ -1,0 +1,65 @@
+---
+# Roll a running Kubernetes instance onto its current config files.
+#
+# Sync the ConfigMaps and deploy: the web pods' config checksum annotation
+# changes with the config, so only a real change rolls them. Then wait until
+# the replaced pods are gone, because a pod being deleted still reports
+# Running and an exec could land in it, on the old config.
+#
+# A stopped instance (web scaled to zero) is left stopped; it picks the
+# change up when it next starts.
+#
+# Input: instance_id, instance_path
+
+- name: Set K8s namespace for the config apply
+  ansible.builtin.set_fact:
+    _k8s_namespace: "canasta-{{ instance_id }}"
+
+- name: Check whether the instance is running
+  ansible.builtin.command:
+    cmd: >-
+      kubectl get deployment canasta-{{ instance_id }}-web
+      -n {{ _k8s_namespace }} -o jsonpath={.spec.replicas}
+  register: _apply_replicas
+  changed_when: false
+  failed_when: false
+
+- name: Decide whether to apply the config now
+  ansible.builtin.set_fact:
+    _apply_running: >-
+      {{ _apply_replicas.rc == 0
+         and (_apply_replicas.stdout | trim) not in ['', '0'] }}
+
+- name: Sync config to ConfigMaps
+  ansible.builtin.include_tasks: k8s_sync_config.yml
+  when: _apply_running | bool
+
+- name: Deploy the synced config
+  ansible.builtin.include_tasks: helm_deploy.yml
+  when: _apply_running | bool
+
+- name: List the web pods being replaced
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - get
+      - pods
+      - -n
+      - "{{ _k8s_namespace }}"
+      - -l
+      - app.kubernetes.io/component=web
+      - -o
+      - 'jsonpath={range .items[?(@.metadata.deletionTimestamp)]}{.metadata.name}{"\n"}{end}'
+  register: _apply_old_pods
+  changed_when: false
+  failed_when: false
+  when: _apply_running | bool
+
+- name: Wait for the replaced web pods to go
+  ansible.builtin.command:
+    cmd: >-
+      kubectl wait --for=delete pod/{{ item }}
+      -n {{ _k8s_namespace }} --timeout=300s
+  loop: "{{ _apply_old_pods.stdout_lines | default([]) }}"
+  changed_when: false
+  when: _apply_running | bool
