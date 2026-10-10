@@ -83,11 +83,14 @@
 # start.yml runs sync_compose_profiles (reconciles COMPOSE_PROFILES from the
 # flags + DB mode, and tears down containers of deactivated profiles) and then
 # `docker compose up -d`, which starts anything missing and recreates only
-# changed services. No `down`, so this is non-disruptive.
+# changed services, even when every service is already running. No `down`,
+# so this is non-disruptive.
 - name: Converge containers (sync profiles + up -d)
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: start.yml
+  vars:
+    start_converge: true
 
 # The converge above cannot deliver Caddy config: both the Caddyfile and
 # Caddyfile.site are bind-mounted files, so their contents are invisible to
