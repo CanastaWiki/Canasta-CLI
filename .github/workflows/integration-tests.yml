@@ -435,8 +435,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        leg: ["init & join", "pull & config", "push", "add & submodules",
-              "pull & status", "config domain & port", "upgrade backfills",
+        leg: ["init & join", "pull & config", "push", "add", "submodules",
+              "pull & status", "config domain & port",
+              "upgrade hosts & wikis", "upgrade my.cnf & gitignore",
               "sidecars"]
     steps:
       - uses: actions/checkout@v6
@@ -471,14 +472,14 @@ jobs:
             "init & join")   tests="gitops gitops-join" ;;
             "pull & config") tests="gitops-pull-diff config-set-gitops" ;;
             "push")          tests="gitops-push-shared gitops-push-reporting" ;;
-            "add & submodules")
-              tests="gitops-add-wiki-tracked gitops-add-wikis-yaml"
-              tests="$tests gitops-fix-submodules gitops-fix-submodules-no-url" ;;
+            "add")           tests="gitops-add-wiki-tracked gitops-add-wikis-yaml" ;;
+            "submodules")    tests="gitops-fix-submodules gitops-fix-submodules-no-url" ;;
             "pull & status") tests="gitops-pull-reapplies gitops-renders-mycnf gitops-status-fetch" ;;
             "config domain & port") tests="config-set-gitops-domain config-set-gitops-port" ;;
-            "upgrade backfills")
-              tests="upgrade-backfill-hosts-yaml upgrade-backfills-mycnf-template"
-              tests="$tests upgrade-backfills-wikis-template upgrade-refreshes-gitignore" ;;
+            "upgrade hosts & wikis")
+              tests="upgrade-backfill-hosts-yaml upgrade-backfills-wikis-template" ;;
+            "upgrade my.cnf & gitignore")
+              tests="upgrade-backfills-mycnf-template upgrade-refreshes-gitignore" ;;
             "sidecars")      tests="sidecar-lifecycle sidecar-migrate" ;;
             *) echo "unknown gitops leg: $LEG" >&2; exit 1 ;;
           esac
