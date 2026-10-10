@@ -1311,8 +1311,7 @@ commands:
           config/secret-keys-web and added to the web container's
           environment (which also runs the job runner) through the generated
           docker-compose.web-env.yml. On Kubernetes it is listed in
-          config/secrets-web and exposed to the web and jobrunner pods via
-          secretKeyRef.
+          config/secrets-web and exposed to the web pods via secretKeyRef.
 
   - name: config_regenerate
     description: "Regenerate rendered config files (e.g. Caddyfile) from current sources"
@@ -3339,7 +3338,7 @@ commands:
       rather than running multiple replicas of the same container.
 
       Only `web` is currently supported. The Helm chart's other
-      Deployments (jobrunner, caddy, varnish) run a single replica
+      Deployments (caddy, varnish) run a single replica
       and do not accept a replica-count override.
     examples:
       - "canasta scale -i mysite --replicas 3"

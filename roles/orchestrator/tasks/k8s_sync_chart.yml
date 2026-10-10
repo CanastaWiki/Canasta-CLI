@@ -1,0 +1,76 @@
+---
+# Make a directory on the target hold exactly the shipped Helm chart: copy
+# Chart.yaml, templates/ and files/, and delete any file under templates/ or
+# files/ that the chart no longer ships. A plain copy never deletes, so a
+# template removed from the chart would otherwise keep rendering.
+#
+# Input: _sync_chart_dest (directory on the target),
+#        _sync_chart_values (bool, also copy the chart's values.yaml).
+# Output: _sync_chart_changed (bool).
+
+- name: Copy the chart's Chart.yaml
+  ansible.builtin.copy:
+    src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/Chart.yaml"
+    dest: "{{ _sync_chart_dest }}/Chart.yaml"
+    mode: preserve
+  register: _sync_chart_meta
+
+- name: Copy the chart's values.yaml
+  ansible.builtin.copy:
+    src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/values.yaml"
+    dest: "{{ _sync_chart_dest }}/values.yaml"
+    mode: preserve
+  register: _sync_chart_defaults
+  when: _sync_chart_values | bool
+
+- name: Copy the chart's templates and files
+  ansible.builtin.copy:
+    src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/{{ item }}/"
+    dest: "{{ _sync_chart_dest }}/{{ item }}/"
+    mode: preserve
+  loop:
+    - templates
+    - files
+  register: _sync_chart_dirs
+
+- name: List the chart files on the target
+  ansible.builtin.find:
+    paths:
+      - "{{ _sync_chart_dest }}/templates"
+      - "{{ _sync_chart_dest }}/files"
+    hidden: true
+  register: _sync_chart_found
+
+# Both directories are flat in the shipped chart, so their basenames are
+# enough to tell shipped files from stale ones.
+- name: Work out which files the chart no longer ships
+  ansible.builtin.set_fact:
+    _sync_chart_stale: >-
+      {{ _sync_chart_found.files | map(attribute='path')
+         | reject('in', _sync_chart_shipped) | list }}
+  vars:
+    _sync_chart_shipped: >-
+      {{ ([_sync_chart_dest ~ '/templates/']
+          | product(query('ansible.builtin.fileglob',
+                          canasta_root ~ '/roles/orchestrator/files/helm/canasta/templates/*')
+                    | map('basename'))
+          | map('join') | list)
+         + ([_sync_chart_dest ~ '/files/']
+            | product(query('ansible.builtin.fileglob',
+                            canasta_root ~ '/roles/orchestrator/files/helm/canasta/files/*')
+                      | map('basename'))
+            | map('join') | list) }}
+
+- name: Remove files the chart no longer ships
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ _sync_chart_stale }}"
+
+- name: Record whether the chart changed
+  ansible.builtin.set_fact:
+    _sync_chart_changed: >-
+      {{ _sync_chart_meta is changed
+         or _sync_chart_defaults is changed
+         or _sync_chart_dirs is changed
+         or (_sync_chart_stale | length) > 0 }}
