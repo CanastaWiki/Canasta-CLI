@@ -75,6 +75,9 @@ jobs:
       - name: Validate command definitions
         run: .venv/bin/python scripts/validate_definitions.py
 
+      - name: Check every integration test is run by CI
+        run: .venv/bin/python scripts/validate_ci_test_coverage.py
+
   docker-smoke:
     name: Docker Smoke Test
     runs-on: ubuntu-latest
