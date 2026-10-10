@@ -3213,8 +3213,20 @@ def test_gitops_fix_submodules_orphan(inst):
             "OrphanExt should not be in .gitmodules before fix"
         )
 
+    # git 2.38.1+ refuses to clone a submodule from a local path unless the
+    # file transport is allowed (CVE-2022-39253). Real extensions come from
+    # https or ssh, so allow it for this call only, through git's
+    # environment config rather than a global setting.
     print("Running gitops fix-submodules...")
-    inst.run_ok("gitops", "fix-submodules", "-i", inst.id)
+    allow_file = {"GIT_CONFIG_COUNT": "1",
+                  "GIT_CONFIG_KEY_0": "protocol.file.allow",
+                  "GIT_CONFIG_VALUE_0": "always"}
+    os.environ.update(allow_file)
+    try:
+        inst.run_ok("gitops", "fix-submodules", "-i", inst.id)
+    finally:
+        for key in allow_file:
+            os.environ.pop(key, None)
 
     print("Verifying OrphanExt IS now in .gitmodules...")
     assert os.path.isfile(gitmodules_path), (
@@ -3965,6 +3977,21 @@ def test_upgrade_backfills_mycnf_template(inst):
         "gitops", "init", "-i", inst.id, "-n", "testhost",
         "--repo", bare_repo, "--key", key_file,
     )
+
+    # gitops init no longer tracks my.cnf, so recreate a repo initialized
+    # before it became a rendered file: my.cnf tracked, and no ignore rule
+    # for it. That is the repo the migration exists for.
+    print("Simulating a repo that predates the rendered my.cnf...")
+    gitignore = os.path.join(inst.instance_path(), ".gitignore")
+    with open(gitignore) as f:
+        rules = [ln for ln in f if ln.strip() != "my.cnf"]
+    with open(gitignore, "w") as f:
+        f.writelines(rules)
+    for cmd in (["git", "add", "-f", "--", "my.cnf", ".gitignore"],
+                ["git", "-c", "commit.gpgsign=false", "commit", "-q",
+                 "-m", "Track my.cnf as a shared file"]):
+        subprocess.run(cmd, cwd=inst.instance_path(), check=True,
+                       capture_output=True)
 
     template = os.path.join(inst.instance_path(), "my.cnf.template")
 
