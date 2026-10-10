@@ -149,3 +149,22 @@ class TestAnsibleStartGuard:
         assert "config --services" in cmd, (
             "ask compose which services the active profiles imply rather "
             "than duplicating the profile map")
+
+
+class TestReconcileAlwaysConverges:
+    """reconcile must run `up -d` on a running instance too, or a changed
+    .env never reaches the containers that are already up."""
+
+    def test_reconcile_asks_start_to_converge(self):
+        with open(os.path.join(REPO_ROOT, "roles", "instance_lifecycle",
+                               "tasks", "reconcile.yml")) as f:
+            tasks = yaml.safe_load(f)
+        converge = next(t for t in tasks
+                        if t.get("name") == "Converge containers (sync profiles + up -d)")
+        assert converge["vars"]["start_converge"] is True
+
+    def test_converge_runs_up_and_suppresses_the_skip(self):
+        up = _by_name("Start containers")
+        assert "start_converge" in str(up.get("when"))
+        skip = _by_name("Skip start when every expected service is running")
+        assert "start_converge" in str(skip.get("when"))

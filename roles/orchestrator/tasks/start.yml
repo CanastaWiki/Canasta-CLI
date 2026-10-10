@@ -2,6 +2,9 @@
 # Start containers for an instance.
 # Dispatches to Compose or Kubernetes based on instance_orchestrator.
 # Input: instance_path, instance_devmode (bool), instance_orchestrator
+# Optional: start_converge (bool) - on Compose, run `up -d` even when every
+#   service is running, so containers whose configuration changed are
+#   recreated.
 
 - name: Start (Docker Compose)
   when: instance_orchestrator | default('compose') == 'compose'
@@ -133,6 +136,7 @@
       when:
         - _container_running | default(false) | bool
         - _missing_services | length == 0
+        - not (start_converge | default(false) | bool)
 
     - name: Report the services being started
       ansible.builtin.debug:
@@ -145,7 +149,8 @@
       ansible.builtin.set_fact:
         _start_needed: >-
           {{ not (_container_running | default(false) | bool)
-             or _missing_services | length > 0 }}
+             or _missing_services | length > 0
+             or start_converge | default(false) | bool }}
         _start_account_ensured: false
 
     # web runs update.php for every wiki as soon as it boots, so MediaWiki's
@@ -186,6 +191,7 @@
       when: >-
         not (_container_running | default(false) | bool)
         or _missing_services | length > 0
+        or start_converge | default(false) | bool
 
     # The three failure guards below default rc: `Start containers` is skipped
     # on an already-running instance, and a skipped result is a dict with no
