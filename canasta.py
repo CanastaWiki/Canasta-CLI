@@ -1180,6 +1180,37 @@ def check_docker_mode_install_target(args):
     _refuse_local_docker_install()
 
 
+def check_docker_mode_key_path(args):
+    """Refuse a gitops init --key that canasta-docker would lose.
+
+    The canasta-docker container mounts the host's $HOME, the config
+    directory and the working directory, each at the same path. A key
+    exported anywhere else is written inside the container and discarded
+    when the command exits, after init has already pushed the repository,
+    so refuse it before init starts.
+    """
+    if os.environ.get("CANASTA_RUN_MODE") != "docker":
+        return
+    key = getattr(args, "key", None)
+    if not key:
+        return
+    path = os.path.realpath(os.path.expanduser(key))
+    roots = [os.environ.get("HOME"), get_config_dir(), os.getcwd()]
+    for root in filter(None, roots):
+        root = os.path.realpath(root)
+        if path == root or path.startswith(root + os.sep):
+            return
+    print(
+        "Error: --key %s is outside the directories canasta-docker shares "
+        "with this machine (your home directory, %s, and the current "
+        "directory), so the key would be lost when the command exits. Use a "
+        "path under your home directory, for example "
+        "--key ~/canasta-gitops.key." % (key, get_config_dir()),
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def _refuse_local_docker_install():
     """Explain why a local install cannot run in Docker mode, then exit 1."""
     print(
@@ -2208,6 +2239,11 @@ def main():
     # target.
     if command_name == "install":
         check_docker_mode_install_target(args)
+
+    # Pre-flight: a gitops init key exported outside a mounted directory
+    # is lost with the container, after the repository has been pushed.
+    if command_name == "gitops_init":
+        check_docker_mode_key_path(args)
 
     # Interactive exec: bypass Ansible for TTY support.
     if command_name == "maintenance_exec":
