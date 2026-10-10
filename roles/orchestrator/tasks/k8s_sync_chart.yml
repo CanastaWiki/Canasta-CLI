@@ -8,6 +8,12 @@
 #        _sync_chart_values (bool, also copy the chart's values.yaml).
 # Output: _sync_chart_changed (bool).
 
+- name: Create the chart directory
+  ansible.builtin.file:
+    path: "{{ _sync_chart_dest }}"
+    state: directory
+    mode: "0755"
+
 - name: Copy the chart's Chart.yaml
   ansible.builtin.copy:
     src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/Chart.yaml"
