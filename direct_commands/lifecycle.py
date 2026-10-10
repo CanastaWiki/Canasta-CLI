@@ -178,12 +178,13 @@ def cmd_scale(args):
 
     # Apply via helm upgrade. Mirror the args helm_deploy.yml uses so
     # the result matches what `canasta start` / `canasta restart`
-    # would render — including values-configdata.yaml and
-    # values-sidecars.yaml when present.
+    # would render — including values-configdata.yaml,
+    # values-sidecars.yaml and values-domains.yaml when present.
     namespace = "canasta-%s" % inst_id
     chart = os.path.join(path, "_chart")
     configdata = os.path.join(path, "values-configdata.yaml")
     sidecars = os.path.join(path, "values-sidecars.yaml")
+    domains = os.path.join(path, "values-domains.yaml")
     cmd_parts = [
         "helm upgrade --install canasta-%s %s" % (inst_id, _helpers._shell_quote(chart)),
         "--namespace %s --create-namespace" % namespace,
@@ -206,6 +207,10 @@ def cmd_scale(args):
     # prune every sidecar Deployment/Service/PVC.
     if _file_on_host(sidecars):
         cmd_parts.append("-f %s" % _helpers._shell_quote(sidecars))
+    # Last, as in helm_deploy.yml: the derived domains override the
+    # domains in values.yaml, which can be stale after create.
+    if _file_on_host(domains):
+        cmd_parts.append("-f %s" % _helpers._shell_quote(domains))
     cmd_parts.extend(["--reset-values", "--wait", "--timeout 10m"])
     helm_cmd = " ".join(cmd_parts)
 

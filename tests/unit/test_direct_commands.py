@@ -4715,6 +4715,88 @@ class TestScale:
         # No optional values files exist, so none may be layered.
         assert "values-configdata.yaml" not in cmd_str
         assert "values-sidecars.yaml" not in cmd_str
+        assert "values-domains.yaml" not in cmd_str
+
+    def test_layers_domains_values_last_when_present(
+        self, monkeypatch, tmp_path,
+    ):
+        # helm_deploy.yml layers values-domains.yaml after the other
+        # values files; with --reset-values, omitting it reverts the
+        # domains to whatever values.yaml held at create.
+        inst_path = tmp_path / "mysite"
+        inst_path.mkdir()
+        (inst_path / "values.yaml").write_text("web:\n  replicaCount: 1\n")
+        (inst_path / "values-configdata.yaml").write_text("configData: {}\n")
+        (inst_path / "values-sidecars.yaml").write_text("sidecars: []\n")
+        (inst_path / "values-domains.yaml").write_text(
+            "domains:\n  - wiki.example.com\n",
+        )
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
+            lambda args: ("mysite", self._k8s_inst(path=str(inst_path))),
+        )
+        captured = {}
+
+        def fake_call(cmd, *a, **kw):
+            captured["cmd"] = cmd
+            return 0
+
+        monkeypatch.setattr(subprocess, "call", fake_call)
+        rc = direct_commands.cmd_scale(self._args(replicas=5))
+        assert rc == 0
+
+        import re
+
+        cmd_str = " ".join(captured["cmd"])
+        files = re.findall(r"-f '([^']+)'", cmd_str)
+        assert [os.path.basename(f) for f in files] == [
+            "values.yaml",
+            "values-configdata.yaml",
+            "values-sidecars.yaml",
+            "values-domains.yaml",
+        ]
+        assert cmd_str.index("values-domains.yaml") < cmd_str.index(
+            "--reset-values")
+
+    def test_probes_domains_values_on_a_remote_host(self, monkeypatch):
+        values = "web:\n  replicaCount: 1\n"
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
+            lambda args: ("mysite", self._k8s_inst(host="node1")),
+        )
+        monkeypatch.setattr(
+            direct_commands._helpers, "_read_remote_or_local_file",
+            lambda p, h: values,
+        )
+        monkeypatch.setattr(
+            direct_commands._helpers, "_write_remote_or_local_file",
+            lambda p, h, c: True,
+        )
+        present = {"/srv/mysite/values-domains.yaml"}
+        probed = []
+
+        def fake_ssh_run(host, cmd, *a, **kw):
+            probed.append((host, cmd))
+            return (0 if any(p in cmd for p in present) else 1), ""
+
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", fake_ssh_run)
+        monkeypatch.setattr(
+            direct_commands._helpers, "_resolve_ssh_target", lambda h: h)
+        monkeypatch.setattr(direct_commands._helpers, "_ssh_args", lambda: [])
+        captured = {}
+
+        def fake_call(argv, *a, **kw):
+            captured["argv"] = argv
+            return 0
+
+        monkeypatch.setattr(subprocess, "call", fake_call)
+        rc = direct_commands.cmd_scale(self._args(replicas=2))
+        assert rc == 0
+
+        assert ("node1", "test -f '/srv/mysite/values-domains.yaml'") in probed
+        argv = captured["argv"]
+        assert argv[:2] == ["ssh", "node1"]
+        helm_cmd = argv[-1]
+        assert "-f '/srv/mysite/values-domains.yaml'" in helm_cmd
+        assert "values-sidecars.yaml" not in helm_cmd
 
     def test_layers_sidecars_values_when_present(
         self, monkeypatch, tmp_path,
