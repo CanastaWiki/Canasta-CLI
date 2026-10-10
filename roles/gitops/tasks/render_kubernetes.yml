@@ -107,6 +107,19 @@
   register: _render_local_caddy
   when: _render_identity.results[1].stat.exists
 
+# The Ingress must route this host's wikis, so derive its domains from the
+# same wikis.yaml, as a direct deploy does. Host vars' domains are written
+# at init and never follow a wiki added later; they apply only when this
+# host has no wikis.yaml.
+- name: Derive this host's ingress domains from its wikis.yaml
+  ansible.builtin.set_fact:
+    _rendered_values: >-
+      {{ _rendered_values | combine({'domains':
+           (_render_local_wikis.content | default('') | b64decode)
+           | canasta_wiki_ingress_domains(
+               _render_template.extraDomains | default([]),
+               _rendered_values.domains | default([]))}) }}
+
 - name: Overlay this host's wiki identity onto the rendered configData
   ansible.builtin.set_fact:
     _rendered_values: >-

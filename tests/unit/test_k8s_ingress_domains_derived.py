@@ -2,11 +2,21 @@
 URLs at deploy time (helm_deploy.yml), so the Ingress always routes exactly the
 wikis' hostnames — no manual values.yaml upkeep. An operator escape hatch
 (extraDomains) is unioned in, and the result is applied as a -f override AFTER
-values.yaml so the derived list wins (helm is last-wins for lists)."""
+values.yaml so the derived list wins (helm is last-wins for lists).
+
+A gitops instance is deployed by Argo CD from hosts/<host>/rendered-values.yaml,
+so the render derives the same list from the host's own wikis.yaml; host vars'
+domains, written at init, never followed a wiki added later. One filter does
+the derivation everywhere, so the two deploy paths cannot drift apart."""
 
 import os
+import sys
 
 import yaml
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..",
+                                "filter_plugins"))
+from canasta_gitops import canasta_wiki_ingress_domains as domains  # noqa: E402
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 HELM_DEPLOY = os.path.join(
@@ -47,20 +57,54 @@ def _helm_command():
     raise AssertionError("no task assembles the helm upgrade command")
 
 
+WIKIS = (
+    "wikis:\n"
+    "- id: main\n  url: wiki.example.com\n"
+    "- id: docs\n  url: wiki.example.com/docs\n"
+    "- id: notes\n  url: notes.example.com:8443/n\n"
+)
+
+
 def test_derives_hostnames_from_wiki_urls():
-    expr = str(_task("Derive ingress domains from wiki URLs")
-               ["ansible.builtin.set_fact"])
-    assert "wikis" in expr and "url" in expr
-    # bare hostname: scheme/path and :port stripped
-    assert "/.*$" in expr and ":[0-9]+$" in expr
+    # path and :port stripped, a shared host listed once
+    assert domains(WIKIS) == ["wiki.example.com", "notes.example.com"]
 
 
 def test_unions_extra_domains_dedupes_and_falls_back():
-    expr = str(_task("Compute final ingress domains")
-               ["ansible.builtin.set_fact"])
-    assert "extraDomains" in expr          # operator escape hatch
-    assert "unique" in expr                # de-dup shared hostnames
-    assert "domains" in expr               # else branch: keep existing when no wikis
+    assert domains(WIKIS, ["alias.example.com", "wiki.example.com"]) == [
+        "wiki.example.com", "notes.example.com", "alias.example.com"]
+    # no wikis.yaml, or no urls in it: keep the existing list
+    assert domains("", ["x.example.com"], ["old.example.com"]) == [
+        "old.example.com"]
+    assert domains("wikis: []\n", [], ["old.example.com"]) == [
+        "old.example.com"]
+    assert domains("wikis: [", [], ["old.example.com"]) == ["old.example.com"]
+
+
+def test_every_deploy_path_uses_the_one_derivation():
+    for path in (
+            HELM_DEPLOY,
+            os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
+                         "push_kubernetes.yml"),
+            os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
+                         "render_kubernetes.yml")):
+        with open(path) as f:
+            text = f.read()
+        assert "canasta_wiki_ingress_domains(" in text, path
+        assert "regex_replace(':[0-9]+$'" not in text, path
+
+
+def test_render_derives_this_hosts_domains_from_its_wikis_yaml():
+    render = os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
+                          "render_kubernetes.yml")
+    with open(render) as f:
+        tasks = yaml.safe_load(f)
+    names = [t.get("name") for t in tasks]
+    derive = names.index("Derive this host's ingress domains from its wikis.yaml")
+    assert names.index("Read this host's wikis.yaml") < derive
+    assert derive < names.index("Write rendered-values.yaml")
+    expr = str(tasks[derive]["ansible.builtin.set_fact"])
+    assert "_render_local_wikis" in expr and "extraDomains" in expr
 
 
 def test_override_written_and_wired_after_values_yaml():
