@@ -179,6 +179,12 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/refresh_gitignore.yml
 
+# Argo CD renders a Kubernetes gitops repo's own copy of the chart, which
+# 'gitops init' wrote once. No-ops on other instances.
+- name: Refresh the gitops repo's Helm chart
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/refresh_chart.yml
+
 # Create wikis.yaml.template for a gitops instance that lacks it (e.g. a
 # Go-CLI-era repo predating the template). Without it the wikis.yaml
 # reconcile/advisory machinery is inert. No-ops on non-gitops instances
@@ -235,8 +241,8 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/upgrade_rebuild_buildable.yml
 
-# A compose-only change (e.g. gaining the crowdsec service) must also
-# trigger a recreate, not just an image bump. A build_from instance always
+# A compose-only change (e.g. gaining the crowdsec service), or a chart-only
+# change on Kubernetes, must also trigger a recreate, not just an image bump. A build_from instance always
 # rebuilt its image above, so it must restart to redeploy the new build
 # (no registry pull happened, so _images_updated is false for it).
 # An instance whose custom image failed to build keeps its current
@@ -247,6 +253,7 @@
     _restart_needed: >-
       {{ ((_images_updated | bool)
           or (_compose_stack_copy is defined and _compose_stack_copy is changed)
+          or (_k8s_chart_changed | default(false) | bool)
           or (_upgrade_rebuild | bool))
          and (_upgrade_build_failed_services | default([]) | length) == 0 }}
 

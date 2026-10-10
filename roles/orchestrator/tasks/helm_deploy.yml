@@ -6,10 +6,10 @@
 # Copy the Helm chart to the remote host. The chart lives in the
 # controller's repo at canasta_root, but helm runs on the target.
 - name: Copy Helm chart to instance directory
-  ansible.builtin.copy:
-    src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/"
-    dest: "{{ instance_path }}/_chart/"
-    mode: preserve
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_chart.yml"
+  vars:
+    _sync_chart_dest: "{{ instance_path }}/_chart"
+    _sync_chart_values: true
 
 # Auto-derive the ingress domains from the farm's wiki URLs so the Ingress
 # always routes exactly the wikis' hostnames — no manual values.yaml upkeep
