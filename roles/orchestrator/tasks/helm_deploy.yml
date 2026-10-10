@@ -33,23 +33,15 @@
 
 - name: Derive ingress domains from wiki URLs + extraDomains
   ansible.builtin.set_fact:
-    _hd_wiki_hosts: >-
-      {{ ((_hd_wikis_raw.content | default('') | b64decode | from_yaml)
-          | default({}, true)).wikis | default([])
-         | map(attribute='url')
-         | map('regex_replace', '/.*$', '')
-         | map('regex_replace', ':[0-9]+$', '')
-         | select | list }}
+    _hd_domains: >-
+      {{ (_hd_wikis_raw.content | default('') | b64decode)
+         | canasta_wiki_ingress_domains(
+             _hd_values.extraDomains | default([]),
+             _hd_values.domains | default([])) }}
+  vars:
     _hd_values: >-
       {{ (_hd_values_raw.content | default('') | b64decode | from_yaml)
          | default({}, true) }}
-
-- name: Compute final ingress domains
-  ansible.builtin.set_fact:
-    _hd_domains: >-
-      {{ ((_hd_wiki_hosts + (_hd_values.extraDomains | default([]))) | unique)
-         if (_hd_wiki_hosts | length) > 0
-         else (_hd_values.domains | default([])) }}
 
 - name: Write derived ingress-domains override
   ansible.builtin.copy:

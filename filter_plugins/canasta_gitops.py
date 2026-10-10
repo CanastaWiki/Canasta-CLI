@@ -282,6 +282,34 @@ def canasta_wiki_url_sync_plan(live_wikis, env_vars, base_vars=None):
     return plan
 
 
+def canasta_wiki_ingress_domains(wikis_yaml, extra=None, fallback=None):
+    """The Ingress domains for a farm: each wiki url's host, then ``extra``.
+
+    The path and any port are dropped from each url, and duplicates are
+    removed keeping the first. With no wiki urls (no or empty
+    config/wikis.yaml), ``fallback`` is returned unchanged.
+    """
+    try:
+        doc = yaml.safe_load(str(wikis_yaml or "")) or {}
+    except yaml.YAMLError:
+        doc = {}
+    wikis = (doc.get("wikis") if isinstance(doc, dict) else None) or []
+    hosts = []
+    for wiki in wikis:
+        if not isinstance(wiki, dict) or not wiki.get("url"):
+            continue
+        host = re.sub(r":[0-9]+$", "", str(wiki["url"]).split("/", 1)[0])
+        if host:
+            hosts.append(host)
+    if not hosts:
+        return list(fallback or [])
+    domains = []
+    for name in hosts + list(extra or []):
+        if name not in domains:
+            domains.append(name)
+    return domains
+
+
 class FilterModule(object):
     def filters(self):
         return {
@@ -295,4 +323,5 @@ class FilterModule(object):
             "canasta_env_render": canasta_env_render,
             "canasta_env_sync_plan": canasta_env_sync_plan,
             "canasta_wiki_url_sync_plan": canasta_wiki_url_sync_plan,
+            "canasta_wiki_ingress_domains": canasta_wiki_ingress_domains,
         }

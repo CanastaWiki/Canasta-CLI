@@ -73,14 +73,12 @@
 
 - name: Derive ingress domains from wiki URLs
   ansible.builtin.set_fact:
-    _push_wiki_hosts: >-
-      {{ ((_push_wikis_raw.content | default('') | b64decode | from_yaml)
-          | default({}, true)).wikis | default([])
-         | map(attribute='url')
-         | map('regex_replace', '/.*$', '')
-         | map('regex_replace', ':[0-9]+$', '')
-         | select | list }}
     _push_base_values: "{{ _push_values.content | b64decode | from_yaml }}"
+    _push_domains: >-
+      {{ (_push_wikis_raw.content | default('') | b64decode)
+         | canasta_wiki_ingress_domains(
+             (_push_values.content | b64decode | from_yaml).extraDomains
+             | default([]), []) }}
 
 # configData + sidecars are complete, freshly-rebuilt snapshots that fully own
 # their keys — merge NON-recursively so each REPLACES the copy already in
@@ -92,10 +90,8 @@
       {{ _push_base_values
          | combine(_push_configdata.content | b64decode | from_yaml)
          | combine(_push_sidecars.content | b64decode | from_yaml)
-         | combine({'domains': (_push_wiki_hosts
-                                + (_push_base_values.extraDomains | default([])))
-                               | unique}
-                   if (_push_wiki_hosts | length) > 0 else {}) }}
+         | combine({'domains': _push_domains}
+                   if (_push_domains | length) > 0 else {}) }}
 
 - name: Merge configData + sidecars into values.yaml for git
   ansible.builtin.copy:
