@@ -47,6 +47,7 @@ docs: venv
 
 validate: venv
 	$(PYTHON) scripts/validate_definitions.py
+	$(PYTHON) scripts/validate_ci_test_coverage.py
 
 # Report integration tests that no workflow runs, so a test cannot sit in
 # the registry asserting behavior that changed underneath it. Separate
