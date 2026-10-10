@@ -3,6 +3,7 @@
 # Syncs config files into values.yaml, re-renders per-host values,
 # then pushes to remote. Argo CD detects the change and syncs.
 # Requires: instance_path, instance_id (set by dispatcher)
+# Optional: message (commit message, defaults to 'Configuration update')
 
 - name: Set K8s namespace
   ansible.builtin.set_fact:
@@ -136,8 +137,16 @@
 
 - name: Commit staged changes
   ansible.builtin.command:
-    cmd: "git -c commit.gpgsign=false commit -m 'Configuration update'"
+    argv:
+      - git
+      - -c
+      - commit.gpgsign=false
+      - commit
+      - -m
+      - "{{ message | default('Configuration update', true) }}"
     chdir: "{{ instance_path }}"
+    # The message is taken verbatim; a $WORD in it is not a variable.
+    expand_argument_vars: false
   when: _git_staged.rc != 0
   changed_when: true
 
