@@ -142,8 +142,8 @@ class TestPush:
             t, "_check_gitattributes_rules.yml"))
         refuse = _index(tasks, lambda t: t.get("name")
                         == "Refuse to push without the encryption rules")
-        commit = _index(tasks, lambda t: "commit -m" in str(
-            t.get("ansible.builtin.command", "")))
+        commit = _index(tasks, lambda t: t.get("name")
+                        == "Commit staged changes")
         assert check < refuse < commit
         inc = list(_walk(tasks))[check]
         assert inc["vars"]["gitattributes_rev"] == ""
