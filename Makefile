@@ -32,9 +32,14 @@ test: test-unit
 
 # --- Linting -----------------------------------------------------------------
 
+# --offline makes ansible-lint use ANSIBLE_HOME as its cache and write the
+# mock_modules into its collections, which by default is the operator's real
+# ~/.ansible. Point both at a throwaway directory.
 lint: venv
 	$(YAMLLINT) --strict meta/ roles/ playbooks/ inventory/ canasta.yml
 	$(RUFF) check .
+	T=$$(mktemp -d) && trap 'rm -rf "$$T"' EXIT && \
+	ANSIBLE_HOME=$$T ANSIBLE_COLLECTIONS_PATH=$$T/collections \
 	$(ANSIBLE_LINT) --offline roles/ playbooks/ canasta.yml
 	$(PYTHON) scripts/validate_definitions.py
 
