@@ -100,6 +100,16 @@
     mode: "0644"
   when: wiki_settings is defined and wiki_settings != ''
 
+# update.php reads the wiki's settings, so it runs after any replacement
+# Settings.php is in place.
+- name: Run update.php for the imported wiki
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  vars:
+    exec_service: web
+    exec_command: "php maintenance/update.php --wiki={{ wiki | quote }}"
+    exec_long: true
+  when: not (skip_update | default(false) | bool)
+
 - name: Report import complete
   ansible.builtin.debug:
     msg: >-
