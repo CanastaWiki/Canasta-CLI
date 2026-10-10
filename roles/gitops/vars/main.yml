@@ -91,7 +91,9 @@ gitops_k8s_tracked_paths:
   - .gitmodules
   - .sops.yaml
   - Chart.yaml
+  - chart-defaults.yaml
   - templates
+  - files
   - values.yaml
   - values.template.yaml
   - argocd

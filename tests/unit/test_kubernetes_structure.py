@@ -49,7 +49,6 @@ class TestHelmChart:
             "deployment-caddy.yaml",
             "deployment-web.yaml",
             "deployment-varnish.yaml",
-            "deployment-jobrunner.yaml",
             "statefulset-db.yaml",
             "statefulset-elasticsearch.yaml",
             "service-aliases.yaml",
@@ -63,6 +62,16 @@ class TestHelmChart:
                 "Missing template: %s" % template
             )
 
+    def test_no_separate_jobrunner_deployment(self):
+        """Jobs run in the web pods (the image's mw_job_runner.sh covers
+        every wiki), as on Compose; a second runner only duplicates them."""
+        templates = os.path.join(HELM_CHART, "templates")
+        assert not os.path.exists(
+            os.path.join(templates, "deployment-jobrunner.yaml"))
+        with open(os.path.join(HELM_CHART, "values.yaml")) as f:
+            values = yaml.safe_load(f)
+        assert "jobrunner" not in values
+
     def test_values_yaml_has_env_config_data(self):
         """configData.env must exist so configmap-env.yaml renders (#51)."""
         with open(os.path.join(HELM_CHART, "values.yaml")) as f:
@@ -72,12 +81,12 @@ class TestHelmChart:
             "configData.env is required for the env ConfigMap template"
         )
 
-    def test_web_and_jobrunner_reference_env_configmap(self):
-        """deployment-web and deployment-jobrunner must pull env vars from
-        the canasta-<id>-env ConfigMap via envFrom, so that .env changes
-        propagated by k8s_sync_config.yml actually reach the pod (#51)."""
+    def test_web_references_env_configmap(self):
+        """deployment-web must pull env vars from the canasta-<id>-env
+        ConfigMap via envFrom, so that .env changes propagated by
+        k8s_sync_config.yml actually reach the pod (#51)."""
         templates = os.path.join(HELM_CHART, "templates")
-        for template_name in ("deployment-web.yaml", "deployment-jobrunner.yaml"):
+        for template_name in ("deployment-web.yaml",):
             with open(os.path.join(templates, template_name)) as f:
                 content = f.read()
             assert "envFrom:" in content, (
@@ -220,11 +229,11 @@ class TestExternalDatabase:
             "a {{- if .Values.db.enabled }} guard"
         )
 
-    def test_web_and_jobrunner_switch_mysql_host_on_db_enabled(self):
-        """Both deployment templates must pick MYSQL_HOST from
-        externalDatabase.host when db.enabled is false."""
+    def test_web_switches_mysql_host_on_db_enabled(self):
+        """deployment-web must pick MYSQL_HOST from externalDatabase.host
+        when db.enabled is false."""
         templates = os.path.join(HELM_CHART, "templates")
-        for template_name in ("deployment-web.yaml", "deployment-jobrunner.yaml"):
+        for template_name in ("deployment-web.yaml",):
             with open(os.path.join(templates, template_name)) as f:
                 content = f.read()
             assert ".Values.externalDatabase.host" in content, (
@@ -1546,11 +1555,10 @@ class TestK8sAppSecrets:
 
 
 class TestK8sWebAppSecrets:
-    """Web/jobrunner secrets (config set --secret --web) are exposed to those
-    pods via secretKeyRef from the app Secret, driven by .Values.appSecretEnv."""
+    """Web secrets (config set --secret --web) are exposed to the web pods
+    via secretKeyRef from the app Secret, driven by .Values.appSecretEnv."""
 
     WEB = os.path.join(HELM_CHART, "templates", "deployment-web.yaml")
-    JOB = os.path.join(HELM_CHART, "templates", "deployment-jobrunner.yaml")
     VALUES = os.path.join(HELM_CHART, "values.yaml")
     SYNC = os.path.join(ORCHESTRATOR_TASKS, "k8s_sync_config.yml")
     GITIGNORE = os.path.join(
@@ -1564,8 +1572,8 @@ class TestK8sWebAppSecrets:
         with open(path) as f:
             return f.read()
 
-    def test_web_and_jobrunner_expose_appsecretenv(self):
-        for path in (self.WEB, self.JOB):
+    def test_web_exposes_appsecretenv(self):
+        for path in (self.WEB,):
             c = self._read(path)
             assert "range .Values.appSecretEnv" in c, (
                 "%s must expose appSecretEnv keys" % os.path.basename(path))

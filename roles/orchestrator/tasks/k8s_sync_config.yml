@@ -13,7 +13,7 @@
 - name: Set K8s namespace and pod env allowlist
   ansible.builtin.set_fact:
     _k8s_namespace: "canasta-{{ instance_id }}"
-    # The subset of .env keys that should land in the web/jobrunner
+    # The subset of .env keys that should land in the web
     # pod's environment on K8s. Mirrors the Compose template's
     # `environment:` block for the web service. Secrets
     # (MYSQL_PASSWORD, MW_SECRET_KEY) are NOT in this list — they flow
@@ -96,7 +96,7 @@
   loop_control:
     label: "{{ item.path | regex_replace('^.*/config/settings/', 'settings/') }}"
 
-# Strip EVERY secret from the .env before embedding it in the web/jobrunner
+# Strip EVERY secret from the .env before embedding it in the web
 # ConfigMap (and, on gitops, the committed values). Pods receive secrets only
 # via secretKeyRef from K8s Secrets; this ConfigMap-backed /config/.env is
 # never sourced for them, so stripping the full secret surface is safe and
@@ -340,10 +340,10 @@
     - (_app_secrets_dict.variables | default({})) | length > 0
   no_log: true
 
-# Web/jobrunner secrets: config/secrets-web lists the app-secret keys (names
-# only) that should reach the web + jobrunner pods, set with
-# `config set --secret --web`. They render as secretKeyRef env on those pods
-# (deployment-web.yaml / deployment-jobrunner.yaml) via .Values.appSecretEnv.
+# Web secrets: config/secrets-web lists the app-secret keys (names only) that
+# should reach the web pods, set with `config set --secret --web`. They render
+# as secretKeyRef env on those pods (deployment-web.yaml) via
+# .Values.appSecretEnv.
 - name: Check for config/secrets-web
   ansible.builtin.stat:
     path: "{{ instance_path }}/config/secrets-web"

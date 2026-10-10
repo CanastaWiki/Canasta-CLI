@@ -4,8 +4,8 @@ nothing (the value lands in .env but never reaches the pods/containers).
 
 Each key in the "Maintenance scripts" group of canasta_known_keys must appear
 in the Compose web service `environment:` block AND in the K8s
-_k8s_pod_env_allowlist (which curates which .env keys reach the web/jobrunner
-pods via the env ConfigMap).
+_k8s_pod_env_allowlist (which curates which .env keys reach the web pods via
+the env ConfigMap).
 """
 
 import os

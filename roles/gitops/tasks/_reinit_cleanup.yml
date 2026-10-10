@@ -43,7 +43,9 @@
     state: absent
   loop:
     - Chart.yaml
+    - chart-defaults.yaml
     - templates
+    - files
     - values.template.yaml
     - values-configdata.yaml
     - values-sidecars.yaml
