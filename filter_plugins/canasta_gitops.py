@@ -1,4 +1,4 @@
-# Jinja filters for the Compose gitops flow.
+# Jinja filters for the gitops flows.
 #
 # Loaded via the `filter_plugins` path in ansible.cfg (role-local plugin
 # auto-discovery does not fire under include_role / include_tasks).
@@ -63,10 +63,56 @@ def canasta_wikis_template_ids(content):
     return _TEMPLATE_WIKI_ID.findall(str(content or ""))
 
 
+_ABSENT = object()
+
+
+def _refresh_values(values, base, shipped, former, path):
+    out = {}
+    for key in list(values) + [k for k in shipped if k not in values]:
+        here = "%s.%s" % (path, key) if path else str(key)
+        mine = values.get(key, _ABSENT)
+        old = base.get(key, _ABSENT) if isinstance(base, dict) else _ABSENT
+        new = shipped.get(key, _ABSENT)
+        if isinstance(mine, dict) and isinstance(new, dict):
+            out[key] = _refresh_values(
+                mine, old if isinstance(old, dict) else {}, new, former, here)
+        elif mine is _ABSENT:
+            out[key] = new
+        elif mine == old or mine in former.get(here, []):
+            if new is not _ABSENT:
+                out[key] = new
+        else:
+            out[key] = mine
+    return out
+
+
+def canasta_chart_values_refresh(values, shipped, base=None, former=None,
+                                 keep=None):
+    """Bring a gitops repo's values.yaml up to date with the shipped chart.
+
+    The repo's values.yaml carries a full copy of the chart defaults, because
+    Argo CD renders the repo itself as the chart. A value still equal to the
+    default the repo last took (`base`), or to a former default listed in
+    `former` (dotted path -> values), follows the shipped default, and is
+    dropped when the chart no longer has it. Anything else is the operator's
+    and is kept. Keys the chart added are filled in. Lists are compared whole.
+    Top-level keys in `keep` are left exactly as they are, or absent.
+    """
+    values = values or {}
+    keep = set(keep or [])
+    out = _refresh_values(values, base or {}, shipped or {}, former or {}, "")
+    for key in keep:
+        out.pop(key, None)
+        if key in values:
+            out[key] = values[key]
+    return out
+
+
 class FilterModule(object):
     def filters(self):
         return {
             "canasta_gitattributes_missing_rules":
                 canasta_gitattributes_missing_rules,
             "canasta_wikis_template_ids": canasta_wikis_template_ids,
+            "canasta_chart_values_refresh": canasta_chart_values_refresh,
         }

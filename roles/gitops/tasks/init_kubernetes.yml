@@ -276,17 +276,19 @@
     - not (force | default(false) | bool)
 
 # --- Copy Helm chart into instance directory ---
-- name: Copy Chart.yaml into instance directory
-  ansible.builtin.copy:
-    src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/Chart.yaml"
-    dest: "{{ instance_path }}/Chart.yaml"
-    mode: preserve
+- name: Copy the Helm chart into instance directory
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_chart.yml"
+  vars:
+    _sync_chart_dest: "{{ instance_path }}"
+    _sync_chart_values: false
 
-- name: Copy Helm templates into instance directory
+# The defaults merged into values.yaml below, so 'canasta upgrade' can tell
+# them from the operator's settings when the chart's defaults change.
+- name: Record the chart defaults values.yaml starts from
   ansible.builtin.copy:
-    src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/templates/"
-    dest: "{{ instance_path }}/templates/"
-    mode: preserve
+    src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/values.yaml"
+    dest: "{{ instance_path }}/chart-defaults.yaml"
+    mode: "0644"
 
 - name: Read instance values.yaml from remote
   ansible.builtin.slurp:
@@ -419,13 +421,7 @@
     content: |
       {{ lookup('file', role_path + '/files/gitignore.default') }}
 
-      # K8s-specific additions
-      _initdb/
-      docker-compose*.yml
-      my.cnf
-      scripts/
-      values-configdata.yaml
-      values-sidecars.yaml
+      {{ lookup('file', role_path + '/files/gitignore.kubernetes') }}
     dest: "{{ instance_path }}/.gitignore"
     mode: "0644"
 

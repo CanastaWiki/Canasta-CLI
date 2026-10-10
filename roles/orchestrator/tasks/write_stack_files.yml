@@ -6,6 +6,12 @@
 # instances created on an older version. All other files are no-clobber to
 # preserve operator-owned content (override, scripts, logstash configs).
 # Input: instance_path, instance_orchestrator, stack_files_force (bool)
+# Output: _k8s_chart_changed (bool), set on every call so the upgrade loop
+#         never reads the previous instance's value.
+
+- name: Reset the chart change signal
+  ansible.builtin.set_fact:
+    _k8s_chart_changed: false
 
 - name: Write Compose stack files
   when: instance_orchestrator | default('compose') == 'compose'
@@ -65,3 +71,23 @@
         dest: "{{ instance_path }}/values.yaml"
         force: false
         mode: "0644"
+
+# The chart a direct deploy renders. Refreshing it here, rather than only
+# inside the deploy, lets upgrade see a chart-only change and redeploy.
+# Kept out of the block above: facts set by an include inside a conditional
+# block do not reliably reach later tasks.
+- name: Refresh the instance's copy of the Helm chart
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_chart.yml"
+  vars:
+    _sync_chart_dest: "{{ instance_path }}/_chart"
+    _sync_chart_values: true
+  when:
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - stack_files_force | default(false) | bool
+
+- name: Record whether the chart changed
+  ansible.builtin.set_fact:
+    _k8s_chart_changed: "{{ _sync_chart_changed | bool }}"
+  when:
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - stack_files_force | default(false) | bool

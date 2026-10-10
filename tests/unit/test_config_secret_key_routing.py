@@ -124,7 +124,7 @@ def test_unset_secret_clears_both_files():
     assert web["path"].endswith("config/secrets-web")
     assert web["state"] == "absent", (
         "a key left in secrets-web still renders as secretKeyRef env on the "
-        "web and jobrunner pods")
+        "web pods")
 
 
 def test_unset_secret_does_not_validate_keys():

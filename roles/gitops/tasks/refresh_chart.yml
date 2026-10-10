@@ -1,0 +1,122 @@
+---
+# Bring a Kubernetes gitops repo's Helm chart up to date with the shipped one.
+# Argo CD renders the repo itself as the chart (Chart.yaml, templates/, files/
+# and values.yaml at the root), which 'gitops init' wrote once. Without this,
+# chart changes in later releases reach the cluster only through direct
+# deploys, and Argo CD's self-heal reverts them.
+#
+# values.yaml holds the operator's settings on top of a full copy of the chart
+# defaults. chart-defaults.yaml records the defaults that copy was taken from,
+# so a later refresh can tell an untouched default (moved to the new one) from
+# an operator's setting (kept).
+#
+# No-ops on Compose and non-gitops instances. Stages the result for the next
+# 'canasta gitops push'.
+#
+# Input: instance_path, canasta_root, instance_orchestrator.
+
+- name: Stat the gitops marker and repo chart
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ item }}"
+  loop:
+    - .gitops-host
+    - Chart.yaml
+  register: _rc_stats
+
+- name: Decide whether the repo carries a chart to refresh
+  ansible.builtin.set_fact:
+    _rc_applies: >-
+      {{ instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+         and _rc_stats.results[0].stat.exists | default(false)
+         and _rc_stats.results[1].stat.exists | default(false) }}
+
+- name: Read the repo's values.yaml and recorded chart defaults
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/{{ item }}"
+  loop:
+    - values.yaml
+    - chart-defaults.yaml
+    - values-configdata.yaml
+    - values-sidecars.yaml
+  register: _rc_reads
+  failed_when: false
+  when: _rc_applies | bool
+
+# 'gitops push' replaces the keys of values-configdata.yaml and
+# values-sidecars.yaml wholesale, so they are left for it to own.
+#
+# Repos written before chart-defaults.yaml existed don't record their
+# defaults. For them, a value counts as an untouched default only if it is a
+# default some earlier release shipped and moving off it is safe. The
+# elasticsearch 7.17.9 default is left out on purpose: its data directory
+# cannot be opened by the 7.10.2 that replaced it.
+- name: Refresh values.yaml against the shipped chart defaults
+  ansible.builtin.set_fact:
+    _rc_values: "{{ _rc_current }}"
+    _rc_new_values: >-
+      {{ _rc_current | canasta_chart_values_refresh(
+           _rc_shipped,
+           ((_rc_reads.results[1].content | b64decode | from_yaml)
+            if _rc_reads.results[1].content is defined else none),
+           ({} if _rc_reads.results[1].content is defined else {
+             'elasticsearch.image': ['elasticsearch:7.10.2'],
+             'crowdsec.image': ['crowdsecurity/crowdsec:v1.6.11'],
+           }),
+           _rc_reads.results[2:] | selectattr('content', 'defined')
+           | map(attribute='content') | map('b64decode') | map('from_yaml')
+           | map('default', {}, true) | map('list') | flatten) }}
+  vars:
+    _rc_current: "{{ _rc_reads.results[0].content | b64decode | from_yaml }}"
+    _rc_shipped: >-
+      {{ lookup('file', canasta_root ~ '/roles/orchestrator/files/helm/canasta/values.yaml')
+         | from_yaml }}
+  when: _rc_applies | bool
+
+- name: Write the refreshed values.yaml
+  ansible.builtin.copy:
+    content: "{{ _rc_new_values | to_nice_yaml(indent=2) }}"
+    dest: "{{ instance_path }}/values.yaml"
+    mode: "0644"
+  register: _rc_values_write
+  when:
+    - _rc_applies | bool
+    - _rc_new_values != _rc_values
+
+- name: Record the chart defaults the repo now follows
+  ansible.builtin.copy:
+    src: "{{ canasta_root }}/roles/orchestrator/files/helm/canasta/values.yaml"
+    dest: "{{ instance_path }}/chart-defaults.yaml"
+    mode: "0644"
+  register: _rc_defaults_write
+  when: _rc_applies | bool
+
+- name: Sync the shipped chart into the repo
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_chart.yml"
+  vars:
+    _sync_chart_dest: "{{ instance_path }}"
+    _sync_chart_values: false
+  when: _rc_applies | bool
+
+- name: Stage the refreshed chart
+  ansible.builtin.command:
+    cmd: "git add -A -- Chart.yaml templates files values.yaml chart-defaults.yaml"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when:
+    - _rc_applies | bool
+    - >-
+      _sync_chart_changed | bool
+      or _rc_values_write is changed
+      or _rc_defaults_write is changed
+
+- name: Report the pending gitops push
+  ansible.builtin.debug:
+    msg: >-
+      Staged the updated Helm chart in the gitops repo. Run
+      'canasta gitops push' so Argo CD deploys it.
+  when:
+    - _rc_applies | bool
+    - >-
+      _sync_chart_changed | bool
+      or _rc_values_write is changed
+      or _rc_defaults_write is changed
