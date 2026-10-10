@@ -43,10 +43,6 @@
       changed_when: false
       when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
 
-    - name: Report enrolling CrowdSec
-      ansible.builtin.debug:
-        msg: "CrowdSec is enabled — registering with the Central API and enrolling the Caddy bouncer..."
-
     - name: Ensure CrowdSec is registered with the Central API
       ansible.builtin.include_role:
         name: crowdsec
