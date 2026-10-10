@@ -136,6 +136,38 @@
     filter: ansible_env
   when: _k3s_uninstall_script | length > 0
 
+# `storage setup` records its class as the controller-wide default that
+# `create` inherits. Once the cluster holding that class is gone the default
+# names a class that no longer exists, so note now whether it is here.
+- name: Read the default storage class
+  canasta_registry:
+    state: get_setting
+    setting_key: defaultStorageClass
+  delegate_to: canasta_controller
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  register: _uninstall_default_sc
+  when: _k3s_role_label == 'control plane'
+
+- name: Check whether the default storage class is on this cluster
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - get
+      - storageclass
+      - "{{ _uninstall_default_sc.value }}"
+      - -o
+      - name
+  become: true
+  register: _uninstall_default_sc_here
+  changed_when: false
+  failed_when: false
+  when:
+    - _k3s_role_label == 'control plane'
+    - (_uninstall_default_sc.value | default('', true)) | length > 0
+
 - name: Uninstall k3s
   when: _k3s_uninstall_script | length > 0
   become: true
@@ -176,6 +208,22 @@
     - name: Report uninstalled
       ansible.builtin.debug:
         msg: "Kubernetes ({{ _k3s_role_label }}) uninstalled."
+
+- name: Clear the default storage class that was on this cluster
+  when: (_uninstall_default_sc_here.rc | default(1)) == 0
+  block:
+    - name: Clear the default storage class
+      canasta_registry:
+        state: set_setting
+        setting_key: defaultStorageClass
+      delegate_to: canasta_controller
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+    - name: Report default storage class cleared
+      ansible.builtin.debug:
+        msg: "Cleared default storage class '{{ _uninstall_default_sc.value }}'."
 
 - name: Withdraw NFS exports that followed this cluster
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/nfs_exports_remove.yml"
