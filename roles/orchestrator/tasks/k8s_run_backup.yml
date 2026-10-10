@@ -204,6 +204,25 @@
   ansible.builtin.set_fact:
     _backup_init_containers: []
 
+# The dump runs mariadb-dump from the Canasta image. Use the image the web
+# pods run: for a --build-from or custom image that is the in-cluster
+# registry's copy, which CANASTA_IMAGE in .env does not name.
+- name: Read the image the web pods run
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - get
+      - deployment
+      - "canasta-{{ instance_id }}-web"
+      - -n
+      - "{{ _k8s_namespace }}"
+      - -o
+      - 'jsonpath={.spec.template.spec.containers[?(@.name=="web")].image}'
+  register: _backup_web_image
+  changed_when: false
+  failed_when: false
+  when: _is_backup_op | bool
+
 - name: Build init containers for backup ops
   when: _is_backup_op | bool
   ansible.builtin.set_fact:
@@ -212,7 +231,10 @@
       # MYSQL_PASSWORD per #498. Internal-db falls back to the
       # 'db' / 'root' defaults baked into the script.
       - name: dump-databases
-        image: "{{ _backup_env.variables.CANASTA_IMAGE | default('ghcr.io/canastawiki/canasta:latest') }}"
+        image: >-
+          {{ (_backup_web_image.stdout | default('') | trim)
+             or (_backup_env.variables.CANASTA_IMAGE
+                 | default('ghcr.io/canastawiki/canasta:latest')) }}
         command:
           - sh
           - -c
