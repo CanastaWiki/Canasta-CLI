@@ -19,13 +19,14 @@
     path: "{{ instance_path }}/.gitops-host"
   register: _regen_gitops_stat
 
-# Capture literal config/wikis.yaml edits (e.g. display names) into
-# wikis.yaml.template before re-rendering, so regenerate preserves them
-# instead of overwriting them with the template's stale values.
-- name: Capture wikis.yaml edits into the gitops template
+# Make config/wikis.yaml and wikis.yaml.template agree before re-rendering,
+# whichever of the two was edited, so the render keeps the edit.
+- name: Sync wikis.yaml with its gitops template
   ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/gitops/tasks/_reconcile_wikis_template.yml
-  when: _regen_gitops_stat.stat.exists | default(false)
+    {{ canasta_root }}/roles/gitops/tasks/sync_wikis_yaml.yml
+  when:
+    - _regen_gitops_stat.stat.exists | default(false)
+    - instance_orchestrator | default('compose') == 'compose'
 
 # The orchestrator owns the compose-vs-K8s decision (K8s gitops uses a
 # different layout); dispatch.

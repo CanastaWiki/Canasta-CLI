@@ -1115,7 +1115,7 @@ class TestSubcommandGroupHelp:
         canasta_cli.print_subcommand_help("config", data)
         out = capsys.readouterr().out
         assert "regenerate" in out
-        assert "Regenerate rendered config" in out
+        assert "Rewrite generated config files" in out
 
     def test_prints_nested_group_marker_for_backup(self, data, capsys):
         canasta_cli.print_subcommand_help("backup", data)

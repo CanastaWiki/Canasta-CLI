@@ -584,25 +584,27 @@ commands:
         description: "Canasta instance ID"
 
   - name: reconcile
-    description: "Bring an instance's config and running containers back into agreement"
+    description: "Bring an instance's config files and running containers into agreement"
     long_description: |
-      Reconcile an instance to a consistent state without a disruptive
-      restart. Re-derives COMPOSE_PROFILES from the feature flags and
-      database mode, regenerates rendered config (e.g. the Caddyfile),
-      and converges the running containers with 'docker compose up -d' —
-      starting anything missing and recreating only what changed, with no
-      stop. Idempotent and safe to run anytime.
+      Make an instance consistent, without a full restart: its generated
+      config files match their sources, and its running containers match
+      its config files. Safe to run at any time, and the fix for drift
+      reported by 'canasta doctor'.
 
-      It is also how you apply local edits to an instance's configuration
-      (config/settings, wikis.yaml, .env) to the running instance without
-      a full restart: on Docker Compose it recreates only the changed
-      containers; on Kubernetes it re-syncs the ConfigMaps and runs
-      'helm upgrade', rolling only the pods whose config changed.
+      The most common use is applying edits to config/settings,
+      config/wikis.yaml, .env, or Caddyfile.site. On Docker Compose it
+      recreates only the containers whose configuration changed and
+      reloads Caddy; on Kubernetes it re-syncs the ConfigMaps and runs
+      'helm upgrade', rolling only the pods whose configuration changed.
+      It also regenerates the Caddyfile, re-derives COMPOSE_PROFILES from
+      the feature flags, and starts any containers that should be running
+      but are not.
 
-      This is the fix companion to 'canasta doctor': when doctor reports
-      config/runtime drift (profiles out of sync with the flags, a
-      container running unmanaged, search configured without its backend),
-      'canasta reconcile' applies the reconcilers to fix it.
+      On a gitops instance, config/wikis.yaml and wikis.yaml.template are
+      brought into agreement first: edit either one, and the other is
+      updated to match. If both were edited and disagree, reconcile stops
+      without changing either. Run 'canasta gitops push' afterwards to
+      share the change.
     examples:
       - "canasta reconcile"
       - "canasta reconcile --id mysite"
@@ -1306,13 +1308,21 @@ commands:
           config/secrets-web and exposed to the web pods via secretKeyRef.
 
   - name: config_regenerate
-    description: "Regenerate rendered config files (e.g. Caddyfile) from current sources"
+    description: "Rewrite generated config files from their sources, without applying them"
     long_description: |
-      Re-render the orchestrator's config files from the current .env
-      and wikis.yaml. Useful after 'canasta backup restore' (which
-      overwrites rendered files with the source host's copies) or
-      after any manual edit that left rendered state drifted from the
-      canonical sources.
+      Rewrite the files Canasta generates, without touching the running
+      instance. Run 'canasta restart' afterwards to apply them; to edit
+      configuration and apply it in one step, use 'canasta reconcile'
+      instead.
+
+      Always rewrites the Caddyfile from .env and config/wikis.yaml. On a
+      gitops instance it also rewrites .env from env.template and the
+      host vars (discarding any edits made directly to .env),
+      config/wikis.yaml from wikis.yaml.template (keeping an edit made to
+      either one, as reconcile does), and the admin password files.
+
+      Use it after editing env.template or a host's vars.yaml (including
+      hosts/_shared/vars.yaml) by hand, so .env picks up the change.
     examples:
       - "canasta config regenerate"
     playbook: config_regenerate.yml
