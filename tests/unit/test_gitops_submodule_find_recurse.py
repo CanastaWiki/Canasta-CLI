@@ -14,8 +14,13 @@ import os
 import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
+INIT_COMPOSE = os.path.join(
+    REPO_ROOT, "roles", "gitops", "tasks", "init_compose.yml")
+INIT_K8S = os.path.join(
+    REPO_ROOT, "roles", "gitops", "tasks", "init_kubernetes.yml")
 FILES = (
-    os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "init_compose.yml"),
+    INIT_COMPOSE,
+    INIT_K8S,
     os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "fix_submodules.yml"),
 )
 
@@ -78,3 +83,24 @@ class TestSubmoduleFindRecurses:
                     f"{os.path.basename(path)} task '{name}': "
                     f"expected depth 2, got {find.get('depth')!r}"
                 )
+
+
+def _tasks_by_name(path):
+    with open(path) as f:
+        return {t.get("name"): t for t in _walk_tasks(yaml.safe_load(f))}
+
+
+class TestKubernetesInitMatchesCompose:
+    NAMES = (
+        "Find git repos in extensions",
+        "Convert extension git repos to submodules",
+        "Find git repos in skins",
+        "Convert skin git repos to submodules",
+    )
+
+    def test_find_and_convert_tasks_are_identical(self):
+        compose = _tasks_by_name(INIT_COMPOSE)
+        k8s = _tasks_by_name(INIT_K8S)
+        for name in self.NAMES:
+            assert name in compose and name in k8s, name
+            assert k8s[name] == compose[name], name

@@ -39,9 +39,10 @@
 
     - name: Write updated values.yaml
       ansible.builtin.copy:
-        content: "{{ _upgrade_new_values | to_nice_yaml }}"
+        content: "{{ _upgrade_new_values | to_nice_yaml(indent=2) }}"
         dest: "{{ instance_path }}/values.yaml"
         mode: "0644"
+      when: _upgrade_new_values != _upgrade_values
 
     # Nothing pulls images on Kubernetes, so the upgrade's restart decision
     # needs to know the tag moved in order to roll the pods onto it.
