@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
 from canasta_gitops import (  # noqa: E402
     canasta_env_render as render,
     canasta_env_sync_plan as plan,
+    canasta_wiki_url_sync_plan as url_plan,
 )
 
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
@@ -125,6 +126,45 @@ class TestPlan:
             "HTTP_PORT": "8080"}
 
 
+WIKIS = (
+    "wikis:\n"
+    "- id: main\n"
+    "  url: wiki.example.com\n"
+    "  name: Main\n"
+    "- id: docs\n"
+    "  url: wiki.example.com/docs\n"
+    "  name: Docs\n"
+)
+URL_VARS = {"wiki_url_main": "wiki.example.com",
+            "wiki_url_docs": "wiki.example.com/docs"}
+
+
+class TestUrlPlan:
+    def test_in_agreement(self):
+        assert url_plan(WIKIS, URL_VARS, URL_VARS) == {"set": [], "conflict": []}
+
+    def test_url_edited_in_wikis_yaml_goes_to_the_vars(self):
+        live = WIKIS.replace("wiki.example.com/docs", "docs.example.com")
+        assert url_plan(live, URL_VARS, URL_VARS) == {
+            "set": [{"id": "docs", "url": "docs.example.com"}],
+            "conflict": []}
+
+    def test_url_edited_in_the_vars_is_left_for_the_render(self):
+        new = dict(URL_VARS, wiki_url_docs="docs.example.com")
+        assert url_plan(WIKIS, new, URL_VARS) == {"set": [], "conflict": []}
+
+    def test_different_edits_on_both_sides_conflict(self):
+        live = WIKIS.replace("wiki.example.com/docs", "a.example.com")
+        new = dict(URL_VARS, wiki_url_docs="b.example.com")
+        assert url_plan(live, new, URL_VARS) == {
+            "set": [], "conflict": ["docs"]}
+
+    def test_no_baseline_live_wins(self):
+        live = WIKIS.replace("wiki.example.com/docs", "docs.example.com")
+        assert url_plan(live, URL_VARS, None)["set"] == [
+            {"id": "docs", "url": "docs.example.com"}]
+
+
 def _load(path):
     with open(path) as f:
         return yaml.safe_load(f) or []
@@ -144,10 +184,17 @@ class TestWiring:
         assert any("_update_gitops_vars.yml" in i for i in includes)
         assert any("_remove_gitops_vars.yml" in i for i in includes)
 
+    def test_url_edits_go_through_the_config_set_task(self):
+        task = next(t for t in _load(SYNC)
+                    if t.get("name") == "Write wiki url edits into the host vars")
+        assert "_update_gitops_wiki_url.yml" in _include(task)
+        assert task["loop_control"]["loop_var"] == "_gw_wiki"
+
     def test_values_are_never_logged(self):
         for t in _load(SYNC):
             if t.get("name") in ("Read the .env sources now and as staged",
                                  "Read the live .env for the sync",
+                                 "Compare the wiki urls with the host vars",
                                  "Compare .env with its sources"):
                 assert t.get("no_log") is True, t["name"]
 

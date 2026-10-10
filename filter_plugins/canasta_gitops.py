@@ -249,6 +249,39 @@ def canasta_env_sync_plan(live, template, env_vars, base_template=None,
     return plan
 
 
+def canasta_wiki_url_sync_plan(live_wikis, env_vars, base_vars=None):
+    """Decide which config/wikis.yaml urls to write into the host vars.
+
+    On a gitops instance each wiki's url is rendered from its
+    ``wiki_url_<id>`` var, which wikis.yaml.template references. A url
+    edited only in config/wikis.yaml goes into the vars (``set``, a list of
+    ``{id, url}``); one edited only in the vars is left for the render;
+    edits to both that disagree are a ``conflict``. ``base_vars`` are the
+    vars as staged; with none, the live file wins.
+    """
+    try:
+        doc = yaml.safe_load(str(live_wikis or "")) or {}
+    except yaml.YAMLError:
+        doc = {}
+    wikis = (doc.get("wikis") if isinstance(doc, dict) else None) or []
+    env_vars = env_vars or {}
+    base_vars = env_vars if base_vars is None else base_vars
+    plan = {"set": [], "conflict": []}
+    for wiki in wikis:
+        if not isinstance(wiki, dict) or not wiki.get("id") or not wiki.get("url"):
+            continue
+        key = "wiki_url_%s" % wiki["id"]
+        mine, current, old = (str(wiki["url"]), env_vars.get(key),
+                              base_vars.get(key))
+        if mine == current or mine == old:
+            continue
+        if current == old:
+            plan["set"].append({"id": str(wiki["id"]), "url": mine})
+        else:
+            plan["conflict"].append(str(wiki["id"]))
+    return plan
+
+
 class FilterModule(object):
     def filters(self):
         return {
@@ -261,4 +294,5 @@ class FilterModule(object):
             "canasta_chart_values_refresh": canasta_chart_values_refresh,
             "canasta_env_render": canasta_env_render,
             "canasta_env_sync_plan": canasta_env_sync_plan,
+            "canasta_wiki_url_sync_plan": canasta_wiki_url_sync_plan,
         }

@@ -1,6 +1,7 @@
 ---
-# Write direct .env edits into the gitops sources, so the next render keeps
-# them instead of reverting them.
+# Write direct .env edits, and wiki urls edited in config/wikis.yaml, into
+# the gitops sources, so the next render keeps them instead of reverting
+# them.
 #
 # Each key of .env is compared with the render of the current sources
 # (env.template + host vars) and with the render of the sources as staged
@@ -29,6 +30,7 @@
     _sync_env_active: >-
       {{ _sync_env_stats.results | map(attribute='stat.exists') | min }}
     _sync_env_plan: {}
+    _sync_url_plan: {}
 
 - name: Stop on a locked git-crypt checkout
   ansible.builtin.include_tasks: _detect_gitcrypt_lock.yml
@@ -70,6 +72,30 @@
   no_log: true  # .env holds passwords
   when: _sync_env_active | bool
 
+- name: Read config/wikis.yaml for the url sync
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/wikis.yaml"
+  register: _sync_url_live_raw
+  failed_when: false
+  when: _sync_env_active | bool
+
+# A wiki's url is rendered from its wiki_url_<id> var, not from
+# wikis.yaml.template, so the wikis.yaml sync leaves it to this one.
+- name: Compare the wiki urls with the host vars
+  ansible.builtin.set_fact:
+    _sync_url_plan: >-
+      {{ (_sync_url_live_raw.content | default('') | b64decode)
+         | canasta_wiki_url_sync_plan(
+             (_src[2] | b64decode | from_yaml or {})
+             | combine(_src[1] | b64decode | from_yaml or {}),
+             ((_src[5] | b64decode | from_yaml or {})
+              | combine(_src[4] | b64decode | from_yaml or {}))
+             if (_src[4] | length or _src[5] | length) else none) }}
+  vars:
+    _src: "{{ _sync_env_sources.stdout_lines }}"
+  no_log: true  # registers the host vars
+  when: _sync_env_active | bool
+
 - name: Compare .env with its sources
   ansible.builtin.set_fact:
     _sync_env_plan: >-
@@ -85,6 +111,16 @@
     _src: "{{ _sync_env_sources.stdout_lines }}"
   no_log: true  # the plan carries the edited values
   when: _sync_env_active | bool
+
+- name: Fail when a wiki url was edited in both places
+  ansible.builtin.fail:
+    msg: >-
+      The url of wiki {{ _sync_url_plan.conflict | join(', ') }} was
+      changed both in config/wikis.yaml and in the host's vars.yaml
+      (wiki_url_<id>), to different values. Make the change in one place,
+      restore the other (git checkout -- hosts/ restores the vars), then
+      retry.
+  when: _sync_url_plan.conflict | default([]) | length > 0
 
 - name: Fail when .env and its sources were both edited
   ansible.builtin.fail:
@@ -129,6 +165,24 @@
   vars:
     _config_unset_keys: "{{ _sync_env_plan.unset }}"
   when: _sync_env_plan.unset | default([]) | length > 0
+
+- name: Write wiki url edits into the host vars
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/config/tasks/_update_gitops_wiki_url.yml
+  vars:
+    _config_host_raw: "{{ _sync_env_host_raw }}"
+  loop: "{{ _sync_url_plan.set | default([]) }}"
+  loop_control:
+    loop_var: _gw_wiki
+    label: "{{ _gw_wiki.id }}"
+
+- name: Report the wiki urls written into the host vars
+  ansible.builtin.debug:
+    msg: >-
+      Saved the config/wikis.yaml url of
+      {{ _sync_url_plan.set | map(attribute='id') | join(', ') }}
+      in the gitops sources.
+  when: _sync_url_plan.set | default([]) | length > 0
 
 - name: Report the .env edits written into the gitops sources
   ansible.builtin.debug:
