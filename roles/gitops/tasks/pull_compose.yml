@@ -23,6 +23,10 @@
 - name: Sync wikis.yaml with its gitops template
   ansible.builtin.include_tasks: "sync_wikis_yaml.yml"
 
+# Likewise for direct .env edits, which the .env render would overwrite.
+- name: Write .env edits into the gitops sources
+  ansible.builtin.include_tasks: "sync_env.yml"
+
 # --- Step 1: Check for uncommitted changes ---
 # Only tracked files are a hazard: a pull can overwrite a locally modified
 # tracked file. Untracked files cannot be clobbered unless an incoming commit

@@ -6,7 +6,7 @@ must be captured back into the template, or it is dropped on the next
 render and never reaches other hosts. A shared reconcile task does that
 capture; these tests assert it exists, keeps `name` a literal while
 `url` stays a placeholder, and is wired into init, `gitops add`, and
-`config regenerate` in the right order.
+`canasta reconcile` in the right order.
 """
 
 import json
@@ -21,7 +21,8 @@ GITOPS_TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 RECONCILE = os.path.join(GITOPS_TASKS, "_reconcile_wikis_template.yml")
 INIT_COMPOSE = os.path.join(GITOPS_TASKS, "init_compose.yml")
 ADD_YML = os.path.join(GITOPS_TASKS, "add.yml")
-REGENERATE = os.path.join(REPO_ROOT, "playbooks", "config_regenerate.yml")
+LIFECYCLE_RECONCILE = os.path.join(REPO_ROOT, "roles", "instance_lifecycle",
+                                   "tasks", "reconcile.yml")
 
 RECONCILE_INCLUDE = "_reconcile_wikis_template.yml"
 SYNC_INCLUDE = "sync_wikis_yaml.yml"
@@ -200,8 +201,8 @@ class TestWiring:
             "changed it, or a regenerate-then-add leaves the edit unstaged"
         )
 
-    def test_regenerate_syncs_before_rerender(self):
-        raw = _flat_text(REGENERATE)
+    def test_reconcile_syncs_before_rerender(self):
+        raw = _flat_text(LIFECYCLE_RECONCILE)
         sync_idx = next(
             (i for i, t in enumerate(raw)
              if isinstance(t, dict) and SYNC_INCLUDE in _include_path(t)),
@@ -212,12 +213,12 @@ class TestWiring:
              if isinstance(t, dict) and "render_gitops_config.yml" in _include_path(t)),
             None,
         )
-        assert sync_idx is not None, "regenerate must sync wikis.yaml edits"
+        assert sync_idx is not None, "reconcile must sync wikis.yaml edits"
         assert render_idx is not None
         assert sync_idx < render_idx, (
-            "sync must run before re-render or regenerate clobbers the edit"
+            "sync must run before re-render or the render clobbers the edit"
         )
         assert not any(
             isinstance(t, dict) and RECONCILE_INCLUDE in _include_path(t)
             for t in raw
-        ), "regenerate must not capture unconditionally; that drops template edits"
+        ), "reconcile must not capture unconditionally; that drops template edits"

@@ -1,10 +1,10 @@
-"""Regression guard: `canasta config regenerate` must not take down a
-gitops Compose instance.
+"""Regression guard: re-rendering a gitops Compose instance's files must not
+take it down.
 
 Two structural invariants:
 
-  * config_regenerate.yml must reconcile COMPOSE_PROFILES (sync_compose_profiles)
-    AFTER re-rendering the gitops templates — exactly as gitops pull does. The
+  * reconcile must re-derive COMPOSE_PROFILES (sync_compose_profiles) AFTER
+    re-rendering the gitops templates — exactly as gitops pull does. The
     .env is re-rendered verbatim from env.template, which has no
     COMPOSE_PROFILES line, so without the reconcile the render drops the
     profiles and a later down/up won't start the database / feature containers.
@@ -19,7 +19,8 @@ import os
 import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-CONFIG_REGEN = os.path.join(REPO_ROOT, "playbooks", "config_regenerate.yml")
+RECONCILE = os.path.join(REPO_ROOT, "roles", "instance_lifecycle", "tasks",
+                         "reconcile.yml")
 RENDER_COMPOSE = os.path.join(
     REPO_ROOT, "roles", "gitops", "tasks", "render_compose.yml")
 
@@ -43,9 +44,9 @@ def _include(t):
     return t.get("ansible.builtin.include_tasks") or t.get("include_tasks") or ""
 
 
-class TestConfigRegenerateProfiles:
+class TestReconcileProfiles:
     def test_profiles_reconciled_after_render(self):
-        tasks = _load(CONFIG_REGEN)
+        tasks = _load(RECONCILE)
         render_i = sync_i = -1
         for i, t in enumerate(tasks):
             inc = _include(t)
@@ -54,9 +55,9 @@ class TestConfigRegenerateProfiles:
             if "sync_compose_profiles" in inc:
                 sync_i = i
         assert render_i >= 0, (
-            "config_regenerate.yml must re-render the gitops templates")
+            "reconcile.yml must re-render the gitops templates")
         assert sync_i > render_i, (
-            "config_regenerate.yml must reconcile COMPOSE_PROFILES "
+            "reconcile.yml must re-derive COMPOSE_PROFILES "
             "(sync_compose_profiles) AFTER the render, like gitops pull, or the "
             "render drops the profile set")
 
