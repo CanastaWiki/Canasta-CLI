@@ -188,10 +188,12 @@
 # Create wikis.yaml.template for a gitops instance that lacks it (e.g. a
 # Go-CLI-era repo predating the template). Without it the wikis.yaml
 # reconcile/advisory machinery is inert. No-ops on non-gitops instances
-# and when the template already exists.
+# and when the template already exists. Compose only: a Kubernetes gitops
+# repo does not track the template, so creating it there leaves it untracked.
 - name: Backfill gitops wikis.yaml.template if missing
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/backfill_wikis_template.yml
+  when: instance_orchestrator | default('compose') == 'compose'
 
 # Create my.cnf.template for a gitops instance that lacks it. my.cnf is
 # host-specific (innodb_buffer_pool_size must fit the host's RAM), so a
