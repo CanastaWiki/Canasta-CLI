@@ -1,0 +1,155 @@
+---
+# Write direct .env edits into the gitops sources, so the next render keeps
+# them instead of reverting them.
+#
+# Each key of .env is compared with the render of the current sources
+# (env.template + host vars) and with the render of the sources as staged
+# in the git index, which is where .env and the sources last agreed: every
+# write the CLI makes to the sources stages them, and so does this sync. A
+# key edited only in .env is written into the sources, the way 'canasta
+# config set' writes it, and a key deleted from .env is removed from them.
+# A key edited only in the sources is left for the render that follows.
+# Edits to both that disagree stop the run rather than drop one.
+#
+# A no-op unless this is a Compose gitops instance with an env.template.
+#
+# Input: instance_path.
+
+- name: Stat the gitops files for the .env sync
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ item }}"
+  loop:
+    - .gitops-host
+    - env.template
+    - .env
+  register: _sync_env_stats
+
+- name: Decide whether .env has gitops sources
+  ansible.builtin.set_fact:
+    _sync_env_active: >-
+      {{ _sync_env_stats.results | map(attribute='stat.exists') | min }}
+    _sync_env_plan: {}
+
+- name: Stop on a locked git-crypt checkout
+  ansible.builtin.include_tasks: _detect_gitcrypt_lock.yml
+  when: _sync_env_active | bool
+
+- name: Read the host name for the .env sync
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-host"
+  register: _sync_env_host_raw
+  when: _sync_env_active | bool
+
+# One base64 line per file: env.template, the host's vars.yaml, the shared
+# vars.yaml, first as they are now and then as staged. A file that does not
+# exist is an empty line; the closing line keeps trailing empty lines from
+# being stripped. --filters decrypts git-crypt paths.
+- name: Read the .env sources now and as staged
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      host={{ _sync_env_host_raw.content | b64decode | trim | quote }}
+      for f in env.template "hosts/$host/vars.yaml" hosts/_shared/vars.yaml; do
+        if [ -f "$f" ]; then base64 < "$f" | tr -d '\n'; fi; echo
+      done
+      for f in env.template "hosts/$host/vars.yaml" hosts/_shared/vars.yaml; do
+        git cat-file --filters ":$f" 2>/dev/null | base64 | tr -d '\n'; echo
+      done
+      echo end
+    chdir: "{{ instance_path }}"
+    executable: /bin/bash
+  register: _sync_env_sources
+  changed_when: false
+  no_log: true  # host vars hold passwords
+  when: _sync_env_active | bool
+
+- name: Read the live .env for the sync
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.env"
+  register: _sync_env_live_raw
+  no_log: true  # .env holds passwords
+  when: _sync_env_active | bool
+
+- name: Compare .env with its sources
+  ansible.builtin.set_fact:
+    _sync_env_plan: >-
+      {{ (_sync_env_live_raw.content | b64decode)
+         | canasta_env_sync_plan(
+             _src[0] | b64decode,
+             (_src[2] | b64decode | from_yaml or {})
+             | combine(_src[1] | b64decode | from_yaml or {}),
+             _src[3] | b64decode,
+             (_src[5] | b64decode | from_yaml or {})
+             | combine(_src[4] | b64decode | from_yaml or {})) }}
+  vars:
+    _src: "{{ _sync_env_sources.stdout_lines }}"
+  no_log: true  # the plan carries the edited values
+  when: _sync_env_active | bool
+
+- name: Fail when .env and its sources were both edited
+  ansible.builtin.fail:
+    msg: >-
+      {{ _sync_env_plan.conflict | join(', ') }}
+      {{ 'was' if _sync_env_plan.conflict | length == 1 else 'were' }}
+      changed both in .env and in env.template or the host's vars.yaml,
+      to different values. Make each change in one place, restore the
+      other (git checkout -- env.template hosts/ restores the sources),
+      then retry.
+  when: _sync_env_plan.conflict | default([]) | length > 0
+
+# config set passes settings as one space-separated string, so a value with
+# whitespace cannot go through it.
+- name: Fail when an edited .env value contains whitespace
+  ansible.builtin.fail:
+    msg: >-
+      The .env value of
+      {{ _sync_env_spaced | join(', ') }} contains whitespace, so it
+      cannot be written into the gitops sources. Set it in env.template
+      or the host's vars.yaml instead, then retry.
+  vars:
+    _sync_env_spaced: >-
+      {{ _sync_env_plan.set | default({}) | dict2items
+         | selectattr('value', 'search', '\s') | map(attribute='key') | list }}
+  when: _sync_env_spaced | length > 0
+
+- name: Write .env edits into the gitops sources
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/config/tasks/_update_gitops_vars.yml
+  vars:
+    _config_settings: >-
+      {{ _sync_env_plan.set | dict2items
+         | map(attribute='key')
+         | zip(_sync_env_plan.set | dict2items | map(attribute='value'))
+         | map('join', '=') | join(' ') }}
+  when: _sync_env_plan.set | default({}) | length > 0
+
+- name: Remove keys deleted from .env from the gitops sources
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/config/tasks/_remove_gitops_vars.yml
+  vars:
+    _config_unset_keys: "{{ _sync_env_plan.unset }}"
+  when: _sync_env_plan.unset | default([]) | length > 0
+
+- name: Report the .env edits written into the gitops sources
+  ansible.builtin.debug:
+    msg: >-
+      Saved .env changes to
+      {{ ((_sync_env_plan.set | default({}) | list)
+          + (_sync_env_plan.unset | default([]))) | sort | join(', ') }}
+      in the gitops sources.
+  when: >-
+    (_sync_env_plan.set | default({}) | length
+     + _sync_env_plan.unset | default([]) | length) > 0
+
+# .env and its sources now agree, apart from source edits the render that
+# follows applies. Stage the sources so the index records that agreement.
+- name: Stage the .env sources
+  ansible.builtin.shell:
+    cmd: >-
+      git add --
+      $(ls env.template
+      hosts/{{ _sync_env_host_raw.content | b64decode | trim | quote }}/vars.yaml
+      hosts/_shared/vars.yaml 2>/dev/null)
+    chdir: "{{ instance_path }}"
+  changed_when: false
+  when: _sync_env_active | bool

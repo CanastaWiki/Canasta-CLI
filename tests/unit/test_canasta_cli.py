@@ -142,15 +142,6 @@ class TestBuildParser:
         args = parser.parse_args(["config", "get", "-i", "mysite"])
         assert args.keys == []
 
-    def test_config_regenerate_subcommand(self, parser):
-        args = parser.parse_args(
-            ["config", "regenerate", "-i", "mysite"],
-        )
-        assert args.command == "config"
-        assert args.subcommand == "regenerate"
-        assert args.id == "mysite"
-        assert canasta_cli.resolve_command_name(args) == "config_regenerate"
-
     def test_short_flags(self, parser):
         args = parser.parse_args(["create", "-i", "mysite", "-w", "main",
                                    "-n", "example.com"])
@@ -1114,8 +1105,8 @@ class TestSubcommandGroupHelp:
     def test_prints_subcommands_for_config(self, data, capsys):
         canasta_cli.print_subcommand_help("config", data)
         out = capsys.readouterr().out
-        assert "regenerate" in out
-        assert "Rewrite generated config files" in out
+        assert "refresh-template" in out
+        assert "regenerate" not in out
 
     def test_prints_nested_group_marker_for_backup(self, data, capsys):
         canasta_cli.print_subcommand_help("backup", data)

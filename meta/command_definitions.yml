@@ -600,11 +600,15 @@ commands:
       the feature flags, and starts any containers that should be running
       but are not.
 
-      On a gitops instance, config/wikis.yaml and wikis.yaml.template are
-      brought into agreement first: edit either one, and the other is
-      updated to match. If both were edited and disagree, reconcile stops
-      without changing either. Run 'canasta gitops push' afterwards to
-      share the change.
+      On a gitops instance, each generated file and its sources are
+      brought into agreement first, whichever one was edited:
+      config/wikis.yaml with wikis.yaml.template, and .env with
+      env.template and the host's vars.yaml. An edit to .env is written
+      into the sources the way 'canasta config set' writes it; an edit to
+      the sources is rendered into .env, config/wikis.yaml, my.cnf and the
+      admin password files. If the same setting was edited on both sides
+      and they disagree, reconcile stops without changing either. Run
+      'canasta gitops push' afterwards to share the change.
     examples:
       - "canasta reconcile"
       - "canasta reconcile --id mysite"
@@ -1315,31 +1319,6 @@ commands:
           docker-compose.web-env.yml. On Kubernetes it is listed in
           config/secrets-web and exposed to the web pods via secretKeyRef.
 
-  - name: config_regenerate
-    description: "Rewrite generated config files from their sources, without applying them"
-    long_description: |
-      Rewrite the files Canasta generates, without touching the running
-      instance. Run 'canasta restart' afterwards to apply them; to edit
-      configuration and apply it in one step, use 'canasta reconcile'
-      instead.
-
-      Always rewrites the Caddyfile from .env and config/wikis.yaml. On a
-      gitops instance it also rewrites .env from env.template and the
-      host vars (discarding any edits made directly to .env),
-      config/wikis.yaml from wikis.yaml.template (keeping an edit made to
-      either one, as reconcile does), and the admin password files.
-
-      Use it after editing env.template or a host's vars.yaml (including
-      hosts/_shared/vars.yaml) by hand, so .env picks up the change.
-    examples:
-      - "canasta config regenerate"
-    playbook: config_regenerate.yml
-    parameters:
-      - name: id
-        short: i
-        type: string
-        description: "Canasta instance ID"
-
   - name: config_refresh_template
     description: "List, diff, or adopt template versions of seeded config files"
     long_description: |
@@ -1355,7 +1334,7 @@ commands:
       the current template. With one or more files it shows the diff but
       changes nothing; add --yes to overwrite, so review the diff first
       (your local edits to that file are replaced). Rendered files (.env,
-      wikis.yaml, Caddyfile) belong to 'config regenerate' and per-wiki
+      wikis.yaml, Caddyfile) belong to 'canasta reconcile' and per-wiki
       Settings.php is user-owned; neither is touched here.
     examples:
       - "canasta config refresh-template"

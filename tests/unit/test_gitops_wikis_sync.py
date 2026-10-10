@@ -1,6 +1,6 @@
 """Tests for syncing config/wikis.yaml with wikis.yaml.template.
 
-Editing either file and running reconcile, config regenerate, or gitops pull
+Editing either file and running reconcile or gitops pull
 must leave the two in agreement without discarding the edit: the side that
 differs from the last-applied template is the one that was edited.
 """
@@ -118,6 +118,15 @@ class TestWiring:
     def test_sync_has_no_conditional_block(self):
         assert not any("block" in t for t in _load(SYNC)), (
             "sync_wikis_yaml.yml includes tasks; keep it flat")
+
+    def test_baseline_is_the_index_and_the_template_is_staged(self):
+        tasks = _load(SYNC)
+        read = next(t for t in tasks
+                    if t.get("name") == "Read the template as staged")
+        assert read["ansible.builtin.shell"]["cmd"].startswith(
+            "git show :wikis.yaml.template")
+        assert tasks[-1]["ansible.builtin.command"]["cmd"] == (
+            "git add -- wikis.yaml.template")
 
     def test_reconcile_syncs_before_regenerating_config(self):
         tasks = _load(RECONCILE)

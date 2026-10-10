@@ -47,6 +47,32 @@
     {{ canasta_root }}/roles/gitops/tasks/sync_wikis_yaml.yml
   when: instance_orchestrator | default('compose') == 'compose'
 
+- name: Write .env edits into the gitops sources
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/sync_env.yml
+  when: instance_orchestrator | default('compose') == 'compose'
+
+# With every edit now in the sources, render .env, wikis.yaml, my.cnf,
+# media-hosts.yaml and the admin password files from them, so an edit made
+# to the sources (env.template or a host's vars.yaml) is applied too.
+- name: Check for a gitops checkout
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _reconcile_gitops_host
+
+- name: Render the gitops files from their sources
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/render_gitops_config.yml
+  when: _reconcile_gitops_host.stat.exists
+
+# env.template has no COMPOSE_PROFILES line, so the render drops it.
+- name: Re-derive COMPOSE_PROFILES after the render
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
+  when:
+    - _reconcile_gitops_host.stat.exists
+    - instance_orchestrator | default('compose') == 'compose'
+
 # Regenerate rendered config (e.g. the Caddyfile from the current wikis.yaml)
 # so the converge below picks up drift between sources and rendered state.
 - name: Regenerate config

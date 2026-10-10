@@ -2,8 +2,9 @@
 # Bring config/wikis.yaml and wikis.yaml.template into agreement, whichever
 # one was edited.
 #
-# Both are compared with the template as last applied to this host (the
-# .gitops-applied commit, else HEAD): an edited template is rendered into
+# Both are compared with the template as staged in the git index, which is
+# where they last agreed: this sync stages the template whenever it brings
+# them into agreement. An edited template is rendered into
 # config/wikis.yaml, keeping this host's urls; an edited config/wikis.yaml
 # is captured into the template; edits to both that disagree stop the run
 # rather than drop one. url is per-host and is not compared.
@@ -39,13 +40,9 @@
   register: _sync_wikis_tmpl_raw
   when: _sync_wikis_live_stat.stat.exists and _sync_wikis_tmpl_stat.stat.exists
 
-- name: Read the template as last applied
+- name: Read the template as staged
   ansible.builtin.shell:
-    cmd: >-
-      applied=$(cat .gitops-applied 2>/dev/null);
-      git show "${applied:-HEAD}:wikis.yaml.template" 2>/dev/null
-      || git show HEAD:wikis.yaml.template 2>/dev/null
-      || true
+    cmd: "git show :wikis.yaml.template 2>/dev/null || true"
     chdir: "{{ instance_path }}"
   register: _sync_wikis_base
   changed_when: false
@@ -84,3 +81,10 @@
     dest: "{{ instance_path }}/config/wikis.yaml"
     mode: "0644"
   when: _sync_wikis_action == 'render'
+
+- name: Stage the template once it agrees with config/wikis.yaml
+  ansible.builtin.command:
+    cmd: git add -- wikis.yaml.template
+    chdir: "{{ instance_path }}"
+  changed_when: false
+  when: _sync_wikis_live_stat.stat.exists and _sync_wikis_tmpl_stat.stat.exists

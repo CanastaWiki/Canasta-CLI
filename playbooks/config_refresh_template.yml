@@ -7,7 +7,7 @@
 # create and then owned by the user, so upgrade never changes them. This
 # adopts the current shipped version for a named file, or restores one that
 # was deleted. Rendered files (.env, wikis.yaml, Caddyfile) belong to
-# 'config regenerate' and per-wiki Settings.php is user-owned; neither is
+# 'canasta reconcile' and per-wiki Settings.php is user-owned; neither is
 # touched here.
 
 - name: Resolve instance

@@ -933,18 +933,18 @@ def test_reconcile(inst):
     # inode for its whole lifetime, and the reload then applies nothing —
     # silently, because caddy validate in the container reads the same
     # stale inode. Assert what the container can actually see.
-    print("Changing the Caddyfile source and regenerating...")
+    print("Changing the Caddyfile source and reconciling...")
     global_path = os.path.join(inst.instance_path(), "config",
                                "Caddyfile.global")
     with open(global_path, "a") as f:
         f.write("\n{\n\tservers {\n\t\ttimeouts {\n"
                 "\t\t\tidle 47s\n\t\t}\n\t}\n}\n")
-    inst.run_ok("config", "regenerate", "-i", inst.id)
+    inst.run_ok("reconcile", "-i", inst.id)
 
     host_caddyfile = os.path.join(inst.instance_path(), "config", "Caddyfile")
     with open(host_caddyfile) as f:
         host_text = f.read()
-    assert "idle 47s" in host_text, "the regenerate did not pick up the edit"
+    assert "idle 47s" in host_text, "the reconcile did not pick up the edit"
 
     container_text = inst.run_quiet(
         "maintenance", "exec", "-i", inst.id, "-s", "caddy",
@@ -956,8 +956,7 @@ def test_reconcile(inst):
         "apply nothing"
     )
 
-    print("Verifying reconcile's reload applies it to the running Caddy...")
-    inst.run_ok("reconcile", "-i", inst.id)
+    print("Verifying reconcile's reload applied it to the running Caddy...")
     running = inst.run_quiet(
         "maintenance", "exec", "-i", inst.id, "-s", "caddy",
         "sh", "-c", "wget -qO- http://127.0.0.1:2019/config/",
@@ -2632,13 +2631,12 @@ def test_config_set_gitops(inst):
 
 
 def test_config_set_gitops_domain(inst):
-    """config set MW_SITE_FQDN must survive config regenerate under gitops.
+    """config set MW_SITE_FQDN must survive a gitops render under reconcile.
 
     The side effects of a domain change derive MW_SITE_FQDN/MW_SITE_SERVER
     and rewrite wiki URLs in the rendered .env/config/wikis.yaml. Those
     derived values must also be propagated to hosts/<host>/vars.yaml, or
-    the next 'config regenerate' re-renders the files from the templates
-    and silently reverts the change.
+    the next render from the templates silently reverts the change.
     """
     if shutil.which("git-crypt") is None:
         raise SkipTest("git-crypt not installed")
@@ -2676,10 +2674,15 @@ def test_config_set_gitops_domain(inst):
         "MW_SITE_FQDN=%s" % new_domain, "--no-restart",
     )
 
-    print("Regenerating config from gitops source of truth...")
-    inst.run_ok("config", "regenerate", "-i", inst.id)
+    print("Reconciling config from the gitops sources...")
+    out = inst.run_ok("reconcile", "-i", inst.id)
+    # reconcile writes .env edits missing from the sources back into them,
+    # which would hide a config set that never reached them.
+    assert "Saved .env changes" not in out, (
+        "config set left .env ahead of the gitops sources:\n%s" % out
+    )
 
-    # After regenerate the rendered files are re-derived from vars.yaml /
+    # After reconcile the rendered files are re-derived from vars.yaml /
     # templates. If the config set change reached the gitops source of
     # truth the new domain survives; otherwise it reverts to localhost.
     inst_path = inst.instance_path()
@@ -2689,14 +2692,14 @@ def test_config_set_gitops_domain(inst):
         wikis = yaml.safe_load(f)["wikis"]
     primary_url = wikis[0]["url"]
     assert primary_url.startswith(new_domain), (
-        "wikis.yaml primary url reverted after regenerate: %s" % primary_url
+        "wikis.yaml primary url reverted after reconcile: %s" % primary_url
     )
 
     print("Verifying Caddyfile kept the new domain...")
     with open(os.path.join(inst_path, "config", "Caddyfile")) as f:
         caddyfile = f.read()
     assert new_domain in caddyfile, (
-        "Caddyfile reverted after regenerate (no %s):\n%s"
+        "Caddyfile reverted after reconcile (no %s):\n%s"
         % (new_domain, caddyfile)
     )
 
@@ -2716,15 +2719,14 @@ def test_config_set_gitops_domain(inst):
 
 
 def test_config_set_gitops_port(inst):
-    """config set HTTP_PORT must survive config regenerate under gitops.
+    """config set HTTP_PORT must survive a gitops render under reconcile.
 
     Mirrors test_config_set_gitops_domain for a port change. Changing the
     active port (HTTP_PORT here, since the test env runs CADDY_AUTO_HTTPS=off)
     derives MW_SITE_FQDN/MW_SITE_SERVER and rewrites wiki URLs in the rendered
     .env/config/wikis.yaml with the new port suffix. Those derived values plus
     the raw http_port must reach hosts/<host>/vars.yaml, or the next
-    'config regenerate' re-renders the files from the templates and silently
-    drops the port.
+    render from the templates silently drops the port.
     """
     if shutil.which("git-crypt") is None:
         raise SkipTest("git-crypt not installed")
@@ -2762,10 +2764,15 @@ def test_config_set_gitops_port(inst):
         "HTTP_PORT=%s" % new_port, "--no-restart",
     )
 
-    print("Regenerating config from gitops source of truth...")
-    inst.run_ok("config", "regenerate", "-i", inst.id)
+    print("Reconciling config from the gitops sources...")
+    out = inst.run_ok("reconcile", "-i", inst.id)
+    # reconcile writes .env edits missing from the sources back into them,
+    # which would hide a config set that never reached them.
+    assert "Saved .env changes" not in out, (
+        "config set left .env ahead of the gitops sources:\n%s" % out
+    )
 
-    # After regenerate the rendered files are re-derived from vars.yaml /
+    # After reconcile the rendered files are re-derived from vars.yaml /
     # templates. If the port change reached the gitops source of truth the
     # new port survives; otherwise it reverts to the original port.
     inst_path = inst.instance_path()
@@ -2776,18 +2783,18 @@ def test_config_set_gitops_port(inst):
         wikis = yaml.safe_load(f)["wikis"]
     primary_url = wikis[0]["url"]
     assert port_suffix in primary_url, (
-        "wikis.yaml primary url dropped the port after regenerate: %s"
+        "wikis.yaml primary url dropped the port after reconcile: %s"
         % primary_url
     )
 
     print("Verifying .env kept the new port in MW_SITE_*...")
     env = read_env(inst.env_path())
     assert port_suffix in env.get("MW_SITE_FQDN", ""), (
-        "MW_SITE_FQDN dropped the port after regenerate: %s"
+        "MW_SITE_FQDN dropped the port after reconcile: %s"
         % env.get("MW_SITE_FQDN")
     )
     assert port_suffix in env.get("MW_SITE_SERVER", ""), (
-        "MW_SITE_SERVER dropped the port after regenerate: %s"
+        "MW_SITE_SERVER dropped the port after reconcile: %s"
         % env.get("MW_SITE_SERVER")
     )
 
