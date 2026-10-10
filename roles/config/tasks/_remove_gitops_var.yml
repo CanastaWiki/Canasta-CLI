@@ -61,7 +61,7 @@
       changed_when: true
 
 # A key with no placeholder lives as a literal in env.template (or is absent).
-# Remove that literal so the next gitops pull / config regenerate re-renders
+# Remove that literal so the next gitops pull or reconcile re-renders
 # .env without it, instead of resurrecting the value.
 - name: Remove env.template literal when key has no placeholder
   when: _rgv_placeholder == ''

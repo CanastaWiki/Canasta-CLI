@@ -599,10 +599,10 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
             "%s (env.template=%s, .env=%s)" % (k, template_literals[k], env[k])
             for k in drifted)
         warns.append(
-            "env.template disagrees with .env on: %s. A gitops pull or "
-            "'canasta config regenerate' re-renders .env from env.template, so "
-            "these values will change: regenerate if the template is right, or "
-            "update env.template/vars.yaml if the .env value is intended"
+            "env.template disagrees with .env on: %s. A gitops pull "
+            "re-renders .env from env.template, so these values would change. "
+            "'canasta reconcile' keeps whichever of the two was edited since "
+            "the last pull or push"
             % detail)
 
     return warns

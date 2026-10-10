@@ -89,7 +89,7 @@ def _wikis_fields(content):
 def canasta_wikis_sync_action(live, template, base):
     """Decide which way to sync config/wikis.yaml and wikis.yaml.template.
 
-    ``base`` is the template as last applied to this host; it is what both
+    ``base`` is the template as staged in the git index; it is what both
     files agreed on before either was edited. Returns "none", "render"
     (template was edited), "capture" (live file was edited), or "conflict"
     (both were edited and disagree). With no ``base`` the live file wins.
@@ -180,6 +180,108 @@ def canasta_chart_values_refresh(values, shipped, base=None, former=None,
     return out
 
 
+def canasta_env_render(template, env_vars):
+    """Render env.template with a host's placeholder values.
+
+    A `KEY={{name}}` line takes the value of `name`; one with no value, or
+    a null, is left out rather than written as `KEY=`, so the reader's own
+    default applies. Every other line is copied as is.
+    """
+    env_vars = env_vars or {}
+    out = []
+    for line in str(template or "").split("\n"):
+        if "={{" in line and "}}" in line:
+            key = line.split("=", 1)[0]
+            placeholder = line.split("={{", 1)[1].split("}}", 1)[0]
+            value = env_vars.get(placeholder, "")
+            if value is not None and value != "":
+                out.append("%s=%s" % (key, value))
+        else:
+            out.append(line)
+    return "".join(line + "\n" for line in out)
+
+
+def _env_values(content):
+    """Map each KEY of a .env-style text to its raw value."""
+    values = {}
+    for line in str(content or "").splitlines():
+        if not line.strip() or line.lstrip().startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value
+    return values
+
+
+def canasta_env_sync_plan(live, template, env_vars, base_template=None,
+                          base_vars=None, ignore=("COMPOSE_PROFILES",)):
+    """Decide how to bring .env and its gitops sources into agreement.
+
+    Each key is compared across the live .env, the render of the current
+    sources, and the render of the sources as staged (``base_*``), which is
+    what .env and the sources agreed on before either was edited.
+    Returns ``set`` (live values to write into the sources), ``unset``
+    (keys deleted from .env) and ``conflict`` (keys edited on both sides
+    to different values). A key edited only in the sources needs nothing
+    here: rendering .env afterwards applies it. With no base, the live
+    file wins. Keys in ``ignore`` are derived by the CLI and never
+    compared.
+    """
+    now = _env_values(canasta_env_render(template, env_vars))
+    live_values = _env_values(live)
+    if str(base_template or "").strip():
+        base = _env_values(canasta_env_render(base_template, base_vars))
+    else:
+        base = now
+    plan = {"set": {}, "unset": [], "conflict": []}
+    for key in sorted((set(now) | set(live_values) | set(base))
+                      - set(ignore or ())):
+        mine, current, old = (live_values.get(key), now.get(key),
+                              base.get(key))
+        if mine == current or mine == old:
+            continue
+        if current == old:
+            if mine is None:
+                plan["unset"].append(key)
+            else:
+                plan["set"][key] = mine
+        else:
+            plan["conflict"].append(key)
+    return plan
+
+
+def canasta_wiki_url_sync_plan(live_wikis, env_vars, base_vars=None):
+    """Decide which config/wikis.yaml urls to write into the host vars.
+
+    On a gitops instance each wiki's url is rendered from its
+    ``wiki_url_<id>`` var, which wikis.yaml.template references. A url
+    edited only in config/wikis.yaml goes into the vars (``set``, a list of
+    ``{id, url}``); one edited only in the vars is left for the render;
+    edits to both that disagree are a ``conflict``. ``base_vars`` are the
+    vars as staged; with none, the live file wins.
+    """
+    try:
+        doc = yaml.safe_load(str(live_wikis or "")) or {}
+    except yaml.YAMLError:
+        doc = {}
+    wikis = (doc.get("wikis") if isinstance(doc, dict) else None) or []
+    env_vars = env_vars or {}
+    base_vars = env_vars if base_vars is None else base_vars
+    plan = {"set": [], "conflict": []}
+    for wiki in wikis:
+        if not isinstance(wiki, dict) or not wiki.get("id") or not wiki.get("url"):
+            continue
+        key = "wiki_url_%s" % wiki["id"]
+        mine, current, old = (str(wiki["url"]), env_vars.get(key),
+                              base_vars.get(key))
+        if mine == current or mine == old:
+            continue
+        if current == old:
+            plan["set"].append({"id": str(wiki["id"]), "url": mine})
+        else:
+            plan["conflict"].append(str(wiki["id"]))
+    return plan
+
+
 class FilterModule(object):
     def filters(self):
         return {
@@ -190,4 +292,7 @@ class FilterModule(object):
             "canasta_wikis_render_with_live_urls":
                 canasta_wikis_render_with_live_urls,
             "canasta_chart_values_refresh": canasta_chart_values_refresh,
+            "canasta_env_render": canasta_env_render,
+            "canasta_env_sync_plan": canasta_env_sync_plan,
+            "canasta_wiki_url_sync_plan": canasta_wiki_url_sync_plan,
         }

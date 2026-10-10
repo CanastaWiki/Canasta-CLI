@@ -11,6 +11,7 @@ An empty value means this host stores no opinion. The .env render already
 reads it that way, omitting the line rather than writing KEY=.
 """
 import os
+import sys
 
 import yaml
 
@@ -101,4 +102,9 @@ def test_a_null_var_renders_as_unset_not_as_blank():
         if (t.get("name") or "") == "Render .env from template"
     )
     body = str(task["ansible.builtin.copy"]["content"])
-    assert "value is not none" in body
+    assert "canasta_env_render(env_render_vars)" in body
+    sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
+    from canasta_gitops import canasta_env_render
+    out = canasta_env_render("SMTP_PASSWORD={{smtp_password}}\n",
+                             {"smtp_password": None})
+    assert "SMTP_PASSWORD=" not in out

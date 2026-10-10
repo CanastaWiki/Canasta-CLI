@@ -84,8 +84,8 @@
 # MW_SITE_FQDN/MW_SITE_SERVER and rewrite wiki URLs in the rendered
 # .env and config/wikis.yaml via _side_effects.yml. Those derived
 # values are not in the typed settings, so the loop above never
-# propagates them; without this block the next 'config regenerate' /
-# 'gitops pull' re-renders them back to the pre-change domain.
+# propagates them; without this block the next 'gitops pull' re-renders
+# them back to the pre-change domain.
 - name: Propagate domain side effects to gitops vars
   when: >-
     _config_settings.split() | map('regex_replace', '=.*$', '') | list

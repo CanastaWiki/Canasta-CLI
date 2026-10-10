@@ -3,7 +3,7 @@
 # wiki_url_<id> placeholder that wikis.yaml.template references. A
 # domain/port change made via 'config set' rewrites config/wikis.yaml
 # (rendered) but not the template source; without this the next
-# 'config regenerate' / 'gitops pull' re-renders the old URL.
+# 'gitops pull' re-renders the old URL.
 # Input: _gw_wiki (dict with 'id' and 'url'), _config_host_raw, instance_path
 
 - name: Determine vars file path

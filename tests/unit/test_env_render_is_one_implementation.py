@@ -65,7 +65,7 @@ def test_both_call_sites_include_it():
 
 def test_the_shared_render_reads_its_vars_from_the_caller():
     body = str(_render_task(RENDER_ENV)["ansible.builtin.copy"]["content"])
-    assert "env_render_vars[placeholder]" in body
+    assert "canasta_env_render(env_render_vars)" in body
     # Neither caller's own fact name may leak into the shared file.
     # Word-bounded: env_render_vars contains _render_vars as a substring.
     for leaked in (r"\b_render_vars\[", r"\b_pull_vars\["):
