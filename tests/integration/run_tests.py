@@ -9,6 +9,7 @@ Usage:
     python tests/integration/run_tests.py              # all tests
     python tests/integration/run_tests.py lifecycle     # specific test
     python tests/integration/run_tests.py --list        # list tests
+    python tests/integration/run_tests.py --no-skip     # skips fail the run
 
 Requirements:
     - A container runtime running (Docker or Podman)
@@ -4989,6 +4990,10 @@ def main():
             print(name)
         return
 
+    # A skip means a prerequisite is missing, and on a CI runner that
+    # provisions every prerequisite, a missing one is a broken setup.
+    no_skip = "--no-skip" in sys.argv
+
     # Select tests
     requested = [a for a in sys.argv[1:] if not a.startswith("-")]
     tests = {n: ALL_TESTS[n] for n in requested} if requested else ALL_TESTS
@@ -5003,7 +5008,7 @@ def main():
 
     passed = 0
     failed = 0
-    skipped = 0
+    skipped = []
     teardown_failed = []
 
     for name, test_fn in tests.items():
@@ -5015,7 +5020,7 @@ def main():
             passed += 1
         except SkipTest as e:
             print("SKIPPED: %s: %s" % (name, e))
-            skipped += 1
+            skipped.append(name)
         except AssertionError as e:
             print("FAILED: %s: %s" % (name, e))
             failed += 1
@@ -5027,11 +5032,15 @@ def main():
                 teardown_failed.append(name)
 
     print("\n=== Results: %d passed, %d failed, %d skipped ===" % (
-        passed, failed, skipped,
+        passed, failed, len(skipped),
     ))
     if teardown_failed:
         print("=== Teardown failed: %s ===" % ", ".join(teardown_failed))
-    sys.exit(1 if failed or teardown_failed else 0)
+    skip_failed = no_skip and skipped
+    if skip_failed:
+        print("=== Skipped with --no-skip, counted as failures: %s ===" % (
+            ", ".join(skipped)))
+    sys.exit(1 if failed or teardown_failed or skip_failed else 0)
 
 
 if __name__ == "__main__":
