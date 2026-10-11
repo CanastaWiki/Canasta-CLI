@@ -1,0 +1,98 @@
+---
+# Extract the image's MediaWiki code into mediawiki-code/ for live editing.
+# The code is staged in mediawiki-code.partial/ and renamed into place only
+# once complete, so an interrupted run never leaves a mediawiki-code/ that a
+# later run would take for a finished extraction.
+# Input: instance_path, instance_id, inspect_command, _dev_base_image
+
+- name: Set extraction container and staging names
+  ansible.builtin.set_fact:
+    _dev_extract_container: "canasta-dev-extract-{{ instance_id }}"
+    _dev_extract_staging: "{{ instance_path }}/mediawiki-code.partial"
+
+- name: Remove extraction container left by an interrupted run
+  ansible.builtin.command:
+    cmd: "{{ inspect_command }} rm -f {{ _dev_extract_container }}"
+  changed_when: false
+  failed_when: false
+
+- name: Remove staging directory left by an interrupted run
+  ansible.builtin.file:
+    path: "{{ _dev_extract_staging }}"
+    state: absent
+
+- name: Create staging directory
+  ansible.builtin.file:
+    path: "{{ _dev_extract_staging }}"
+    state: directory
+    mode: "0755"
+
+- name: Pull base image if from registry
+  ansible.builtin.command:
+    cmd: "{{ inspect_command }} pull {{ _dev_base_image }}"
+  changed_when: true
+  when: "'/' in _dev_base_image"
+
+- name: Extract code through a temporary container
+  block:
+    - name: Create temporary container for code extraction
+      ansible.builtin.command:
+        cmd: >-
+          {{ inspect_command }} create --name {{ _dev_extract_container }}
+          {{ _dev_base_image }} sleep infinity
+      changed_when: true
+
+    - name: Start temporary container
+      ansible.builtin.command:
+        cmd: "{{ inspect_command }} start {{ _dev_extract_container }}"
+      changed_when: true
+
+    # Older and custom images may not ship the script.
+    - name: Check for create-symlinks.sh in the image
+      ansible.builtin.command:
+        cmd: "{{ inspect_command }} exec {{ _dev_extract_container }} test -x /create-symlinks.sh"
+      register: _dev_symlinks_script
+      changed_when: false
+      failed_when: _dev_symlinks_script.rc not in [0, 1]
+
+    - name: Run create-symlinks.sh in temporary container
+      ansible.builtin.command:
+        cmd: "{{ inspect_command }} exec {{ _dev_extract_container }} /create-symlinks.sh"
+      changed_when: true
+      when: _dev_symlinks_script.rc == 0
+
+    - name: Extract code from container
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail;
+          {{ inspect_command }} exec {{ _dev_extract_container }}
+          tar -cf - -C /var/www/mediawiki/w . |
+          tar -xf - -C {{ _dev_extract_staging | quote }}
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    # Only reached when mediawiki-code/ is absent or empty.
+    - name: Remove empty mediawiki-code directory
+      ansible.builtin.file:
+        path: "{{ instance_path }}/mediawiki-code"
+        state: absent
+
+    - name: Move extracted code into place
+      ansible.builtin.command:
+        argv:
+          - mv
+          - "{{ _dev_extract_staging }}"
+          - "{{ instance_path }}/mediawiki-code"
+      changed_when: true
+  always:
+    - name: Remove temporary container
+      ansible.builtin.command:
+        cmd: "{{ inspect_command }} rm -f {{ _dev_extract_container }}"
+      changed_when: true
+      failed_when: false
+
+    - name: Remove staging directory
+      ansible.builtin.file:
+        path: "{{ _dev_extract_staging }}"
+        state: absent
