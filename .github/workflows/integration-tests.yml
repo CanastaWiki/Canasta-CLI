@@ -88,9 +88,10 @@ jobs:
   #
   # A matrix tests three podman versions (4.9.5, 5.3.2, 5.8.4) and two
   # podman-compose versions (1.3.0, 1.6.0), each split into the same three
-  # test legs. The full podman binary with its runtime helpers (crun, conmon,
-  # netavark, fuse-overlayfs) is downloaded as a self-contained static bundle
-  # from mgoltzsche/podman-static.
+  # test legs. The weekly schedule adds a backup leg on the newest pair. The
+  # full podman binary with its runtime helpers (crun, conmon, netavark,
+  # fuse-overlayfs) is downloaded as a self-contained static bundle from
+  # mgoltzsche/podman-static.
   #
   # Known limitation: mgoltzsche/podman-static tops out at v5.8.4, so this
   # lane cannot test podman 6.x.  When ubuntu-26.04 ships with podman 6.x
@@ -113,6 +114,9 @@ jobs:
           else
             compose16='{"podman_version":"5.8.4","podman_compose_version":"1.6.0","leg":'
             include="[${compose16}\"lifecycle & upgrade\"},${compose16}\"rebuild-buildable\"},${compose16}\"rebuild & socket\"}]"
+            if [ "${{ github.event_name }}" = "schedule" ]; then
+              include="${include%]},${compose16}\"backup\"}]"
+            fi
             matrix='{"podman_version":["4.9.5","5.3.2","5.8.4"],"podman_compose_version":["1.3.0"],'"$legs"',"include":'"$include"'}'
           fi
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
@@ -381,6 +385,7 @@ jobs:
             "lifecycle & upgrade") tests=(lifecycle upgrade doctor) ;;
             "rebuild-buildable")   tests=(upgrade-rebuilds-buildable) ;;
             "rebuild & socket")    tests=(rebuild podman-socket-runtime) ;;
+            "backup")              tests=(backup-advanced) ;;
             *) echo "unknown podman leg: $LEG" >&2; exit 1 ;;
           esac
           .venv/bin/python tests/integration/run_tests.py "${tests[@]}"
@@ -396,7 +401,8 @@ jobs:
       max-parallel: 3
       matrix:
         leg: ["extensions & config", "farms", "backup", "backup-advanced & ops",
-              "backup dockerfiles", "backup data", "reconcile & config"]
+              "backup dockerfiles", "backup data", "reconcile & config",
+              "skin add"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -432,6 +438,7 @@ jobs:
             "backup dockerfiles")    tests=(backup-custom-dockerfile backup-missing-dockerfile) ;;
             "backup data")           tests=(backup-extra-database backup-restore-safety) ;;
             "reconcile & config")    tests=(reconcile config-refresh-template crowdsec) ;;
+            "skin add")              tests=(skin-lifecycle) ;;
             *) echo "unknown feature leg: $LEG" >&2; exit 1 ;;
           esac
           .venv/bin/python tests/integration/run_tests.py "${tests[@]}"
@@ -449,7 +456,7 @@ jobs:
         leg: ["init & join", "pull & config", "push", "add", "submodules",
               "pull & status", "config domain & port",
               "upgrade hosts & wikis", "upgrade my.cnf & gitignore",
-              "sidecars"]
+              "sidecars", "extension lifecycle"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -492,6 +499,7 @@ jobs:
             "upgrade my.cnf & gitignore")
               tests="upgrade-backfills-mycnf-template upgrade-refreshes-gitignore" ;;
             "sidecars")      tests="sidecar-lifecycle sidecar-migrate" ;;
+            "extension lifecycle") tests="extension-lifecycle" ;;
             *) echo "unknown gitops leg: $LEG" >&2; exit 1 ;;
           esac
           sg www-data -c ".venv/bin/python tests/integration/run_tests.py $tests"
@@ -647,7 +655,7 @@ jobs:
     name: Remote Host Integration Tests
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
 
@@ -674,4 +682,4 @@ jobs:
 
       - name: Run remote integration tests
         run: tests/integration/remote/run_tests.sh
-        timeout-minutes: 15
+        timeout-minutes: 25

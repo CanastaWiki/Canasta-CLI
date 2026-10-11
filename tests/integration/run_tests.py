@@ -1669,6 +1669,228 @@ def test_extension_skin(inst):
     inst.run_ok("skin", "disable", "-i", inst.id, "Timeless")
 
 
+# A small Gerrit extension that is not bundled with Canasta, carries a
+# REL1_43 branch, and ships a composer.json (so add registers it).
+CLONE_TEST_EXTENSION = "UserPageEditProtection"
+# A small Gerrit skin that is not bundled with Canasta, with a REL1_43 branch.
+CLONE_TEST_SKIN = "Mirage"
+
+
+def _composer_local_includes(inst):
+    """Return the merge-plugin include list of config/composer.local.json."""
+    path = os.path.join(inst.instance_path(), "config", "composer.local.json")
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return []
+    return ((data.get("extra") or {}).get("merge-plugin") or {}).get(
+        "include") or []
+
+
+def _wait_for_siteinfo_entry(http_port, siprop, key, value, present,
+                             timeout=120):
+    """Poll siteinfo until an entry whose `key` is `value` is (not) listed."""
+    deadline = time.time() + timeout
+    listed = []
+    last_err = ""
+    while True:
+        try:
+            data = query_siteinfo(http_port, siprop)
+            listed = [
+                e.get(key) for e in data.get("query", {}).get(siprop, [])
+            ]
+            last_err = ""
+            if (value in listed) == present:
+                return
+        except Exception as e:
+            last_err = str(e)
+        if time.time() >= deadline:
+            break
+        time.sleep(5)
+    raise AssertionError(
+        "%s %s in siteinfo %s after %ds; listed: %s%s"
+        % (value, "not listed" if present else "still listed", siprop,
+           timeout, listed, "; last error: %s" % last_err if last_err else "")
+    )
+
+
+def _git(cwd, *args):
+    """Run git in cwd; return (returncode, stripped stdout)."""
+    result = subprocess.run(
+        ["git"] + list(args), cwd=cwd, capture_output=True, text=True,
+    )
+    return result.returncode, result.stdout.strip()
+
+
+def test_extension_lifecycle(inst):
+    """Add, pin and remove a cloned extension, plain and under gitops.
+
+    Clones a real extension from Wikimedia Gerrit, so it needs network
+    access to gerrit.wikimedia.org.
+    """
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    ext = CLONE_TEST_EXTENSION
+    rel = "extensions/%s" % ext
+    composer_entry = "%s/composer.json" % rel
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+    inst_path = inst.instance_path()
+    ext_path = os.path.join(inst_path, rel)
+
+    # --- Plain (non-gitops) instance ---
+    print("Adding %s with --clone..." % ext)
+    inst.run_ok("extension", "add", "-i", inst.id, ext, "--clone")
+
+    print("Verifying the clone and its composer registration...")
+    assert os.path.isdir(os.path.join(ext_path, ".git")), (
+        "%s is not a git checkout after add" % rel
+    )
+    includes = _composer_local_includes(inst)
+    assert composer_entry in includes, (
+        "%s not registered in composer.local.json: %s"
+        % (composer_entry, includes)
+    )
+
+    print("Verifying %s is loaded..." % ext)
+    _wait_for_siteinfo_entry(inst.http_port, "extensions", "name", ext, True)
+
+    print("Removing %s..." % ext)
+    inst.run_ok("extension", "remove", "-i", inst.id, ext)
+
+    print("Verifying the directory and composer entry are gone...")
+    assert not os.path.exists(ext_path), "%s still exists after remove" % rel
+    includes = _composer_local_includes(inst)
+    assert composer_entry not in includes, (
+        "%s still in composer.local.json after remove: %s"
+        % (composer_entry, includes)
+    )
+    _wait_for_siteinfo_entry(inst.http_port, "extensions", "name", ext, False)
+
+    # --- Gitops instance ---
+    print("Initializing gitops...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo],
+        capture_output=True, check=True,
+    )
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id,
+        "-n", "testhost",
+        "--repo", bare_repo,
+        "--key", os.path.join(inst.work_dir, "gitops-test.key"),
+    )
+
+    print("Adding %s with --clone on the gitops instance..." % ext)
+    inst.run_ok("extension", "add", "-i", inst.id, ext, "--clone")
+
+    print("Verifying %s is a registered, committed submodule..." % rel)
+    gitmodules_path = os.path.join(inst_path, ".gitmodules")
+    assert os.path.isfile(gitmodules_path), ".gitmodules missing after add"
+    with open(gitmodules_path) as f:
+        gitmodules = f.read()
+    assert '[submodule "%s"]' % rel in gitmodules, (
+        "%s has no .gitmodules entry:\n%s" % (rel, gitmodules)
+    )
+    rc, staged = _git(inst_path, "ls-files", "-s", "--", rel)
+    assert rc == 0 and staged.startswith("160000 "), (
+        "%s is not tracked as a gitlink: %r" % (rel, staged)
+    )
+    rc, _ = _git(inst_path, "submodule", "status", "--", rel)
+    assert rc == 0, "git submodule status fails for %s" % rel
+    assert os.path.isfile(os.path.join(ext_path, ".git")), (
+        "%s/.git should be a gitfile pointing into .git/modules" % rel
+    )
+    assert os.path.isdir(os.path.join(inst_path, ".git", "modules", rel)), (
+        ".git/modules/%s missing" % rel
+    )
+    rc, _ = _git(inst_path, "diff", "--cached", "--quiet", "--",
+                 rel, ".gitmodules")
+    assert rc == 0, "the submodule add was left uncommitted"
+
+    print("Pinning %s to its parent commit with set-version..." % ext)
+    rc, target = _git(ext_path, "rev-parse", "HEAD~1")
+    assert rc == 0 and target, "could not resolve HEAD~1 in %s" % rel
+    inst.run_ok(
+        "extension", "set-version", "-i", inst.id, ext, "--ref", target,
+    )
+    _, head = _git(ext_path, "rev-parse", "HEAD")
+    assert head == target, (
+        "%s HEAD is %s after set-version, expected %s" % (rel, head, target)
+    )
+    _, staged = _git(inst_path, "ls-files", "-s", "--", rel)
+    assert staged.split()[1:2] == [target], (
+        "staged gitlink for %s is not %s: %r" % (rel, target, staged)
+    )
+
+    print("Removing %s from the gitops instance..." % ext)
+    inst.run_ok("extension", "remove", "-i", inst.id, ext)
+
+    print("Verifying the submodule is fully unregistered...")
+    assert not os.path.exists(ext_path), "%s still exists after remove" % rel
+    _, tracked = _git(inst_path, "ls-files", "--", rel)
+    assert tracked == "", "%s still tracked after remove: %r" % (rel, tracked)
+    if os.path.isfile(gitmodules_path):
+        with open(gitmodules_path) as f:
+            gitmodules = f.read()
+        assert rel not in gitmodules, (
+            "%s still in .gitmodules after remove:\n%s" % (rel, gitmodules)
+        )
+    assert not os.path.exists(
+        os.path.join(inst_path, ".git", "modules", rel)
+    ), ".git/modules/%s left behind after remove" % rel
+    includes = _composer_local_includes(inst)
+    assert composer_entry not in includes, (
+        "%s still in composer.local.json after remove: %s"
+        % (composer_entry, includes)
+    )
+
+
+def test_skin_lifecycle(inst):
+    """Add a cloned skin, verify it loads, then remove it.
+
+    Clones a real skin from Wikimedia Gerrit, so it needs network access
+    to gerrit.wikimedia.org.
+    """
+    skin = CLONE_TEST_SKIN
+    rel = "skins/%s" % skin
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+    skin_path = os.path.join(inst.instance_path(), rel)
+
+    print("Adding %s with --clone..." % skin)
+    inst.run_ok("skin", "add", "-i", inst.id, skin, "--clone")
+    assert os.path.isdir(os.path.join(skin_path, ".git")), (
+        "%s is not a git checkout after add" % rel
+    )
+
+    print("Verifying %s is loaded..." % skin)
+    _wait_for_siteinfo_entry(
+        inst.http_port, "skins", "code", skin.lower(), True,
+    )
+
+    print("Removing %s..." % skin)
+    inst.run_ok("skin", "remove", "-i", inst.id, skin)
+    assert not os.path.exists(skin_path), "%s still exists after remove" % rel
+    _wait_for_siteinfo_entry(
+        inst.http_port, "skins", "code", skin.lower(), False,
+    )
+
+
 def test_wiki_farm(inst):
     """Add and remove wikis in a farm configuration."""
     print("Creating instance with main wiki...")
@@ -4625,6 +4847,8 @@ ALL_TESTS = {
     "gitops-join": test_gitops_join,
     "gitops-pull-diff": test_gitops_pull_diff,
     "extension-skin": test_extension_skin,
+    "extension-lifecycle": test_extension_lifecycle,
+    "skin-lifecycle": test_skin_lifecycle,
     "wiki-farm": test_wiki_farm,
     "config-side-effects": test_config_side_effects,
     "config-refresh-template": test_config_refresh_template,
