@@ -1,0 +1,27 @@
+---
+# Run maintenance/update.php in the web container, one wiki at a time.
+#
+# Input:
+#   instance_path, plus what orchestrator/tasks/exec.yml needs
+#   update_php_wikis (list, optional) - wiki IDs to update; omitted or
+#     empty means every wiki in config/wikis.yaml
+
+- name: Read wikis for update.php
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _update_php_all_wikis
+  when: update_php_wikis | default([], true) | length == 0
+
+- name: Run update.php for each wiki
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  vars:
+    exec_service: web
+    exec_command: "php maintenance/update.php --wiki={{ _update_php_wiki | quote }}"
+    exec_long: true
+  loop: >-
+    {{ update_php_wikis
+       if (update_php_wikis | default([], true) | length > 0)
+       else (_update_php_all_wikis.wiki_ids | default([])) }}
+  loop_control:
+    loop_var: _update_php_wiki

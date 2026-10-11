@@ -94,13 +94,6 @@ class TestScalePlaybook:
         assert deployed is None
         assert "already 3; nothing to do" in proc.stdout + proc.stderr
 
-    def test_refuses_compose(self, tmp_path):
-        proc, deployed = _run(tmp_path, "web:\n  replicaCount: 1\n", 2,
-                              orchestrator="compose")
-        assert proc.returncode != 0
-        assert deployed is None
-        assert "Kubernetes-only" in proc.stdout + proc.stderr
-
     def test_refuses_other_components(self, tmp_path):
         proc, deployed = _run(tmp_path, "web:\n  replicaCount: 1\n", 2,
                               component="varnish")

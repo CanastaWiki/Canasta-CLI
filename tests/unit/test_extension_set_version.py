@@ -97,7 +97,10 @@ class TestExtensionSetVersion:
             "the bundled probe must have a rescue for a stopped container")
 
     def test_run_update_runs_update_php(self):
-        assert any("update.php" in c for c in _exec_commands(_load(TASK))), (
+        assert any(
+            "run_update_php.yml"
+            in str(t.get("ansible.builtin.include_tasks", ""))
+            for t in _walk(_load(TASK))), (
             "--run-update must run update.php to apply schema changes")
 
     def test_consults_extension_json_for_schema_updates(self):

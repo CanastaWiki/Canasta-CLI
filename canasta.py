@@ -413,6 +413,210 @@ def _version_major(version):
     return int(m.group(1)) if m else None
 
 
+def _self_update_target(git, dev, allow_major, current_version):
+    """The ref to move to and a hint about a newer major, or None (after
+    saying why) when there is no release to move to."""
+    # Resolve the ref this run should move to: head of main for --dev, or
+    # the latest release tag otherwise. The release pick is capped to the
+    # current major so 'canasta upgrade' never crosses a major boundary;
+    # --allow-major (allow_major=True) lifts the cap to the latest overall.
+    major_hint = ""
+    if dev:
+        target_ref = "origin/main"
+    else:
+        tags = git(["tag", "-l", "v*"], timeout=10).stdout.split()
+        max_major = None if allow_major else _version_major(current_version)
+        target_ref = _pick_latest_release_tag(tags, max_major=max_major)
+        latest_overall = _pick_latest_release_tag(tags)
+        if target_ref is None:
+            if latest_overall is not None:
+                # Tags exist but all sit above the current major and the cap
+                # is in effect — point the operator at --allow-major.
+                print(
+                    "WARNING: self-update skipped — no release found at or "
+                    "below the current major (v%s.x); the latest release is "
+                    "%s.\nRun 'canasta upgrade --allow-major' to move to it "
+                    "(may include breaking changes), or 'canasta upgrade "
+                    "--dev' to track the development branch."
+                    % (max_major, latest_overall),
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    "WARNING: self-update skipped — no release tags found.\n"
+                    "Use 'canasta upgrade --dev' to track the development "
+                    "branch (head of main) instead.",
+                    file=sys.stderr,
+                )
+            return None
+        if latest_overall and latest_overall != target_ref:
+            # A newer release exists beyond the current-major cap.
+            major_hint = (
+                "\nA newer major release (%s) is available. Run 'canasta "
+                "upgrade --allow-major' to move to it (may include breaking "
+                "changes)." % latest_overall
+            )
+    return target_ref, major_hint
+
+
+def _self_update_move(git, repo, dev, target_ref, current_commit,
+                      current_version, major_hint):
+    """Move the checkout to target_ref. False (after saying why) when
+    it is already current or the move failed."""
+    target_commit = git(
+        ["rev-parse", "--short", target_ref], timeout=5,
+    ).stdout.strip()
+
+    if dev:
+        on_main = git(
+            ["rev-parse", "--abbrev-ref", "HEAD"], timeout=5,
+        ).stdout.strip() == "main"
+        # Already on main at origin/main? Nothing to do. (Require being on
+        # the main branch so a prior release upgrade's detached HEAD still
+        # switches back.)
+        if target_commit and target_commit == current_commit and on_main:
+            print(
+                "Canasta CLI is already up to date "
+                "(version %s, commit %s, dev (main))."
+                % (current_version, current_commit)
+            )
+            return False
+        # Restore the main branch first — a previous release upgrade may
+        # have left a detached HEAD at a tag — then fast-forward.
+        co = git(["checkout", "main"], timeout=30)
+        pull = git(["pull", "--ff-only", "origin", "main"], timeout=60)
+        move_failed = co.returncode != 0 or pull.returncode != 0
+    else:
+        # Release channel: only ever move forward. If the latest release
+        # tag is already contained in HEAD — we're sitting on it, or on a
+        # newer development build — checking it out would be a downgrade,
+        # so stay put. 'canasta upgrade' must never travel backward in time.
+        contained = git(
+            ["merge-base", "--is-ancestor", target_ref, "HEAD"], timeout=5,
+        ).returncode == 0
+        if contained:
+            if target_commit == current_commit:
+                print(
+                    "Canasta CLI is already up to date "
+                    "(version %s, commit %s, release %s).%s"
+                    % (current_version, current_commit, target_ref, major_hint)
+                )
+            else:
+                print(
+                    "Canasta CLI is already ahead of the latest release "
+                    "(%s); keeping the current build (version %s, commit %s) "
+                    "rather than moving backward.\nUse 'canasta upgrade --dev' "
+                    "to keep tracking development builds, or re-run the "
+                    "installer at https://get.canasta.wiki to return to the "
+                    "latest release.%s"
+                    % (target_ref, current_version, current_commit, major_hint)
+                )
+            return False
+        # HEAD is behind the latest release (or on a divergent line that
+        # doesn't contain it) — move to the release tag.
+        co = git(["checkout", target_ref], timeout=60)
+        move_failed = co.returncode != 0
+
+    if move_failed:
+        print(
+            "Could not move to %s "
+            "(local checkout may have uncommitted changes or have "
+            "diverged).\nResolve manually in %s (e.g. check 'git status')."
+            % (target_ref, repo),
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+def _self_update_record_build(git, repo):
+    """Write BUILD_COMMIT/BUILD_DATE for the new checkout; return its
+    (version, short commit)."""
+    new_commit = git(
+        ["rev-parse", "--short", "HEAD"], timeout=5,
+    ).stdout.strip() or "unknown"
+    new_date = git(
+        ["log", "-1", "--format=%cd",
+         "--date=format:%Y-%m-%d %H:%M:%S"],
+        timeout=5,
+    ).stdout.strip() or "unknown"
+    try:
+        with open(os.path.join(repo, "VERSION")) as f:
+            new_version = f.read().strip()
+    except OSError:
+        new_version = "unknown"
+
+    # BUILD_COMMIT/BUILD_DATE drive `canasta version` output for
+    # native installs. Update them in lockstep with the pull so a
+    # subsequent `canasta version` reflects the just-pulled commit.
+    for filename, value in (
+        ("BUILD_COMMIT", new_commit),
+        ("BUILD_DATE", new_date),
+    ):
+        try:
+            with open(os.path.join(repo, filename), "w") as f:
+                f.write(value + "\n")
+        except OSError as e:
+            print(
+                "Warning: could not update %s: %s" % (filename, e),
+                file=sys.stderr,
+            )
+    return new_version, new_commit
+
+
+def _self_update_refresh_deps(repo):
+    """Reinstall Python requirements and Ansible collections; False when
+    either failed (already reported)."""
+    # Refresh Python and Ansible deps in case requirements.txt or
+    # requirements.yml was bumped in the pull. Without this, dep pins
+    # added to the new code don't actually land — operators see new
+    # code with stale collections (Helm 4 / kubernetes.core 6.4 was
+    # the last instance) and hit cryptic playbook errors.
+    def _refresh_deps(label, cmd, timeout):
+        try:
+            subprocess.run(cmd, check=True, timeout=timeout)
+            return True
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+                OSError) as e:
+            print(
+                "Warning: %s failed (%s).\nRe-run manually:\n  %s"
+                % (label, e, " ".join(cmd)),
+                file=sys.stderr,
+            )
+            return False
+
+    pip_ok = _refresh_deps(
+        "pip install -r requirements.txt",
+        [sys.executable, "-m", "pip", "install", "--quiet",
+         "-r", os.path.join(repo, "requirements.txt")],
+        timeout=180,
+    )
+    galaxy = os.path.join(os.path.dirname(sys.executable), "ansible-galaxy")
+    galaxy_ok = _refresh_deps(
+        "ansible-galaxy collection install",
+        [galaxy, "collection", "install", "--upgrade",
+         "-r", os.path.join(repo, "requirements.yml")],
+        timeout=300,
+    )
+    return pip_ok and galaxy_ok
+
+
+def _self_update_reexec():
+    """Restart this command in a fresh process on the new code."""
+    # The pull just rewrote this process's own ansible roles, modules,
+    # and module_utils on disk. Continuing to ansible-playbook in the
+    # very process that did the pulling intermittently fails to resolve
+    # a freshly written module_utils. Re-exec the CLI so the rest of the
+    # command runs in a clean process against fully-settled code;
+    # the CANASTA_SELF_UPDATED guard at the top of self_update_cli stops
+    # the re-exec'd process from looping back through the update.
+    os.environ["CANASTA_SELF_UPDATED"] = "1"
+    os.execv(
+        sys.executable,
+        [sys.executable, os.path.abspath(__file__)] + sys.argv[1:],
+    )
+
+
 def self_update_cli(dev=False, allow_major=False):
     """Update the CLI code before invoking ansible-playbook.
 
@@ -443,7 +647,7 @@ def self_update_cli(dev=False, allow_major=False):
     """
     if os.environ.get("CANASTA_SELF_UPDATED"):
         # This process is the re-exec spawned by the first invocation
-        # after it pulled (see os.execv at the end of this function).
+        # after it pulled (see _self_update_reexec).
         # The code on disk is already current and settled, so skip the
         # update check entirely — including its "already up to date"
         # line — and let this fresh process run the command.
@@ -497,196 +701,30 @@ def self_update_cli(dev=False, allow_major=False):
         print(msg, file=sys.stderr)
         return
 
-    # Resolve the ref this run should move to: head of main for --dev, or
-    # the latest release tag otherwise. The release pick is capped to the
-    # current major so 'canasta upgrade' never crosses a major boundary;
-    # --allow-major (allow_major=True) lifts the cap to the latest overall.
-    major_hint = ""
-    if dev:
-        target_ref = "origin/main"
-    else:
-        tags = _git(["tag", "-l", "v*"], timeout=10).stdout.split()
-        max_major = None if allow_major else _version_major(current_version)
-        target_ref = _pick_latest_release_tag(tags, max_major=max_major)
-        latest_overall = _pick_latest_release_tag(tags)
-        if target_ref is None:
-            if latest_overall is not None:
-                # Tags exist but all sit above the current major and the cap
-                # is in effect — point the operator at --allow-major.
-                print(
-                    "WARNING: self-update skipped — no release found at or "
-                    "below the current major (v%s.x); the latest release is "
-                    "%s.\nRun 'canasta upgrade --allow-major' to move to it "
-                    "(may include breaking changes), or 'canasta upgrade "
-                    "--dev' to track the development branch."
-                    % (max_major, latest_overall),
-                    file=sys.stderr,
-                )
-            else:
-                print(
-                    "WARNING: self-update skipped — no release tags found.\n"
-                    "Use 'canasta upgrade --dev' to track the development "
-                    "branch (head of main) instead.",
-                    file=sys.stderr,
-                )
-            return
-        if latest_overall and latest_overall != target_ref:
-            # A newer release exists beyond the current-major cap.
-            major_hint = (
-                "\nA newer major release (%s) is available. Run 'canasta "
-                "upgrade --allow-major' to move to it (may include breaking "
-                "changes)." % latest_overall
-            )
+    target = _self_update_target(_git, dev, allow_major, current_version)
+    if target is None:
+        return
+    target_ref, major_hint = target
 
-    target_commit = _git(
-        ["rev-parse", "--short", target_ref], timeout=5,
-    ).stdout.strip()
-
-    if dev:
-        on_main = _git(
-            ["rev-parse", "--abbrev-ref", "HEAD"], timeout=5,
-        ).stdout.strip() == "main"
-        # Already on main at origin/main? Nothing to do. (Require being on
-        # the main branch so a prior release upgrade's detached HEAD still
-        # switches back.)
-        if target_commit and target_commit == current_commit and on_main:
-            print(
-                "Canasta CLI is already up to date "
-                "(version %s, commit %s, dev (main))."
-                % (current_version, current_commit)
-            )
-            return
-        # Restore the main branch first — a previous release upgrade may
-        # have left a detached HEAD at a tag — then fast-forward.
-        co = _git(["checkout", "main"], timeout=30)
-        pull = _git(["pull", "--ff-only", "origin", "main"], timeout=60)
-        move_failed = co.returncode != 0 or pull.returncode != 0
-    else:
-        # Release channel: only ever move forward. If the latest release
-        # tag is already contained in HEAD — we're sitting on it, or on a
-        # newer development build — checking it out would be a downgrade,
-        # so stay put. 'canasta upgrade' must never travel backward in time.
-        contained = _git(
-            ["merge-base", "--is-ancestor", target_ref, "HEAD"], timeout=5,
-        ).returncode == 0
-        if contained:
-            if target_commit == current_commit:
-                print(
-                    "Canasta CLI is already up to date "
-                    "(version %s, commit %s, release %s).%s"
-                    % (current_version, current_commit, target_ref, major_hint)
-                )
-            else:
-                print(
-                    "Canasta CLI is already ahead of the latest release "
-                    "(%s); keeping the current build (version %s, commit %s) "
-                    "rather than moving backward.\nUse 'canasta upgrade --dev' "
-                    "to keep tracking development builds, or re-run the "
-                    "installer at https://get.canasta.wiki to return to the "
-                    "latest release.%s"
-                    % (target_ref, current_version, current_commit, major_hint)
-                )
-            return
-        # HEAD is behind the latest release (or on a divergent line that
-        # doesn't contain it) — move to the release tag.
-        co = _git(["checkout", target_ref], timeout=60)
-        move_failed = co.returncode != 0
-
-    if move_failed:
-        print(
-            "Could not move to %s "
-            "(local checkout may have uncommitted changes or have "
-            "diverged).\nResolve manually in %s (e.g. check 'git status')."
-            % (target_ref, repo),
-            file=sys.stderr,
-        )
+    if not _self_update_move(_git, repo, dev, target_ref, current_commit,
+                             current_version, major_hint):
         return
 
-    new_commit = _git(
-        ["rev-parse", "--short", "HEAD"], timeout=5,
-    ).stdout.strip() or "unknown"
-    new_date = _git(
-        ["log", "-1", "--format=%cd",
-         "--date=format:%Y-%m-%d %H:%M:%S"],
-        timeout=5,
-    ).stdout.strip() or "unknown"
-    try:
-        with open(os.path.join(repo, "VERSION")) as f:
-            new_version = f.read().strip()
-    except OSError:
-        new_version = "unknown"
-
-    # BUILD_COMMIT/BUILD_DATE drive `canasta version` output for
-    # native installs. Update them in lockstep with the pull so a
-    # subsequent `canasta version` reflects the just-pulled commit.
-    for filename, value in (
-        ("BUILD_COMMIT", new_commit),
-        ("BUILD_DATE", new_date),
-    ):
-        try:
-            with open(os.path.join(repo, filename), "w") as f:
-                f.write(value + "\n")
-        except OSError as e:
-            print(
-                "Warning: could not update %s: %s" % (filename, e),
-                file=sys.stderr,
-            )
-
-    # Refresh Python and Ansible deps in case requirements.txt or
-    # requirements.yml was bumped in the pull. Without this, dep pins
-    # added to the new code don't actually land — operators see new
-    # code with stale collections (Helm 4 / kubernetes.core 6.4 was
-    # the last instance) and hit cryptic playbook errors.
-    def _refresh_deps(label, cmd, timeout):
-        try:
-            subprocess.run(cmd, check=True, timeout=timeout)
-            return True
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
-                OSError) as e:
-            print(
-                "Warning: %s failed (%s).\nRe-run manually:\n  %s"
-                % (label, e, " ".join(cmd)),
-                file=sys.stderr,
-            )
-            return False
-
-    pip_ok = _refresh_deps(
-        "pip install -r requirements.txt",
-        [sys.executable, "-m", "pip", "install", "--quiet",
-         "-r", os.path.join(repo, "requirements.txt")],
-        timeout=180,
-    )
-    galaxy = os.path.join(os.path.dirname(sys.executable), "ansible-galaxy")
-    galaxy_ok = _refresh_deps(
-        "ansible-galaxy collection install",
-        [galaxy, "collection", "install", "--upgrade",
-         "-r", os.path.join(repo, "requirements.yml")],
-        timeout=300,
-    )
+    new_version, new_commit = _self_update_record_build(_git, repo)
+    deps_ok = _self_update_refresh_deps(repo)
 
     print(
         "Updated Canasta CLI from %s (%s) to %s (%s).%s"
         % (current_version, current_commit, new_version, new_commit, major_hint)
     )
-    if not (pip_ok and galaxy_ok):
+    if not deps_ok:
         print(
             "Warning: dependency refresh incomplete; see above. "
             "Instances may still be upgraded against stale deps.",
             file=sys.stderr,
         )
 
-    # The pull just rewrote this process's own ansible roles, modules,
-    # and module_utils on disk. Continuing to ansible-playbook in the
-    # very process that did the pulling intermittently fails to resolve
-    # a freshly written module_utils. Re-exec the CLI so the rest of the
-    # command runs in a clean process against fully-settled code;
-    # the CANASTA_SELF_UPDATED guard at the top stops the re-exec'd
-    # process from looping back through the update.
-    os.environ["CANASTA_SELF_UPDATED"] = "1"
-    os.execv(
-        sys.executable,
-        [sys.executable, os.path.abspath(__file__)] + sys.argv[1:],
-    )
+    _self_update_reexec()
 
 
 def internal_name(display_name):
@@ -875,6 +913,15 @@ def add_params_to_parser(parser, params):
                 help=desc,
                 dest=name,
             )
+            # Deprecated spellings keep working but stay out of --help.
+            if param.get("aliases"):
+                parser.add_argument(
+                    *param["aliases"],
+                    action="store_true",
+                    default=False,
+                    help=argparse.SUPPRESS,
+                    dest=name,
+                )
         elif ptype == "choice":
             choices = param.get("choices", [])
             parser.add_argument(
@@ -963,6 +1010,61 @@ def resolve_instance(instance_id=None, required=True):
         return inst
 
     return _unresolved("Error: no instance found for current directory")
+
+
+ORCHESTRATOR_LABELS = {"compose": "Compose", "kubernetes": "Kubernetes"}
+
+
+def command_display_name(command_name):
+    """'extension_add' -> 'extension add', 'config_refresh_template' ->
+    'config refresh-template'."""
+    group, _, rest = command_name.partition("_")
+    if rest and group in SUBCOMMAND_GROUPS:
+        return "%s %s" % (group, display_name(rest))
+    return display_name(command_name)
+
+
+def orchestrator_refusal(cmd_def, command_name, orchestrator):
+    """The refusal for running a command on an instance of `orchestrator`.
+
+    None when the command declares no `orchestrators:` restriction or the
+    orchestrator is one it supports.
+    """
+    allowed = cmd_def.get("orchestrators")
+    if not allowed:
+        return None
+    if orchestrator in ("kubernetes", "k8s"):
+        orchestrator = "kubernetes"
+    else:
+        orchestrator = orchestrator or "compose"
+    if orchestrator in allowed:
+        return None
+    message = "Error: 'canasta %s' is only supported on %s instances." % (
+        command_display_name(command_name),
+        " and ".join(ORCHESTRATOR_LABELS.get(o, o) for o in allowed),
+    )
+    note = (cmd_def.get("orchestrators_note") or "").strip()
+    if note:
+        message += " " + " ".join(note.split())
+    return message
+
+
+def check_command_orchestrator(cmd_def, command_name, args):
+    """Refuse a command on an instance whose orchestrator it does not support.
+
+    Runs before both the direct path and the Ansible path. An instance
+    that does not resolve is left to the command to report.
+    """
+    if not cmd_def.get("orchestrators"):
+        return
+    inst = resolve_instance(getattr(args, "id", None), required=False)
+    if not inst:
+        return
+    message = orchestrator_refusal(
+        cmd_def, command_name, inst.get("orchestrator"))
+    if message:
+        print(message, file=sys.stderr)
+        sys.exit(1)
 
 
 # Commands that change an instance wholesale or start and stop it. Each holds
@@ -1767,55 +1869,9 @@ def apply_instance_host_paths(cmd_def, args):
                 resolve_instance_host_path(param["name"], value, host))
 
 
-def build_ansible_args(ansible_playbook, command_name, args, data):
-    """Build the ansible-playbook command line.
-
-    Extra vars are passed via a temp JSON file (-e @file) to avoid
-    Jinja2 injection and shell quoting issues.
-    """
-    _cleanup_stale_vars_files()
-
-    cmd_index = {c["name"]: c for c in data["commands"]}
-    cmd_def = cmd_index.get(command_name, {})
-    params = cmd_def.get("parameters", [])
-
-    # Build extra vars as a dict, written to a JSON file
-    extra_vars = {"command": command_name}
-
-    apply_instance_host_paths(cmd_def, args)
-
-    # Pass target_host when the command declares --host. Commands
-    # without a --host parameter resolve the target from the instance
-    # registry via -i; argparse already rejects --host on those.
-    host_value = getattr(args, "host", None)
-    if host_value:
-        extra_vars["target_host"] = host_value
-
-    # The wrapper records its own absolute path in CANASTA_CLI_BIN so
-    # playbooks that re-invoke the CLI (e.g. the crontab entry written by
-    # 'backup schedule set') can use a fully-qualified path rather than
-    # relying on a minimal cron PATH. Absent when canasta.py is run
-    # directly without a wrapper.
-    cli_bin = os.environ.get("CANASTA_CLI_BIN")
-    if cli_bin:
-        extra_vars["canasta_cli_bin"] = cli_bin
-
-    # Declaring the runtime takes it out of the hands of the socket probe,
-    # which can only report what it finds. A host carrying both runtimes has
-    # no way to express which one its instances belong to otherwise.
-    #
-    # Only create reads this: every later command resolves the runtime from
-    # the registry entry create wrote. main() has already rejected a value
-    # that is neither runtime.
-    runtime = os.environ.get("CANASTA_CONTAINER_RUNTIME", "").strip()
-    if runtime:
-        extra_vars["container_runtime"] = runtime
-
-    if args.verbose:
-        extra_vars["verbose"] = "true"
-    else:
-        os.environ["ANSIBLE_STDOUT_CALLBACK"] = "canasta_minimal"
-
+def _add_param_extra_vars(params, args, host_value, extra_vars):
+    """Add each command parameter the user set to `extra_vars`, in the
+    form the playbooks read it."""
     # Command parameters
     for param in params:
         name = param["name"]
@@ -1902,11 +1958,10 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         else:
             extra_vars[name] = str(value)
 
-    # Write vars to temp file (bypasses Jinja2 interpolation).
-    # delete=False because ansible-playbook needs to read it after
-    # execvp replaces this process. Stale files are cleaned up by
-    # _cleanup_stale_vars_files() at the start of each invocation.
 
+def _add_runtime_extra_vars(args, host_value, extra_vars):
+    """Add compose_command / inspect_command for the targeted instance
+    when the registry or its .env records them."""
     # Runtime resolution: a registry entry (composeCommand /
     # inspectCommand) wins, then the instance's .env for instances
     # created before those fields existed.
@@ -1972,55 +2027,46 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
             except (OSError, IOError, KeyError):
                 pass
 
-    vars_file = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", prefix="canasta-vars-",
-        delete=False,
-    )
-    json.dump(extra_vars, vars_file)
-    vars_file.close()
-    os.chmod(vars_file.name, 0o600)
 
-    ansible_args = [
-        ansible_playbook,
-        CANASTA_YML,
-        "-e", "@%s" % vars_file.name,
-    ]
+def _add_host_targeting(ansible_args, host_value, vars_file_name):
+    """Point ansible-playbook at --host (user@host accepted)."""
+    # Parse user@host shorthand.
+    host_spec = host_value
+    ssh_user = None
+    if "@" in host_spec:
+        ssh_user, host_spec = host_spec.split("@", 1)
 
-    if host_value:
-        # Parse user@host shorthand.
-        host_spec = host_value
-        ssh_user = None
-        if "@" in host_spec:
-            ssh_user, host_spec = host_spec.split("@", 1)
+    # Update target_host in the vars file to use just the hostname,
+    # not the user@host form (the hosts.yml or inline inventory
+    # entry is keyed on hostname alone).
+    with open(vars_file_name, "r") as f:
+        _v = json.load(f)
+    _v["target_host"] = host_spec
+    with open(vars_file_name, "w") as f:
+        json.dump(_v, f)
 
-        # Update target_host in the vars file to use just the hostname,
-        # not the user@host form (the hosts.yml or inline inventory
-        # entry is keyed on hostname alone).
-        with open(vars_file.name, "r") as f:
-            _v = json.load(f)
-        _v["target_host"] = host_spec
-        with open(vars_file.name, "w") as f:
-            json.dump(_v, f)
+    # Inline inventory fallback — used if the host isn't in any
+    # user-defined inventory file. Goes first so that hosts.yml
+    # entries override it when present.
+    ansible_args.extend(["-i", "%s," % host_spec])
 
-        # Inline inventory fallback — used if the host isn't in any
-        # user-defined inventory file. Goes first so that hosts.yml
-        # entries override it when present.
-        ansible_args.extend(["-i", "%s," % host_spec])
+    # Persistent user-level inventory in the config directory.
+    # This survives Docker image pulls because the config dir
+    # is mounted into the container.
+    user_hosts = os.path.join(get_config_dir(), "hosts.yml")
+    if os.path.isfile(user_hosts):
+        ansible_args.extend(["-i", user_hosts])
 
-        # Persistent user-level inventory in the config directory.
-        # This survives Docker image pulls because the config dir
-        # is mounted into the container.
-        user_hosts = os.path.join(get_config_dir(), "hosts.yml")
-        if os.path.isfile(user_hosts):
-            ansible_args.extend(["-i", user_hosts])
+    ansible_args.extend(["--limit", host_spec])
 
-        ansible_args.extend(["--limit", host_spec])
+    # SSH user from user@host shorthand (hosts.yml ansible_user
+    # still wins via inventory precedence).
+    if ssh_user:
+        ansible_args.extend(["-u", ssh_user])
 
-        # SSH user from user@host shorthand (hosts.yml ansible_user
-        # still wins via inventory precedence).
-        if ssh_user:
-            ansible_args.extend(["-u", ssh_user])
 
+def _export_connection_env():
+    """Export the SSH options and config dir ansible-playbook inherits."""
     # Auto-accept new SSH host keys on first connection (matching
     # ssh's 'StrictHostKeyChecking=accept-new'). Applies to all
     # commands, not just -H commands — when the host is resolved from
@@ -2064,6 +2110,83 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     # sets it explicitly, and tests use it for isolation).
     os.environ.setdefault("CANASTA_CONFIG_DIR", get_config_dir())
 
+
+def build_ansible_args(ansible_playbook, command_name, args, data):
+    """Build the ansible-playbook command line.
+
+    Extra vars are passed via a temp JSON file (-e @file) to avoid
+    Jinja2 injection and shell quoting issues.
+    """
+    _cleanup_stale_vars_files()
+
+    cmd_index = {c["name"]: c for c in data["commands"]}
+    cmd_def = cmd_index.get(command_name, {})
+    params = cmd_def.get("parameters", [])
+
+    # Build extra vars as a dict, written to a JSON file
+    extra_vars = {"command": command_name}
+
+    apply_instance_host_paths(cmd_def, args)
+
+    # Pass target_host when the command declares --host. Commands
+    # without a --host parameter resolve the target from the instance
+    # registry via -i; argparse already rejects --host on those.
+    host_value = getattr(args, "host", None)
+    if host_value:
+        extra_vars["target_host"] = host_value
+
+    # The wrapper records its own absolute path in CANASTA_CLI_BIN so
+    # playbooks that re-invoke the CLI (e.g. the crontab entry written by
+    # 'backup schedule set') can use a fully-qualified path rather than
+    # relying on a minimal cron PATH. Absent when canasta.py is run
+    # directly without a wrapper.
+    cli_bin = os.environ.get("CANASTA_CLI_BIN")
+    if cli_bin:
+        extra_vars["canasta_cli_bin"] = cli_bin
+
+    # Declaring the runtime takes it out of the hands of the socket probe,
+    # which can only report what it finds. A host carrying both runtimes has
+    # no way to express which one its instances belong to otherwise.
+    #
+    # Only create reads this: every later command resolves the runtime from
+    # the registry entry create wrote. main() has already rejected a value
+    # that is neither runtime.
+    runtime = os.environ.get("CANASTA_CONTAINER_RUNTIME", "").strip()
+    if runtime:
+        extra_vars["container_runtime"] = runtime
+
+    if args.verbose:
+        extra_vars["verbose"] = "true"
+    else:
+        os.environ["ANSIBLE_STDOUT_CALLBACK"] = "canasta_minimal"
+
+    _add_param_extra_vars(params, args, host_value, extra_vars)
+
+    _add_runtime_extra_vars(args, host_value, extra_vars)
+
+    # Write vars to temp file (bypasses Jinja2 interpolation).
+    # delete=False because ansible-playbook needs to read it after
+    # execvp replaces this process. Stale files are cleaned up by
+    # _cleanup_stale_vars_files() at the start of each invocation.
+    vars_file = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", prefix="canasta-vars-",
+        delete=False,
+    )
+    json.dump(extra_vars, vars_file)
+    vars_file.close()
+    os.chmod(vars_file.name, 0o600)
+
+    ansible_args = [
+        ansible_playbook,
+        CANASTA_YML,
+        "-e", "@%s" % vars_file.name,
+    ]
+
+    if host_value:
+        _add_host_targeting(ansible_args, host_value, vars_file.name)
+
+    _export_connection_env()
+
     return ansible_args
 
 
@@ -2071,13 +2194,8 @@ def should_prompt_confirmation(cmd_def, yes_passed):
     """Whether to show the generic destructive-confirmation prompt.
 
     The net fires for a command that declares a "yes" parameter and was
-    invoked without --yes. A command that is read-only unless an explicit
-    write flag is given (so prompting before it has done anything is
-    wrong) opts out with 'self_confirm: true' and does its own gating in
-    the playbook.
+    invoked without --yes.
     """
-    if cmd_def.get("self_confirm"):
-        return False
     has_yes_param = any(
         p["name"] == "yes" for p in cmd_def.get("parameters", [])
     )
@@ -2119,17 +2237,16 @@ def validate_container_runtime():
         sys.exit(1)
 
 
-def main():
-    validate_container_runtime()
-    data = load_definitions()
-    parser = build_parser(data)
+def split_global_args(raw_args, data):
+    """Split argv into the global flags and the rest.
 
+    Returns (global_args, remaining, passthrough).
+    """
     # Extract --verbose from args BEFORE the subcommand only. Prevents
     # "-v" in "maintenance exec -i x php -v" from being consumed as
     # --verbose; a pre-command --verbose goes into a global parser, a
     # post-command --verbose (long form) is also hoisted, and -v after
     # a subcommand is left alone so passthrough scripts keep their -v.
-    raw_args = sys.argv[1:]
     pre_cmd = []
     post_cmd = []
     found_cmd = False
@@ -2175,26 +2292,27 @@ def main():
     # (the exec handler uses it directly; the Ansible path space-joins it to the
     # same string a string passthrough would have produced).
     remaining, passthrough = split_passthrough(remaining)
+    return global_args, remaining, passthrough
 
-    # Parse with the full parser (subcommands + flags)
-    args = parser.parse_args(remaining)
 
-    # Merge global verbose into args
-    args.verbose = global_args.verbose or args.verbose
+def inject_passthrough(args, data, passthrough):
+    """Put the args after -- into the command's first positional."""
+    if not passthrough:
+        return
+    cmd_name = resolve_command_name(args) if args.command else None
+    # Derive positional param name from definitions
+    cmd_index = {c["name"]: c for c in data["commands"]}
+    cmd_def = cmd_index.get(cmd_name, {})
+    pos_params = [p["name"] for p in cmd_def.get("parameters", [])
+                  if p.get("positional")]
+    if pos_params:
+        setattr(args, pos_params[0], passthrough)
 
-    # Inject passthrough args (after --) into the positional parameter
-    if passthrough:
-        cmd_name = resolve_command_name(args) if args.command else None
-        # Derive positional param name from definitions
-        cmd_index = {c["name"]: c for c in data["commands"]}
-        cmd_def = cmd_index.get(cmd_name, {})
-        pos_params = [p["name"] for p in cmd_def.get("parameters", [])
-                      if p.get("positional")]
-        if pos_params:
-            setattr(args, pos_params[0], passthrough)
 
-    hoist_flags_from_remainder(args)
-
+def resolve_command_or_exit(parser, args, data):
+    """The invoked command's internal name; prints help or an error and
+    exits when there is none.
+    """
     if not args.command:
         parser.print_help()
         sys.exit(1)
@@ -2220,10 +2338,11 @@ def main():
             sys.exit(2)
         print("Unknown command: %s" % command_name, file=sys.stderr)
         sys.exit(1)
+    return command_name
 
-    cmd_index = {c["name"]: c for c in data["commands"]}
-    cmd_def = cmd_index.get(command_name, {})
 
+def validate_command_args(cmd_def, args):
+    """Normalize and validate the parsed arguments before dispatch."""
     # Normalize orchestrator alias: k8s → kubernetes.
     if getattr(args, "orchestrator", None) == "k8s":
         args.orchestrator = "kubernetes"
@@ -2236,9 +2355,9 @@ def main():
         print(message, file=sys.stderr)
         sys.exit(code)
 
-    # Before the direct-command dispatch, so both paths read these the same.
-    apply_instance_host_paths(cmd_def, args)
 
+def run_preflight_checks(command_name, args):
+    """Refusals that apply before either the direct or the Ansible path."""
     # Pre-flight: a duplicate instance ID is an expected refusal, not a
     # crash. Catch it here so it exits with EXIT_ALREADY_EXISTS instead
     # of the opaque Ansible task-failure code (the playbook still checks
@@ -2276,8 +2395,13 @@ def main():
             # to Ansible for the service-listing case.
             pass
 
-    lock_fd = acquire_instance_lock(command_name, args)
 
+def run_direct_path(command_name, cmd_def, cmd_index, args, lock_fd):
+    """Run the command on the direct path when it has a handler.
+
+    Exits with the handler's result; returns the (command name, definition)
+    to hand to Ansible otherwise, which an AnsibleHandoff may change.
+    """
     # Direct command bypass: run simple commands without Ansible overhead.
     # direct_only commands always run via direct_commands and never fall
     # through to Ansible — CANASTA_FORCE_ANSIBLE has no effect on them
@@ -2305,11 +2429,13 @@ def main():
                     file=sys.stderr,
                 )
                 sys.exit(1)
+    return command_name, cmd_def
 
-    # Interactive confirmation for destructive commands.
+
+def confirm_destructive_command(cmd_def, command_name, args):
+    """Ask before running a command that has a --yes parameter without it."""
     # If the command defines a "yes" parameter and the user did not pass it,
     # prompt interactively rather than making them re-run with --yes.
-    # Commands that are read-only by default opt out with 'self_confirm'.
     if should_prompt_confirmation(cmd_def, getattr(args, "yes", False)):
         description = cmd_def.get("description", command_name)
         instance_id = getattr(args, "id", None)
@@ -2333,6 +2459,42 @@ def main():
             sys.exit(0)
         # Tell the playbook to skip its own confirmation check
         args.yes = True
+
+
+def main():
+    validate_container_runtime()
+    data = load_definitions()
+    parser = build_parser(data)
+
+    global_args, remaining, passthrough = split_global_args(
+        sys.argv[1:], data)
+
+    # Parse with the full parser (subcommands + flags)
+    args = parser.parse_args(remaining)
+
+    # Merge global verbose into args
+    args.verbose = global_args.verbose or args.verbose
+
+    inject_passthrough(args, data, passthrough)
+    hoist_flags_from_remainder(args)
+
+    command_name = resolve_command_or_exit(parser, args, data)
+    cmd_index = {c["name"]: c for c in data["commands"]}
+    cmd_def = cmd_index.get(command_name, {})
+
+    validate_command_args(cmd_def, args)
+    # Before the direct-command dispatch, so both paths read these the same.
+    apply_instance_host_paths(cmd_def, args)
+
+    check_command_orchestrator(cmd_def, command_name, args)
+    run_preflight_checks(command_name, args)
+
+    lock_fd = acquire_instance_lock(command_name, args)
+
+    command_name, cmd_def = run_direct_path(
+        command_name, cmd_def, cmd_index, args, lock_fd)
+
+    confirm_destructive_command(cmd_def, command_name, args)
 
     ansible_playbook = find_ansible_playbook()
     ansible_args = build_ansible_args(

@@ -9,6 +9,13 @@
 #   choice   - One of a fixed set of values (see 'choices')
 #   integer  - Whole number
 #
+# Command-level fields:
+#   orchestrators       - Orchestrators the command supports ([compose] or
+#                         [kubernetes]). canasta.py refuses the command on
+#                         an instance of any other orchestrator.
+#   orchestrators_note  - Sentence appended to that refusal, saying why or
+#                         what to do instead.
+#
 # Special fields:
 #   required          - Parameter must be provided
 #   required_unless   - Required unless the named parameter is provided
@@ -18,6 +25,9 @@
 #   as_list           - For positional multi. Reaches Ansible as a list, so a
 #                       value may contain spaces. Without it, the values are
 #                       joined with spaces into one string.
+#   aliases           - For type:bool. Deprecated flag spellings (e.g. ["--yes",
+#                       "-y"]) that set the same parameter but are hidden
+#                       from --help and the generated reference.
 #   validator         - Name of a regex in canasta.py:_VALIDATORS (e.g. 'hostname')
 #   path_kind         - For type:path. 'remote' = remote target dir (default with
 #                       --host is '~/canasta'; relative paths rejected with --host).
@@ -996,6 +1006,7 @@ commands:
           'kubectl delete node <hostname>' so the Node entry is cleaned
           up. Ignored on control-plane uninstalls.
       - name: force
+        short: f
         type: bool
         description: >-
           Proceed even when the target node holds PersistentVolumes whose
@@ -1339,22 +1350,19 @@ commands:
       upgrade never changes them; use this to adopt an improved shipped
       version, or to restore a seed file you deleted.
 
-      This command is read-only unless --yes is given. With no file
+      This command is read-only unless --apply is given. With no file
       argument it lists the seed files whose instance copy differs from
       the current template. With one or more files it shows the diff but
-      changes nothing; add --yes to overwrite, so review the diff first
+      changes nothing; add --apply to overwrite, so review the diff first
       (your local edits to that file are replaced). Rendered files (.env,
       wikis.yaml, Caddyfile) belong to 'canasta reconcile' and per-wiki
-      Settings.php is user-owned; neither is touched here.
+      Settings.php is user-owned; neither is touched here. --yes is
+      accepted as a deprecated spelling of --apply.
     examples:
       - "canasta config refresh-template"
       - "canasta config refresh-template config/default.vcl"
-      - "canasta config refresh-template config/default.vcl --yes"
+      - "canasta config refresh-template config/default.vcl --apply"
     playbook: config_refresh_template.yml
-    # Read-only by default (lists drift / previews a diff); only --yes
-    # writes. Opt out of the generic destructive-confirmation prompt so
-    # the no-arg and preview invocations don't ask before doing nothing.
-    self_confirm: true
     parameters:
       - name: id
         short: i
@@ -1367,10 +1375,10 @@ commands:
         description: >-
           Template-seeded file path(s) to refresh, relative to the
           instance root (e.g. config/default.vcl)
-      - name: "yes"
-        short: "y"
+      - name: apply
         type: bool
         default: false
+        aliases: ["--yes", "-y"]
         description: "Overwrite the instance copy (without this, only previews the diff)"
 
   - name: config_unset
@@ -1522,6 +1530,10 @@ commands:
       - "canasta extension remove MyExtension"
       - "canasta extension remove MyExtension,OtherExtension"
     playbook: extension_remove.yml
+    orchestrators: [compose]
+    orchestrators_note: >-
+      This includes gitops instances; Kubernetes user extensions and skins
+      live in a PVC and are not managed this way.
     parameters:
       - name: id
         short: i
@@ -1552,6 +1564,10 @@ commands:
       - "canasta skin remove Mirage"
       - "canasta skin remove Mirage,Cosmos"
     playbook: skin_remove.yml
+    orchestrators: [compose]
+    orchestrators_note: >-
+      This includes gitops instances; Kubernetes user extensions and skins
+      live in a PVC and are not managed this way.
     parameters:
       - name: id
         short: i
@@ -1649,6 +1665,10 @@ commands:
       - "canasta extension add DarkMode --clone --mw-version 1.43.2"
       - "canasta extension add MyExtension --repository https://example.org/MyExtension.git --branch main"
     playbook: extension_add.yml
+    orchestrators: [compose]
+    orchestrators_note: >-
+      This includes gitops instances; Kubernetes user extensions and skins
+      live in a PVC and are not managed this way.
     parameters:
       - name: id
         short: i
@@ -1807,6 +1827,10 @@ commands:
       - "canasta skin add Mirage --clone"
       - "canasta skin add Mirage --clone --mw-version 1.43.2"
     playbook: skin_add.yml
+    orchestrators: [compose]
+    orchestrators_note: >-
+      This includes gitops instances; Kubernetes user extensions and skins
+      live in a PVC and are not managed this way.
     parameters:
       - name: id
         short: i
@@ -2240,6 +2264,10 @@ commands:
     examples:
       - "canasta devmode enable"
     playbook: devmode_enable.yml
+    orchestrators: [compose]
+    orchestrators_note: >-
+      Xdebug enablement requires a custom image build and values.yaml
+      configuration.
     parameters:
       - name: id
         short: i
@@ -2254,6 +2282,7 @@ commands:
     examples:
       - "canasta devmode disable"
     playbook: devmode_disable.yml
+    orchestrators: [compose]
     parameters:
       - name: id
         short: i
@@ -2832,6 +2861,7 @@ commands:
           starting with a quoted '~' (for example '~/x'). Omit to keep the default: ssh-agent forwarding on
           Compose, or the generated `<key>.ssh` deploy key on Kubernetes.
       - name: force
+        short: f
         type: bool
         default: false
         description: "Force push to non-empty remote"
@@ -3345,6 +3375,10 @@ commands:
     examples:
       - "canasta scale -i mysite --replicas 3"
     playbook: scale.yml
+    orchestrators: [kubernetes]
+    orchestrators_note: >-
+      On Compose, raise PHP-FPM worker limits inside the web image rather
+      than running multiple replicas of the same container.
     parameters:
       - name: id
         short: i

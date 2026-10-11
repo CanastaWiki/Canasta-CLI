@@ -236,56 +236,63 @@ def _reclaimable_line(df_out, k3s):
     return "  Reclaimable:     %s" % amount
 
 
-def _parse_doctor(stdout, hostname):
+def _doctor_probes(stdout):
+    """Split the doctor probe output into its named fields."""
     d = _helpers._SENTINEL
     parts = stdout.split(d + "\n")
 
     def p(i):
         return parts[i].strip() if i < len(parts) else "unknown"
 
-    python = p(0)
-    docker = p(1)
-    compose = p(2)
-    daemon = p(3)
-    groups = p(4)
-    kubectl = p(5)
-    helm = p(6)
-    k3s = p(7)
-    cluster = p(8)
-    argocd = p(9)
-    git = p(10)
-    gitcrypt = p(11)
-    crontab = p(12)
-    host_os = p(13)
-    memory = p(14)
-    disk = p(15) if len(parts) > 15 else "unknown"
-    unpriv_port_start = p(16) if len(parts) > 16 else "unknown"
-    rootless_sock = p(17) if len(parts) > 17 else ""
-    # canasta probe is appended after rootless (index 18) so adding it
-    # didn't shift the existing positional indices above.
-    host_canasta = p(18) if len(parts) > 18 else "MISSING"
-    # Writability of the native install dir's .git — the precondition for
-    # `canasta upgrade`'s self-update (git fetch). NA on docker installs.
-    selfupdate = p(19) if len(parts) > 19 else "NA"
-    # SOPS toolchain for encrypted K8s gitops secrets (appended, so it didn't
-    # shift the positional indices above): sops on the gitops host, age on the
-    # controller.
-    sops = p(20) if len(parts) > 20 else "MISSING"
-    age = p(21) if len(parts) > 21 else "MISSING"
-    podman_version = p(22) if len(parts) > 22 else "MISSING"
-    # Privilege escalation, appended so the indices above are unchanged.
-    sudo_version = p(23) if len(parts) > 23 else "MISSING"
-    sudo_nopasswd = p(24) if len(parts) > 24 else "MISSING"
-    podman_compose_version = p(25) if len(parts) > 25 else "MISSING"
-    # Reclaimable image storage, appended so the indices above are unchanged.
-    system_df = p(26) if len(parts) > 26 else ""
+    return {
+        "python": p(0),
+        "docker": p(1),
+        "compose": p(2),
+        "daemon": p(3),
+        "groups": p(4),
+        "kubectl": p(5),
+        "helm": p(6),
+        "k3s": p(7),
+        "cluster": p(8),
+        "argocd": p(9),
+        "git": p(10),
+        "gitcrypt": p(11),
+        "crontab": p(12),
+        "host_os": p(13),
+        "memory": p(14),
+        "disk": p(15) if len(parts) > 15 else "unknown",
+        "unpriv_port_start": p(16) if len(parts) > 16 else "unknown",
+        "rootless_sock": p(17) if len(parts) > 17 else "",
+        # canasta probe is appended after rootless (index 18) so adding it
+        # didn't shift the existing positional indices above.
+        "host_canasta": p(18) if len(parts) > 18 else "MISSING",
+        # Writability of the native install dir's .git — the precondition for
+        # `canasta upgrade`'s self-update (git fetch). NA on docker installs.
+        "selfupdate": p(19) if len(parts) > 19 else "NA",
+        # SOPS toolchain for encrypted K8s gitops secrets (appended, so it didn't
+        # shift the positional indices above): sops on the gitops host, age on the
+        # controller.
+        "sops": p(20) if len(parts) > 20 else "MISSING",
+        "age": p(21) if len(parts) > 21 else "MISSING",
+        "podman_version": p(22) if len(parts) > 22 else "MISSING",
+        # Privilege escalation, appended so the indices above are unchanged.
+        "sudo_version": p(23) if len(parts) > 23 else "MISSING",
+        "sudo_nopasswd": p(24) if len(parts) > 24 else "MISSING",
+        "podman_compose_version": p(25) if len(parts) > 25 else "MISSING",
+        # Reclaimable image storage, appended so the indices above are unchanged.
+        "system_df": p(26) if len(parts) > 26 else "",
+    }
 
-    lines = [
-        "Canasta Dependency Check (%s)" % hostname,
-        "=" * 52,
-        "",
-        "Core (required):",
-    ]
+
+def _doctor_core_lines(probes):
+    """Core (required) section: container runtime and daemon."""
+    lines = []
+    python = probes["python"]
+    docker = probes["docker"]
+    compose = probes["compose"]
+    daemon = probes["daemon"]
+    unpriv_port_start = probes["unpriv_port_start"]
+    rootless_sock = probes["rootless_sock"]
     lines.append("  Python 3:        %s" % (
         "OK (%s)" % python if "Python" in python else "MISSING"))
     lines.append("  Docker:          %s" % (
@@ -334,15 +341,19 @@ def _parse_doctor(stdout, hostname):
             "  Rootless socket: none detected "
             "(default /var/run/docker.sock)"
         )
+    return lines
 
+
+def _doctor_podman_lines(probes):
+    """Podman version, with the known-bad versions flagged."""
+    lines = []
+    podman_version = probes["podman_version"]
     if "podman version" in podman_version.lower():
         ver = podman_version
         # Parse "podman version 4.3.1" → "4.3.1"
         m = re.search(r'(\d+\.\d+\.\d+)', ver)
         if m:
             ver_str = m.group(1)
-            # Not `parts` — that name is the split doctor output the
-            # p() helper above reads.
             ver_parts = [int(x) for x in ver_str.split(".")]
             while len(ver_parts) < 3:
                 ver_parts.append(0)
@@ -365,7 +376,13 @@ def _parse_doctor(stdout, hostname):
             lines.append(
                 "  Podman:          %s (version unknown)" % ver
             )
+    return lines
 
+
+def _doctor_podman_compose_lines(probes):
+    """podman-compose version, with the known-bad version flagged."""
+    lines = []
+    podman_compose_version = probes["podman_compose_version"]
     if podman_compose_version not in ("MISSING", ""):
         pc_ver = podman_compose_version
         # podman-compose version prints its own version first, then
@@ -401,7 +418,17 @@ def _parse_doctor(stdout, hostname):
             lines.append(
                 "  Podman Compose:  %s" % pc_ver.splitlines()[0]
             )
+    return lines
 
+
+def _doctor_kubernetes_lines(probes):
+    """Kubernetes (optional) section."""
+    lines = []
+    kubectl = probes["kubectl"]
+    helm = probes["helm"]
+    k3s = probes["k3s"]
+    cluster = probes["cluster"]
+    argocd = probes["argocd"]
     lines.append("")
     lines.append("Kubernetes (optional):")
     lines.append("  kubectl:         %s" % ("OK" if kubectl.strip() == "OK" else "not installed"))
@@ -413,7 +440,16 @@ def _parse_doctor(stdout, hostname):
         "reachable" if cluster.strip() == "REACHABLE" else "not reachable"))
     lines.append("  Argo CD:         %s" % (
         "installed" if argocd.strip() == "INSTALLED" else "not found"))
+    return lines
 
+
+def _doctor_gitops_lines(probes):
+    """GitOps (optional) section."""
+    lines = []
+    git = probes["git"]
+    gitcrypt = probes["gitcrypt"]
+    sops = probes["sops"]
+    age = probes["age"]
     lines.append("")
     lines.append("GitOps (optional):")
     lines.append("  git:             %s" % (
@@ -431,7 +467,14 @@ def _parse_doctor(stdout, hostname):
         "OK" if age == "OK"
         else "not installed (operator key tool for encrypted K8s secrets; "
              "'canasta install sops')"))
+    return lines
 
+
+def _doctor_backup_lines(probes):
+    """Scheduled backups (optional) section."""
+    lines = []
+    crontab = probes["crontab"]
+    host_canasta = probes["host_canasta"]
     lines.append("")
     # Backup scheduling writes a host crontab entry on the host where the
     # instance runs — the local/remote host for Compose, the control-plane
@@ -451,7 +494,21 @@ def _parse_doctor(stdout, hostname):
         else "not installed (scheduled backups run 'canasta backup create' "
              "on the host; install with 'canasta install canasta -H <host>' "
              "or canasta-docker)"))
+    return lines
 
+
+def _doctor_system_lines(probes):
+    """System section: resources, groups, self-update, sudo."""
+    lines = []
+    groups = probes["groups"]
+    k3s = probes["k3s"]
+    host_os = probes["host_os"]
+    memory = probes["memory"]
+    disk = probes["disk"]
+    selfupdate = probes["selfupdate"]
+    sudo_version = probes["sudo_version"]
+    sudo_nopasswd = probes["sudo_nopasswd"]
+    system_df = probes["system_df"]
     lines.append("")
     lines.append("System:")
     lines.append("  Memory:          %s" % memory)
@@ -519,7 +576,24 @@ def _parse_doctor(stdout, hostname):
         )
     elif sudo_nopasswd == "OK":
         lines.append("  Privilege esc.:  OK (passwordless sudo)")
+    return lines
 
+
+def _parse_doctor(stdout, hostname):
+    probes = _doctor_probes(stdout)
+    lines = [
+        "Canasta Dependency Check (%s)" % hostname,
+        "=" * 52,
+        "",
+        "Core (required):",
+    ]
+    lines.extend(_doctor_core_lines(probes))
+    lines.extend(_doctor_podman_lines(probes))
+    lines.extend(_doctor_podman_compose_lines(probes))
+    lines.extend(_doctor_kubernetes_lines(probes))
+    lines.extend(_doctor_gitops_lines(probes))
+    lines.extend(_doctor_backup_lines(probes))
+    lines.extend(_doctor_system_lines(probes))
     return "\n".join(lines)
 
 

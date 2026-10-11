@@ -4716,20 +4716,6 @@ class TestScale:
     def test_registered(self):
         assert direct_commands.is_direct_command("scale")
 
-    def test_rejects_compose(self, monkeypatch, capsys):
-        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
-            lambda args: ("mysite", {
-                "id": "mysite", "path": "/srv/mysite",
-                "host": "localhost", "orchestrator": "compose",
-            }),
-        )
-        rc = direct_commands.cmd_scale(self._args())
-        assert rc == 1
-        err = capsys.readouterr().err
-        assert "Kubernetes-only" in err
-        # Message should also tell Compose users what to do instead.
-        assert "PHP-FPM" in err
-
     def test_rejects_unsupported_component(self, monkeypatch, capsys):
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("mysite", self._k8s_inst()),

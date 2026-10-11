@@ -68,16 +68,9 @@
 # its schema updates.
 - name: Run update.php for each affected wiki
   when: not (skip_update | default(false) | bool)
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/mediawiki/tasks/run_update_php.yml"
   vars:
-    exec_service: web
-    exec_command: "php maintenance/update.php --wiki={{ _enable_wiki | quote }}"
-    exec_long: true
-  loop: >-
-    {{ [wiki] if (wiki | default('') != '')
-       else (_enable_wikis.wiki_ids | default([])) }}
-  loop_control:
-    loop_var: _enable_wiki
+    update_php_wikis: "{{ [wiki] if (wiki | default('') != '') else [] }}"
 
 - name: "Report {{ _item_type }} enabled"
   ansible.builtin.debug:

@@ -60,12 +60,12 @@ def _current_branch_probe(t):
 
 
 class TestKubernetesGuard:
-    def test_guard_uses_instance_orchestrator(self):
-        # 'orchestrator' is never set by resolve_instance; the guard must
-        # read 'instance_orchestrator' or it never fires.
-        text = open(ADD).read()
-        assert "instance_orchestrator | default('compose') in ['kubernetes', 'k8s']" in text, (
-            "add.yml must refuse kubernetes/k8s via instance_orchestrator")
+    def test_declared_compose_only(self):
+        # canasta.py refuses the command on Kubernetes from this key.
+        with open(os.path.join(REPO_ROOT, "meta", "command_definitions.yml")) as f:
+            commands = {c["name"]: c for c in yaml.safe_load(f)["commands"]}
+        for name in ['extension_add', 'skin_add']:
+            assert commands[name].get("orchestrators") == ['compose'], name
 
     def test_restart_skipped_on_kubernetes(self):
         # The Compose restart must not run on a Kubernetes instance.

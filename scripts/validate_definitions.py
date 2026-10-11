@@ -30,6 +30,19 @@ SHORT_FLAG = re.compile(r"^-[A-Za-z]$")
 REQUIRED_CMD_FIELDS = {"name", "description", "parameters"}
 REQUIRED_PARAM_FIELDS = {"name", "type", "description"}
 
+# Short flags that already stand for more than one long flag across the
+# command set. Renaming any of them would break scripts and the published
+# examples, so these are accepted as-is; a short flag must not take on a
+# meaning outside its set here.
+ACCEPTED_SHORT_FLAG_REUSE = {
+    "c": {"--cli-only", "--component"},
+    "f": {"--force", "--file", "--yamlfile"},
+    "n": {"--domain-name", "--name"},
+    "r": {"--override", "--replicas"},
+    "s": {"--password", "--service", "--snapshot"},
+    "t": {"--site-name", "--tag"},
+}
+
 
 def flag_table(command, definitions):
     """Map flag spelling -> parameter, plus the positionals in order."""
@@ -42,11 +55,105 @@ def flag_table(command, definitions):
         longs["--" + (param.get("long") or param["name"]).replace("_", "-")] = param
         if param.get("short"):
             shorts["-" + param["short"]] = param
+        for alias in param.get("aliases") or []:
+            (longs if alias.startswith("--") else shorts)[alias] = param
     for param in definitions.get("global_flags") or []:
         longs["--" + param["name"].replace("_", "-")] = param
         if param.get("short"):
             shorts["-" + param["short"]] = param
     return longs, shorts, positionals
+
+
+def check_short_flag_reuse(definitions, accepted=None):
+    """Errors for a short flag that means a different long flag elsewhere.
+
+    One letter naming unrelated options in different commands is how
+    `-f` came to mean --force, --file and --yamlfile. Reuse beyond
+    `accepted` (short letter -> set of long flags) is rejected.
+    """
+    if accepted is None:
+        accepted = ACCEPTED_SHORT_FLAG_REUSE
+    uses = {}
+    for param in definitions.get("global_flags") or []:
+        if param.get("short"):
+            long_flag = "--" + param["name"].replace("_", "-")
+            uses.setdefault(param["short"], {}).setdefault(
+                long_flag, []).append("(global)")
+    for cmd in definitions.get("commands") or []:
+        for param in cmd.get("parameters") or []:
+            if not param.get("short") or param.get("positional"):
+                continue
+            long_flag = "--" + (
+                param.get("long") or param["name"]).replace("_", "-")
+            uses.setdefault(param["short"], {}).setdefault(
+                long_flag, []).append(cmd.get("name", "?"))
+    errors = []
+    for short in sorted(uses):
+        longs = uses[short]
+        if len(longs) < 2:
+            continue
+        allowed = accepted.get(short, set())
+        for long_flag in sorted(set(longs) - allowed):
+            errors.append(
+                "short flag -%s is used for %s (%s) but also for %s; "
+                "give it a different short flag or none"
+                % (short, long_flag, ", ".join(longs[long_flag]),
+                   ", ".join(sorted(set(longs) - {long_flag}))))
+    return errors
+
+
+ALIAS_FLAG = re.compile(r"^(--[a-z0-9][a-z0-9-]*|-[A-Za-z])$")
+
+
+def check_aliases(command, param):
+    """Errors for a parameter's `aliases:` (hidden deprecated spellings)."""
+    aliases = param.get("aliases")
+    if param.get("type") != "bool" or param.get("positional"):
+        return ["'aliases' is only supported on non-positional bool parameters"]
+    if not isinstance(aliases, list) or not aliases:
+        return ["'aliases' must be a non-empty list of flags"]
+    errors = []
+    others = set()
+    for other in command.get("parameters") or []:
+        if other is param or other.get("positional"):
+            continue
+        others.add("--" + (other.get("long") or other["name"]).replace("_", "-"))
+        if other.get("short"):
+            others.add("-" + other["short"])
+        others.update(other.get("aliases") or [])
+    own = "--" + (param.get("long") or param["name"]).replace("_", "-")
+    for alias in aliases:
+        if not isinstance(alias, str) or not ALIAS_FLAG.match(alias):
+            errors.append("alias %r is not a flag like --name or -n" % (alias,))
+        elif alias in others or alias == own or alias in ("-h", "--help"):
+            errors.append("alias %s is already a flag of this command" % alias)
+    return errors
+
+
+ORCHESTRATORS = {"compose", "kubernetes"}
+
+
+def check_orchestrators(cmd):
+    """Errors for a command's `orchestrators:` / `orchestrators_note:`."""
+    allowed = cmd.get("orchestrators")
+    note = cmd.get("orchestrators_note")
+    if allowed is None:
+        if note is not None:
+            return ["'orchestrators_note' needs 'orchestrators'"]
+        return []
+    if (not isinstance(allowed, list) or not allowed
+            or len(set(allowed)) != len(allowed)
+            or not set(allowed) <= ORCHESTRATORS):
+        return ["'orchestrators' must be a non-empty list of distinct "
+                "values from %s" % ", ".join(sorted(ORCHESTRATORS))]
+    errors = []
+    if note is not None and not (isinstance(note, str) and note.strip()):
+        errors.append("'orchestrators_note' must be a non-empty string")
+    # The refusal reads the instance's orchestrator, so the command has
+    # to target an instance.
+    if not any(p.get("name") == "id" for p in cmd.get("parameters") or []):
+        errors.append("'orchestrators' needs an 'id' parameter")
+    return errors
 
 
 def check_choices(param, value, label):
@@ -246,6 +353,9 @@ def main():
             if not os.path.exists(playbook_path):
                 errors.append("%s: playbook '%s' not found at %s" % (prefix, playbook, playbook_path))
 
+        for problem in check_orchestrators(cmd):
+            errors.append("%s: %s" % (prefix, problem))
+
         # Check parameters
         for j, param in enumerate(cmd.get("parameters", [])):
             ppfx = "%s.parameters[%d] (%s)" % (prefix, j, param.get("name", "?"))
@@ -256,6 +366,9 @@ def main():
             if ptype and ptype not in VALID_TYPES:
                 errors.append("%s: invalid type '%s' (must be one of %s)" % (
                     ppfx, ptype, ", ".join(sorted(VALID_TYPES))))
+            if param.get("aliases") is not None:
+                for problem in check_aliases(cmd, param):
+                    errors.append("%s: %s" % (ppfx, problem))
             if ptype == "choice" and not param.get("choices"):
                 errors.append("%s: type 'choice' requires 'choices' list" % ppfx)
             # Needs the playbook on disk; a missing one is already an error.
@@ -269,6 +382,8 @@ def main():
             example_count += 1
             for problem in check_example(cmd, example, table, data):
                 errors.append("%s: example '%s': %s" % (prefix, example, problem))
+
+    errors.extend(check_short_flag_reuse(data))
 
     # Check for orphan playbooks (files with no matching definition)
     if os.path.isdir(playbooks_dir):
