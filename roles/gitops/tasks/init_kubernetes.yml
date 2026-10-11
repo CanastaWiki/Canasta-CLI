@@ -46,13 +46,25 @@
 
 - name: Set git user.name on target host
   ansible.builtin.command:
-    cmd: "git config --global user.name '{{ git_user_name }}'"
+    argv:
+      - git
+      - config
+      - --global
+      - user.name
+      - "{{ git_user_name }}"
+    expand_argument_vars: false
   changed_when: true
   when: git_user_name is defined and git_user_name != ''
 
 - name: Set git user.email on target host
   ansible.builtin.command:
-    cmd: "git config --global user.email '{{ git_user_email }}'"
+    argv:
+      - git
+      - config
+      - --global
+      - user.email
+      - "{{ git_user_email }}"
+    expand_argument_vars: false
   changed_when: true
   when: git_user_email is defined and git_user_email != ''
 

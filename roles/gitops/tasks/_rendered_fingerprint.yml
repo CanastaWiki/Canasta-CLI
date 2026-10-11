@@ -1,13 +1,15 @@
 ---
-# Fingerprint what .env and config/wikis.yaml say, not how they are laid out.
-# A host's files written by create or config differ from a render of the
-# templates in quoting, blank lines, and key order while meaning the same
-# thing, so a byte checksum would flag a restart for a render that changes
-# nothing.
+# Fingerprint what .env, config/wikis.yaml and config/media-hosts.yaml say,
+# not how they are laid out. A host's files written by create or config
+# differ from a render of the templates in quoting, blank lines, and key
+# order while meaning the same thing, so a byte checksum would flag a restart
+# for a render that changes nothing. my.cnf is installed only when its bytes
+# change, so its bytes are what it fingerprints.
 #
 # Input:  instance_path
-# Output: _rendered_fingerprint, {'env': <sha1>, 'wikis': <sha1>}; a missing
-#         file fingerprints as ''.
+# Output: _rendered_fingerprint, {'env': <sha1>, 'wikis': <sha1>,
+#         'mycnf': <sha1>, 'media_hosts': <sha1>}; a missing file
+#         fingerprints as ''.
 
 - name: Read .env for fingerprinting
   canasta_env:
@@ -22,7 +24,19 @@
   register: _rendered_fp_wikis
   failed_when: false
 
-- name: Fingerprint .env and config/wikis.yaml
+- name: Read my.cnf for fingerprinting
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/my.cnf"
+  register: _rendered_fp_mycnf
+  failed_when: false
+
+- name: Read config/media-hosts.yaml for fingerprinting
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/media-hosts.yaml"
+  register: _rendered_fp_media_hosts
+  failed_when: false
+
+- name: Fingerprint the rendered files
   ansible.builtin.set_fact:
     _rendered_fingerprint:
       env: >-
@@ -31,4 +45,10 @@
       wikis: >-
         {{ (_rendered_fp_wikis.content | b64decode | from_yaml | to_json(sort_keys=true) | hash('sha1'))
            if _rendered_fp_wikis.content is defined else '' }}
+      mycnf: >-
+        {{ (_rendered_fp_mycnf.content | hash('sha1'))
+           if _rendered_fp_mycnf.content is defined else '' }}
+      media_hosts: >-
+        {{ (_rendered_fp_media_hosts.content | b64decode | from_yaml | to_json(sort_keys=true) | hash('sha1'))
+           if _rendered_fp_media_hosts.content is defined else '' }}
   no_log: true

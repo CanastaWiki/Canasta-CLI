@@ -261,6 +261,12 @@
 # truth on disk for the user-extensions / user-skins PVC sync.
 - name: Update submodules
   ansible.builtin.include_tasks: "_update_submodules.yml"
+  vars:
+    submodule_git_env:
+      GIT_SSH_COMMAND: >-
+        ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }}
+        -o StrictHostKeyChecking=accept-new
+        -o UserKnownHostsFile=~/.ssh/known_hosts
 
 # --- Extract per-host vars from this host's own values.yaml ---
 # Deliberately the pre-clone snapshot, not the file on disk: the checkout above
