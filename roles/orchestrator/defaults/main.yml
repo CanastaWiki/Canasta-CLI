@@ -7,6 +7,12 @@ canasta_default_image: "ghcr.io/canastawiki/canasta:latest"
 # Wait-for-it timeout (seconds)
 canasta_db_wait_timeout: 10
 
+# How long a Kubernetes backup or restore Job may run (seconds) before it is
+# deleted and reported as failed. The task files that use it are included
+# by path from the backup role, where these defaults are not loaded, so
+# each use also falls back to this value.
+canasta_k8s_backup_timeout: 3600
+
 # Pinned k3s and helm versions for Kubernetes installs. Pinning keeps the
 # control plane and any workers on the same version (a later-joining worker
 # must not outpace the cp — Kubernetes version-skew policy) and avoids

@@ -68,6 +68,7 @@ def _when(task):
 def _render(template, **variables):
     env = jinja2.Environment(trim_blocks=True)
     env.filters["quote"] = lambda s: shlex.quote(str(s))
+    env.filters["bool"] = bool
     return env.from_string(template).render(**variables)
 
 
