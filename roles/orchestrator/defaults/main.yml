@@ -1,12 +1,6 @@
 ---
 # Default values for the orchestrator role.
 
-# Default Canasta image (overridden by canasta.yml from CANASTA_VERSION)
-canasta_default_image: "ghcr.io/canastawiki/canasta:latest"
-
-# Wait-for-it timeout (seconds)
-canasta_db_wait_timeout: 10
-
 # How long a Kubernetes backup or restore Job may run (seconds) before it is
 # deleted and reported as failed. The task files that use it are included
 # by path from the backup role, where these defaults are not loaded, so

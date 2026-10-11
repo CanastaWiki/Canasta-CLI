@@ -5,7 +5,7 @@
 # This is the playbook-layer half of a two-layer check. canasta.py runs
 # the same metadata-driven validations (required_unless etc.) at the CLI
 # so typos fail fast; this task re-validates so values that bypass the CLI
-# (CANASTA_FORCE_ANSIBLE, Molecule, a raw ansible-playbook run) are still
+# (CANASTA_FORCE_ANSIBLE, a raw ansible-playbook run) are still
 # caught. Both read the same command_definitions.yml fields — keep the
 # rules (not the messages) in step. See collect_cli_param_errors in
 # canasta.py for the CLI side.

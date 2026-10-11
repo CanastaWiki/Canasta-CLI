@@ -176,42 +176,6 @@ def entries_to_dict(entries):
     return result
 
 
-def entries_to_content(entries):
-    """Serialize entries back to .env file content."""
-    lines = []
-    for key, value, is_comment in entries:
-        if is_comment:
-            lines.append(value)
-        else:
-            lines.append("%s=%s" % (key, value))
-    return "\n".join(lines)
-
-
-def set_variable(entries, key, value):
-    """Set a variable, updating in place if it exists or appending if not.
-
-    Updates the first occurrence, skips duplicate lines for the same key.
-    """
-    found = False
-    new_entries = []
-    for entry_key, entry_value, is_comment in entries:
-        if not is_comment and entry_key == key:
-            if not found:
-                new_entries.append((key, value, False))
-                found = True
-            # Skip duplicate lines for same key
-        else:
-            new_entries.append((entry_key, entry_value, is_comment))
-    if not found:
-        new_entries.append((key, value, False))
-    return new_entries
-
-
-def unset_variable(entries, key):
-    """Remove all lines for a given key."""
-    return [(k, v, c) for k, v, c in entries if c or k != key]
-
-
 def run_module():
     module_args = dict(
         path=dict(type="str", required=True),

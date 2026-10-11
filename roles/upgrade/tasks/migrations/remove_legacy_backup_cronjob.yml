@@ -1,0 +1,16 @@
+---
+# Migration: Remove the in-cluster backup CronJob that older Kubernetes
+# instances were scheduled with. Scheduling is now a crontab entry on the
+# control plane, so a CronJob left behind would run every backup twice.
+# Best-effort: the connection is on the control-plane node, which has
+# kubectl access.
+
+- name: Remove legacy backup CronJob (Kubernetes)
+  kubernetes.core.k8s:
+    state: absent
+    api_version: batch/v1
+    kind: CronJob
+    name: "canasta-backup-{{ instance_id }}"
+    namespace: "canasta-{{ instance_id }}"
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  ignore_errors: true  # OK if no CronJob / no cluster access

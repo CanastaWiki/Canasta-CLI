@@ -52,6 +52,14 @@ class TestValidateSidecarName:
     def test_reserved_caddy(self):
         assert _v("caddy") is not None
 
+    def test_every_compose_service_is_reserved(self):
+        path = os.path.join(REPO, "roles", "orchestrator", "files",
+                            "compose", "docker-compose.yml")
+        with open(path) as f:
+            services = yaml.safe_load(f)["services"]
+        unreserved = [s for s in services if _v(s) is None]
+        assert unreserved == []
+
 
 class TestValidateSidecars:
     def test_ok(self):

@@ -1,8 +1,6 @@
 ---
 # Remove an instance's backup-schedule crontab entry on the host where the
 # instance runs (Compose: the instance's host; K8s: the control-plane node).
-# Also tears down any legacy in-cluster CronJob from before scheduling was
-# unified on the crontab.
 #
 # Reused by: schedule remove, and the rematerialize step after restore /
 # gitops pull when no schedule is persisted.
@@ -30,15 +28,3 @@
     marker: "# {mark} canasta-backup-{{ instance_id }}"
     state: absent
   when: _sched_use_file
-
-# Migration: remove any legacy in-cluster CronJob from before scheduling
-# moved to the crontab. Best-effort — connection is on the cp node.
-- name: Remove legacy backup CronJob (Kubernetes)
-  kubernetes.core.k8s:
-    state: absent
-    api_version: batch/v1
-    kind: CronJob
-    name: "canasta-backup-{{ instance_id }}"
-    namespace: "canasta-{{ instance_id }}"
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-  ignore_errors: true  # OK if no CronJob / no cluster access

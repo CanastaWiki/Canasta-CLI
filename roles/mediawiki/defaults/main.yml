@@ -1,0 +1,11 @@
+---
+# Default values for the mediawiki role.
+
+# How long wait_for_db.yml waits for the database to accept connections
+# (seconds). Compose's bundled MariaDB usually answers in under 5s after
+# `docker compose up`; the rest is padding for K8s with an external
+# database, where a freshly scheduled pod has to finish its
+# initContainers, resolve a managed-database endpoint, and make its first
+# TCP connection over the cluster network. 10s was not enough for EKS
+# with RDS.
+canasta_db_wait_timeout: 60
