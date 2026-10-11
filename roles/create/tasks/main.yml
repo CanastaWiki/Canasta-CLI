@@ -15,6 +15,13 @@
 - name: Validate inputs and check for stale state
   ansible.builtin.include_tasks: _validate_inputs.yml
 
+# Validation refuses a namespace that already exists, so from here on the
+# namespace is this run's to remove if the create fails.
+- name: Mark the Kubernetes namespace as this create's
+  ansible.builtin.set_fact:
+    _create_owns_namespace: true
+  when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+
 # --- Step 2: Determine base image ---
 - name: Report preparing image
   ansible.builtin.debug:
