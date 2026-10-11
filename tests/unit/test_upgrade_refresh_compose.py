@@ -150,7 +150,7 @@ class TestImageTagGitopsDurable:
         )
         when = str(block.get("when", ""))
         assert "buildFrom" in when, "build-from instances must be excluded"
-        assert "canastawiki/canasta:" in when, (
+        assert "_upgrade_cli_pin_pattern" in when, (
             "only the default Canasta image is managed; a custom image is left "
             "alone"
         )
@@ -186,7 +186,7 @@ class TestImageTagGitopsDurable:
             and t.get("name") == "Update Kubernetes image tag in values.yaml"
         )
         upd = next(
-            (t for t in block.get("block", [])
+            (t for t in _iter_tasks(block.get("block", []))
              if self._lineinfile(t)
              and "image_tag" in str(self._lineinfile(t).get("regexp", ""))
              and "vars.yaml" in str(self._lineinfile(t).get("path", ""))),
