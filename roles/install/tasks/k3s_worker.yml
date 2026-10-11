@@ -133,12 +133,52 @@
     server: "{{ _k3s_server_url }}"
     token: "{{ _k3s_join_token }}"
 
-# --- Final visibility: show cluster nodes from cp ---
-# After the agent installs, the new worker may take a few seconds to
-# appear in the cp's view (kubelet registration). Retry briefly so the
-# printed table reflects the new node when possible; surface whatever
-# state the cp sees if it hasn't shown up by the timeout.
-- name: Wait briefly for the new worker to register on cp
+# --- Wait for the new worker to be Ready ---
+# The agent registers under the host's name, lowercased; uninstall_k3s.yml
+# relies on the same. A node that has not registered yet, or reports
+# NotReady, keeps the wait going.
+- name: Read the worker's hostname
+  ansible.builtin.command:
+    cmd: hostname
+  register: _worker_hostname_raw
+  changed_when: false
+
+- name: Set the worker's node name
+  ansible.builtin.set_fact:
+    _worker_node_name: "{{ _worker_hostname_raw.stdout | trim | lower }}"
+
+- name: Wait for the new worker to be Ready on cp
+  ansible.builtin.command:
+    argv:
+      - ssh
+      - -o
+      - StrictHostKeyChecking=accept-new
+      - "{{ _cp_ssh_target }}"
+      - sudo k3s kubectl get node {{ _worker_node_name | quote }} --no-headers
+  delegate_to: canasta_controller
+  vars:
+    ansible_connection: local
+  register: _cp_worker_node
+  changed_when: false
+  retries: 24
+  delay: 5
+  until: >-
+    _cp_worker_node.rc == 0
+    and (_cp_worker_node.stdout | default('') | split)[1:2] == ['Ready']
+  failed_when: false
+
+- name: Warn that the new worker is not Ready
+  ansible.builtin.debug:
+    msg: >-
+      Warning: node '{{ _worker_node_name }}' is not Ready on the control
+      plane after 2 minutes ({{ (_cp_worker_node.stdout | default('') | trim)
+      or (_cp_worker_node.stderr | default('') | trim) or 'not registered' }}).
+      Check 'journalctl -u k3s-agent' on this host.
+  when: >-
+    not (_cp_worker_node.rc == 0
+         and (_cp_worker_node.stdout | default('') | split)[1:2] == ['Ready'])
+
+- name: List cluster nodes from cp
   ansible.builtin.command:
     argv:
       - ssh
@@ -151,12 +191,7 @@
     ansible_connection: local
   register: _cp_post_join_nodes
   changed_when: false
-  retries: 6
-  delay: 5
-  until: >-
-    (_cp_post_join_nodes.stdout | regex_findall('Ready') | length)
-    >= ((_cp_post_join_nodes.stdout_lines | length) - 1)
-  failed_when: false  # Show whatever state we got, even if not all Ready
+  failed_when: false
 
 - name: Show cluster nodes from cp
   ansible.builtin.debug:
