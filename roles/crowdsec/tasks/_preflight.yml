@@ -98,4 +98,4 @@
       when: "'crowdsec=true' not in (_crowdsec_k8s_ready.stdout | default(''))"
 
 - name: Build the cscli command prefix for this orchestrator
-  ansible.builtin.include_tasks: _resolve_cscli.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/crowdsec_cscli_prefix.yml"

@@ -37,7 +37,7 @@
 # cscli writes the console credentials into the persisted /etc/crowdsec
 # volume; restart so the engine picks them up.
 - name: Restart the CrowdSec engine to apply the enrollment
-  ansible.builtin.include_tasks: _restart_engine.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/crowdsec_restart_engine.yml"
 
 - name: Report next steps
   ansible.builtin.debug:

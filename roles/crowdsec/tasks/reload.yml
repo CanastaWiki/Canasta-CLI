@@ -65,7 +65,7 @@
          and (_crowdsec_pods_before.stdout | default('') | trim | length > 0) }}
 
 - name: Restart the CrowdSec engine
-  ansible.builtin.include_tasks: _restart_engine.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/crowdsec_restart_engine.yml"
   when: not (_crowdsec_rolled_by_deploy | bool)
 
 # --origin lists scopes the delete to console blocklists (never manual bans or
@@ -83,7 +83,7 @@
     # the fresh pod before exec-ing the purge. No-op on Compose — the crowdsec
     # service name is stable across a restart.
     - name: Rebuild the cscli prefix after the restart
-      ansible.builtin.include_tasks: _resolve_cscli.yml
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/crowdsec_cscli_prefix.yml"
 
     - name: Delete the decisions
       ansible.builtin.command:
