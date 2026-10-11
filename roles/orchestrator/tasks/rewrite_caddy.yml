@@ -224,10 +224,10 @@
     msg: >-
       config/media-hosts.yaml entry {{ item | to_json }} has no
       {{ ['hostname', 'bucket', 'endpoint']
-         | reject('in', item | dict2items | rejectattr('value', 'none')
-                        | rejectattr('value', 'equalto', '')
-                        | map(attribute='key') | list)
-         | join(', ') }}.
+      | reject('in', item | dict2items | rejectattr('value', 'none')
+      | rejectattr('value', 'equalto', '')
+      | map(attribute='key') | list)
+      | join(', ') }}.
       Each entry needs hostname, bucket and endpoint — without the bucket and
       endpoint the upstream cannot be addressed, and object storage selects the
       bucket from the Host header rather than the path.

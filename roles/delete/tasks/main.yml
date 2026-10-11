@@ -183,8 +183,8 @@
   ansible.builtin.fail:
     msg: >-
       {{ 'Deleting instance ''' ~ instance_id ~ ''' at ' ~ instance_path ~ '.'
-         if _instance_registered | default(false) | bool
-         else 'Deleting unregistered instance ''' ~ instance_id ~ ''' (Kubernetes resources only).' }}
+      if _instance_registered | default(false) | bool
+      else 'Deleting unregistered instance ''' ~ instance_id ~ ''' (Kubernetes resources only).' }}
       Use --yes to confirm.
   when: not (yes | default(false) | bool)
 

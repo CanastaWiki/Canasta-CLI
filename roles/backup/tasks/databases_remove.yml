@@ -28,7 +28,7 @@
   ansible.builtin.debug:
     msg: >-
       {{ "Removed '" ~ database ~ "' from wiki '" ~ _backup_db_wiki ~ "'."
-         if _backup_db_remove.changed
-         else "'" ~ database ~ "' is not in wiki '" ~ _backup_db_wiki ~ "'." }}
+      if _backup_db_remove.changed
+      else "'" ~ database ~ "' is not in wiki '" ~ _backup_db_wiki ~ "'." }}
       Backups of this wiki now dump:
       {{ _backup_db_remove.databases | join(', ') }}.
