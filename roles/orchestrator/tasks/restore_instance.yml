@@ -153,6 +153,8 @@
           ansible.builtin.include_tasks: run_backup.yml
           vars:
             backup_args:
+              - "--host"
+              - "{{ instance_id }}"
               - "--tag"
               - "{{ _safety_tag }}"
               - "backup"
@@ -162,14 +164,7 @@
       # failed safety backup must not leave them there.
       always:
         - name: Clean up safety DB dump directory
-          ansible.builtin.include_tasks:
-            file: exec.yml
-            # Apply to the included tasks — best-effort cleanup.
-            apply:
-              ignore_errors: true
-          vars:
-            exec_service: web
-            exec_command: "rm -rf /mediawiki/config/backup"
+          ansible.builtin.include_tasks: backup_cleanup_db_dumps.yml
 
     - name: Report the restore phase
       ansible.builtin.debug:
@@ -456,14 +451,7 @@
         {{ [wiki] if wiki is defined else _restore_import_wikis }}
 
     - name: Clean up backup dump directory
-      ansible.builtin.include_tasks:
-        file: exec.yml
-        # Apply to the included tasks — OK if backup dir doesn't exist.
-        apply:
-          ignore_errors: true
-      vars:
-        exec_service: web
-        exec_command: "rm -rf /mediawiki/config/backup"
+      ansible.builtin.include_tasks: backup_cleanup_db_dumps.yml
 
     # When the instance is under gitops, the snapshot just restored contains
     # the SOURCE host's rendered files (.env, wikis.yaml, Caddyfile). On this

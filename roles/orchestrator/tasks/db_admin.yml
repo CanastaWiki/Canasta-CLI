@@ -10,7 +10,7 @@
 # Output:
 #   _db_admin_service - the service to run in (db or web)
 #   _db_admin_pwd     - the MYSQL_PWD assignment, and
-#   _db_admin_args    - the client's host and user arguments, used inside
+#   _db_admin_args    - the client's host, port and user arguments, used inside
 #                       that service as
 #                       `{{ _db_admin_pwd }} mariadb {{ _db_admin_args }}`
 #   _db_admin_exec    - host command prefix that runs a command in that
@@ -33,7 +33,8 @@
       {{ 'MYSQL_PWD="$MYSQL_PASSWORD"' if _db_admin_external | bool
          else 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD"' }}
     _db_admin_args: >-
-      {{ '-h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"' if _db_admin_external | bool
+      {{ '-h "${MYSQL_HOST:-db}" -P "${MYSQL_PORT:-3306}" -u "${MYSQL_USER:-root}"'
+         if _db_admin_external | bool
          else '-u root' }}
     _db_admin_exec: >-
       {{ compose_command }}
