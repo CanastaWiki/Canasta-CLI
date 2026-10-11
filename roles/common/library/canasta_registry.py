@@ -189,6 +189,192 @@ def _as_read(instance):
     return result
 
 
+def _save_instances(module, config_dir, data, instances):
+    if not module.check_mode:
+        data["Instances"] = instances
+        write_config(config_dir, data)
+
+
+def _state_query(module, config_dir, data, instances):
+    inst_id = module.params.get("id")
+    inst_path = module.params.get("path")
+    if not inst_id and inst_path:
+        inst_id, _ = find_by_path(instances, inst_path)
+    if not inst_id:
+        module.fail_json(msg="Instance ID is required for query (or provide path to auto-detect)")
+        return None
+    if inst_id not in instances:
+        module.fail_json(msg="Instance '%s' not found in registry" % inst_id)
+        return None
+    instance = _as_read(instances[inst_id])
+    instance["id"] = inst_id
+    return {"changed": False, "instance": instance}
+
+
+def _state_query_all(module, config_dir, data, instances):
+    filter_host = module.params.get("filter_host")
+    if filter_host:
+        # Match against the hostname portion of stored host field,
+        # which may be in user@host format.
+        def host_matches(stored, target):
+            bare = stored.split("@", 1)[-1] if "@" in stored else stored
+            return bare == target or stored == target
+
+        selected = {
+            k: _as_read(v) for k, v in instances.items()
+            if host_matches(v.get("host", "localhost"), filter_host)
+        }
+    else:
+        selected = {k: _as_read(v) for k, v in instances.items()}
+    return {"changed": False, "instances": selected}
+
+
+def _state_query_by_path(module, config_dir, data, instances):
+    inst_path = module.params.get("path")
+    if not inst_path:
+        module.fail_json(msg="path is required for query_by_path")
+        return None
+    found_id, found_inst = find_by_path(instances, inst_path)
+    if not found_id:
+        module.fail_json(msg="No instance found for path '%s'" % inst_path)
+        return None
+    instance = _as_read(found_inst)
+    instance["id"] = found_id
+    return {"changed": False, "instance": instance}
+
+
+def _state_present(module, config_dir, data, instances):
+    inst_id = module.params.get("id")
+    inst_path = module.params.get("path")
+    if not inst_id:
+        module.fail_json(msg="id is required when state=present")
+        return None
+    if not inst_path:
+        module.fail_json(msg="path is required when state=present")
+        return None
+
+    new_instance = instance_to_dict({
+        "id": inst_id,
+        "path": os.path.abspath(inst_path),
+        "orchestrator": module.params["orchestrator"] or "compose",
+        "host": module.params.get("host"),
+        "devMode": bool(module.params["dev_mode"]),
+        "buildFrom": module.params.get("build_from"),
+        "buildArgs": module.params.get("build_args"),
+        "dockerHost": module.params.get("docker_host"),
+        "composeCommand": module.params.get("compose_command"),
+        "inspectCommand": module.params.get("inspect_command"),
+    })
+
+    changed = False
+    if inst_id in instances:
+        # Preserve every optional field the caller did not supply, so
+        # a caller that sets only compose_command does not erase a
+        # prior inspect_command (and vice versa).
+        for key in preserved_on_present():
+            if key not in new_instance and key in instances[inst_id]:
+                new_instance[key] = instances[inst_id][key]
+        if instances[inst_id] != new_instance:
+            changed = True
+            instances[inst_id] = new_instance
+    else:
+        changed = True
+        instances[inst_id] = new_instance
+
+    if changed:
+        _save_instances(module, config_dir, data, instances)
+
+    return {"changed": changed, "instance": new_instance}
+
+
+def _state_update(module, config_dir, data, instances):
+    inst_id = module.params.get("id")
+    if not inst_id:
+        module.fail_json(msg="id is required when state=update")
+        return None
+    if inst_id not in instances:
+        module.fail_json(
+            msg="Instance '%s' not found in registry" % inst_id)
+        return None
+
+    entry = dict(instances[inst_id])
+    for key, param in UPDATABLE_FIELDS:
+        value = module.params.get(param)
+        if value is None:
+            continue
+        # Mirrors instance_to_dict: the stored format carries a key
+        # only while it holds something, so clearing a field drops
+        # the key rather than recording a false or empty value.
+        if value:
+            entry[key] = value
+        else:
+            entry.pop(key, None)
+
+    changed = False
+    if entry != instances[inst_id]:
+        changed = True
+        instances[inst_id] = entry
+        _save_instances(module, config_dir, data, instances)
+
+    return {"changed": changed, "instance": entry}
+
+
+def _state_absent(module, config_dir, data, instances):
+    inst_id = module.params.get("id")
+    if not inst_id:
+        module.fail_json(msg="id is required when state=absent")
+        return None
+    changed = False
+    if inst_id in instances:
+        changed = True
+        if not module.check_mode:
+            del instances[inst_id]
+            _save_instances(module, config_dir, data, instances)
+    return {"changed": changed}
+
+
+def _state_get_setting(module, config_dir, data, instances):
+    setting_key = module.params.get("setting_key")
+    if not setting_key:
+        module.fail_json(msg="setting_key is required for get_setting")
+        return None
+    settings = data.get("Settings", {})
+    return {"changed": False, "value": settings.get(setting_key)}
+
+
+def _state_set_setting(module, config_dir, data, instances):
+    setting_key = module.params.get("setting_key")
+    setting_value = module.params.get("setting_value")
+    if not setting_key:
+        module.fail_json(msg="setting_key is required for set_setting")
+        return None
+    settings = data.get("Settings", {})
+    old_value = settings.get(setting_key)
+    changed = False
+    if old_value != setting_value:
+        changed = True
+        if not module.check_mode:
+            if setting_value is None:
+                settings.pop(setting_key, None)
+            else:
+                settings[setting_key] = setting_value
+            data["Settings"] = settings
+            write_config(config_dir, data)
+    return {"changed": changed}
+
+
+STATE_HANDLERS = {
+    "query": _state_query,
+    "query_all": _state_query_all,
+    "query_by_path": _state_query_by_path,
+    "present": _state_present,
+    "update": _state_update,
+    "absent": _state_absent,
+    "get_setting": _state_get_setting,
+    "set_setting": _state_set_setting,
+}
+
+
 def run_module():
     module_args = dict(
         state=dict(type="str", default="query",
@@ -220,9 +406,6 @@ def run_module():
         supports_check_mode=True,
     )
 
-    state = module.params["state"]
-    inst_id = module.params.get("id")
-    inst_path = module.params.get("path")
     config_dir = get_config_dir(module.params.get("config_dir"))
 
     try:
@@ -232,162 +415,10 @@ def run_module():
         return
 
     instances = data.get("Instances", {})
-    changed = False
-    result = {"changed": False}
-
-    if state == "query":
-        if not inst_id and inst_path:
-            inst_id, _ = find_by_path(instances, inst_path)
-        if not inst_id:
-            module.fail_json(msg="Instance ID is required for query (or provide path to auto-detect)")
-            return
-        if inst_id not in instances:
-            module.fail_json(msg="Instance '%s' not found in registry" % inst_id)
-            return
-        result["instance"] = _as_read(instances[inst_id])
-        result["instance"]["id"] = inst_id
-
-    elif state == "query_all":
-        filter_host = module.params.get("filter_host")
-        if filter_host:
-            # Match against the hostname portion of stored host field,
-            # which may be in user@host format.
-            def host_matches(stored, target):
-                bare = stored.split("@", 1)[-1] if "@" in stored else stored
-                return bare == target or stored == target
-
-            result["instances"] = {
-                k: _as_read(v) for k, v in instances.items()
-                if host_matches(v.get("host", "localhost"), filter_host)
-            }
-        else:
-            result["instances"] = {
-                k: _as_read(v) for k, v in instances.items()}
-
-    elif state == "query_by_path":
-        if not inst_path:
-            module.fail_json(msg="path is required for query_by_path")
-            return
-        found_id, found_inst = find_by_path(instances, inst_path)
-        if not found_id:
-            module.fail_json(msg="No instance found for path '%s'" % inst_path)
-            return
-        result["instance"] = _as_read(found_inst)
-        result["instance"]["id"] = found_id
-
-    elif state == "present":
-        if not inst_id:
-            module.fail_json(msg="id is required when state=present")
-            return
-        if not inst_path:
-            module.fail_json(msg="path is required when state=present")
-            return
-
-        new_instance = instance_to_dict({
-            "id": inst_id,
-            "path": os.path.abspath(inst_path),
-            "orchestrator": module.params["orchestrator"] or "compose",
-            "host": module.params.get("host"),
-            "devMode": bool(module.params["dev_mode"]),
-            "buildFrom": module.params.get("build_from"),
-            "buildArgs": module.params.get("build_args"),
-            "dockerHost": module.params.get("docker_host"),
-            "composeCommand": module.params.get("compose_command"),
-            "inspectCommand": module.params.get("inspect_command"),
-        })
-
-        if inst_id in instances:
-            # Preserve every optional field the caller did not supply, so
-            # a caller that sets only compose_command does not erase a
-            # prior inspect_command (and vice versa).
-            for key in preserved_on_present():
-                if key not in new_instance and key in instances[inst_id]:
-                    new_instance[key] = instances[inst_id][key]
-            if instances[inst_id] != new_instance:
-                changed = True
-                instances[inst_id] = new_instance
-        else:
-            changed = True
-            instances[inst_id] = new_instance
-
-        if changed and not module.check_mode:
-            data["Instances"] = instances
-            write_config(config_dir, data)
-
-        result["changed"] = changed
-        result["instance"] = new_instance
-
-    elif state == "update":
-        if not inst_id:
-            module.fail_json(msg="id is required when state=update")
-            return
-        if inst_id not in instances:
-            module.fail_json(
-                msg="Instance '%s' not found in registry" % inst_id)
-            return
-
-        entry = dict(instances[inst_id])
-        for key, param in UPDATABLE_FIELDS:
-            value = module.params.get(param)
-            if value is None:
-                continue
-            # Mirrors instance_to_dict: the stored format carries a key
-            # only while it holds something, so clearing a field drops
-            # the key rather than recording a false or empty value.
-            if value:
-                entry[key] = value
-            else:
-                entry.pop(key, None)
-
-        if entry != instances[inst_id]:
-            changed = True
-            instances[inst_id] = entry
-            if not module.check_mode:
-                data["Instances"] = instances
-                write_config(config_dir, data)
-
-        result["changed"] = changed
-        result["instance"] = entry
-
-    elif state == "absent":
-        if not inst_id:
-            module.fail_json(msg="id is required when state=absent")
-            return
-        if inst_id in instances:
-            changed = True
-            if not module.check_mode:
-                del instances[inst_id]
-                data["Instances"] = instances
-                write_config(config_dir, data)
-        result["changed"] = changed
-
-    elif state == "get_setting":
-        setting_key = module.params.get("setting_key")
-        if not setting_key:
-            module.fail_json(msg="setting_key is required for get_setting")
-            return
-        settings = data.get("Settings", {})
-        result["value"] = settings.get(setting_key)
-
-    elif state == "set_setting":
-        setting_key = module.params.get("setting_key")
-        setting_value = module.params.get("setting_value")
-        if not setting_key:
-            module.fail_json(msg="setting_key is required for set_setting")
-            return
-        settings = data.get("Settings", {})
-        old_value = settings.get(setting_key)
-        if old_value != setting_value:
-            changed = True
-            if not module.check_mode:
-                if setting_value is None:
-                    settings.pop(setting_key, None)
-                else:
-                    settings[setting_key] = setting_value
-                data["Settings"] = settings
-                write_config(config_dir, data)
-        result["changed"] = changed
-
+    result = STATE_HANDLERS[module.params["state"]](
+        module, config_dir, data, instances)
+    if result is None:
+        return
     module.exit_json(**result)
 
 
