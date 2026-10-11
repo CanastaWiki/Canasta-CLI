@@ -24,21 +24,28 @@
     path: "{{ instance_path }}/wikis.yaml.template"
   register: _sync_wikis_tmpl_stat
 
+- name: Check for a pull still to be applied
+  ansible.builtin.include_tasks: _gitops_apply_pending.yml
+  when: _sync_wikis_live_stat.stat.exists and _sync_wikis_tmpl_stat.stat.exists
+
 - name: Default to no sync
   ansible.builtin.set_fact:
     _sync_wikis_action: "none"
+    _sync_wikis_active: >-
+      {{ _sync_wikis_live_stat.stat.exists and _sync_wikis_tmpl_stat.stat.exists
+         and not (_gitops_apply_pending | default(false) | bool) }}
 
 - name: Read live wikis.yaml for sync
   ansible.builtin.slurp:
     src: "{{ instance_path }}/config/wikis.yaml"
   register: _sync_wikis_live_raw
-  when: _sync_wikis_live_stat.stat.exists and _sync_wikis_tmpl_stat.stat.exists
+  when: _sync_wikis_active | bool
 
 - name: Read wikis.yaml.template for sync
   ansible.builtin.slurp:
     src: "{{ instance_path }}/wikis.yaml.template"
   register: _sync_wikis_tmpl_raw
-  when: _sync_wikis_live_stat.stat.exists and _sync_wikis_tmpl_stat.stat.exists
+  when: _sync_wikis_active | bool
 
 - name: Read the template as staged
   ansible.builtin.shell:
@@ -46,7 +53,7 @@
     chdir: "{{ instance_path }}"
   register: _sync_wikis_base
   changed_when: false
-  when: _sync_wikis_live_stat.stat.exists and _sync_wikis_tmpl_stat.stat.exists
+  when: _sync_wikis_active | bool
 
 - name: Decide which way to sync
   ansible.builtin.set_fact:
@@ -57,7 +64,7 @@
          | canasta_wikis_sync_action(
              _sync_wikis_tmpl_raw.content | b64decode,
              _sync_wikis_base.stdout) }}
-  when: _sync_wikis_live_stat.stat.exists and _sync_wikis_tmpl_stat.stat.exists
+  when: _sync_wikis_active | bool
 
 - name: Fail when both files were edited and disagree
   ansible.builtin.fail:
@@ -87,4 +94,4 @@
     cmd: git add -- wikis.yaml.template
     chdir: "{{ instance_path }}"
   changed_when: false
-  when: _sync_wikis_live_stat.stat.exists and _sync_wikis_tmpl_stat.stat.exists
+  when: _sync_wikis_active | bool
