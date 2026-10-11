@@ -3,6 +3,8 @@
 
 from unittest.mock import patch
 
+import pytest
+
 import canasta_env
 from mock_ansible import MockAnsibleModule, run_module_with_params
 
@@ -180,6 +182,20 @@ class TestRunModuleSet:
         assert not failed
         assert not result["changed"]
 
+    def test_value_with_line_break_is_refused(self, sample_env_file):
+        with open(sample_env_file) as f:
+            before = f.read()
+        for value in ("x\nMW_SECRET_KEY=evil", "x\rY=1", "x\r\n"):
+            result, failed, _ = run_module_with_params(canasta_env, {
+                "path": sample_env_file, "state": "set",
+                "key": "NEW_KEY", "value": value, "keys": None,
+            })
+            assert failed
+            assert "single line" in result["msg"]
+            assert "evil" not in result["msg"]
+        with open(sample_env_file) as f:
+            assert f.read() == before
+
 
 class TestRunModuleUnset:
     def test_unset_existing(self, sample_env_file):
@@ -269,6 +285,10 @@ class TestRawLineHelpers:
             "K=3", "X=y",
         ]
         assert canasta_env.set_line(["A=1"], "B", "2") == ["A=1", "B=2"]
+
+    def test_set_line_refuses_line_breaks(self):
+        with pytest.raises(ValueError, match="single line"):
+            canasta_env.set_line(["A=1"], "B", "2\nC=3")
 
     def test_unset_lines_keeps_others_verbatim(self):
         lines = ['A="a #b"', "B=1", "# c", "B=2"]

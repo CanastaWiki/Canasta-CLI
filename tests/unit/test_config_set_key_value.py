@@ -20,6 +20,7 @@ from ansible.template import Templar, trust_as_template
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 SET = os.path.join(REPO_ROOT, "roles", "config", "tasks", "set.yml")
 CHECK = "Reject settings that are not KEY=VALUE"
+RESOLVE = "Resolve settings list (allow internal override of the extra-var)"
 
 
 def _tasks():
@@ -31,8 +32,24 @@ def _check():
     return next(t for t in _tasks() if t.get("name") == CHECK)
 
 
+def _resolve(**variables):
+    """Evaluate the resolve step for `settings` / `config_settings_override`."""
+    task = next(t for t in _tasks() if t.get("name") == RESOLVE)
+    variables.update(
+        {k: trust_as_template(v) for k, v in task["vars"].items()})
+    templar = Templar(loader=DataLoader(), variables=variables)
+    return templar.template(trust_as_template(
+        task["ansible.builtin.set_fact"]["_config_settings"]))
+
+
 def _render(settings):
-    """Evaluate the check's condition and message for a settings string."""
+    """Evaluate the check's condition and message.
+
+    A string stands for the CLI's arguments separated by spaces; a list is
+    the arguments as the CLI passes them.
+    """
+    if isinstance(settings, str):
+        settings = settings.split()
     task = _check()
     variables = {"_config_settings": settings}
     variables.update(
@@ -47,9 +64,7 @@ def _render(settings):
 def test_check_runs_before_either_dispatch():
     names = [t.get("name", "") for t in _tasks()]
     check = names.index(CHECK)
-    assert names.index(
-        "Resolve settings string (allow internal override of the extra-var)"
-    ) < check
+    assert names.index(RESOLVE) < check
     apply = names.index("Apply the settings")
     assert check < apply
     dispatch = [t.get("name") for t in _tasks()[apply]["block"]]
@@ -97,3 +112,56 @@ def test_repeated_tokens_get_their_own_positions():
     fails, msg = _render("A=1 x x")
     assert fails
     assert "Arguments 2, 3 of 3 have no '='." in msg
+
+
+def test_cli_list_keeps_values_with_spaces_whole():
+    assert _resolve(settings=["MW_SITE_NAME=My Wiki", "X=a b=c"]) == [
+        "MW_SITE_NAME=My Wiki", "X=a b=c"]
+
+
+def test_value_with_spaces_passes_the_check():
+    fails, _ = _render(["MW_SITE_NAME=My Wiki"])
+    assert not fails
+
+
+def test_internal_override_string_is_split():
+    assert _resolve(
+        settings=["CANASTA_ENABLE_CROWDSEC=true"],
+        config_settings_override="WIKI_DB_USER=mediawiki WIKI_DB_PASSWORD=x",
+    ) == ["WIKI_DB_USER=mediawiki", "WIKI_DB_PASSWORD=x"]
+
+
+def test_message_says_to_quote_the_whole_setting():
+    fails, msg = _render(["MW_SITE_NAME=My", "Wiki"])
+    assert fails
+    assert "quoted if its value contains spaces" in msg
+
+
+MULTILINE = "Reject settings whose value has a line break"
+
+
+def _render_multiline(settings):
+    task = next(t for t in _tasks() if t.get("name") == MULTILINE)
+    variables = {"_config_settings": settings}
+    variables.update(
+        {k: trust_as_template(v) for k, v in task["vars"].items()})
+    templar = Templar(loader=DataLoader(), variables=variables)
+    fails = templar.template(trust_as_template("{{ %s }}" % task["when"]))
+    msg = templar.template(
+        trust_as_template(task["ansible.builtin.fail"]["msg"]))
+    return fails, msg
+
+
+def test_line_break_in_value_is_rejected_before_dispatch():
+    names = [t.get("name", "") for t in _tasks()]
+    assert names.index(MULTILINE) < names.index("Apply the settings")
+    fails, msg = _render_multiline(
+        ["A=1", "MYSQL_PASSWORD=x\nMW_SECRET_KEY=evil", "B=2\r"])
+    assert fails
+    assert "Arguments 2, 3 of 3 contain a line break." in msg
+    assert "evil" not in msg
+
+
+def test_single_line_values_pass_the_line_break_check():
+    fails, _ = _render_multiline(["MW_SITE_NAME=My Wiki", "A="])
+    assert not fails

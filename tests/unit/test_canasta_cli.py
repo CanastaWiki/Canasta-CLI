@@ -655,6 +655,45 @@ class TestRemainderFlagHoisting:
         assert args.wiki == "main"
         assert args.script_args == ["showJobs.php"]
 
+    def test_wiki_equals_form_after_script_name(self, parser):
+        args = self._parse_and_hoist(parser, [
+            "maintenance", "script", "-i", "mysite",
+            "showJobs.php", "--wiki=main"
+        ])
+        assert args.wiki == "main"
+        assert args.script_args == ["showJobs.php"]
+
+    def test_wiki_equals_form_after_extension_script(self, parser):
+        args = self._parse_and_hoist(parser, [
+            "maintenance", "extension", "-i", "mysite",
+            "SemanticMediaWiki", "rebuildData.php", "--wiki=main"
+        ])
+        assert args.wiki == "main"
+        assert "--wiki=main" not in args.script_args
+
+    def test_id_equals_form_after_script_name(self, parser):
+        args = self._parse_and_hoist(parser, [
+            "maintenance", "script", "showJobs.php", "--id=mysite"
+        ])
+        assert args.id == "mysite"
+        assert args.script_args == ["showJobs.php"]
+
+    def test_duplicate_wiki_equals_form_stays_in_passthrough(self, parser):
+        args = self._parse_and_hoist(parser, [
+            "maintenance", "script", "-i", "mysite", "-w", "main",
+            "myScript.php", "--wiki=other"
+        ])
+        assert args.wiki == "main"
+        assert args.script_args == ["myScript.php", "--wiki=other"]
+
+    def test_exec_wiki_equals_form_stays_with_the_inner_command(self, parser):
+        args = self._parse_and_hoist(parser, [
+            "maintenance", "exec", "-i", "mysite",
+            "php", "maintenance/run.php", "showSiteStats", "--wiki=draft"
+        ])
+        assert not hasattr(args, "wiki")
+        assert args.exec_args[-1] == "--wiki=draft"
+
     def test_wiki_flag_before_script_name_unchanged(self, parser):
         args = self._parse_and_hoist(parser, [
             "maintenance", "script", "-i", "mysite",
@@ -845,8 +884,23 @@ class TestBuildAnsibleArgsQuoting:
             "ap", "config_set", args, data
         )
         extra = self._get_vars(result)
-        assert '"quotes"' in extra["settings"]
-        assert "{{ braces }}" in extra["settings"]
+        assert extra["settings"] == [
+            'MY_KEY=value with "quotes" and {{ braces }}']
+
+    def test_config_settings_reach_ansible_as_a_list(self, data):
+        """Each KEY=VALUE stays one element, spaces and all."""
+        from argparse import Namespace
+        args = Namespace(
+            command="config", subcommand="set",
+            host=None, verbose=False,
+            id="mysite",
+            settings=["MW_SITE_NAME=My Wiki", "X=a b=c"],
+        )
+        result = canasta_cli.build_ansible_args(
+            "ap", "config_set", args, data
+        )
+        extra = self._get_vars(result)
+        assert extra["settings"] == ["MW_SITE_NAME=My Wiki", "X=a b=c"]
 
 
 class TestCreateFlags:

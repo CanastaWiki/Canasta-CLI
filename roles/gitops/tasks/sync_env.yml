@@ -167,7 +167,7 @@
       {{ _sync_env_plan.set | dict2items
          | map(attribute='key')
          | zip(_sync_env_plan.set | dict2items | map(attribute='value'))
-         | map('join', '=') | join(' ') }}
+         | map('join', '=') | list }}
   when: _sync_env_plan.set | default({}) | length > 0
 
 - name: Remove keys deleted from .env from the gitops sources

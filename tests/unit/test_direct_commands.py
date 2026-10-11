@@ -1832,6 +1832,11 @@ class TestEnvRawLineHelpers:
             ["A=1"], "B", "2",
         ) == ["A=1", "B=2"]
 
+    def test_refuses_line_breaks(self):
+        for value in ("2\nC=3", "2\rC=3"):
+            with pytest.raises(ValueError, match="single line"):
+                direct_commands._helpers._set_env_lines(["A=1"], "B", value)
+
     def test_key_of(self):
         ko = direct_commands._helpers._env_key_of
         assert ko('K="v"') == "K"

@@ -15,6 +15,9 @@
 #   sensitive         - Value is a secret (auto-generated if omitted, no_log in Ansible)
 #   mutual_exclusion  - Cannot be combined with the named parameter
 #   positional        - Accepted as positional argument(s), not a flag
+#   as_list           - For positional multi. Reaches Ansible as a list, so a
+#                       value may contain spaces. Without it, the values are
+#                       joined with spaces into one string.
 #   validator         - Name of a regex in canasta.py:_VALIDATORS (e.g. 'hostname')
 #   path_kind         - For type:path. 'remote' = remote target dir (default with
 #                       --host is '~/canasta'; relative paths rejected with --host).
@@ -1287,6 +1290,7 @@ commands:
         type: string
         positional: true
         multi: true
+        as_list: true
         description: "KEY=VALUE pairs to set"
       - name: no_restart
         type: bool
@@ -2365,6 +2369,7 @@ commands:
         short: t
         type: string
         required: true
+        validator: backup_tag
         description: "Backup tag"
 
   - name: backup_restore
@@ -3453,10 +3458,6 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
-      - name: path
-        short: p
-        type: string
-        description: "Path to the Canasta instance directory"
       - name: file
         short: f
         type: path
@@ -3479,10 +3480,6 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
-      - name: path
-        short: p
-        type: string
-        description: "Path to the Canasta instance directory"
 
   - name: sidecar_remove
     description: "Remove an app sidecar from config/sidecars.yaml"
@@ -3497,10 +3494,6 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
-      - name: path
-        short: p
-        type: string
-        description: "Path to the Canasta instance directory"
       - name: sidecar_name
         long: name
         short: n
@@ -3526,10 +3519,6 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
-      - name: path
-        short: p
-        type: string
-        description: "Path to the Canasta instance directory"
       - name: dry_run
         long: dry-run
         type: bool

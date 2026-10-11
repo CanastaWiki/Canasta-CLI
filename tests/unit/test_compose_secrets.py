@@ -233,7 +233,7 @@ def _play(tmp_path, inst, tasks_file, extra):
 def _set(tmp_path, inst):
     return _play(tmp_path, inst,
                  os.path.join(CONFIG_TASKS, "_set_secret_compose.yml"),
-                 {"_config_settings": "OAUTH_CLIENT=%s" % VALUE, "web": True})
+                 {"_config_settings": ["OAUTH_CLIENT=%s" % VALUE], "web": True})
 
 
 def _unset(tmp_path, inst):
