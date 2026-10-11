@@ -561,6 +561,8 @@ class TestGitopsDispatchers:
     """Verify that each dispatched gitops command has both variants."""
 
     DISPATCHED = ["init", "push", "pull", "diff"]
+    # diff on Compose runs only in direct_commands.
+    COMPOSE_DISPATCHED = ["init", "push", "pull"]
 
     def test_dispatcher_files_exist(self):
         for cmd in self.DISPATCHED:
@@ -568,7 +570,7 @@ class TestGitopsDispatchers:
             assert os.path.isfile(path), "Missing dispatcher: %s.yml" % cmd
 
     def test_compose_variants_exist(self):
-        for cmd in self.DISPATCHED:
+        for cmd in self.COMPOSE_DISPATCHED:
             path = os.path.join(GITOPS_TASKS, "%s_compose.yml" % cmd)
             assert os.path.isfile(path), (
                 "Missing compose variant: %s_compose.yml" % cmd
@@ -591,7 +593,7 @@ class TestGitopsDispatchers:
             )
 
     def test_compose_variants_do_not_resolve_instance(self):
-        for cmd in self.DISPATCHED:
+        for cmd in self.COMPOSE_DISPATCHED:
             path = os.path.join(GITOPS_TASKS, "%s_compose.yml" % cmd)
             with open(path) as f:
                 content = f.read()

@@ -1,8 +1,16 @@
 ---
-# GitOps diff — dispatches to Compose or Kubernetes variant.
+# GitOps diff for Kubernetes. The Compose diff runs in direct_commands
+# and never reaches Ansible.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-- name: Dispatch gitops diff
-  ansible.builtin.include_tasks: "diff_{{ instance_orchestrator | default('compose') }}.yml"
+- name: Require a Kubernetes instance
+  ansible.builtin.fail:
+    msg: >-
+      gitops diff for Compose instances does not run under
+      CANASTA_FORCE_ANSIBLE; unset it and run the command again.
+  when: instance_orchestrator | default('compose') == 'compose'
+
+- name: Show gitops diff
+  ansible.builtin.include_tasks: diff_kubernetes.yml
