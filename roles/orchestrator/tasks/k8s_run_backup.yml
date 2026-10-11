@@ -494,6 +494,41 @@
                 volumeMounts: "{{ _restic_volume_mounts }}"
             volumes: "{{ _restic_volumes }}"
 
+# A Job whose pod cannot be created (refused by PodSecurity or a quota)
+# never finishes, so it is caught here instead of after the long wait.
+# The first output line lists the Job's pods; any further line is a
+# FailedCreate event, which ends the wait at once.
+- name: Wait for the restic Job's pod to be created
+  ansible.builtin.command:
+    argv:
+      - sh
+      - -c
+      - >-
+        kubectl get pods -n "$1" -l "job-name=$2"
+        -o jsonpath='{.items[*].metadata.name}' && echo &&
+        kubectl get events -n "$1" -o name --field-selector
+        "involvedObject.kind=Job,involvedObject.name=$2,reason=FailedCreate"
+      - sh
+      - "{{ _k8s_namespace }}"
+      - "{{ _backup_job_name }}"
+  register: _backup_pod_wait
+  until: >-
+    _backup_pod_wait.rc == 0 and
+    (_backup_pod_wait.stdout_lines | map('trim') | select | list | length > 0)
+  retries: "{{ _backup_pod_wait_seconds // 2 }}"
+  delay: 2
+  changed_when: false
+  failed_when: false
+  vars:
+    _backup_pod_wait_seconds: 120
+
+- name: Record whether the Job got a pod
+  ansible.builtin.set_fact:
+    _backup_pod_created: >-
+      {{ _backup_pod_wait.rc == 0 and
+         ((_backup_pod_wait.stdout_lines | default(['']) | first
+           | default('') | trim) != '') }}
+
 - name: Wait for restic Job to complete
   kubernetes.core.k8s_info:
     api_version: batch/v1
@@ -510,6 +545,7 @@
   # A Job that never finishes (a pod stuck pulling its image) is reported
   # below, after it is deleted.
   failed_when: false
+  when: _backup_pod_created | bool
 
 - name: Record whether the Job finished
   ansible.builtin.set_fact:
@@ -517,6 +553,9 @@
       {{ (_backup_job_status.resources | default([])) | length > 0 and
          (_backup_job_status.resources[0].status.succeeded | default(0) > 0 or
           _backup_job_status.resources[0].status.failed | default(0) > 0) }}
+    _backup_job_succeeded: >-
+      {{ (_backup_job_status.resources | default([])) | length > 0 and
+         _backup_job_status.resources[0].status.succeeded | default(0) > 0 }}
 
 # The Job is deleted however reading its output goes, so a failed run does
 # not linger until its TTL.
@@ -553,7 +592,7 @@
       register: _backup_job_events
       changed_when: false
       failed_when: false
-      when: _backup_pod == ''
+      when: _backup_pod == '' or not (_backup_pod_created | bool)
 
     # When an init container fails, restic never starts and has no logs;
     # the failed init container's logs are read instead.
@@ -564,7 +603,7 @@
       changed_when: false
       failed_when:
         - _restic_log.rc != 0
-        - _backup_job_status.resources[0].status.succeeded | default(0) > 0
+        - _backup_job_succeeded | bool
       when: _backup_pod != ''
 
     - name: Get the init containers' exit codes
@@ -636,10 +675,7 @@
   ansible.builtin.fail:
     msg: >-
       The backup Job {{ _backup_job_name }} in namespace
-      {{ _k8s_namespace }} did not finish within
-      {{ canasta_k8s_backup_timeout | default(3600) }} seconds. The Job and
-      its pod were deleted, so restic {{ _restic_subcommand }} was stopped
-      and did not complete.{{ _backup_stuck_reason }}
+      {{ _k8s_namespace }} {{ _backup_unfinished_summary }}{{ _backup_stuck_reason }}
   vars:
     _backup_stuck_waiting: >-
       {{ (_backup_stuck_status.stdout | default('')).splitlines()
@@ -647,11 +683,18 @@
     _backup_job_event_lines: >-
       {{ (_backup_job_events.stdout | default('')).splitlines()
          | map('trim') | reject('equalto', '') | list }}
+    _backup_unfinished_summary: >-
+      {{ ('got no pod, so restic ' ~ _restic_subcommand ~ ' never started.'
+          ~ ' The Job was deleted.')
+         if not (_backup_pod_created | bool)
+         else ('did not finish within '
+               ~ (canasta_k8s_backup_timeout | default(3600)) ~ ' seconds.'
+               ~ ' The Job and its pod were deleted, so restic '
+               ~ _restic_subcommand ~ ' was stopped and did not complete.') }}
     _backup_stuck_reason: >-
-      {{ (' No pod was created for it'
-          ~ ((': ' ~ _backup_job_event_lines | join('; '))
-             if _backup_job_event_lines else '.'))
-         if _backup_pod == ''
+      {{ ((' Kubernetes reported: ' ~ _backup_job_event_lines | join('; '))
+          if _backup_job_event_lines else '')
+         if not (_backup_pod_created | bool)
          else ((' Its pod was waiting: ' ~ _backup_stuck_waiting | join('; '))
                if _backup_stuck_waiting else '') }}
   when: not (_backup_job_finished | bool)
@@ -660,7 +703,7 @@
   ansible.builtin.set_fact:
     _restic_result:
       stdout: "{{ _restic_log.stdout | default('') }}"
-      rc: "{{ (_backup_job_status.resources[0].status.succeeded | default(0) > 0) | ternary(0, 1) }}"
+      rc: "{{ (_backup_job_succeeded | bool) | ternary(0, 1) }}"
 
 - name: Collect the database dumps that failed
   ansible.builtin.set_fact:
