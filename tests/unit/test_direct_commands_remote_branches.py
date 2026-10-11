@@ -485,8 +485,8 @@ class TestGatherK8s:
     ])
     def test_status(self, monkeypatch, dir_exists, running, status):
         wikis = [{"id": "main", "url": "m.example.com"}]
-        monkeypatch.setattr(_helpers, "_check_dir_exists",
-                            lambda p, h: dir_exists)
+        monkeypatch.setattr(_helpers, "_ssh_run",
+                            lambda h, c: (0 if dir_exists else 1, ""))
         monkeypatch.setattr(_helpers, "_read_wikis", lambda p, h: wikis)
         monkeypatch.setattr(_helpers, "_check_running_k8s",
                             lambda i, h: running)
@@ -498,6 +498,12 @@ class TestGatherK8s:
             "orchestrator": "KUBERNETES", "status": status,
             "wikis": wikis if dir_exists else [],
         }
+
+    def test_unreachable_host(self, monkeypatch):
+        monkeypatch.setattr(_helpers, "_ssh_run", lambda h, c: (255, ""))
+        detail = _helpers._gather_k8s("mysite", "/srv/mysite", "remote1")
+        assert detail["status"] == "UNREACHABLE"
+        assert detail["wikis"] == []
 
     def test_interrupted_restore_flagged(self, monkeypatch):
         monkeypatch.setattr(_helpers, "_check_dir_exists", lambda p, h: True)

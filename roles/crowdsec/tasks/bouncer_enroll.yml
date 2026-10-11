@@ -71,11 +71,23 @@
 # force=true and re-issue the bouncer, restart, and re-enroll forever. An
 # explicit `canasta crowdsec bouncer-enroll --force` (auto path off) still
 # forces a fresh key.
+#
+# Storing the key restarts the instance, which re-enters this file and
+# recomputes the enrollment facts. So each run pushes its decision onto a
+# stack, gates on the top entry, and pops it at the end; and the restart is
+# included outside the block, so the block's condition does not reach the
+# re-entered run's tasks.
+- name: Decide whether to enroll
+  ansible.builtin.set_fact:
+    _crowdsec_enroll_stack: >-
+      {{ (_crowdsec_enroll_stack | default([])) + [
+           ((force | default(false) | bool) and not (bouncer_enroll_auto | default(false) | bool))
+           or (not (_crowdsec_existing | bool))
+           or (not (_crowdsec_have_key | bool))
+         ] }}
+
 - name: Enroll the bouncer
-  when: >-
-    ((force | default(false) | bool) and not (bouncer_enroll_auto | default(false) | bool))
-    or (not (_crowdsec_existing | bool))
-    or (not (_crowdsec_have_key | bool))
+  when: _crowdsec_enroll_stack | last | bool
   block:
     - name: Revoke existing bouncer registration
       ansible.builtin.command:
@@ -98,25 +110,31 @@
           Registered bouncer 'canasta-caddy'. Storing its key and
           restarting to activate it...
 
-    # config set carries the key into the .env / gitops-vars writes, which
-    # are no_log'd at the task level on a secret-key match. no_log here would
-    # not propagate into the included role anyway, and would also hide the
-    # restart output we want to surface.
-    #
-    # Pass the key via config_settings_override, NOT settings: this enroll
-    # runs inside the restart that the original `config set` triggered, where
-    # `settings` is an extra-var that include_role vars cannot override. Using
-    # `settings` here would silently re-apply the outer setting, never store
-    # the key, and loop the restart/auto-enroll cycle forever.
-    - name: Store the key, re-render the Caddyfile, and restart
-      ansible.builtin.include_role:
-        name: config
-        tasks_from: set.yml
-      vars:
-        config_settings_override: "CROWDSEC_BOUNCER_API_KEY={{ _crowdsec_add.stdout | trim }}"
+# config set carries the key into the .env / gitops-vars writes, which
+# are no_log'd at the task level on a secret-key match. no_log here would
+# not propagate into the included role anyway, and would also hide the
+# restart output we want to surface.
+#
+# Pass the key via config_settings_override, NOT settings: this enroll
+# runs inside the restart that the original `config set` triggered, where
+# `settings` is an extra-var that include_role vars cannot override. Using
+# `settings` here would silently re-apply the outer setting, never store
+# the key, and loop the restart/auto-enroll cycle forever.
+- name: Store the key, re-render the Caddyfile, and restart
+  when: _crowdsec_enroll_stack | last | bool
+  ansible.builtin.include_role:
+    name: config
+    tasks_from: set.yml
+  vars:
+    config_settings_override: "CROWDSEC_BOUNCER_API_KEY={{ _crowdsec_add.stdout | trim }}"
 
-    - name: Report success
-      ansible.builtin.debug:
-        msg: >-
-          CrowdSec bouncer 'canasta-caddy' is enrolled and active for
-          instance '{{ instance_id }}'.
+- name: Report success
+  when: _crowdsec_enroll_stack | last | bool
+  ansible.builtin.debug:
+    msg: >-
+      CrowdSec bouncer 'canasta-caddy' is enrolled and active for
+      instance '{{ instance_id }}'.
+
+- name: Drop this run's enrollment decision
+  ansible.builtin.set_fact:
+    _crowdsec_enroll_stack: "{{ _crowdsec_enroll_stack[:-1] }}"

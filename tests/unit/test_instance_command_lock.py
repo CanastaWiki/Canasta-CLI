@@ -1,4 +1,4 @@
-"""restore, delete, start, stop and restart hold a per-instance lock.
+"""restore, delete, start, stop, restart and rebuild hold a per-instance lock.
 
 Two of them used to run against one instance at once: a second restore read
 the first one's live marker as an interrupted restore and ran over it, and a
@@ -69,7 +69,8 @@ def _acquire(command):
 
 
 def test_a_second_locked_command_is_refused(holder, capsys):
-    for command in ("backup_restore", "delete", "start", "stop", "restart"):
+    for command in ("backup_restore", "delete", "start", "stop", "restart",
+                    "rebuild"):
         with pytest.raises(SystemExit) as exc:
             _acquire(command)
         assert exc.value.code == canasta.EXIT_INSTANCE_BUSY

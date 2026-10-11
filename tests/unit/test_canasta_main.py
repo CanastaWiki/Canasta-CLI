@@ -9,6 +9,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 import canasta  # noqa: E402
 import direct_commands  # noqa: E402
 
+_REAL_ACQUIRE = canasta.acquire_instance_lock
+
 
 class _Execed(Exception):
     """Raised in place of os.execvp so the Ansible hand-off is observable."""
@@ -110,6 +112,18 @@ class TestDirectDispatch:
         assert [c[0] for c in harness.ansible_calls] == ["restart"]
         assert harness.ansible_calls[0][1].id == "mysite"
         assert locks == ["rebuild", "restart"]
+
+    def test_handoff_keeps_the_lock_already_held(
+            self, harness, monkeypatch, tmp_path):
+        (tmp_path / "conf.json").write_text(
+            '{"Instances": {"mysite": {"path": "%s", "host": "localhost",'
+            ' "orchestrator": "compose"}}}' % tmp_path)
+        monkeypatch.setattr(canasta, "acquire_instance_lock",
+                            _REAL_ACQUIRE)
+        harness.direct_result = direct_commands.AnsibleHandoff("restart")
+        assert _run(monkeypatch, ["rebuild", "-i", "mysite"]) == "exec"
+        assert [c[0] for c in harness.ansible_calls] == ["restart"]
+        assert "rebuild" in (tmp_path / "locks" / "mysite.lock").read_text()
 
     def test_non_direct_command_goes_to_ansible(self, harness, monkeypatch):
         assert _run(monkeypatch, ["restart", "-i", "mysite"]) == "exec"
