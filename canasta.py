@@ -2280,15 +2280,20 @@ def main():
     # Direct command bypass: run simple commands without Ansible overhead.
     # direct_only commands always run via direct_commands and never fall
     # through to Ansible — CANASTA_FORCE_ANSIBLE has no effect on them
-    # because they have no playbook.
+    # because they have no playbook. A handler may still hand the rest of
+    # its run to another command's playbook (AnsibleHandoff).
     direct_only = cmd_def.get("direct_only", False)
     if direct_only or not os.environ.get("CANASTA_FORCE_ANSIBLE"):
         import direct_commands
         if direct_commands.is_direct_command(command_name):
             result = direct_commands.run_direct_command(command_name, args)
-            if result is not direct_commands.FALLBACK:
+            if isinstance(result, direct_commands.AnsibleHandoff):
+                command_name = result.command
+                cmd_def = cmd_index.get(command_name, {})
+                acquire_instance_lock(command_name, args)
+            elif result is not direct_commands.FALLBACK:
                 sys.exit(result)
-            if direct_only:
+            elif direct_only:
                 print(
                     "Error: command '%s' is direct_only but its handler "
                     "returned FALLBACK — no Ansible playbook to fall back to."
