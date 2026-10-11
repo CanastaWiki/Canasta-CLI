@@ -476,3 +476,64 @@ class TestAutoConfirmInvariant:
         # No 'yes' parameter -> never prompts.
         assert canasta.should_prompt_confirmation({"parameters": []}, False) \
             is False
+
+
+class TestShortFlagReuse:
+    """A short flag may stand for only one long flag across the CLI,
+    apart from the reuses accepted for compatibility."""
+
+    @staticmethod
+    def _defs(*commands):
+        return {
+            "global_flags": [{"name": "verbose", "short": "v"}],
+            "commands": [
+                {"name": name, "parameters": params}
+                for name, params in commands
+            ],
+        }
+
+    def test_real_definitions_pass(self):
+        repo_root = os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))))
+        with open(os.path.join(
+                repo_root, "meta", "command_definitions.yml")) as f:
+            data = yaml.safe_load(f)
+        assert validate_definitions.check_short_flag_reuse(data) == []
+
+    def test_same_long_flag_everywhere_is_fine(self):
+        defs = self._defs(
+            ("a", [{"name": "id", "short": "i"}]),
+            ("b", [{"name": "id", "short": "i"}]),
+        )
+        assert validate_definitions.check_short_flag_reuse(defs, {}) == []
+
+    def test_new_reuse_is_rejected(self):
+        defs = self._defs(
+            ("a", [{"name": "id", "short": "i"}]),
+            ("b", [{"name": "image", "short": "i"}]),
+        )
+        errors = validate_definitions.check_short_flag_reuse(defs, {})
+        assert len(errors) == 2
+        assert all("-i" in e for e in errors)
+
+    def test_accepted_reuse_passes_but_a_new_meaning_does_not(self):
+        defs = self._defs(
+            ("a", [{"name": "force", "short": "f"}]),
+            ("b", [{"name": "file", "short": "f"}]),
+            ("c", [{"name": "format", "short": "f"}]),
+        )
+        accepted = {"f": {"--force", "--file"}}
+        errors = validate_definitions.check_short_flag_reuse(defs, accepted)
+        assert len(errors) == 1
+        assert "--format" in errors[0]
+
+    def test_long_override_is_the_flag_compared(self):
+        defs = self._defs(
+            ("a", [{"name": "host_name", "long": "name", "short": "n"}]),
+            ("b", [{"name": "name", "short": "n"}]),
+        )
+        assert validate_definitions.check_short_flag_reuse(defs, {}) == []
+
+    def test_clash_with_a_global_flag_is_rejected(self):
+        defs = self._defs(("a", [{"name": "version", "short": "v"}]))
+        assert validate_definitions.check_short_flag_reuse(defs, {})

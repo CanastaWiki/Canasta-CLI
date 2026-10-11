@@ -996,6 +996,7 @@ commands:
           'kubectl delete node <hostname>' so the Node entry is cleaned
           up. Ignored on control-plane uninstalls.
       - name: force
+        short: f
         type: bool
         description: >-
           Proceed even when the target node holds PersistentVolumes whose
@@ -2832,6 +2833,7 @@ commands:
           starting with a quoted '~' (for example '~/x'). Omit to keep the default: ssh-agent forwarding on
           Compose, or the generated `<key>.ssh` deploy key on Kubernetes.
       - name: force
+        short: f
         type: bool
         default: false
         description: "Force push to non-empty remote"

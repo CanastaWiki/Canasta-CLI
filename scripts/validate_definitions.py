@@ -30,6 +30,19 @@ SHORT_FLAG = re.compile(r"^-[A-Za-z]$")
 REQUIRED_CMD_FIELDS = {"name", "description", "parameters"}
 REQUIRED_PARAM_FIELDS = {"name", "type", "description"}
 
+# Short flags that already stand for more than one long flag across the
+# command set. Renaming any of them would break scripts and the published
+# examples, so these are accepted as-is; a short flag must not take on a
+# meaning outside its set here.
+ACCEPTED_SHORT_FLAG_REUSE = {
+    "c": {"--cli-only", "--component"},
+    "f": {"--force", "--file", "--yamlfile"},
+    "n": {"--domain-name", "--name"},
+    "r": {"--override", "--replicas"},
+    "s": {"--password", "--service", "--snapshot"},
+    "t": {"--site-name", "--tag"},
+}
+
 
 def flag_table(command, definitions):
     """Map flag spelling -> parameter, plus the positionals in order."""
@@ -47,6 +60,44 @@ def flag_table(command, definitions):
         if param.get("short"):
             shorts["-" + param["short"]] = param
     return longs, shorts, positionals
+
+
+def check_short_flag_reuse(definitions, accepted=None):
+    """Errors for a short flag that means a different long flag elsewhere.
+
+    One letter naming unrelated options in different commands is how
+    `-f` came to mean --force, --file and --yamlfile. Reuse beyond
+    `accepted` (short letter -> set of long flags) is rejected.
+    """
+    if accepted is None:
+        accepted = ACCEPTED_SHORT_FLAG_REUSE
+    uses = {}
+    for param in definitions.get("global_flags") or []:
+        if param.get("short"):
+            long_flag = "--" + param["name"].replace("_", "-")
+            uses.setdefault(param["short"], {}).setdefault(
+                long_flag, []).append("(global)")
+    for cmd in definitions.get("commands") or []:
+        for param in cmd.get("parameters") or []:
+            if not param.get("short") or param.get("positional"):
+                continue
+            long_flag = "--" + (
+                param.get("long") or param["name"]).replace("_", "-")
+            uses.setdefault(param["short"], {}).setdefault(
+                long_flag, []).append(cmd.get("name", "?"))
+    errors = []
+    for short in sorted(uses):
+        longs = uses[short]
+        if len(longs) < 2:
+            continue
+        allowed = accepted.get(short, set())
+        for long_flag in sorted(set(longs) - allowed):
+            errors.append(
+                "short flag -%s is used for %s (%s) but also for %s; "
+                "give it a different short flag or none"
+                % (short, long_flag, ", ".join(longs[long_flag]),
+                   ", ".join(sorted(set(longs) - {long_flag}))))
+    return errors
 
 
 def check_choices(param, value, label):
@@ -269,6 +320,8 @@ def main():
             example_count += 1
             for problem in check_example(cmd, example, table, data):
                 errors.append("%s: example '%s': %s" % (prefix, example, problem))
+
+    errors.extend(check_short_flag_reuse(data))
 
     # Check for orphan playbooks (files with no matching definition)
     if os.path.isdir(playbooks_dir):
