@@ -4423,8 +4423,14 @@ def test_k8s_multi_instance(inst):
 
         print("Stopping A...")
         inst.run_ok("stop", "-i", a)
+        # stop scales A's workloads to zero; the pods then take a grace
+        # period to terminate.
+        deadline = time.time() + 180
+        while _k8s_running_pods(a) and time.time() < deadline:
+            time.sleep(5)
         assert not _k8s_running_pods(a), (
-            "A still has Running pods after stop: %s" % _k8s_running_pods(a)
+            "A still has Running pods 180s after stop: %s"
+            % _k8s_running_pods(a)
         )
         assert _k8s_running_pods(b) == before_b, (
             "stopping A disturbed B's pods: before %s, after %s"
