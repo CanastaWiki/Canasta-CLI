@@ -1109,7 +1109,7 @@ def _origin_tls_lines(inst):
 #                          composer.local.json, settings--<encoded path>
 #   - configData.caddy:    Caddyfile, Caddyfile.site
 #   - configData.varnish:  default.vcl
-#   - configData.crowdsec: acquis.yaml, whitelists.yaml
+#   - configData.crowdsec: acquis.yaml, whitelists.yaml (CrowdSec enabled)
 # Extensions/skins (PVC + boot-time symlinks, need a restart) and secrets are
 # intentionally out of scope; gitops-managed instances are served by
 # `canasta gitops status`/`diff` instead.
@@ -1190,6 +1190,12 @@ def _k8s_current_channels(current_files):
                 # Compare against the secret-stripped snapshot form.
                 content = "\n".join(_k8s_strip_env_secrets(content)) + "\n"
             channels[channel][key] = content
+    # The sync deploys the crowdsec channel only when CrowdSec is enabled.
+    env = {k: v for k, v, c in
+           _helpers._parse_env_entries(current_files.get(".env", ""))
+           if not c and k}
+    if env.get("CANASTA_ENABLE_CROWDSEC", "").strip().lower() != "true":
+        channels["crowdsec"] = {}
     return channels
 
 
