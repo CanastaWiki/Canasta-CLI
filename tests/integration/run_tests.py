@@ -1689,30 +1689,39 @@ def _composer_local_includes(inst):
         "include") or []
 
 
-def _wait_for_siteinfo_entry(http_port, siprop, key, value, present,
-                             timeout=120):
-    """Poll siteinfo until an entry whose `key` is `value` is (not) listed."""
+def _wait_for_loaded(inst, name, present, timeout=120):
+    """Poll until MediaWiki has (not) loaded extension or skin `name`.
+
+    Asks ExtensionRegistry from inside the web container: a new wiki is
+    private, so the anonymous siteinfo API lists nothing.
+    """
+    code = (
+        "echo 'PROBE=' . (ExtensionRegistry::getInstance()->isLoaded(%s)"
+        " ? 'yes' : 'no') . PHP_EOL;" % json.dumps(name)
+    )
+    script = (
+        "echo %s | php /var/www/mediawiki/w/maintenance/run.php eval "
+        "--wiki=main" % shlex.quote(code)
+    )
+    want = "PROBE=%s" % ("yes" if present else "no")
     deadline = time.time() + timeout
-    listed = []
-    last_err = ""
+    output = ""
     while True:
         try:
-            data = query_siteinfo(http_port, siprop)
-            listed = [
-                e.get(key) for e in data.get("query", {}).get(siprop, [])
-            ]
-            last_err = ""
-            if (value in listed) == present:
+            output = inst.run_quiet(
+                "maintenance", "exec", "-i", inst.id, "bash", "-c", script,
+            )
+            if want in output:
                 return
-        except Exception as e:
-            last_err = str(e)
+        except AssertionError as e:
+            output = str(e)
         if time.time() >= deadline:
             break
         time.sleep(5)
     raise AssertionError(
-        "%s %s in siteinfo %s after %ds; listed: %s%s"
-        % (value, "not listed" if present else "still listed", siprop,
-           timeout, listed, "; last error: %s" % last_err if last_err else "")
+        "%s %s after %ds; last probe output:\n%s"
+        % (name, "not loaded" if present else "still loaded", timeout,
+           output)
     )
 
 
@@ -1762,7 +1771,7 @@ def test_extension_lifecycle(inst):
     )
 
     print("Verifying %s is loaded..." % ext)
-    _wait_for_siteinfo_entry(inst.http_port, "extensions", "name", ext, True)
+    _wait_for_loaded(inst, ext, True)
 
     print("Removing %s..." % ext)
     inst.run_ok("extension", "remove", "-i", inst.id, ext)
@@ -1774,7 +1783,7 @@ def test_extension_lifecycle(inst):
         "%s still in composer.local.json after remove: %s"
         % (composer_entry, includes)
     )
-    _wait_for_siteinfo_entry(inst.http_port, "extensions", "name", ext, False)
+    _wait_for_loaded(inst, ext, False)
 
     # --- Gitops instance ---
     print("Initializing gitops...")
@@ -1880,16 +1889,12 @@ def test_skin_lifecycle(inst):
     )
 
     print("Verifying %s is loaded..." % skin)
-    _wait_for_siteinfo_entry(
-        inst.http_port, "skins", "code", skin.lower(), True,
-    )
+    _wait_for_loaded(inst, skin, True)
 
     print("Removing %s..." % skin)
     inst.run_ok("skin", "remove", "-i", inst.id, skin)
     assert not os.path.exists(skin_path), "%s still exists after remove" % rel
-    _wait_for_siteinfo_entry(
-        inst.http_port, "skins", "code", skin.lower(), False,
-    )
+    _wait_for_loaded(inst, skin, False)
 
 
 def test_wiki_farm(inst):
