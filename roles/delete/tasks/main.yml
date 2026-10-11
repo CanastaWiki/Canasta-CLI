@@ -204,9 +204,8 @@
   block:
     # Save inbound connection state into one dict, switch + deregister
     # inside a block so an `always:` restore fires even if the registry
-    # write fails. See resolve_instance.yml for the full rationale and
-    # commits 0d392a6 / b7d3ed2 for why delegate_to: localhost is not a
-    # safe substitute here.
+    # write fails. See resolve_instance.yml for why delegate_to: localhost
+    # is not a safe substitute here.
     - name: Save connection state before controller deregistration
       ansible.builtin.set_fact:
         _del_saved:

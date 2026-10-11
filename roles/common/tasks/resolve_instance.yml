@@ -24,8 +24,7 @@
 # does NOT reliably override connection state previously set via
 # set_fact (e.g. when this file is included a second time after
 # switch_connection.yml has set ansible_connection=ssh on the play
-# host). See commits 0d392a6 and b7d3ed2 for the original incidents
-# this is guarding against. Save the inbound state into a single dict
+# host). Save the inbound state into a single dict
 # (so a future field addition can't drift) and restore it inside an
 # `always:` (so a registry-task failure cannot leave the play stuck
 # in the switched state).

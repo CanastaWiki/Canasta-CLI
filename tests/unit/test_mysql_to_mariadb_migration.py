@@ -1,9 +1,8 @@
 """Guards for the MySQL 8.0 -> MariaDB upgrade migration.
 
-This migration was ported from the retired Go CLI
-(cmd/upgrade/mysql_to_mariadb.go). The first Ansible port regressed it in
-three independent ways, each of which left an instance's DB unbootable or
-its data mangled; these tests lock the Go-faithful behavior back in.
+Each of these failure modes, found in an earlier version of the
+migration, left an instance's DB unbootable or its data mangled; these
+tests lock the correct behavior in.
 
 1. Detection keyed off /var/lib/mysql/.rocksdb, a MyRocks marker Canasta
    never creates and that is absent from every stock MySQL 8 datadir, so the
@@ -12,8 +11,8 @@ its data mangled; these tests lock the Go-faithful behavior back in.
    tablespace, which MariaDB never writes.
 
 2. The dump ran against whatever container the instance compose happened to
-   start, and the restart used that same (still MySQL 8) compose. The Go
-   design instead dumps from a throwaway mysql:8.0 container it starts
+   start, and the restart used that same (still MySQL 8) compose. The
+   migration instead dumps from a throwaway mysql:8.0 container it starts
    itself, so it is independent of the instance compose and can even recover
    an instance already swapped to MariaDB. The instance compose must be
    force-refreshed to the MariaDB image between clearing the volume and the
