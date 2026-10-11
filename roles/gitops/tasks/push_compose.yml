@@ -326,10 +326,16 @@
 
     - name: Commit staged changes
       ansible.builtin.command:
-        cmd: >-
-          git -c commit.gpgsign=false
-          commit -m "{{ message | default('Configuration update') }}"
+        argv:
+          - git
+          - -c
+          - commit.gpgsign=false
+          - commit
+          - -m
+          - "{{ message | default('Configuration update', true) }}"
         chdir: "{{ instance_path }}"
+        # The message is taken verbatim; a $WORD in it is not a variable.
+        expand_argument_vars: false
       changed_when: true
       when: _push_has_staged
 
@@ -392,10 +398,15 @@
 
     - name: Commit staged changes
       ansible.builtin.command:
-        cmd: >-
-          git -c commit.gpgsign=false
-          commit -m "{{ message | default('Configuration update') }}"
+        argv:
+          - git
+          - -c
+          - commit.gpgsign=false
+          - commit
+          - -m
+          - "{{ message | default('Configuration update', true) }}"
         chdir: "{{ instance_path }}"
+        expand_argument_vars: false
       register: _pr_commit
       changed_when: true
       when: _push_has_staged
@@ -409,11 +420,16 @@
 
     - name: Create pull request
       ansible.builtin.command:
-        cmd: >-
-          gh pr create
-          --title "{{ message | default('Configuration update') }}"
-          --body "Gitops push from host {{ _push_hostname }}."
+        argv:
+          - gh
+          - pr
+          - create
+          - --title
+          - "{{ message | default('Configuration update', true) }}"
+          - --body
+          - "Gitops push from host {{ _push_hostname }}."
         chdir: "{{ instance_path }}"
+        expand_argument_vars: false
       register: _pr_result
       changed_when: true
 
