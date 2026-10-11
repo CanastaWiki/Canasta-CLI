@@ -237,7 +237,9 @@
       Could not replace these tracked files while joining the gitops
       repository (permission denied):
 
-        {{ _join_blocked | join('\n        ') }}
+      {% for f in _join_blocked %}
+        {{ f }}
+      {% endfor %}
 
       They are likely owned by a different user than the account running
       the join. Make the instance directory writable by your user, then

@@ -1114,11 +1114,6 @@ def _origin_tls_lines(inst):
 # intentionally out of scope; gitops-managed instances are served by
 # `canasta gitops status`/`diff` instead.
 
-# Mirror of k8s_sync_config.yml's secret filter: these keys are stripped from
-# .env before it lands in the web ConfigMap, so a change to them is not
-# ConfigMap drift and must not be flagged.
-_K8S_ENV_SECRET_KEYS = ("MYSQL_PASSWORD", "MW_SECRET_KEY")
-
 # Each managed file's path relative to the instance dir -> (channel, key) in
 # the configData snapshot. Settings files are handled separately (dynamic).
 _K8S_STATIC_CONFIG_MAP = {
@@ -1163,9 +1158,11 @@ def _k8s_settings_key(relpath):
 
 
 def _k8s_strip_env_secrets(text):
-    """Drop the secret-bearing lines the sync strips before embedding .env."""
-    pat = re.compile(r"^(%s)=" % "|".join(_K8S_ENV_SECRET_KEYS))
-    return [ln for ln in text.splitlines() if not pat.match(ln)]
+    """Drop the secret-bearing lines k8s_sync_config.yml strips before it
+    embeds .env in the web ConfigMap, using the same classification, so a
+    change to a secret is not reported as ConfigMap drift."""
+    return [ln for ln in text.splitlines()
+            if "=" not in ln or not _helpers._is_secret_key(ln.split("=", 1)[0])]
 
 
 def _k8s_display_path(channel, key):
