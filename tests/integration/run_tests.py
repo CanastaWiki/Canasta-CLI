@@ -2568,6 +2568,340 @@ def test_k8s_backup(inst):
         subprocess.run(["sudo", "rm", "-rf", repo], capture_output=True)
 
 
+# Argo CD's repo-server runs in a pod, so a K8s gitops remote has to be a
+# network address, not a local bare repo. The CLI speaks SSH with a deploy key
+# to it, and trusts a self-hosted host by keyscanning it into Argo CD's
+# known-hosts, so serve the bare repo over sshd on the host network: the
+# runner pushes to it and pods reach it at the same host IP.
+_K8S_GIT_SERVER_IMAGE = "alpine:3.20"
+_K8S_GIT_SERVER_PORT = "2222"
+_K8S_GIT_REPO_PATH = "/srv/git/config.git"
+
+
+def _host_ip():
+    """An IPv4 address of this host that pods in the cluster can reach."""
+    out = subprocess.run(
+        ["ip", "-4", "route", "get", "1.1.1.1"],
+        capture_output=True, text=True,
+    ).stdout
+    match = re.search(r"\bsrc (\d+\.\d+\.\d+\.\d+)", out)
+    if match:
+        return match.group(1)
+    addrs = subprocess.run(
+        ["hostname", "-I"], capture_output=True, text=True,
+    ).stdout.split()
+    return addrs[0] if addrs else ""
+
+
+def _start_ssh_git_server(name, port, pubkey):
+    """Run sshd with an empty bare repo that accepts `pubkey` as user git."""
+    script = (
+        "set -e; "
+        "apk add --no-cache openssh-server git >/dev/null; "
+        "adduser -D -s /bin/sh git; "
+        # busybox adduser -D locks the account, and sshd built without PAM
+        # refuses every login to a locked account, keys included.
+        "sed -i 's/^git:[^:]*:/git:*:/' /etc/shadow; "
+        "mkdir -p /home/git/.ssh; "
+        'printf "%%s\\n" "$GIT_PUBKEY" > /home/git/.ssh/authorized_keys; '
+        "chmod 700 /home/git/.ssh; chmod 600 /home/git/.ssh/authorized_keys; "
+        "chown -R git:git /home/git/.ssh; "
+        "mkdir -p %(repo)s; "
+        "git init -q --bare --initial-branch=main %(repo)s; "
+        "chown -R git:git /srv/git; "
+        "ssh-keygen -A; "
+        "exec /usr/sbin/sshd -D -e -p %(port)s"
+    ) % {"repo": _K8S_GIT_REPO_PATH, "port": port}
+    subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+    subprocess.run(
+        ["docker", "run", "-d", "--name", name, "--network", "host",
+         "-e", "GIT_PUBKEY=%s" % pubkey,
+         _K8S_GIT_SERVER_IMAGE, "sh", "-c", script],
+        capture_output=True, text=True, check=True,
+    )
+
+
+def _ssh_git_server_repo(name, *git_args):
+    """Run git against the served bare repo, as its owner."""
+    return subprocess.run(
+        ["docker", "exec", "-u", "git", name,
+         "git", "-C", _K8S_GIT_REPO_PATH] + list(git_args),
+        capture_output=True, text=True,
+    )
+
+
+def _wait_ssh_git_server(name, host, port, repo_url, key, timeout=180):
+    """Wait until sshd answers and the deploy key can read the repo."""
+    ssh_cmd = (
+        "ssh -i %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
+        "-o BatchMode=yes" % shlex.quote(key)
+    )
+    env = dict(os.environ, GIT_SSH_COMMAND=ssh_cmd)
+    deadline = time.time() + timeout
+    last = ""
+    while time.time() < deadline:
+        scan = subprocess.run(
+            ["ssh-keyscan", "-T", "5", "-p", port, host],
+            capture_output=True, text=True,
+        )
+        if scan.returncode == 0 and scan.stdout.strip():
+            probe = subprocess.run(
+                ["git", "ls-remote", repo_url],
+                capture_output=True, text=True, env=env,
+            )
+            if probe.returncode == 0:
+                return
+            last = probe.stderr
+        else:
+            last = scan.stderr
+        time.sleep(5)
+    logs = subprocess.run(
+        ["docker", "logs", "--tail", "50", name],
+        capture_output=True, text=True,
+    )
+    raise AssertionError(
+        "SSH git server at %s:%s not usable after %ds: %s\n"
+        "container logs:\n%s%s"
+        % (host, port, timeout, last.strip(), logs.stdout, logs.stderr)
+    )
+
+
+def _argo_app_state(app, argocd_ns="argocd"):
+    """(sync status, health status, synced revision) of an Application."""
+    result = subprocess.run(
+        ["kubectl", "get", "application", app, "-n", argocd_ns, "-o",
+         'jsonpath={.status.sync.status}{"|"}{.status.health.status}'
+         '{"|"}{.status.sync.revision}'],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return ("missing", result.stderr.strip(), "")
+    fields = (result.stdout.split("|") + ["", "", ""])[:3]
+    return tuple(fields)
+
+
+def _wait_argo_app_synced(app, revision, timeout=600):
+    """Wait until the Application is Synced and Healthy at `revision`."""
+    deadline = time.time() + timeout
+    state = None
+    while time.time() < deadline:
+        state = _argo_app_state(app)
+        if (state[0] == "Synced" and state[1] == "Healthy"
+                and state[2] == revision):
+            return
+        time.sleep(10)
+    raise AssertionError(
+        "Argo CD Application %s not Synced/Healthy at %s after %ds; "
+        "last (sync, health, revision): %r" % (app, revision, timeout, state)
+    )
+
+
+def _k8s_gitops_diagnostics(namespace, git_server):
+    """Print what explains an Argo CD sync or gitops failure."""
+    print("--- K8s gitops failure diagnostics ---", flush=True)
+    for cmd in (
+        ["kubectl", "get", "application", "-n", "argocd", "-o", "yaml"],
+        ["kubectl", "logs", "-n", "argocd", "deployment/argocd-repo-server",
+         "--all-containers", "--tail=100"],
+        ["kubectl", "logs", "-n", "argocd",
+         "statefulset/argocd-application-controller", "--tail=100"],
+        ["kubectl", "get", "configmap", "argocd-ssh-known-hosts-cm",
+         "-n", "argocd", "-o", "yaml"],
+        ["kubectl", "get", "all,ingress,pvc", "-n", namespace],
+        ["docker", "logs", "--tail", "50", git_server],
+    ):
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        print("$ %s\n%s%s" % (" ".join(cmd), result.stdout, result.stderr),
+              flush=True)
+
+
+def _assert_gitops_status_clean(output, when):
+    """`gitops status` shows nothing to push, pull or capture."""
+    assert "Ahead of remote:  0" in output and "Behind remote:    0" in output, (
+        "gitops status should be in step with the remote %s:\n%s"
+        % (when, output)
+    )
+    for advisory in ("Staged for push", "Unstaged changes",
+                     "Untracked files", "Uncaptured config/wikis.yaml"):
+        assert advisory not in output, (
+            "gitops status should be clean %s, but shows %r:\n%s"
+            % (when, advisory, output)
+        )
+
+
+def test_k8s_gitops(inst):
+    """K8s gitops through Argo CD: init, add a wiki and push, upgrade,
+    init --reinit, then delete.
+
+    Creates without --skip-argocd-install, so create installs Argo CD and
+    the Application it is handed has to clone the remote from inside the
+    cluster.
+    """
+    result = subprocess.run(["kubectl", "cluster-info"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("kubectl not available or cluster not reachable")
+    result = subprocess.run(["helm", "version", "--short"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("helm not installed")
+    require_docker()
+
+    host_ip = _host_ip()
+    assert host_ip, "could not determine this host's IPv4 address"
+
+    ns = "canasta-%s" % inst.id
+    app = "canasta-%s" % inst.id
+    git_server = "canasta-int-gitserver-%s" % inst.id
+    repo_url = "ssh://git@%s:%s%s" % (
+        host_ip, _K8S_GIT_SERVER_PORT, _K8S_GIT_REPO_PATH)
+    host_name = "testhost"
+    wiki_host = "docs.localhost"
+
+    # init reuses a deploy key already at <key>.ssh, so generating it here
+    # lets the git server trust it before init probes the remote.
+    key_base = os.path.join(inst.work_dir, "gitops-k8s.key")
+    deploy_key = key_base + ".ssh"
+    subprocess.run(
+        ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C",
+         "canasta-%s" % inst.id, "-f", deploy_key],
+        capture_output=True, check=True,
+    )
+    with open(deploy_key + ".pub") as f:
+        pubkey = f.read().strip()
+
+    print("Starting the SSH git server at %s..." % repo_url)
+    _start_ssh_git_server(git_server, _K8S_GIT_SERVER_PORT, pubkey)
+    try:
+        _wait_ssh_git_server(
+            git_server, host_ip, _K8S_GIT_SERVER_PORT, repo_url, deploy_key)
+
+        print("Creating Kubernetes instance with Argo CD...")
+        inst.run_ok(
+            "create", "-i", inst.id, "-w", "main",
+            "-n", "localhost", "-p", inst.work_dir,
+            "--orchestrator", "kubernetes",
+        )
+        argocd = subprocess.run(
+            ["kubectl", "get", "deployment", "argocd-server", "-n", "argocd"],
+            capture_output=True, text=True,
+        )
+        assert argocd.returncode == 0, (
+            "create should install Argo CD: %s" % argocd.stderr
+        )
+
+        print("Initializing gitops...")
+        inst.run_ok(
+            "gitops", "init", "-i", inst.id, "-n", host_name,
+            "--repo", repo_url, "--key", key_base, "--non-interactive",
+        )
+        log = _ssh_git_server_repo(git_server, "log", "--format=%s", "main")
+        assert "Initial gitops configuration" in log.stdout, (
+            "init's commit is not on the remote: %s%s"
+            % (log.stdout, log.stderr)
+        )
+        head = _ssh_git_server_repo(git_server, "rev-parse", "main").stdout.strip()
+
+        print("Waiting for the Argo CD Application to sync %s..." % head[:12])
+        _wait_argo_app_synced(app, head)
+
+        output = inst.run_quiet("gitops", "status", "-i", inst.id)
+        _assert_gitops_status_clean(output, "after init")
+
+        print("Adding wiki %s..." % wiki_host)
+        inst.run_ok("add", "-i", inst.id, "-w", "docs", "-u", wiki_host)
+
+        message = "Add the docs wiki"
+        print("Pushing...")
+        inst.run_ok("gitops", "push", "-i", inst.id, "-m", message)
+        log = _ssh_git_server_repo(git_server, "log", "-1", "--format=%s", "main")
+        assert log.stdout.strip() == message, (
+            "push should commit with the given message; remote head is %r"
+            % log.stdout.strip()
+        )
+        import yaml
+        rendered = _ssh_git_server_repo(
+            git_server, "show",
+            "main:hosts/%s/rendered-values.yaml" % host_name)
+        assert rendered.returncode == 0, (
+            "rendered values missing from the remote: %s" % rendered.stderr
+        )
+        domains = (yaml.safe_load(rendered.stdout) or {}).get("domains") or []
+        assert wiki_host in domains, (
+            "pushed rendered values should route %s; domains: %r"
+            % (wiki_host, domains)
+        )
+        head = _ssh_git_server_repo(git_server, "rev-parse", "main").stdout.strip()
+
+        print("Syncing Argo CD to %s..." % head[:12])
+        inst.run_ok("gitops", "sync", "-i", inst.id)
+        _wait_argo_app_synced(app, head)
+
+        hosts = subprocess.run(
+            ["kubectl", "get", "ingress", "-n", ns, "-o",
+             "jsonpath={.items[*].spec.rules[*].host}"],
+            capture_output=True, text=True,
+        )
+        assert wiki_host in hosts.stdout.split(), (
+            "the Ingress should route %s after the sync; hosts: %r %s"
+            % (wiki_host, hosts.stdout, hosts.stderr)
+        )
+
+        output = inst.run_quiet("gitops", "status", "-i", inst.id)
+        _assert_gitops_status_clean(output, "after push")
+
+        print("Upgrading...")
+        inst.run_ok("upgrade")
+        output = inst.run_quiet("gitops", "status", "-i", inst.id)
+        _assert_gitops_status_clean(output, "after upgrade")
+
+        print("Re-initializing gitops with --reinit...")
+        inst.run_ok(
+            "gitops", "init", "-i", inst.id, "-n", host_name,
+            "--repo", repo_url, "--key", key_base, "--non-interactive",
+            "--reinit", "--force",
+        )
+        log = _ssh_git_server_repo(git_server, "log", "-1", "--format=%s", "main")
+        assert log.stdout.strip() == "Initial gitops configuration", (
+            "--reinit should push a fresh initial commit; remote head is %r"
+            % log.stdout.strip()
+        )
+        head = _ssh_git_server_repo(git_server, "rev-parse", "main").stdout.strip()
+        print("Syncing Argo CD to the re-initialized %s..." % head[:12])
+        inst.run_ok("gitops", "sync", "-i", inst.id)
+        _wait_argo_app_synced(app, head)
+
+        print("Deleting instance...")
+        inst.run_ok("delete", "-i", inst.id, "--yes")
+        for _ in range(24):
+            gone = subprocess.run(
+                ["kubectl", "get", "application", app, "-n", "argocd"],
+                capture_output=True,
+            ).returncode != 0
+            if gone:
+                break
+            time.sleep(5)
+        assert gone, "the Argo CD Application survived delete"
+        for _ in range(36):
+            ns_gone = subprocess.run(
+                ["kubectl", "get", "namespace", ns], capture_output=True,
+            ).returncode != 0
+            if ns_gone:
+                break
+            time.sleep(5)
+        assert ns_gone, "namespace %s survived delete" % ns
+        argocd = subprocess.run(
+            ["kubectl", "get", "deployment", "argocd-server", "-n", "argocd"],
+            capture_output=True, text=True,
+        )
+        assert argocd.returncode == 0, (
+            "delete must leave the shared Argo CD install: %s" % argocd.stderr
+        )
+    except Exception:
+        _k8s_gitops_diagnostics(ns, git_server)
+        raise
+    finally:
+        subprocess.run(["docker", "rm", "-f", git_server], capture_output=True)
+
+
 def test_version(inst):
     """`canasta version` reports a version string and orchestrator info."""
     output = inst.run_quiet("version")
@@ -4600,6 +4934,7 @@ ALL_TESTS = {
     "k8s-build-from": test_k8s_build_from,
     "k8s-crowdsec": test_k8s_crowdsec,
     "k8s-backup": test_k8s_backup,
+    "k8s-gitops": test_k8s_gitops,
     "lifecycle": test_lifecycle,
     "podman-socket-runtime": test_podman_socket_runtime,
     "import": test_import_export,
