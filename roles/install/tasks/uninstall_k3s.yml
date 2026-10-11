@@ -120,6 +120,29 @@
       changed_when: false
       failed_when: false
 
+    # An empty listing from a failed call would let the guard pass.
+    - name: Refuse when the control plane cannot list the volumes
+      ansible.builtin.fail:
+        msg: >-
+          Could not list PersistentVolumes on control plane '{{ cp_host }}'
+          to check what uninstalling k3s from
+          '{{ _worker_hostname_raw.stdout | trim }}' would destroy:
+          {{ (_pinned_pvs.stderr | default('') | trim) or ('exit code ' ~ _pinned_pvs.rc) }}.
+          Make the control plane reachable, or pass --force to proceed
+          without the check.
+      when:
+        - _pinned_pvs.rc != 0
+        - not (force | default(false) | bool)
+
+    - name: Warn that the volume check was skipped
+      ansible.builtin.debug:
+        msg: >-
+          --force given: could not list PersistentVolumes on control plane
+          '{{ cp_host }}'; any volumes stored on this node will be destroyed.
+      when:
+        - _pinned_pvs.rc != 0
+        - force | default(false) | bool
+
     - name: Select the volumes this uninstall would destroy
       ansible.builtin.set_fact:
         _doomed_volumes: >-
@@ -194,6 +217,10 @@
 - name: Uninstall k3s
   when: _k3s_uninstall_script | length > 0
   become: true
+  vars:
+    _k3s_local_api_servers:
+      - https://127.0.0.1:6443
+      - https://localhost:6443
   block:
     - name: Report uninstalling
       ansible.builtin.debug:
@@ -223,10 +250,36 @@
           iptables -t nat -D OUTPUT -m comment --comment "kubernetes service portals" -j KUBE-SERVICES 2>/dev/null || true
       changed_when: true
 
+    # The kubeconfig may since have been pointed at, or merged with,
+    # another cluster; it goes only when the local k3s API is all it holds.
+    - name: Read kubeconfig
+      ansible.builtin.slurp:
+        src: "{{ ansible_env.HOME }}/.kube/config"
+      register: _k3s_kubeconfig
+      failed_when: false
+      no_log: true
+
+    - name: List the API servers in the kubeconfig
+      ansible.builtin.set_fact:
+        _k3s_kubeconfig_servers: >-
+          {{ (_k3s_kubeconfig.content | default('') | b64decode)
+             | regex_findall('server:\s*(\S+)') | unique }}
+
     - name: Remove kubeconfig
       ansible.builtin.file:
         path: "{{ ansible_env.HOME }}/.kube/config"
         state: absent
+      when:
+        - _k3s_kubeconfig_servers | length > 0
+        - _k3s_kubeconfig_servers | difference(_k3s_local_api_servers) | length == 0
+
+    - name: Report kubeconfig kept
+      ansible.builtin.debug:
+        msg: >-
+          Left {{ ansible_env.HOME }}/.kube/config in place: it holds
+          clusters other than this host's k3s
+          ({{ _k3s_kubeconfig_servers | difference(_k3s_local_api_servers) | join(', ') }}).
+      when: _k3s_kubeconfig_servers | difference(_k3s_local_api_servers) | length > 0
 
     - name: Report uninstalled
       ansible.builtin.debug:
