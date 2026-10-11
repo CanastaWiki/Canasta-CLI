@@ -212,8 +212,13 @@ def _env_values(content):
     return values
 
 
+# .env keys the CLI re-derives from the feature flags on every start; a
+# difference in them is never an operator edit.
+CLI_DERIVED_ENV_KEYS = ("COMPOSE_PROFILES", "CANASTA_CADDY_IMAGE")
+
+
 def canasta_env_sync_plan(live, template, env_vars, base_template=None,
-                          base_vars=None, ignore=("COMPOSE_PROFILES",)):
+                          base_vars=None, ignore=CLI_DERIVED_ENV_KEYS):
     """Decide how to bring .env and its gitops sources into agreement.
 
     Each key is compared across the live .env, the render of the current
