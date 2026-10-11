@@ -77,6 +77,12 @@ class TestPlan:
         live = _edit(LIVE, "COMPOSE_PROFILES", "varnish")
         assert plan(live, TEMPLATE, VARS, TEMPLATE, VARS)["set"] == {}
 
+    def test_caddy_image_is_not_compared(self):
+        live = LIVE + "CANASTA_CADDY_IMAGE=ghcr.io/canastawiki/canasta-caddy:9\n"
+        template = TEMPLATE + "CANASTA_CADDY_IMAGE=\n"
+        result = plan(live, template, VARS, template, VARS)
+        assert result == {"set": {}, "unset": [], "conflict": []}
+
     def test_live_edit_is_written_to_the_sources(self):
         live = _edit(LIVE, "HTTP_PORT", "8080")
         assert plan(live, TEMPLATE, VARS, TEMPLATE, VARS)["set"] == {
