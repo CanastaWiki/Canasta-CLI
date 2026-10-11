@@ -2,8 +2,7 @@
 # Upgrade a single Canasta instance.
 # Runs all migrations, handles MySQL-to-MariaDB, rebuilds custom images,
 # refreshes stack files, pulls images, restarts.
-# Input: instance_path, instance_id, instance_orchestrator, instance_devmode,
-#        instance_managed_cluster
+# Input: instance_path, instance_id, instance_orchestrator, instance_devmode
 
 # --- Check instance directory exists ---
 - name: Check if instance directory exists

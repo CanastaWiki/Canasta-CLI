@@ -30,9 +30,6 @@ FULL = {
     "orchestrator": "compose",
     "host": "host1.example.com",
     "devMode": True,
-    "managedCluster": True,
-    "registry": "localhost:5000",
-    "kindCluster": "kind-demo",
     "buildFrom": "/src",
     "buildArgs": ["FOO=1", "BAR=2"],
     "dockerHost": "unix:///run/user/1001/podman/podman.sock",
@@ -44,8 +41,7 @@ FULL = {
 def _params(**kw):
     params = {
         "state": "query", "id": None, "path": None, "orchestrator": None,
-        "dev_mode": None, "managed_cluster": None, "registry": None,
-        "kind_cluster": None, "build_from": None, "build_args": None,
+        "dev_mode": None, "build_from": None, "build_args": None,
         "host": None, "docker_host": None, "compose_command": None,
         "inspect_command": None, "filter_host": None, "setting_key": None,
         "setting_value": None, "config_dir": None,
@@ -96,13 +92,23 @@ class TestUpdateTouchesOnlyWhatItIsGiven:
         # "supplied false" are the same value, so every unmentioned flag
         # looks like an explicit false.
         _seed(tmp_dir)
-        _update(tmp_dir, dev_mode=False)
-        entry = _read_back(tmp_dir)
-        assert "devMode" not in entry
-        assert entry["managedCluster"] is True, (
-            "managed_cluster defaulted to false and was written back over "
+        _update(tmp_dir, compose_command="docker compose")
+        assert _read_back(tmp_dir)["devMode"] is True, (
+            "dev_mode defaulted to false and was written back over "
             "a record that had it set"
         )
+        _update(tmp_dir, dev_mode=False)
+        assert "devMode" not in _read_back(tmp_dir)
+
+    def test_it_keeps_keys_it_does_not_know(self, tmp_dir):
+        # Older CLIs wrote fields this module no longer manages; an
+        # update must not fail on them or strip them.
+        _seed(tmp_dir, dict(FULL, managedCluster=True, kindCluster="k"))
+        _, failed, _ = _update(tmp_dir, dev_mode=False)
+        assert not failed
+        entry = _read_back(tmp_dir)
+        assert entry["managedCluster"] is True
+        assert entry["kindCluster"] == "k"
 
     def test_a_true_boolean_is_recorded(self, tmp_dir):
         _seed(tmp_dir, dict(FULL, devMode=False))
@@ -191,7 +197,6 @@ class TestPresentKeepsWhatItWasNotGiven:
             config_dir=tmp_dir))
         entry = _read_back(tmp_dir, "fresh")
         assert "devMode" not in entry
-        assert "managedCluster" not in entry
 
 
 class TestEveryStoredFieldCanBeUpdated:
@@ -208,7 +213,7 @@ class TestThePreserveListCannotGoStale:
     """A field added to instance_to_dict must be preserved automatically.
 
     An earlier version listed the preserved keys by hand and covered
-    seven of the ten optional fields — host, devMode and managedCluster
+    some of the optional fields — host and devMode
     were still erasable by exactly the mechanism the list existed to
     prevent. Deriving the list removes the chance to forget; these tests
     keep it derived.
@@ -217,8 +222,7 @@ class TestThePreserveListCannotGoStale:
     def test_every_optional_field_is_preserved(self):
         emitted = canasta_registry.instance_to_dict({
             "id": "x", "path": "/x", "orchestrator": "compose",
-            "host": "h", "devMode": True, "managedCluster": True,
-            "registry": "r", "kindCluster": "k", "buildFrom": "/b",
+            "host": "h", "devMode": True, "buildFrom": "/b",
             "buildArgs": {"a": "1"}, "dockerHost": "d",
             "composeCommand": "c", "inspectCommand": "i",
         })
@@ -237,6 +241,6 @@ class TestThePreserveListCannotGoStale:
 
     def test_it_covers_the_fields_the_hand_list_missed(self):
         preserved = set(canasta_registry.preserved_on_present())
-        for field in ("host", "devMode", "managedCluster"):
+        for field in ("host", "devMode"):
             assert field in preserved, (
                 "%s was erasable under the hand-maintained list" % field)
