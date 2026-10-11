@@ -155,11 +155,6 @@ class TestReadWikiIds:
         assert maintenance._read_wiki_ids(
             self._inst(tmp_path, content)) == []
 
-    @pytest.mark.xfail(
-        reason="a wikis.yaml whose top level is not a mapping crashes with "
-               "AttributeError instead of returning [] as documented",
-        raises=AttributeError, strict=True,
-    )
     def test_non_mapping_top_level(self, tmp_path):
         assert maintenance._read_wiki_ids(
             self._inst(tmp_path, "- id: main\n")) == []

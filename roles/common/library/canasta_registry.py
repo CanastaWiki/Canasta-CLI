@@ -103,7 +103,6 @@ options:
     type: str
 """
 
-import json
 import os
 
 from ansible.module_utils.basic import AnsibleModule
@@ -241,7 +240,7 @@ def run_module():
 
     try:
         data = read_config(config_dir)
-    except (json.JSONDecodeError, IOError) as e:
+    except (ValueError, IOError) as e:
         module.fail_json(msg="Failed to read config: %s" % str(e))
         return
 

@@ -43,6 +43,8 @@ def _read_wiki_ids(inst):
         data = yaml.safe_load(content) or {}
     except yaml.YAMLError:
         return []
+    if not isinstance(data, dict):
+        return []
     wikis = data.get("wikis", []) or []
     return [w.get("id") for w in wikis if isinstance(w, dict) and w.get("id")]
 
