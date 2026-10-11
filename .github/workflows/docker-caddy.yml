@@ -11,9 +11,8 @@
 # docker.yml.
 #
 # Tags: the Caddy base version (e.g. 2.10.2) plus 'latest' on main. Keep
-# the version tag in lockstep with _CADDY_PLUGIN_IMAGE in
-# direct_commands/_helpers.py and the literal in
-# roles/orchestrator/tasks/sync_compose_profiles.yml.
+# the version tag in lockstep with canasta_caddy_plugin_image in
+# vars/images.yml.
 
 name: Caddy Image
 

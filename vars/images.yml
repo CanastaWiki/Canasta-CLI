@@ -1,0 +1,7 @@
+---
+# Plugin-enabled Caddy image the caddy service runs when a feature needs a
+# Caddy plugin: CrowdSec (the bouncer) or a provider trusted-proxy mode
+# (caddy-cdn-ranges). Any tag of this repository counts as Canasta-managed.
+# Read by sync_compose_profiles.yml, k8s_reconcile_caddy.yml and
+# direct_commands/_helpers.py.
+canasta_caddy_plugin_image: "ghcr.io/canastawiki/canasta-caddy:2.11.3"

@@ -4217,12 +4217,14 @@ def test_k8s_crowdsec(inst):
     # reach 2/2 (caddy + crowdsec sidecar). Stock image -> crashloop, never 2/2.
     _k8s_caddy_ready(inst)
     image = _k8s_caddy_image(inst)
-    assert image == "ghcr.io/canastawiki/canasta-caddy:2.11.3", (
+    import yaml as _yaml
+    with open(os.path.join(REPO_ROOT, "vars", "images.yml")) as f:
+        plugin_image = _yaml.safe_load(f)["canasta_caddy_plugin_image"]
+    assert image == plugin_image, (
         "caddy must run the plugin image when CrowdSec is on, got: %r" % image
     )
 
     # The deploy-time reconcile must record both knobs in values.yaml.
-    import yaml as _yaml
     with open(os.path.join(inst.instance_path(), "values.yaml")) as f:
         values = _yaml.safe_load(f)
     assert values.get("crowdsec", {}).get("enabled") is True, (

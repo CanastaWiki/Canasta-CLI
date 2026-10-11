@@ -33,6 +33,15 @@ def register(command_name):
 FALLBACK = object()
 
 
+def _load_vars(name):
+    """The parsed vars/<name>.yml, which the Ansible play also loads."""
+    path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "vars", name)
+    with open(path) as f:
+        return yaml.safe_load(f)
+
+
 def is_direct_command(command_name):
     return command_name in DIRECT_COMMANDS
 
@@ -438,12 +447,9 @@ def _missing_db_password(inst, env=None):
     return not (env.get("MYSQL_PASSWORD") or "").strip()
 
 
-# Keep in sync with roles/orchestrator/tasks/heal_mysql_defaults.yml.
-_BUNDLED_DB_DEFAULTS = (
-    ("MYSQL_HOST", "db"),
-    ("MYSQL_PORT", "3306"),
-    ("MYSQL_USER", "root"),
-    ("MYSQL_SSL", "false"),
+_BUNDLED_DB_DEFAULTS = tuple(
+    (d["key"], d["value"])
+    for d in _load_vars("mysql_defaults.yml")["canasta_bundled_db_defaults"]
 )
 
 
@@ -506,36 +512,22 @@ def _backfill_db_defaults(inst):
     _write_env_content(path, host, "\n".join(lines) + "\n")
 
 
-# Profiles that Canasta derives from CANASTA_ENABLE_* feature flags.
+_COMPOSE_PROFILES_VARS = _load_vars("compose_profiles.yml")
+
 # (profile_name, flag_name, default_when_flag_unset)
-# Matches roles/orchestrator/tasks/sync_compose_profiles.yml.
 _MANAGED_PROFILES = [
-    ("observable", "CANASTA_ENABLE_OBSERVABILITY", "false"),
-    ("elasticsearch", "CANASTA_ENABLE_ELASTICSEARCH", "false"),
-    ("varnish", "CANASTA_ENABLE_VARNISH", "true"),
-    ("crowdsec", "CANASTA_ENABLE_CROWDSEC", "false"),
+    (p["profile"], p["flag"], p["default"])
+    for p in _COMPOSE_PROFILES_VARS["canasta_managed_profiles"]
 ]
 
 # Service names declared under each managed profile, used to tear down
-# containers left running when a feature flag is turned off. internal-db
-# (the db service) is intentionally absent so a database is never
-# auto-removed. Must match the `profiles:` keys in
-# roles/orchestrator/files/compose/docker-compose.yml and the
-# _profile_services map in sync_compose_profiles.yml.
+# containers left running when a feature flag is turned off.
 _MANAGED_PROFILE_SERVICES = {
-    "observable": [
-        "opensearch", "logstash", "opensearch-dashboards", "observable-init",
-    ],
-    "elasticsearch": ["elasticsearch"],
-    "varnish": ["varnish"],
-    "crowdsec": ["crowdsec"],
+    profile: list(services) for profile, services
+    in _COMPOSE_PROFILES_VARS["canasta_managed_profile_services"].items()
 }
 
-# Plugin-enabled Caddy image the caddy service runs when a feature needs
-# a Caddy plugin: CrowdSec (the bouncer) or a provider trusted-proxy mode
-# (caddy-cdn-ranges). Kept in sync with the literal in
-# roles/orchestrator/tasks/sync_compose_profiles.yml.
-_CADDY_PLUGIN_IMAGE = "ghcr.io/canastawiki/canasta-caddy:2.11.3"
+_CADDY_PLUGIN_IMAGE = _load_vars("images.yml")["canasta_caddy_plugin_image"]
 
 # Trusted-proxy modes that need the cdn_ranges plugin (and so the plugin
 # image). An explicit CIDR list uses Caddy's built-in 'static' source and
@@ -943,14 +935,10 @@ def _wait_web_ready(inst_id, inst):
     return 0
 
 
-# (path relative to the instance, recurse). Keep in sync with
-# roles/orchestrator/tasks/_rootless_operator_chown.yml.
-_ROOTLESS_OPERATOR_DIRS = (
-    ("config", False),
-    ("config/settings", True),
-    ("public_assets", True),
-    ("extensions", True),
-    ("skins", True),
+# (path relative to the instance, recurse)
+_ROOTLESS_OPERATOR_DIRS = tuple(
+    (d["path"], d["recurse"]) for d in
+    _load_vars("rootless_operator_dirs.yml")["canasta_rootless_operator_dirs"]
 )
 
 

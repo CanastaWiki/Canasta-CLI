@@ -98,6 +98,16 @@
       ansible.builtin.include_vars:
         file: vars/restore_marker.yml
 
+    # Constant tables shared with direct_commands/_helpers.py — one source.
+    - name: Load the Compose profile, image, database and directory tables
+      ansible.builtin.include_vars:
+        file: "vars/{{ item }}"
+      loop:
+        - compose_profiles.yml
+        - images.yml
+        - mysql_defaults.yml
+        - rootless_operator_dirs.yml
+
     - name: Validate command exists
       ansible.builtin.assert:
         that: command in (canasta_commands.commands | map(attribute='name'))
