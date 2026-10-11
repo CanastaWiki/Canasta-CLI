@@ -47,6 +47,18 @@
     ansible_connection: local
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
 
+# The class exists to share content across nodes, so instances created on it
+# get ReadWriteMany content volumes unless create says otherwise.
+- name: Save default access mode
+  canasta_registry:
+    state: set_setting
+    setting_key: defaultAccessMode
+    setting_value: ReadWriteMany
+  delegate_to: canasta_controller
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
 - name: Report setup complete
   ansible.builtin.debug:
     msg: >-
