@@ -554,6 +554,8 @@
       failed_when: false
       when: not (_backup_job_finished | bool)
   always:
+    # The API's default for a Job is to orphan its pod, which then
+    # outlives the Job (and keeps running if the Job had not finished).
     - name: Delete completed Job
       kubernetes.core.k8s:
         state: absent
@@ -561,6 +563,8 @@
         kind: Job
         name: "{{ _backup_job_name }}"
         namespace: "{{ _k8s_namespace }}"
+        delete_options:
+          propagationPolicy: Background
       ignore_errors: true  # OK if job already cleaned up by TTL
 
 - name: Fail when the Job did not finish
