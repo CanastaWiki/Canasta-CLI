@@ -33,7 +33,7 @@
       elif [ -f "$HOME/.kube/config" ]; then echo "$HOME/.kube/config"; fi
   register: _nfs_upg_kubeconfig
   changed_when: false
-  when: _nfs_upg_legacy_shares | length > 0
+  when: _nfs_upg_legacy_shares | length > 0 or _nfs_upg_sync.stat.exists
 
 # A failed sync must not end the upgrade or drop the old export: that would
 # cut the wiki pods off their volumes. Keep it and warn instead.

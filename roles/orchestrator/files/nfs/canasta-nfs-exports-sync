@@ -4,6 +4,8 @@
 # canasta-nfs-exports-sync.timer so nodes that join or leave the cluster are
 # picked up without re-running `canasta storage setup nfs`.
 set -u
+# Node addresses are word-split into the export line; never glob them.
+set -f
 CONF=/etc/canasta/nfs-exports.env
 SHARES=/etc/canasta/nfs-shares
 OUT=/etc/exports.d/canasta.exports
@@ -21,7 +23,28 @@ KUBECTL=kubectl
 command -v kubectl >/dev/null 2>&1 || KUBECTL="k3s kubectl"
 err=$(mktemp)
 clients=$($KUBECTL get nodes -o jsonpath='{range .items[*]}{range .status.addresses[*]}{.type} {.address}{"\n"}{end}{range .spec.podCIDRs[*]}PodCIDR {@}{"\n"}{end}{end}' 2>"$err" \
-    | awk '$1 == "InternalIP" || $1 == "ExternalIP" || $1 == "PodCIDR" { print $2 }' \
+    | awk '
+        # A node can report any string, so only an IP address or a CIDR no
+        # wider than /8 (IPv4) or /16 (IPv6) becomes an export client.
+        function valid(a,   n, p, pre, o, i) {
+            n = split(a, p, "/")
+            if (n > 2) return 0
+            pre = (n == 2) ? p[2] : ""
+            if (n == 2 && (pre !~ /^[0-9]+$/ || length(pre) > 3)) return 0
+            if (p[1] ~ /^[0-9.]+$/) {
+                if (split(p[1], o, ".") != 4) return 0
+                for (i = 1; i <= 4; i++)
+                    if (o[i] == "" || length(o[i]) > 3 || o[i] + 0 > 255) return 0
+                return pre == "" || (pre + 0 >= 8 && pre + 0 <= 32)
+            }
+            if (p[1] ~ /^[0-9A-Fa-f:.]+$/ && p[1] ~ /:/ && length(p[1]) <= 45)
+                return pre == "" || (pre + 0 >= 16 && pre + 0 <= 128)
+            return 0
+        }
+        $1 == "InternalIP" || $1 == "ExternalIP" || $1 == "PodCIDR" {
+            if (NF == 2 && valid($2)) print $2
+            else print "canasta-nfs-exports-sync: ignoring node " $1 " \"" substr($0, length($1) + 2) "\": not an IP address or CIDR" > "/dev/stderr"
+        }' \
     | sort -u)
 # Without an answer from the API server, keep the exports as they are.
 if [ -z "$clients" ]; then

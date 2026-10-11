@@ -3,8 +3,9 @@
 # follows is gone. Without a reachable cluster the sync keeps its last node
 # list, so the share would stay exported to those addresses indefinitely.
 #
-# The cluster counts as gone when the kubeconfig the sync reads no longer
-# exists. The share directories and their contents are left in place.
+# The cluster counts as gone when the kubeconfig the sync reads, or the one
+# its copy was made from, no longer exists. The share directories and their
+# contents are left in place.
 
 - name: Check for an installed NFS exports sync
   ansible.builtin.stat:
@@ -20,7 +21,7 @@
       ansible.builtin.shell:
         cmd: >-
           . /etc/canasta/nfs-exports.env 2>/dev/null;
-          echo "${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+          echo "${CANASTA_KUBECONFIG_SOURCE:-${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}}"
       register: _nfs_rm_kubeconfig
       changed_when: false
 
@@ -53,6 +54,7 @@
         - /usr/local/sbin/canasta-nfs-exports-sync
         - /etc/exports.d/canasta.exports
         - /etc/canasta/nfs-exports.env
+        - /etc/canasta/nfs-kubeconfig
         - /etc/canasta/nfs-shares
       when: not _nfs_rm_kubeconfig_stat.stat.exists
 
