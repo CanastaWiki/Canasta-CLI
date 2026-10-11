@@ -1,0 +1,40 @@
+---
+# Apply this instance's Argo CD Application, replacing any existing one.
+#
+# force: replace rather than merge, so switching source type (e.g. helm ->
+# plugin when enabling --encrypt-secrets) drops the old source block. A
+# plain apply leaves both, and Argo refuses an Application with two source
+# types. Replacing a custom resource that already exists must carry its
+# current resourceVersion, so read it first. The Application is never
+# deleted to make way: Argo CD's resources finalizer would delete the
+# instance's resources with it.
+#
+# Input: instance_path
+
+- name: Read the Argo CD Application manifest
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/argocd/application.yaml"
+  register: _argo_app_raw
+
+- name: Parse the Argo CD Application manifest
+  ansible.builtin.set_fact:
+    _argo_app: "{{ _argo_app_raw.content | b64decode | from_yaml }}"
+
+- name: Look up the existing Argo CD Application
+  kubernetes.core.k8s_info:
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    name: "{{ _argo_app.metadata.name }}"
+    namespace: "{{ _argo_app.metadata.namespace }}"
+  register: _argo_app_existing
+
+- name: Apply Argo CD Application to cluster
+  kubernetes.core.k8s:
+    state: present
+    force: true
+    definition: >-
+      {{ _argo_app | combine({'metadata': {'resourceVersion':
+           _argo_app_existing.resources[0].metadata.resourceVersion}},
+         recursive=True)
+         if _argo_app_existing.resources | default([]) | length > 0
+         else _argo_app }}

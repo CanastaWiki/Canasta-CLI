@@ -385,14 +385,8 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_sops_sidecar.yml"
   when: gitops_sops_secrets | default(false) | bool
 
-# force: replace rather than merge, so a re-join with a changed source
-# type fully overwrites the old source block instead of leaving both
-# (Argo refuses an Application with two source types).
 - name: Apply Argo CD Application to cluster
-  kubernetes.core.k8s:
-    state: present
-    force: true
-    src: "{{ instance_path }}/argocd/application.yaml"
+  ansible.builtin.include_tasks: _apply_argo_application.yml
 
 # --- Commit and push ---
 # Stage only the join's own artifacts: the host registration, this host's

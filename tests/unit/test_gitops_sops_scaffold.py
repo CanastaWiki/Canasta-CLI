@@ -8,6 +8,7 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 INITK8S = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "init_kubernetes.yml")
 JOINK8S = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "join_kubernetes.yml")
+APPLY_APP = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "_apply_argo_application.yml")
 INITSOPS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "_init_sops.yml")
 GDEFAULTS = os.path.join(REPO_ROOT, "roles", "gitops", "defaults", "main.yml")
 BOOTSTRAP = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
@@ -54,9 +55,39 @@ def test_argo_app_apply_forces_replace():
         apply = [t for t in _flatten(yaml.safe_load(_read(path)))
                  if t.get("name") == "Apply Argo CD Application to cluster"]
         assert apply, "%s must apply the Argo CD Application" % path
-        k8s = apply[0]["kubernetes.core.k8s"]
-        assert k8s.get("force") is True, \
-            "Application apply in %s must force: true (replace, not merge)" % path
+        assert apply[0]["ansible.builtin.include_tasks"] == (
+            "_apply_argo_application.yml"), path
+    shared = [t for t in yaml.safe_load(_read(APPLY_APP))
+              if t.get("name") == "Apply Argo CD Application to cluster"]
+    k8s = shared[0]["kubernetes.core.k8s"]
+    assert k8s.get("force") is True, \
+        "the Application apply must force: true (replace, not merge)"
+
+
+def test_argo_app_replace_carries_the_existing_resource_version():
+    # Replacing an existing custom resource must name its resourceVersion,
+    # or the API server rejects the update (a re-init or re-join always
+    # meets an existing Application).
+    from ansible.parsing.dataloader import DataLoader
+    from ansible.template import Templar, trust_as_template
+    shared = [t for t in yaml.safe_load(_read(APPLY_APP))
+              if t.get("name") == "Apply Argo CD Application to cluster"]
+    expr = shared[0]["kubernetes.core.k8s"]["definition"]
+    app = {"apiVersion": "argoproj.io/v1alpha1", "kind": "Application",
+           "metadata": {"name": "canasta-x", "namespace": "argocd"},
+           "spec": {"project": "default"}}
+
+    def render(existing):
+        templar = Templar(loader=DataLoader(), variables={
+            "_argo_app": app,
+            "_argo_app_existing": {"resources": existing}})
+        return templar.template(trust_as_template(expr))
+
+    replaced = render([{"metadata": {"resourceVersion": "4242"}}])
+    assert replaced["metadata"]["resourceVersion"] == "4242"
+    assert replaced["metadata"]["name"] == "canasta-x"
+    assert replaced["spec"] == {"project": "default"}
+    assert "resourceVersion" not in render([])["metadata"]
 
 
 def test_init_kubernetes_gates_sops_include():
