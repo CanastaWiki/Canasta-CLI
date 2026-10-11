@@ -4147,6 +4147,456 @@ def test_k8s_build_from(inst):
     )
 
 
+def _k8s_require_cluster():
+    """Skip unless kubectl reaches a cluster and helm is installed."""
+    result = subprocess.run(["kubectl", "cluster-info"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("kubectl not available or cluster not reachable")
+    result = subprocess.run(["helm", "version", "--short"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("helm not installed")
+
+
+def _k8s_kubectl(*args):
+    """Run kubectl and return its stripped stdout; fail on a non-zero exit."""
+    result = subprocess.run(
+        ["kubectl"] + list(args), capture_output=True, text=True,
+    )
+    assert result.returncode == 0, (
+        "kubectl %s failed: %s\n%s"
+        % (" ".join(args), result.stdout, result.stderr)
+    )
+    return result.stdout.strip()
+
+
+def _k8s_wait_web(inst_id, timeout=300):
+    """Wait for the instance's web Deployment to finish rolling out."""
+    result = subprocess.run(
+        ["kubectl", "rollout", "status",
+         "deployment/canasta-%s-web" % inst_id,
+         "-n", "canasta-%s" % inst_id, "--timeout=%ds" % timeout],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, (
+        "web of %s did not roll out: %s\n%s"
+        % (inst_id, result.stdout, result.stderr)
+    )
+
+
+def _k8s_running_pods(inst_id):
+    """Map name -> uid of the instance's Running pods."""
+    out = _k8s_kubectl(
+        "get", "pods", "-n", "canasta-%s" % inst_id,
+        "--field-selector=status.phase=Running",
+        "-o", "jsonpath={range .items[*]}{.metadata.name}={.metadata.uid}"
+        "{\"\\n\"}{end}",
+    )
+    pods = {}
+    for line in out.splitlines():
+        name, _, uid = line.partition("=")
+        if name:
+            pods[name] = uid
+    return pods
+
+
+def _k8s_in_web(inst_id, script):
+    """Run a shell script in a Running web pod of the instance.
+
+    A pod from the previous rollout can still be terminating just after
+    a deploy, so a failed exec is retried against a freshly chosen pod.
+    """
+    ns = "canasta-%s" % inst_id
+    result = None
+    for _ in range(6):
+        _k8s_wait_web(inst_id)
+        pod = subprocess.run(
+            ["kubectl", "get", "pods", "-n", ns,
+             "-l", "app.kubernetes.io/component=web",
+             "--field-selector=status.phase=Running",
+             "-o", "jsonpath={.items[0].metadata.name}"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+        if pod:
+            result = subprocess.run(
+                ["kubectl", "exec", "-n", ns, pod, "-c", "web",
+                 "--", "sh", "-c", script],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                return result.stdout
+        time.sleep(10)
+    raise AssertionError(
+        "web pod command failed in %s: %s\n%s"
+        % (ns, script, result and (result.stdout + result.stderr))
+    )
+
+
+def _k8s_mw_eval(inst_id, wiki, php):
+    """Evaluate PHP in MediaWiki's context for one wiki; return stdout."""
+    return _k8s_in_web(
+        inst_id,
+        "cd /var/www/mediawiki/w && printf '%%s\\n' %s | "
+        "php maintenance/run.php eval --wiki=%s"
+        % (shlex.quote(php), shlex.quote(wiki)),
+    )
+
+
+def _k8s_wiki_answers(inst_id, wiki="main"):
+    """Assert the wiki boots and reads its database from a web pod."""
+    out = _k8s_mw_eval(
+        inst_id, wiki,
+        'echo "WIKI_OK=" . MediaWiki\\MediaWikiServices::getInstance()'
+        '->getDBLoadBalancer()->getConnection(DB_REPLICA)'
+        '->selectField("page", "COUNT(*)", [], "probe");',
+    )
+    assert re.search(r"^WIKI_OK=\d+$", out, re.MULTILINE), (
+        "wiki %s of %s did not answer:\n%s" % (wiki, inst_id, out)
+    )
+
+
+def _k8s_extension_loaded(inst_id, wiki, name):
+    out = _k8s_mw_eval(
+        inst_id, wiki,
+        'echo "EXT_LOADED=" . (ExtensionRegistry::getInstance()'
+        '->isLoaded("%s") ? 1 : 0);' % name,
+    )
+    for line in out.splitlines():
+        if line.strip() in ("EXT_LOADED=1", "EXT_LOADED=0"):
+            return line.strip() == "EXT_LOADED=1"
+    raise AssertionError(
+        "extension probe for %s gave no answer:\n%s" % (name, out)
+    )
+
+
+def _k8s_ingress_hosts(inst_id):
+    out = _k8s_kubectl(
+        "get", "ingress", "canasta-%s" % inst_id,
+        "-n", "canasta-%s" % inst_id,
+        "-o", "jsonpath={.spec.rules[*].host}",
+    )
+    return set(out.split())
+
+
+def _k8s_web_image(inst_id):
+    return _k8s_kubectl(
+        "get", "deployment", "canasta-%s-web" % inst_id,
+        "-n", "canasta-%s" % inst_id,
+        "-o", "jsonpath={.spec.template.spec.containers"
+        "[?(@.name=='web')].image}",
+    )
+
+
+def _k8s_running_web_images(inst_id):
+    out = _k8s_kubectl(
+        "get", "pods", "-n", "canasta-%s" % inst_id,
+        "-l", "app.kubernetes.io/component=web",
+        "--field-selector=status.phase=Running",
+        "-o", "jsonpath={range .items[*]}{.spec.containers"
+        "[?(@.name=='web')].image}{\"\\n\"}{end}",
+    )
+    return set(out.split())
+
+
+def _k8s_wait_namespace_gone(ns):
+    for _ in range(24):
+        result = subprocess.run(
+            ["kubectl", "get", "namespace", ns], capture_output=True,
+        )
+        if result.returncode != 0:
+            return
+        time.sleep(5)
+    raise AssertionError("namespace %s still exists after delete" % ns)
+
+
+def _k8s_values(inst):
+    import yaml as _yaml
+    with open(os.path.join(inst.instance_path(), "values.yaml")) as f:
+        return _yaml.safe_load(f) or {}
+
+
+def test_k8s_multi_instance(inst):
+    """Two instances share one cluster without disturbing each other.
+
+    Each instance has its own namespace, Helm release and Ingress host.
+    Upgrading moves the instance on an older managed image pin to the
+    current one and rolls its pods, while the instance on a custom image
+    keeps it. Stopping and then deleting one instance must leave the
+    other's pods running untouched and the cluster's shared workloads
+    (ingress controller, in-cluster registry, cert-manager when present)
+    in place.
+    """
+    _k8s_require_cluster()
+
+    with open(os.path.join(REPO_ROOT, "CANASTA_VERSION")) as f:
+        current = f.read().strip()
+    # A published release older than the one this CLI targets: the
+    # version-shaped tag a previous CLI would have pinned.
+    pinned = "3.5.25"
+    assert pinned != current, (
+        "the older pin must differ from CANASTA_VERSION (%s)" % current
+    )
+    repo = "ghcr.io/canastawiki/canasta"
+
+    inst_b = TestInstance("inttest-k8s-multi-b")
+    # One controller managing both instances: B shares A's registry.
+    shutil.rmtree(inst_b.config_dir, ignore_errors=True)
+    inst_b.config_dir = inst.config_dir
+    a, b = inst.id, inst_b.id
+    ns_a, ns_b = "canasta-%s" % a, "canasta-%s" % b
+    host_a, host_b = "multi-a.localhost", "multi-b.localhost"
+
+    def other_workloads():
+        out = _k8s_kubectl(
+            "get", "deployments,daemonsets,statefulsets", "-A",
+            "-o", "jsonpath={range .items[*]}{.kind}/{.metadata.namespace}/"
+            "{.metadata.name}{\"\\n\"}{end}",
+        )
+        return {
+            line for line in out.splitlines()
+            if line and line.split("/")[1] not in (ns_a, ns_b)
+        }
+
+    try:
+        print("Creating instance A on an older managed image pin...")
+        inst.run_ok(
+            "create", "-i", a, "-w", "main",
+            "-n", host_a, "-p", inst.work_dir,
+            "--orchestrator", "kubernetes",
+            "--skip-argocd-install", "--skip-tls",
+            "--canasta-image", "%s:%s" % (repo, pinned),
+        )
+        print("Creating instance B on a custom image...")
+        inst_b.run_ok(
+            "create", "-i", b, "-w", "main",
+            "-n", host_b, "-p", inst_b.work_dir,
+            "--orchestrator", "kubernetes",
+            "--skip-argocd-install", "--skip-tls",
+            "--canasta-image", "%s:latest" % repo,
+        )
+
+        output = inst.run_quiet("list")
+        assert a in output and b in output, (
+            "both instances should be listed:\n%s" % output
+        )
+
+        print("Verifying each instance has its own namespace and host...")
+        assert _k8s_ingress_hosts(a) == {host_a}, _k8s_ingress_hosts(a)
+        assert _k8s_ingress_hosts(b) == {host_b}, _k8s_ingress_hosts(b)
+        for inst_id in (a, b):
+            _k8s_wait_web(inst_id)
+            _k8s_wiki_answers(inst_id)
+        shared = other_workloads()
+        print("  Shared workloads: %s" % ", ".join(sorted(shared)))
+
+        print("Upgrading every instance on the controller...")
+        inst.run_ok("upgrade")
+
+        print("Verifying A moved to the current image and rolled...")
+        values_a = _k8s_values(inst)
+        assert values_a.get("image", {}).get("tag") == current, (
+            "A's values.yaml image.tag should be bumped to %s, got %r"
+            % (current, values_a.get("image"))
+        )
+        _k8s_wait_web(a)
+        assert _k8s_web_image(a) == "%s:%s" % (repo, current), (
+            "A's web Deployment is on %s" % _k8s_web_image(a)
+        )
+        assert _k8s_running_web_images(a) == {"%s:%s" % (repo, current)}, (
+            "A's running web pods were not rolled onto the new image: %s"
+            % _k8s_running_web_images(a)
+        )
+        _k8s_wiki_answers(a)
+
+        print("Verifying B kept its custom image...")
+        values_b = _k8s_values(inst_b)
+        assert values_b.get("image", {}).get("tag") == "latest", (
+            "upgrade must not repin a custom image; B's image is %r"
+            % values_b.get("image")
+        )
+        assert _k8s_web_image(b) == "%s:latest" % repo, (
+            "B's web Deployment is on %s" % _k8s_web_image(b)
+        )
+        _k8s_wiki_answers(b)
+
+        before_b = _k8s_running_pods(b)
+        assert before_b, "B has no Running pods"
+
+        print("Stopping A...")
+        inst.run_ok("stop", "-i", a)
+        assert not _k8s_running_pods(a), (
+            "A still has Running pods after stop: %s" % _k8s_running_pods(a)
+        )
+        assert _k8s_running_pods(b) == before_b, (
+            "stopping A disturbed B's pods: before %s, after %s"
+            % (before_b, _k8s_running_pods(b))
+        )
+
+        print("Deleting A...")
+        inst.run_ok("delete", "-i", a, "--yes")
+        _k8s_wait_namespace_gone(ns_a)
+        output = inst.run_quiet("list")
+        assert a not in output, "A still listed after delete:\n%s" % output
+        assert b in output, "B dropped from the registry:\n%s" % output
+
+        print("Verifying B and the shared workloads are intact...")
+        assert _k8s_running_pods(b) == before_b, (
+            "deleting A disturbed B's pods: before %s, after %s"
+            % (before_b, _k8s_running_pods(b))
+        )
+        _k8s_wiki_answers(b)
+        missing = shared - other_workloads()
+        assert not missing, (
+            "deleting A removed shared workloads: %s" % sorted(missing)
+        )
+
+        print("Deleting B...")
+        inst_b.run_ok("delete", "-i", b, "--yes")
+        _k8s_wait_namespace_gone(ns_b)
+    finally:
+        # B shares A's config dir, which A's cleanup removes; only B's
+        # instance and work dir are B's to tear down.
+        if inst_b.is_registered():
+            inst_b.run("delete", "-i", b, "--yes")
+        subprocess.run(
+            ["sudo", "rm", "-rf", inst_b.work_dir], capture_output=True,
+        )
+
+
+def test_k8s_farm(inst):
+    """Kubernetes farm, extension and scale paths on one instance.
+
+    Adding a wiki on its own host must add that host to the Ingress.
+    Enabling an extension must reach the running pods without an
+    operator restart. Scaling the web tier must keep the Ingress hosts,
+    which come from the derived domains overlay, not values.yaml.
+    """
+    _k8s_require_cluster()
+    inst_id = inst.id
+
+    print("Creating Kubernetes instance...")
+    inst.run_ok(
+        "create", "-i", inst_id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "--orchestrator", "kubernetes",
+        "--skip-argocd-install",
+    )
+    _k8s_wait_web(inst_id)
+    _k8s_wiki_answers(inst_id)
+    assert _k8s_ingress_hosts(inst_id) == {"localhost"}, (
+        _k8s_ingress_hosts(inst_id)
+    )
+
+    print("Adding a second wiki on its own host...")
+    inst.run_ok(
+        "add", "-i", inst_id, "-w", "second", "-u", "second.localhost",
+    )
+    hosts = _k8s_ingress_hosts(inst_id)
+    assert hosts == {"localhost", "second.localhost"}, (
+        "the Ingress should route both wiki hosts, got %s" % hosts
+    )
+    _k8s_wiki_answers(inst_id, "main")
+    _k8s_wiki_answers(inst_id, "second")
+
+    print("Enabling a bundled extension...")
+    assert not _k8s_extension_loaded(inst_id, "main", "Cite"), (
+        "precondition: Cite should not be loaded on a fresh instance"
+    )
+    inst.run_ok("extension", "enable", "-i", inst_id, "Cite")
+    for wiki in ("main", "second"):
+        assert _k8s_extension_loaded(inst_id, wiki, "Cite"), (
+            "Cite is not loaded on %s after enable; the change did not "
+            "reach the running pods" % wiki
+        )
+
+    print("Scaling the web tier to 2 replicas...")
+    inst.run_ok("scale", "-i", inst_id, "--replicas", "2")
+    ns = "canasta-%s" % inst_id
+    replicas = _k8s_kubectl(
+        "get", "deployment", "canasta-%s-web" % inst_id, "-n", ns,
+        "-o", "jsonpath={.spec.replicas}/{.status.readyReplicas}",
+    )
+    assert replicas == "2/2", (
+        "web should have 2 ready replicas, got spec/ready %s" % replicas
+    )
+    assert _k8s_values(inst).get("web", {}).get("replicaCount") == 2, (
+        "scale should persist web.replicaCount to values.yaml"
+    )
+    assert _k8s_ingress_hosts(inst_id) == hosts, (
+        "scale changed the Ingress hosts: %s -> %s"
+        % (hosts, _k8s_ingress_hosts(inst_id))
+    )
+    _k8s_wiki_answers(inst_id, "second")
+
+
+def test_k8s_uninstall(inst):
+    """`uninstall k8s` removes the cluster and what followed it.
+
+    NFS storage is set up first, so the uninstall has a default storage
+    class and cluster-scoped exports to withdraw. Destroys the local
+    cluster, so it runs only when CANASTA_TEST_ALLOW_K8S_UNINSTALL=1:
+    CI sets it in a job of its own.
+    """
+    if os.environ.get("CANASTA_TEST_ALLOW_K8S_UNINSTALL") != "1":
+        raise SkipTest(
+            "destroys the local cluster; set "
+            "CANASTA_TEST_ALLOW_K8S_UNINSTALL=1 to run"
+        )
+    _k8s_require_cluster()
+    share = "/srv/nfs/canasta-uninstall-test"
+    exports_file = "/etc/exports.d/canasta.exports"
+    conf = os.path.join(inst.config_dir, "conf.json")
+
+    def default_storage_class():
+        try:
+            with open(conf) as f:
+                return (json.load(f).get("Settings") or {}).get(
+                    "defaultStorageClass")
+        except (OSError, ValueError):
+            return None
+
+    def exported():
+        result = subprocess.run(
+            ["sudo", "exportfs", "-v"], capture_output=True, text=True,
+        )
+        return result.stdout
+
+    try:
+        print("Setting up NFS storage with a local server...")
+        inst.run_ok(
+            "storage", "setup", "nfs", "--install-server", "--share", share,
+        )
+        assert default_storage_class() == "nfs", (
+            "precondition: storage setup should record the default "
+            "storage class, got %r" % default_storage_class()
+        )
+        assert share in exported(), (
+            "precondition: the share should be exported:\n%s" % exported()
+        )
+
+        print("Uninstalling Kubernetes...")
+        inst.run_ok("uninstall", "k8s", "-y")
+
+        state = subprocess.run(
+            ["systemctl", "is-active", "k3s"], capture_output=True, text=True,
+        ).stdout.strip()
+        assert state != "active", "the k3s unit is still active"
+        assert not os.path.exists("/usr/local/bin/k3s-uninstall.sh"), (
+            "the k3s uninstall script is still present"
+        )
+        assert not default_storage_class(), (
+            "the default storage class was left in the registry: %r"
+            % default_storage_class()
+        )
+        assert share not in exported(), (
+            "the share is still exported after uninstall:\n%s" % exported()
+        )
+        assert not os.path.exists(exports_file), (
+            "%s was left behind" % exports_file
+        )
+    finally:
+        subprocess.run(["sudo", "rm", "-rf", share], capture_output=True)
+
+
 def test_config_refresh_template(inst):
     """Verify 'config refresh-template' lists drift, previews, and adopts
     the shipped template for a seeded file (and restores a deleted one)."""
@@ -4935,6 +5385,9 @@ ALL_TESTS = {
     "k8s-crowdsec": test_k8s_crowdsec,
     "k8s-backup": test_k8s_backup,
     "k8s-gitops": test_k8s_gitops,
+    "k8s-multi-instance": test_k8s_multi_instance,
+    "k8s-farm": test_k8s_farm,
+    "k8s-uninstall": test_k8s_uninstall,
     "lifecycle": test_lifecycle,
     "podman-socket-runtime": test_podman_socket_runtime,
     "import": test_import_export,
