@@ -260,15 +260,6 @@
   when: _join_missing_wikis | length > 0
 
 # --- Step 5: Move .git into instance directory ---
-- name: Remove legacy .gitignore files
-  ansible.builtin.file:
-    path: "{{ instance_path }}/{{ item }}"
-    state: absent
-  loop:
-    - extensions/.gitignore
-    - skins/.gitignore
-    - config/.gitignore
-
 # Under --reinit the instance still holds the previous attempt's gitops
 # files (.git, hosts/, templates, ...). The clone has now succeeded, so
 # wipe them and move the fresh .git into a clean tree. Deferring the

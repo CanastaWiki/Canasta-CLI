@@ -52,6 +52,8 @@
     - fix_vector_default_skin.yml
     - remove_empty_composer_local.yml
     - remove_legacy_git_dir.yml
+    - remove_legacy_gitignore_files.yml
+    - remove_legacy_backup_cronjob.yml
     - remove_skip_binary_as_hex.yml
     - backfill_canasta_image.yml
     - backfill_compose_profiles.yml

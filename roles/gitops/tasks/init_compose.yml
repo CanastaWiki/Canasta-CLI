@@ -137,16 +137,6 @@
     - _remote_check is defined
     - _remote_check.stdout | default('') | trim | length > 0
 
-# --- Step 5: Remove legacy .gitignore files ---
-- name: Remove legacy .gitignore files
-  ansible.builtin.file:
-    path: "{{ instance_path }}/{{ item }}"
-    state: absent
-  loop:
-    - extensions/.gitignore
-    - skins/.gitignore
-    - config/.gitignore
-
 # --- Step 6: Initialize git repo ---
 - name: Initialize git repository
   ansible.builtin.command:
