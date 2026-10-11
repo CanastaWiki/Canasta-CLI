@@ -31,15 +31,42 @@
   register: _default_sc
   when: storage_class is not defined or storage_class == ''
 
+# The default is recorded on the controller, which may manage several
+# clusters; it applies only on the cluster that has the class.
+- name: Check that the default storage class exists on this cluster
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - get
+      - storageclass
+      - "{{ _default_sc.value }}"
+      - -o
+      - name
+  register: _default_sc_here
+  changed_when: false
+  failed_when: false
+  when:
+    - storage_class is not defined or storage_class == ''
+    - _default_sc.value | default('', true) | length > 0
+
+- name: Note a default storage class missing from this cluster
+  ansible.builtin.debug:
+    msg: >-
+      The default storage class '{{ _default_sc.value }}' is not on this
+      cluster ({{ (_default_sc_here.stderr | default('') | trim) or 'not found' }});
+      using the cluster's own default. Pass --storage-class to choose one.
+  when:
+    - _default_sc_here.rc is defined
+    - _default_sc_here.rc != 0
+
 - name: Apply default storage class
   ansible.builtin.set_fact:
     storage_class: "{{ _default_sc.value }}"
     _storage_class_is_default: true
   when:
     - storage_class is not defined or storage_class == ''
-    - _default_sc.value is defined
-    - _default_sc.value is not none
-    - _default_sc.value | length > 0
+    - _default_sc.value | default('', true) | length > 0
+    - (_default_sc_here.rc | default(1)) == 0
 
 # The default access mode belongs to the default storage class, so it applies
 # only when that class does: an explicit --storage-class (local-path, say) may

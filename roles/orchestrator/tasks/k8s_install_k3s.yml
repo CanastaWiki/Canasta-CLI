@@ -9,6 +9,22 @@
   ansible.builtin.setup:
     filter: ansible_env
 
+# The k3s installer leaves k3s-agent-uninstall.sh on a worker; running the
+# server installer there would turn a member of another cluster into a
+# control plane.
+- name: Check whether this host is a k3s worker
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s-agent-uninstall.sh
+  register: _k3s_cp_agent_script
+
+- name: Refuse to install a control plane on a worker
+  ansible.builtin.fail:
+    msg: >-
+      This host is already a k3s worker, and a node can belong to only one
+      cluster in one role. Remove it from its cluster first with
+      'canasta uninstall k8s --cp-host <control-plane host>'.
+  when: _k3s_cp_agent_script.stat.exists
+
 - name: Check if k3s is already running
   ansible.builtin.command:
     cmd: k3s kubectl cluster-info
@@ -198,6 +214,44 @@
     path: "{{ ansible_env.HOME }}/.kube"
     state: directory
     mode: "0700"
+
+# An existing kubeconfig for any other cluster is kept as a backup, since
+# the write below replaces it with this cluster's alone.
+- name: Read an existing kubeconfig
+  ansible.builtin.slurp:
+    src: "{{ ansible_env.HOME }}/.kube/config"
+  register: _k3s_existing_kubeconfig
+  failed_when: false
+  no_log: true
+
+- name: List the API servers in the existing kubeconfig
+  ansible.builtin.set_fact:
+    _k3s_existing_kubeconfig_others: >-
+      {{ (_k3s_existing_kubeconfig.content | default('') | b64decode)
+         | regex_findall('server:\s*(\S+)') | unique
+         | difference(['https://127.0.0.1:6443', 'https://localhost:6443']) }}
+
+- name: Back up an existing kubeconfig for other clusters
+  when: _k3s_existing_kubeconfig_others | length > 0
+  block:
+    - name: Name the kubeconfig backup
+      ansible.builtin.set_fact:
+        _k3s_kubeconfig_backup: >-
+          {{ ansible_env.HOME }}/.kube/config.{{ now(fmt='%Y%m%d%H%M%S') }}.bak
+
+    - name: Copy the existing kubeconfig aside
+      ansible.builtin.copy:
+        src: "{{ ansible_env.HOME }}/.kube/config"
+        dest: "{{ _k3s_kubeconfig_backup }}"
+        remote_src: true
+        mode: "0600"
+
+    - name: Report kubeconfig backup
+      ansible.builtin.debug:
+        msg: >-
+          {{ ansible_env.HOME }}/.kube/config held other clusters
+          ({{ _k3s_existing_kubeconfig_others | join(', ') }}); saved it as
+          {{ _k3s_kubeconfig_backup }} before writing this cluster's kubeconfig.
 
 - name: Write kubeconfig
   ansible.builtin.shell:

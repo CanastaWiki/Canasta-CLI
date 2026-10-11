@@ -78,7 +78,9 @@ class TestGuardBehavior:
     def test_it_refuses_by_default(self):
         fail = next(
             (t for t in self._subtasks()
-             if "ansible.builtin.fail" in t), None)
+             if "ansible.builtin.fail" in t
+             and t.get("name") == "Refuse to destroy volumes bound to this node"),
+            None)
         assert fail, "the guard warns but never refuses"
         when = " ".join(fail.get("when", [])) if isinstance(
             fail.get("when"), list) else str(fail.get("when"))
@@ -86,7 +88,8 @@ class TestGuardBehavior:
         assert "force" in when, "there must be an escape hatch"
 
     def test_the_message_names_the_volumes(self):
-        fail = next(t for t in self._subtasks() if "ansible.builtin.fail" in t)
+        fail = next(t for t in self._subtasks()
+                    if t.get("name") == "Refuse to destroy volumes bound to this node")
         msg = str(fail["ansible.builtin.fail"]["msg"])
         assert "_doomed_volumes | join" in msg, (
             "say which volumes would be lost, not just that some would be"

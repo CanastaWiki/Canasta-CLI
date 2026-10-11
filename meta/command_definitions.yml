@@ -996,7 +996,8 @@ commands:
         type: bool
         description: >-
           Proceed even when the target node holds PersistentVolumes whose
-          data the uninstall would destroy.
+          data the uninstall would destroy, or when the control plane
+          cannot be reached to check.
       - name: "yes"
         short: "y"
         type: bool

@@ -11,20 +11,65 @@
 # on the controller that talks to the cluster's API). So this is
 # much shorter than k8s_install_k3s.yml.
 
-- name: Check if k3s is already running
-  ansible.builtin.command:
-    cmd: k3s --version
-  register: _k3s_agent_running
-  changed_when: false
-  ignore_errors: true  # OK if k3s not installed yet
+# The k3s installer leaves k3s-uninstall.sh on a control plane and
+# k3s-agent-uninstall.sh on a worker. A node belongs to one cluster in one
+# role, so only a worker of this same cluster counts as already joined.
+- name: Check for a k3s control plane on this host
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s-uninstall.sh
+  register: _k3s_agent_server_script
 
-- name: Skip if k3s already running
+- name: Check for a k3s worker on this host
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s-agent-uninstall.sh
+  register: _k3s_agent_script
+
+- name: Refuse to join a control plane as a worker
+  ansible.builtin.fail:
+    msg: >-
+      This host is already a k3s control plane, and a node can belong to
+      only one cluster in one role. Run 'canasta uninstall k8s' on it
+      first to make it a worker.
+  when: _k3s_agent_server_script.stat.exists
+
+- name: Read the control plane this worker joined
+  ansible.builtin.command:
+    argv:
+      - grep
+      - -E
+      - "^K3S_URL="
+      - /etc/systemd/system/k3s-agent.service.env
+  become: true
+  register: _k3s_agent_joined_url_raw
+  changed_when: false
+  failed_when: false
+  when: _k3s_agent_script.stat.exists
+
+- name: Note the control plane this worker joined
+  ansible.builtin.set_fact:
+    _k3s_agent_joined_url: >-
+      {{ (_k3s_agent_joined_url_raw.stdout | default('') | trim)
+         | regex_replace('^K3S_URL=', '')
+         | replace('"', '') | replace("'", '') }}
+
+- name: Refuse to join a worker of another cluster
+  ansible.builtin.fail:
+    msg: >-
+      This host is already a k3s worker joined to
+      {{ _k3s_agent_joined_url or 'an unknown control plane' }}, not {{ server }}.
+      A node can belong to only one cluster. Remove it from its cluster
+      first with 'canasta uninstall k8s --cp-host <its control-plane host>'.
+  when:
+    - _k3s_agent_script.stat.exists
+    - _k3s_agent_joined_url != server
+
+- name: Skip if already joined to this cluster
   ansible.builtin.debug:
     msg: "k3s is already installed."
-  when: _k3s_agent_running.rc == 0
+  when: _k3s_agent_script.stat.exists
 
 - name: Install k3s agent
-  when: _k3s_agent_running.rc != 0
+  when: not _k3s_agent_script.stat.exists
   vars:
     _k3s_agent_token_file: /etc/rancher/k3s/agent-join-token
   block:
