@@ -55,33 +55,16 @@
   ansible.builtin.debug:
     msg: "Saving password to {{ instance_path }}/admin-password_{{ _wiki.id }}"
 
-- name: Extract MW_SECRET_KEY from first wiki
+# install.php runs without MW_SECRET_KEY and writes a key of its own into
+# LocalSettings.php. That file is discarded so the key already in .env, which
+# the K8s mw-secrets Secret was built from, stays the wiki's key.
+- name: Delete LocalSettings.php
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+  vars:
+    exec_service: web
+    exec_command: "rm -f /tmp/canasta-install/LocalSettings.php"
   when: _wiki_idx == 0
-  block:
-    # Exec in the web container/pod via the orchestrator's exec primitive,
-    # which dispatches Compose vs K8s (and resolves the running web pod).
-    - name: Extract secret key from LocalSettings.php
-      ansible.builtin.include_tasks: >-
-        {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
-      vars:
-        exec_service: web
-        exec_no_log: true
-        exec_command: "grep -oP 'wgSecretKey\\s*=\\s*\"\\K[0-9a-fA-F]+' /tmp/canasta-install/LocalSettings.php"
-
-    - name: Save MW_SECRET_KEY to .env
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: set
-        key: MW_SECRET_KEY
-        value: "{{ exec_result.stdout | trim }}"
-      no_log: true
-
-    - name: Delete LocalSettings.php
-      ansible.builtin.include_tasks: >-
-        {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
-      vars:
-        exec_service: web
-        exec_command: "rm -f /tmp/canasta-install/LocalSettings.php"
 
 - name: Pause between wiki installations
   ansible.builtin.pause:

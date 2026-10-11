@@ -12,8 +12,7 @@
 #   - validate external-DB config (USE_EXTERNAL_DB requires
 #     MYSQL_HOST), and set COMPOSE_PROFILES so internal-db is
 #     skipped when an external DB is in use
-#   - generate a placeholder MW_SECRET_KEY so the first
-#     `docker compose up` doesn't warn about empty substitution
+#   - generate the instance's MW_SECRET_KEY, unless -e supplied one
 
 - name: Report updating env
   ansible.builtin.debug:
@@ -149,12 +148,11 @@
     - skip_install | default(false) | bool
     - not (_ext_db_check.found and _ext_db_check.value | lower == 'true')
 
-# Generate a placeholder MW_SECRET_KEY so docker compose variable substitution
-# doesn't warn about it being empty during the first 'docker compose up'.
-# install.php later replaces this with the key from LocalSettings.php,
-# or the import-database path regenerates it. A MW_SECRET_KEY supplied in the
-# -e envfile is preserved (not overwritten) so a --skip-install reconnect to
-# an existing wiki keeps its existing sessions valid.
+# Generate the instance's MW_SECRET_KEY. It is the key for the life of the
+# instance: Compose reads it from .env, the K8s mw-secrets Secret is built
+# from it, and neither the installer nor a database import replaces it. A
+# MW_SECRET_KEY supplied in the -e envfile is kept, so a wiki moved here
+# from elsewhere keeps its existing sessions valid.
 - name: Generate initial MW_SECRET_KEY
   ansible.builtin.include_role:
     name: mediawiki
