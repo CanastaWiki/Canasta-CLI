@@ -131,3 +131,8 @@
         _gitcrypt_relock_hdr.stdout | default('') == '00474954435259505400'
         or _gitcrypt_unlock_sym.rc | default(0) != 0
         or _gitcrypt_unlock_gpg.rc | default(0) != 0
+
+# Unlocking checks out every encrypted file afresh, with the operator's umask.
+- name: Restrict the unlocked hosts/ tree to the operator
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_restrict_hosts_dir.yml"
+  when: _gitcrypt_lock_hdr.stdout | default('') == '00474954435259505400'

@@ -178,7 +178,7 @@
               ansible.builtin.file:
                 path: "{{ instance_path }}/hosts/_shared"
                 state: directory
-                mode: "0755"
+                mode: "0700"
 
             - name: Record the buffer pool as the shared default
               ansible.builtin.copy:
@@ -187,7 +187,7 @@
                      | combine({'innodb_buffer_pool_size': _bmt_current})
                      | to_nice_yaml(indent=2) }}
                 dest: "{{ instance_path }}/hosts/_shared/vars.yaml"
-                mode: "0644"
+                mode: "0600"
               when: >-
                 'innodb_buffer_pool_size' not in _bmt_shared
                 and 'innodb_buffer_pool_size' not in _bmt_host_vars

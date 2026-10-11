@@ -201,7 +201,7 @@
       ansible.builtin.file:
         path: "{{ instance_path }}/hosts/_shared"
         state: directory
-        mode: "0755"
+        mode: "0700"
 
     - name: Merge migrated keys into shared vars
       ansible.builtin.copy:
@@ -214,7 +214,7 @@
                             | list))
              | to_nice_yaml(indent=2) }}
         dest: "{{ instance_path }}/hosts/_shared/vars.yaml"
-        mode: "0644"
+        mode: "0600"
       no_log: true
 
     # Only what was migrated. A shared key left behind because its value is
@@ -227,7 +227,7 @@
              | items2dict
              | to_nice_yaml(indent=2) }}
         dest: "{{ instance_path }}/hosts/{{ _push_hostname }}/vars.yaml"
-        mode: "0644"
+        mode: "0600"
       no_log: true
 
     - name: Stage migrated vars files
@@ -438,6 +438,9 @@
         cmd: "git checkout main"
         chdir: "{{ instance_path }}"
       changed_when: false
+
+    - name: Restrict the checked-out hosts/ tree to the operator
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_restrict_hosts_dir.yml"
 
     - name: Report pull request created
       ansible.builtin.debug:

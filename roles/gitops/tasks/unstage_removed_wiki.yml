@@ -58,7 +58,7 @@
                  | dict2items | rejectattr('key', 'equalto', 'wiki_url_' ~ removed_wiki_id)
                  | items2dict | to_nice_yaml(indent=2) }}
             dest: "{{ instance_path }}/hosts/{{ _urw_host_raw.content | b64decode | trim }}/vars.yaml"
-            mode: "0644"
+            mode: "0600"
           no_log: true
 
         - name: Stage vars.yaml

@@ -291,6 +291,9 @@
 # config/settings/global/*.php) in place, silently drifting config from the
 # source. .env lives outside config/ (restored separately below), and the
 # Caddyfile is regenerated post-restore, so clearing config/ is safe.
+# config/backup holds the database dumps and the Secrets manifest; the import
+# and Secret steps below read them from the restore pod, so they never land
+# on the host.
 - name: Copy restored config to host
   when: wiki is not defined
   ansible.builtin.shell:
@@ -302,7 +305,7 @@
       mkdir -p "{{ instance_path }}/config";
       kubectl exec -n {{ _k8s_namespace }} restic-restore --
       tar cf - -C /currentsnapshot/config . |
-      tar xf - -C "{{ instance_path }}/config/";
+      tar xf - --exclude=./backup -C "{{ instance_path }}/config/";
       fi
   args:
     executable: /bin/bash

@@ -309,7 +309,7 @@
   ansible.builtin.file:
     path: "{{ instance_path }}/hosts"
     state: directory
-    mode: "0755"
+    mode: "0700"
 
 - name: Create hosts.yaml
   ansible.builtin.copy:
@@ -319,14 +319,14 @@
           role: {{ role | default('both') }}
           pull_requests: {{ pull_requests | default(false) | bool | lower }}
     dest: "{{ instance_path }}/hosts/hosts.yaml"
-    mode: "0644"
+    mode: "0600"
 
 # --- Step 11: Create vars.yaml with host-specific values + admin passwords ---
 - name: Create host vars directory
   ansible.builtin.file:
     path: "{{ instance_path }}/hosts/{{ host_name }}"
     state: directory
-    mode: "0755"
+    mode: "0700"
 
 - name: Read wikis for admin password extraction
   canasta_wikis_yaml:
@@ -359,7 +359,7 @@
       {{ k }}: {{ v | to_json }}
       {% endfor %}
     dest: "{{ instance_path }}/hosts/{{ host_name }}/vars.yaml"
-    mode: "0644"
+    mode: "0600"
   no_log: true
 
 # --- Step 12: Save local host identity ---
