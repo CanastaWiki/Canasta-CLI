@@ -51,7 +51,6 @@ class TestJoinCheck:
     def test_check_runs_before_the_instance_is_changed(self):
         tasks = _tasks()
         check = _index(tasks, "Fail if this instance lacks some of the repo's wikis")
-        assert check < _index(tasks, "Remove legacy .gitignore files")
         assert check < _index(
             tasks, "Reinit — wipe previous gitops state now that the clone succeeded")
         assert check < _index(tasks, "Move .git from temp clone to instance")

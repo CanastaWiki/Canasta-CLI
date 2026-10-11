@@ -81,7 +81,7 @@
           {{ _mycnf_missing | join(', ') }} in hosts/{{ _render_hostname
           | default('<host>') }}/vars.yaml or hosts/_shared/vars.yaml, and
           my.cnf is not on disk to fall back on — so MariaDB would start at
-          its 128 MB compiled default (CanastaWiki/Canasta-CLI#1455).
+          its 128 MB compiled default.
 
           Set a value sized for THIS host's RAM (roughly a quarter of it is
           a common starting point) in hosts/<host>/vars.yaml:

@@ -58,8 +58,8 @@
     - name: Report upgrade complete
       ansible.builtin.debug:
         msg: >-
-          Upgraded {{ _upgrade_instances.instances | length
-                      - (_upgrade_failures | default([]) | length) }}
+          Upgraded
+          {{ _upgrade_instances.instances | length - (_upgrade_failures | default([]) | length) }}
           instance(s).
 
     # --- Purge superseded images (--purge) ---

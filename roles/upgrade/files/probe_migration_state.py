@@ -207,6 +207,10 @@ def main():
             "mycnf_has_skip_binary_as_hex": file_contains(mycnf, "skip-binary-as-hex"),
             "gitops_host": os.path.isfile(gitops_host),
             "legacy_git": os.path.isdir(legacy_git),
+            "legacy_gitignore": any(
+                os.path.isfile(os.path.join(base, d, ".gitignore"))
+                for d in ("extensions", "skins", "config")
+            ),
             "hosts_yaml": os.path.isfile(hosts_yaml),
             "env_readable_beyond_owner": env_readable_beyond_owner(env_path),
         },

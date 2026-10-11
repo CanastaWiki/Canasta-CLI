@@ -1,0 +1,22 @@
+---
+# Migration: Remove the extensions/, skins/ and config/ .gitignore files that
+# instances cloned from Canasta-DockerCompose carry. They hide user
+# extensions, skins and settings from git, so gitops would not track them.
+# Skips if .gitops-host exists: by then gitops owns those paths, and a
+# .gitignore there is the operator's own.
+
+- name: Display a progress message
+  ansible.builtin.debug:
+    msg: "Checking for legacy .gitignore files..."
+
+- name: Remove legacy .gitignore files
+  ansible.builtin.file:
+    path: "{{ instance_path }}/{{ item }}"
+    state: absent
+  loop:
+    - extensions/.gitignore
+    - skins/.gitignore
+    - config/.gitignore
+  when:
+    - _mig.files.legacy_gitignore
+    - not _mig.files.gitops_host

@@ -2,8 +2,7 @@
 # After containers are up, wait for the database to accept
 # connections and then either:
 #   - import an existing dump (--database <file>): replays the SQL
-#     dump and regenerates MW_SECRET_KEY from the imported
-#     LocalSettings.php; or
+#     dump; or
 #   - run the MediaWiki installer (no dump): creates schema,
 #     installs core, and writes LocalSettings.php for each wiki; or
 #   - skip both (--skip-install): connect to an external database that
@@ -35,11 +34,6 @@
       vars:
         import_wiki_id: "{{ wiki }}"
         import_database_path: "{{ database }}"
-
-    - name: Generate and save MW_SECRET_KEY
-      ansible.builtin.include_role:
-        name: mediawiki
-        tasks_from: generate_secret_key.yml
 
 - name: Report skipping installer for existing database
   ansible.builtin.debug:

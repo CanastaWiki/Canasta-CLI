@@ -125,18 +125,15 @@
           {{ canasta_commands.commands
              | selectattr('name', 'equalto', command) | first }}
 
-    # direct_only commands are implemented entirely in direct_commands.py
-    # and have no Ansible playbook. If we're dispatching from canasta.yml,
-    # the CLI's direct-path bypass didn't fire (likely CANASTA_FORCE_ANSIBLE
-    # is set, or the direct handler returned FALLBACK for a case it can't
-    # handle). Fail clearly rather than trying to include a nonexistent
-    # playbook.
+    # direct_only commands are implemented entirely in the direct_commands
+    # package and have no Ansible playbook; canasta.py never dispatches them
+    # here. Reaching this point means canasta.yml was run by hand. Fail
+    # clearly rather than trying to include a nonexistent playbook.
     - name: Fail if command has no Ansible playbook
       ansible.builtin.fail:
         msg: >-
-          Command '{{ command }}' has direct_only: true and no Ansible
-          playbook. If CANASTA_FORCE_ANSIBLE is set, unset it; this
-          command is implemented in direct_commands.py only.
+          Command '{{ command }}' has no Ansible playbook. Run it through
+          the canasta CLI instead.
       when: _cmd_def.direct_only | default(false) | bool
 
     - name: Dispatch to command playbook

@@ -170,15 +170,6 @@
   when: _join_missing_wikis | length > 0
 
 # --- Step 5: Move .git into instance directory ---
-- name: Remove legacy .gitignore files
-  ansible.builtin.file:
-    path: "{{ instance_path }}/{{ item }}"
-    state: absent
-  loop:
-    - extensions/.gitignore
-    - skins/.gitignore
-    - config/.gitignore
-
 - name: Move the cloned .git into the instance
   ansible.builtin.include_tasks: _join_move_git.yml
 

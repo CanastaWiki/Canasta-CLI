@@ -112,8 +112,8 @@
   ansible.builtin.debug:
     msg: >-
       my.cnf sets no innodb_buffer_pool_size, so it was not migrated
-      to a rendered file. See CanastaWiki/Canasta-CLI#1455 for why
-      sizing it matters.
+      to a rendered file. Without it, MariaDB runs with a 128 MB
+      buffer pool, which is too small for most wikis.
   when:
     - _bmt_mycnf_raw.content is defined
     - _bmt_current == ''

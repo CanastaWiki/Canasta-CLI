@@ -59,7 +59,6 @@
   ansible.builtin.set_fact:
     instance_id: "{{ id }}"
     instance_orchestrator: "{{ orchestrator | default('compose') }}"
-    instance_managed_cluster: false
     instance_devmode: false
 
 - name: Report replacing an unfinished create

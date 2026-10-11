@@ -52,16 +52,6 @@ options:
     description: Whether development mode is enabled.
     type: bool
     default: false
-  managed_cluster:
-    description: Whether the CLI manages the K8s cluster.
-    type: bool
-    default: false
-  registry:
-    description: Container registry for K8s image push.
-    type: str
-  kind_cluster:
-    description: Kind cluster name for K8s.
-    type: str
   build_from:
     description: Local source directory for image builds.
     type: str
@@ -133,9 +123,6 @@ UPDATABLE_FIELDS = (
     ("orchestrator", "orchestrator"),
     ("host", "host"),
     ("devMode", "dev_mode"),
-    ("managedCluster", "managed_cluster"),
-    ("registry", "registry"),
-    ("kindCluster", "kind_cluster"),
     ("buildFrom", "build_from"),
     ("buildArgs", "build_args"),
     ("dockerHost", "docker_host"),
@@ -155,12 +142,6 @@ def instance_to_dict(instance):
         result["host"] = instance["host"]
     if instance.get("devMode"):
         result["devMode"] = True
-    if instance.get("managedCluster"):
-        result["managedCluster"] = True
-    if instance.get("registry"):
-        result["registry"] = instance["registry"]
-    if instance.get("kindCluster"):
-        result["kindCluster"] = instance["kindCluster"]
     if instance.get("buildFrom"):
         result["buildFrom"] = instance["buildFrom"]
     if instance.get("buildArgs"):
@@ -191,8 +172,7 @@ def preserved_on_present():
     """Optional registry fields, taken from instance_to_dict itself."""
     probe = instance_to_dict({
         "id": "probe", "path": "/probe", "orchestrator": "compose",
-        "host": "probe", "devMode": True, "managedCluster": True,
-        "registry": "probe", "kindCluster": "probe", "buildFrom": "/probe",
+        "host": "probe", "devMode": True, "buildFrom": "/probe",
         "buildArgs": {"probe": "1"}, "dockerHost": "probe",
         "composeCommand": "probe", "inspectCommand": "probe",
     })
@@ -209,15 +189,12 @@ def run_module():
         setting_value=dict(type="str", required=False),
         id=dict(type="str", required=False),
         path=dict(type="str", required=False),
-        # No argument defaults on these three: state=update distinguishes
+        # No argument defaults on these two: state=update distinguishes
         # "not supplied" from "supplied false" by testing for None, and a
         # default makes every field look supplied. state=present applies
         # the same defaults itself, below.
         orchestrator=dict(type="str", required=False),
         dev_mode=dict(type="bool", required=False),
-        managed_cluster=dict(type="bool", required=False),
-        registry=dict(type="str", required=False),
-        kind_cluster=dict(type="str", required=False),
         build_from=dict(type="str", required=False),
         build_args=dict(type="list", elements="str", required=False),
         host=dict(type="str", required=False),
@@ -301,9 +278,6 @@ def run_module():
             "orchestrator": module.params["orchestrator"] or "compose",
             "host": module.params.get("host"),
             "devMode": bool(module.params["dev_mode"]),
-            "managedCluster": bool(module.params["managed_cluster"]),
-            "registry": module.params.get("registry"),
-            "kindCluster": module.params.get("kind_cluster"),
             "buildFrom": module.params.get("build_from"),
             "buildArgs": module.params.get("build_args"),
             "dockerHost": module.params.get("docker_host"),
