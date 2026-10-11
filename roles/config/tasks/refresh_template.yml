@@ -3,11 +3,11 @@
 #
 # The set of refreshable files is whatever ships under
 # instance_template/config on the controller. With no requested files we
-# report drift; with requested files we diff each and overwrite when --yes
+# report drift; with requested files we diff each and overwrite when --apply
 # was given.
 #
 # Input: instance_path, instance_id, canasta_root, files (str:
-#        space-separated paths, optional), yes (bool).
+#        space-separated paths, optional), apply (bool).
 
 - name: Enumerate shipped template seed files
   ansible.builtin.find:
@@ -68,11 +68,11 @@
                 + (_refresh_drift | default([]) | map('regex_replace', '^', '  ') | list)
                 + ['',
                    "Review and adopt one with: "
-                   ~ "canasta config refresh-template <file> --yes"]
+                   ~ "canasta config refresh-template <file> --apply"]
               )
           }}
 
-# --- File mode: diff each requested file and overwrite when --yes -------
+# --- File mode: diff each requested file and overwrite when --apply -----
 - name: Refresh requested files
   when: _refresh_requested | length > 0
   block:
@@ -97,4 +97,4 @@
           - >-
             Capture into gitops (if used):
             canasta gitops add && canasta gitops push
-      when: yes | default(false) | bool
+      when: apply | default(false) | bool

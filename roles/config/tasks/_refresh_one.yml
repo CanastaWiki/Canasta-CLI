@@ -1,10 +1,10 @@
 ---
 # Refresh a single template-seeded file: show the template-vs-instance diff
-# and overwrite the instance copy when --yes was given. A missing instance
+# and overwrite the instance copy when --apply was given. A missing instance
 # copy (a deleted seed) diffs as a full addition and is restored.
 #
 # Input: _refresh_file (path relative to the instance root), instance_path,
-#        canasta_root, yes (bool).
+#        canasta_root, apply (bool).
 
 - name: Read the instance copy of {{ _refresh_file }}
   ansible.builtin.slurp:
@@ -68,19 +68,19 @@
         src: "{{ canasta_root }}/instance_template/{{ _refresh_file }}"
         dest: "{{ instance_path }}/{{ _refresh_file }}"
         mode: "0644"
-      when: yes | default(false) | bool
+      when: apply | default(false) | bool
 
     - name: Report {{ _refresh_file }} refreshed
       ansible.builtin.debug:
         msg: "Refreshed {{ _refresh_file }} from the current template."
-      when: yes | default(false) | bool
+      when: apply | default(false) | bool
 
     - name: Report {{ _refresh_file }} previewed
       ansible.builtin.debug:
         msg: >-
-          Previewed {{ _refresh_file }} (no changes made). Re-run with --yes
+          Previewed {{ _refresh_file }} (no changes made). Re-run with --apply
           to overwrite the instance copy with the current template.
-      when: not (yes | default(false) | bool)
+      when: not (apply | default(false) | bool)
 
     - name: Remove the staged copy
       ansible.builtin.file:

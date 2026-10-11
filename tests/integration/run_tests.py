@@ -4884,20 +4884,20 @@ def test_config_refresh_template(inst):
         "drift list should flag the deleted Vector.php:\n%s" % out
     )
 
-    print("Previewing default.vcl (no --yes must not change it)...")
+    print("Previewing default.vcl (no --apply must not change it)...")
     out = inst.run_ok(
         "config", "refresh-template", "-i", inst.id, "config/default.vcl",
     )
-    assert "--yes" in out, (
-        "preview should tell the user to re-run with --yes:\n%s" % out
+    assert "--apply" in out, (
+        "preview should tell the user to re-run with --apply:\n%s" % out
     )
     with open(vcl) as f:
         assert marker in f.read(), "preview must not modify the instance copy"
 
-    print("Adopting the template for both files with --yes...")
+    print("Adopting the template for both files with --apply...")
     inst.run_ok(
         "config", "refresh-template", "-i", inst.id,
-        "config/default.vcl", "config/settings/global/Vector.php", "--yes",
+        "config/default.vcl", "config/settings/global/Vector.php", "--apply",
     )
     with open(vcl) as f, open(tmpl_vcl) as t:
         assert f.read() == t.read(), "default.vcl should match the template"
@@ -4905,7 +4905,8 @@ def test_config_refresh_template(inst):
     with open(vector) as f, open(tmpl_vector) as t:
         assert f.read() == t.read(), "restored Vector.php should match template"
 
-    print("A second --yes run is a no-op (already matches)...")
+    # --yes is the deprecated spelling of --apply and must keep working.
+    print("A second run with --yes is a no-op (already matches)...")
     out = inst.run_ok(
         "config", "refresh-template", "-i", inst.id,
         "config/default.vcl", "--yes",

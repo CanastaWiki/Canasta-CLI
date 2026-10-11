@@ -115,4 +115,6 @@ def test_main_takes_the_lock_before_either_path():
         src = f.read()
     main = src[src.index("def main():"):]
     assert main.index("acquire_instance_lock(command_name, args)") < \
-        main.index("direct_commands.run_direct_command")
+        main.index("run_direct_path(")
+    direct = src[src.index("def run_direct_path("):src.index("def main():")]
+    assert "direct_commands.run_direct_command" in direct

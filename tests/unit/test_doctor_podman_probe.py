@@ -80,17 +80,14 @@ class TestReportLine:
         body = self._lines("podman version 4.3.1")
         assert "4.3.1" in body and "WARNING" in body
 
-    def test_parse_doctor_binds_parts_exactly_once(self):
+    def test_probes_bind_parts_exactly_once(self):
         # `parts` is the split doctor output that the p(i) closure reads.
-        # Rebinding it mid-function (e.g. to hold version components)
-        # breaks every later p() call. Nothing calls p() after the podman
-        # block today, so this cannot be caught behaviorally — but the
-        # file's convention is to append each new probe at the end and
-        # index it, so the next one added would hit it.
-        src = inspect.getsource(doctor._parse_doctor)
+        # Rebinding it (e.g. to hold version components) breaks every
+        # later p() call.
+        src = inspect.getsource(doctor._doctor_probes)
         binds = re.findall(r"^\s*parts\s*=[^=]", src, re.M)
         assert len(binds) == 1, (
-            "`parts` is assigned %d times in _parse_doctor; it must only "
+            "`parts` is assigned %d times in _doctor_probes; it must only "
             "be the initial split: %s" % (len(binds), binds)
         )
 

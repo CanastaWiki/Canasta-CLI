@@ -1,6 +1,7 @@
 """Tests for the validate_definitions.py script."""
 
 import os
+import re
 import sys
 
 import yaml
@@ -428,10 +429,9 @@ class TestDescriptionLint:
 class TestAutoConfirmInvariant:
     """canasta.py auto-prompts 'Continue? [y/N]' for any command whose
     parameters include one named 'yes' (the destructive-confirmation net).
-    A command that is read-only unless --yes is given (so prompting before
-    it has done anything is wrong) must opt out with 'self_confirm: true'
-    and gate writes itself — e.g. 'config refresh-template' with no args
-    lists drift and must not prompt first.
+    'config refresh-template' is read-only unless --apply is given, so it
+    must not declare a 'yes' parameter: its no-arg and preview modes
+    would prompt before doing nothing.
     """
 
     def _real_commands(self):
@@ -453,26 +453,186 @@ class TestAutoConfirmInvariant:
         import canasta
         return canasta
 
-    def test_refresh_template_opts_out_of_auto_confirm(self):
+    def test_refresh_template_does_not_prompt(self):
         cmd = next(
             c for c in self._real_commands()
             if c["name"] == "config_refresh_template"
         )
-        assert cmd.get("self_confirm") is True, (
-            "config_refresh_template defines a 'yes' parameter, so it must "
-            "set 'self_confirm: true' or canasta.py's auto-confirm prompt "
-            "fires on its read-only no-arg/preview modes."
-        )
+        canasta = self._canasta()
+        assert canasta.should_prompt_confirmation(cmd, False) is False
 
-    def test_self_confirm_suppresses_the_prompt(self):
+    def test_prompt_follows_the_yes_parameter(self):
         canasta = self._canasta()
         yes_cmd = {"parameters": [{"name": "yes"}]}
         # A plain destructive command (e.g. delete) still prompts.
         assert canasta.should_prompt_confirmation(yes_cmd, False) is True
         assert canasta.should_prompt_confirmation(yes_cmd, True) is False
-        # self_confirm opts out entirely.
-        optout = dict(yes_cmd, self_confirm=True)
-        assert canasta.should_prompt_confirmation(optout, False) is False
         # No 'yes' parameter -> never prompts.
         assert canasta.should_prompt_confirmation({"parameters": []}, False) \
             is False
+
+
+class TestRefreshTemplateApply:
+    """--apply is the documented write flag; --yes and -y still work."""
+
+    def _parse(self, *argv):
+        repo_root = os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))
+        ))
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        import canasta
+        parser = canasta.build_parser(canasta.load_definitions())
+        return parser.parse_args(
+            ["config", "refresh-template", "config/default.vcl"] + list(argv))
+
+    def test_apply_sets_apply(self):
+        assert self._parse("--apply").apply is True
+
+    def test_default_is_preview(self):
+        assert self._parse().apply is False
+
+    def test_deprecated_spellings_set_apply(self):
+        assert self._parse("--yes").apply is True
+        assert self._parse("-y").apply is True
+
+    def test_deprecated_spellings_hidden_from_help(self, capsys):
+        import pytest
+        with pytest.raises(SystemExit):
+            self._parse("--help")
+        out = capsys.readouterr().out
+        # The usage line and the options list, not the long description.
+        out = out.split("\n\n")[0] + out[out.index("options:"):]
+        assert "--apply" in out
+        assert "--yes" not in out
+        assert not re.search(r"(^|[\s,\[])-y\b", out)
+
+    def test_examples_accept_the_alias(self):
+        repo_root = os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))))
+        with open(os.path.join(
+                repo_root, "meta", "command_definitions.yml")) as f:
+            data = yaml.safe_load(f)
+        import cli_examples
+        table = cli_examples.build_command_table(data)
+        cmd = next(c for c in data["commands"]
+                   if c["name"] == "config_refresh_template")
+        for flag in ("--yes", "-y", "--apply"):
+            example = "canasta config refresh-template config/default.vcl " + flag
+            assert validate_definitions.check_example(
+                cmd, example, table, data) == []
+
+
+class TestShortFlagReuse:
+    """A short flag may stand for only one long flag across the CLI,
+    apart from the reuses accepted for compatibility."""
+
+    @staticmethod
+    def _defs(*commands):
+        return {
+            "global_flags": [{"name": "verbose", "short": "v"}],
+            "commands": [
+                {"name": name, "parameters": params}
+                for name, params in commands
+            ],
+        }
+
+    def test_real_definitions_pass(self):
+        repo_root = os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))))
+        with open(os.path.join(
+                repo_root, "meta", "command_definitions.yml")) as f:
+            data = yaml.safe_load(f)
+        assert validate_definitions.check_short_flag_reuse(data) == []
+
+    def test_same_long_flag_everywhere_is_fine(self):
+        defs = self._defs(
+            ("a", [{"name": "id", "short": "i"}]),
+            ("b", [{"name": "id", "short": "i"}]),
+        )
+        assert validate_definitions.check_short_flag_reuse(defs, {}) == []
+
+    def test_new_reuse_is_rejected(self):
+        defs = self._defs(
+            ("a", [{"name": "id", "short": "i"}]),
+            ("b", [{"name": "image", "short": "i"}]),
+        )
+        errors = validate_definitions.check_short_flag_reuse(defs, {})
+        assert len(errors) == 2
+        assert all("-i" in e for e in errors)
+
+    def test_accepted_reuse_passes_but_a_new_meaning_does_not(self):
+        defs = self._defs(
+            ("a", [{"name": "force", "short": "f"}]),
+            ("b", [{"name": "file", "short": "f"}]),
+            ("c", [{"name": "format", "short": "f"}]),
+        )
+        accepted = {"f": {"--force", "--file"}}
+        errors = validate_definitions.check_short_flag_reuse(defs, accepted)
+        assert len(errors) == 1
+        assert "--format" in errors[0]
+
+    def test_long_override_is_the_flag_compared(self):
+        defs = self._defs(
+            ("a", [{"name": "host_name", "long": "name", "short": "n"}]),
+            ("b", [{"name": "name", "short": "n"}]),
+        )
+        assert validate_definitions.check_short_flag_reuse(defs, {}) == []
+
+    def test_clash_with_a_global_flag_is_rejected(self):
+        defs = self._defs(("a", [{"name": "version", "short": "v"}]))
+        assert validate_definitions.check_short_flag_reuse(defs, {})
+
+
+class TestAliasChecks:
+    def test_valid_alias(self):
+        cmd = {"parameters": [
+            {"name": "apply", "type": "bool", "aliases": ["--yes", "-y"]}]}
+        assert validate_definitions.check_aliases(
+            cmd, cmd["parameters"][0]) == []
+
+    def test_alias_on_non_bool_rejected(self):
+        cmd = {"parameters": [
+            {"name": "x", "type": "string", "aliases": ["--y"]}]}
+        assert validate_definitions.check_aliases(cmd, cmd["parameters"][0])
+
+    def test_alias_colliding_with_another_flag_rejected(self):
+        cmd = {"parameters": [
+            {"name": "apply", "type": "bool", "aliases": ["-i"]},
+            {"name": "id", "short": "i", "type": "string"}]}
+        errors = validate_definitions.check_aliases(cmd, cmd["parameters"][0])
+        assert errors and "-i" in errors[0]
+
+    def test_malformed_alias_rejected(self):
+        cmd = {"parameters": [
+            {"name": "apply", "type": "bool", "aliases": ["yes"]}]}
+        assert validate_definitions.check_aliases(cmd, cmd["parameters"][0])
+
+
+class TestOrchestratorsChecks:
+    _ID = [{"name": "id", "type": "string", "description": "x"}]
+
+    def test_valid(self):
+        cmd = {"orchestrators": ["compose"], "orchestrators_note": "Why.",
+               "parameters": self._ID}
+        assert validate_definitions.check_orchestrators(cmd) == []
+
+    def test_absent_is_fine(self):
+        assert validate_definitions.check_orchestrators(
+            {"parameters": []}) == []
+
+    def test_unknown_orchestrator_rejected(self):
+        cmd = {"orchestrators": ["k8s"], "parameters": self._ID}
+        assert validate_definitions.check_orchestrators(cmd)
+
+    def test_empty_list_rejected(self):
+        cmd = {"orchestrators": [], "parameters": self._ID}
+        assert validate_definitions.check_orchestrators(cmd)
+
+    def test_note_without_orchestrators_rejected(self):
+        cmd = {"orchestrators_note": "Why.", "parameters": self._ID}
+        assert validate_definitions.check_orchestrators(cmd)
+
+    def test_needs_an_instance(self):
+        cmd = {"orchestrators": ["compose"], "parameters": []}
+        assert validate_definitions.check_orchestrators(cmd)
