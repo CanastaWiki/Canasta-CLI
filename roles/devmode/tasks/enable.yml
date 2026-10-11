@@ -12,16 +12,6 @@
     msg: "Dev mode is only supported for local instances."
   when: _instance_host | default('localhost') != 'localhost'
 
-# Validation: devmode is Compose-only (xdebug needs a custom image build
-# and values.yaml config). No K8s-equivalent action to dispatch to; kept
-# here by design.
-- name: Not applicable for Kubernetes
-  ansible.builtin.fail:
-    msg: >-
-      'canasta devmode enable' is not applicable for the kubernetes orchestrator.
-      Xdebug enablement requires a custom image build and values.yaml configuration.
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-
 - name: Check not already in dev mode
   ansible.builtin.fail:
     msg: "Instance '{{ instance_id }}' is already in development mode."

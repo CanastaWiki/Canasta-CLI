@@ -24,8 +24,8 @@ def _load(path):
 class TestDevmodeGuards:
     """devmode is Compose-and-localhost only: it extracts code and builds an
     xdebug image on the local machine. Both enable and disable must refuse a
-    remote instance and a Kubernetes instance, and check the dev-mode state,
-    before doing any work."""
+    remote instance and check the dev-mode state before doing any work; the
+    Kubernetes refusal comes from the command's `orchestrators:` key."""
 
     def _fail_conditions(self, tasks):
         # Map each ansible.builtin.fail task's name -> its `when` (as a string).
@@ -42,19 +42,20 @@ class TestDevmodeGuards:
         # localhost-only
         local = next(c for n, c in fails.items() if "requires local" in n.lower())
         assert "localhost" in local and "!=" in local
-        # not on kubernetes
-        k8s = next(c for n, c in fails.items() if "not applicable" in n.lower()
-                   or "kubernetes" in n.lower())
-        assert "kubernetes" in k8s or "k8s" in k8s
         # not already in dev mode
         assert any("already in dev" in n.lower() for n in fails)
+
+    def test_declared_compose_only(self):
+        # canasta.py refuses devmode on Kubernetes from this key.
+        with open(os.path.join(REPO_ROOT, "meta", "command_definitions.yml")) as f:
+            commands = {c["name"]: c for c in yaml.safe_load(f)["commands"]}
+        for name in ['devmode_enable', 'devmode_disable']:
+            assert commands[name].get("orchestrators") == ['compose'], name
 
     def test_disable_guards(self):
         fails = self._fail_conditions(_load(os.path.join(DEVMODE_TASKS, "disable.yml")))
         local = next(c for n, c in fails.items() if "requires local" in n.lower())
         assert "localhost" in local and "!=" in local
-        assert any("not applicable" in n.lower() or "kubernetes" in n.lower()
-                   for n in fails)
         # must be IN dev mode to disable
         assert any(n for n in fails if "in dev" in n.lower()
                    and "already" not in n.lower())

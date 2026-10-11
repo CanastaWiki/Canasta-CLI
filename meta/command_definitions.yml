@@ -9,6 +9,13 @@
 #   choice   - One of a fixed set of values (see 'choices')
 #   integer  - Whole number
 #
+# Command-level fields:
+#   orchestrators       - Orchestrators the command supports ([compose] or
+#                         [kubernetes]). canasta.py refuses the command on
+#                         an instance of any other orchestrator.
+#   orchestrators_note  - Sentence appended to that refusal, saying why or
+#                         what to do instead.
+#
 # Special fields:
 #   required          - Parameter must be provided
 #   required_unless   - Required unless the named parameter is provided
@@ -1523,6 +1530,10 @@ commands:
       - "canasta extension remove MyExtension"
       - "canasta extension remove MyExtension,OtherExtension"
     playbook: extension_remove.yml
+    orchestrators: [compose]
+    orchestrators_note: >-
+      This includes gitops instances; Kubernetes user extensions and skins
+      live in a PVC and are not managed this way.
     parameters:
       - name: id
         short: i
@@ -1553,6 +1564,10 @@ commands:
       - "canasta skin remove Mirage"
       - "canasta skin remove Mirage,Cosmos"
     playbook: skin_remove.yml
+    orchestrators: [compose]
+    orchestrators_note: >-
+      This includes gitops instances; Kubernetes user extensions and skins
+      live in a PVC and are not managed this way.
     parameters:
       - name: id
         short: i
@@ -1650,6 +1665,10 @@ commands:
       - "canasta extension add DarkMode --clone --mw-version 1.43.2"
       - "canasta extension add MyExtension --repository https://example.org/MyExtension.git --branch main"
     playbook: extension_add.yml
+    orchestrators: [compose]
+    orchestrators_note: >-
+      This includes gitops instances; Kubernetes user extensions and skins
+      live in a PVC and are not managed this way.
     parameters:
       - name: id
         short: i
@@ -1808,6 +1827,10 @@ commands:
       - "canasta skin add Mirage --clone"
       - "canasta skin add Mirage --clone --mw-version 1.43.2"
     playbook: skin_add.yml
+    orchestrators: [compose]
+    orchestrators_note: >-
+      This includes gitops instances; Kubernetes user extensions and skins
+      live in a PVC and are not managed this way.
     parameters:
       - name: id
         short: i
@@ -2241,6 +2264,10 @@ commands:
     examples:
       - "canasta devmode enable"
     playbook: devmode_enable.yml
+    orchestrators: [compose]
+    orchestrators_note: >-
+      Xdebug enablement requires a custom image build and values.yaml
+      configuration.
     parameters:
       - name: id
         short: i
@@ -2255,6 +2282,7 @@ commands:
     examples:
       - "canasta devmode disable"
     playbook: devmode_disable.yml
+    orchestrators: [compose]
     parameters:
       - name: id
         short: i
@@ -3347,6 +3375,10 @@ commands:
     examples:
       - "canasta scale -i mysite --replicas 3"
     playbook: scale.yml
+    orchestrators: [kubernetes]
+    orchestrators_note: >-
+      On Compose, raise PHP-FPM worker limits inside the web image rather
+      than running multiple replicas of the same container.
     parameters:
       - name: id
         short: i

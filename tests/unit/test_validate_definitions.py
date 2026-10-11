@@ -607,3 +607,32 @@ class TestAliasChecks:
         cmd = {"parameters": [
             {"name": "apply", "type": "bool", "aliases": ["yes"]}]}
         assert validate_definitions.check_aliases(cmd, cmd["parameters"][0])
+
+
+class TestOrchestratorsChecks:
+    _ID = [{"name": "id", "type": "string", "description": "x"}]
+
+    def test_valid(self):
+        cmd = {"orchestrators": ["compose"], "orchestrators_note": "Why.",
+               "parameters": self._ID}
+        assert validate_definitions.check_orchestrators(cmd) == []
+
+    def test_absent_is_fine(self):
+        assert validate_definitions.check_orchestrators(
+            {"parameters": []}) == []
+
+    def test_unknown_orchestrator_rejected(self):
+        cmd = {"orchestrators": ["k8s"], "parameters": self._ID}
+        assert validate_definitions.check_orchestrators(cmd)
+
+    def test_empty_list_rejected(self):
+        cmd = {"orchestrators": [], "parameters": self._ID}
+        assert validate_definitions.check_orchestrators(cmd)
+
+    def test_note_without_orchestrators_rejected(self):
+        cmd = {"orchestrators_note": "Why.", "parameters": self._ID}
+        assert validate_definitions.check_orchestrators(cmd)
+
+    def test_needs_an_instance(self):
+        cmd = {"orchestrators": ["compose"], "parameters": []}
+        assert validate_definitions.check_orchestrators(cmd)

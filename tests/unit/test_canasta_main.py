@@ -276,3 +276,70 @@ class TestGlobalFlagIsolation:
         assert name == "stop"
         assert args.id == "maintenance"
         assert args.verbose is False
+
+
+class TestCommandOrchestrators:
+    """A command declaring `orchestrators:` is refused on an instance of
+    another orchestrator before either the direct or the Ansible path."""
+
+    @staticmethod
+    def _register(tmp_path, orchestrator):
+        import json
+        (tmp_path / "conf.json").write_text(json.dumps({"Instances": {
+            "mysite": {"path": str(tmp_path / "mysite"), "host": "localhost",
+                       "orchestrator": orchestrator},
+        }}))
+
+    def test_direct_command_refused_on_compose(
+            self, harness, monkeypatch, tmp_path, capsys):
+        self._register(tmp_path, "compose")
+        assert _run(monkeypatch, ["scale", "-i", "mysite", "-r", "2"]) == 1
+        err = capsys.readouterr().err
+        assert ("'canasta scale' is only supported on Kubernetes instances"
+                in err)
+        assert "PHP-FPM" in err
+        assert harness.direct_calls == []
+
+    def test_direct_command_runs_on_k8s_alias(
+            self, harness, monkeypatch, tmp_path):
+        self._register(tmp_path, "k8s")
+        assert _run(monkeypatch, ["scale", "-i", "mysite", "-r", "2"]) == 0
+        assert [c[0] for c in harness.direct_calls] == ["scale"]
+
+    @pytest.mark.parametrize("argv,label", [
+        (["extension", "add", "X", "-i", "mysite"], "extension add"),
+        (["skin", "remove", "X", "-i", "mysite"], "skin remove"),
+        (["devmode", "enable", "-i", "mysite"], "devmode enable"),
+        (["devmode", "disable", "-i", "mysite"], "devmode disable"),
+    ])
+    def test_ansible_command_refused_on_kubernetes(
+            self, harness, monkeypatch, tmp_path, capsys, argv, label):
+        self._register(tmp_path, "kubernetes")
+        assert _run(monkeypatch, argv) == 1
+        assert ("'canasta %s' is only supported on Compose instances" % label
+                in capsys.readouterr().err)
+        assert harness.ansible_calls == []
+
+    def test_ansible_command_runs_on_compose(
+            self, harness, monkeypatch, tmp_path):
+        self._register(tmp_path, "compose")
+        assert _run(monkeypatch, ["devmode", "enable", "-i", "mysite"]) \
+            == "exec"
+
+    def test_unresolved_instance_left_to_the_command(
+            self, harness, monkeypatch, tmp_path):
+        self._register(tmp_path, "kubernetes")
+        assert _run(monkeypatch, ["devmode", "enable", "-i", "other"]) \
+            == "exec"
+
+    def test_note_is_appended(self):
+        cmd_def = {"orchestrators": ["compose"],
+                   "orchestrators_note": "Use X\n  instead."}
+        assert canasta.orchestrator_refusal(
+            cmd_def, "devmode_enable", "kubernetes") == (
+            "Error: 'canasta devmode enable' is only supported on Compose "
+            "instances. Use X instead.")
+        assert canasta.orchestrator_refusal(
+            cmd_def, "devmode_enable", None) is None
+        assert canasta.orchestrator_refusal(
+            {}, "devmode_enable", "kubernetes") is None

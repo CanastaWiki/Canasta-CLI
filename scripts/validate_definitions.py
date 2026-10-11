@@ -130,6 +130,32 @@ def check_aliases(command, param):
     return errors
 
 
+ORCHESTRATORS = {"compose", "kubernetes"}
+
+
+def check_orchestrators(cmd):
+    """Errors for a command's `orchestrators:` / `orchestrators_note:`."""
+    allowed = cmd.get("orchestrators")
+    note = cmd.get("orchestrators_note")
+    if allowed is None:
+        if note is not None:
+            return ["'orchestrators_note' needs 'orchestrators'"]
+        return []
+    if (not isinstance(allowed, list) or not allowed
+            or len(set(allowed)) != len(allowed)
+            or not set(allowed) <= ORCHESTRATORS):
+        return ["'orchestrators' must be a non-empty list of distinct "
+                "values from %s" % ", ".join(sorted(ORCHESTRATORS))]
+    errors = []
+    if note is not None and not (isinstance(note, str) and note.strip()):
+        errors.append("'orchestrators_note' must be a non-empty string")
+    # The refusal reads the instance's orchestrator, so the command has
+    # to target an instance.
+    if not any(p.get("name") == "id" for p in cmd.get("parameters") or []):
+        errors.append("'orchestrators' needs an 'id' parameter")
+    return errors
+
+
 def check_choices(param, value, label):
     """Errors if `value` is one a `choices:` list would reject."""
     choices = param.get("choices")
@@ -326,6 +352,9 @@ def main():
             playbook_path = os.path.join(playbooks_dir, playbook)
             if not os.path.exists(playbook_path):
                 errors.append("%s: playbook '%s' not found at %s" % (prefix, playbook, playbook_path))
+
+        for problem in check_orchestrators(cmd):
+            errors.append("%s: %s" % (prefix, problem))
 
         # Check parameters
         for j, param in enumerate(cmd.get("parameters", [])):

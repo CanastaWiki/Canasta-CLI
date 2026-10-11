@@ -5,14 +5,6 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
-- name: Refuse to scale a Compose instance
-  ansible.builtin.fail:
-    msg: >-
-      `canasta scale` is Kubernetes-only by design. On Compose, raise
-      PHP-FPM worker limits inside the web image rather than running
-      multiple replicas of the same container.
-  when: instance_orchestrator | default('compose') not in ['kubernetes', 'k8s']
-
 - name: Refuse components other than web
   ansible.builtin.fail:
     msg: >-

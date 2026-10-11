@@ -974,6 +974,61 @@ def resolve_instance(instance_id=None, required=True):
     return _unresolved("Error: no instance found for current directory")
 
 
+ORCHESTRATOR_LABELS = {"compose": "Compose", "kubernetes": "Kubernetes"}
+
+
+def command_display_name(command_name):
+    """'extension_add' -> 'extension add', 'config_refresh_template' ->
+    'config refresh-template'."""
+    group, _, rest = command_name.partition("_")
+    if rest and group in SUBCOMMAND_GROUPS:
+        return "%s %s" % (group, display_name(rest))
+    return display_name(command_name)
+
+
+def orchestrator_refusal(cmd_def, command_name, orchestrator):
+    """The refusal for running a command on an instance of `orchestrator`.
+
+    None when the command declares no `orchestrators:` restriction or the
+    orchestrator is one it supports.
+    """
+    allowed = cmd_def.get("orchestrators")
+    if not allowed:
+        return None
+    if orchestrator in ("kubernetes", "k8s"):
+        orchestrator = "kubernetes"
+    else:
+        orchestrator = orchestrator or "compose"
+    if orchestrator in allowed:
+        return None
+    message = "Error: 'canasta %s' is only supported on %s instances." % (
+        command_display_name(command_name),
+        " and ".join(ORCHESTRATOR_LABELS.get(o, o) for o in allowed),
+    )
+    note = (cmd_def.get("orchestrators_note") or "").strip()
+    if note:
+        message += " " + " ".join(note.split())
+    return message
+
+
+def check_command_orchestrator(cmd_def, command_name, args):
+    """Refuse a command on an instance whose orchestrator it does not support.
+
+    Runs before both the direct path and the Ansible path. An instance
+    that does not resolve is left to the command to report.
+    """
+    if not cmd_def.get("orchestrators"):
+        return
+    inst = resolve_instance(getattr(args, "id", None), required=False)
+    if not inst:
+        return
+    message = orchestrator_refusal(
+        cmd_def, command_name, inst.get("orchestrator"))
+    if message:
+        print(message, file=sys.stderr)
+        sys.exit(1)
+
+
 # Commands that change an instance wholesale or start and stop it. Each holds
 # an exclusive per-instance lock for its whole run, so two of them never
 # interleave on one instance.
@@ -2242,6 +2297,8 @@ def main():
 
     # Before the direct-command dispatch, so both paths read these the same.
     apply_instance_host_paths(cmd_def, args)
+
+    check_command_orchestrator(cmd_def, command_name, args)
 
     # Pre-flight: a duplicate instance ID is an expected refusal, not a
     # crash. Catch it here so it exits with EXIT_ALREADY_EXISTS instead

@@ -40,10 +40,12 @@ def _cmds(tasks):
 
 
 class TestKubernetesGuard:
-    def test_guard_uses_instance_orchestrator(self):
-        text = open(REMOVE).read()
-        assert "instance_orchestrator | default('compose') in ['kubernetes', 'k8s']" in text, (
-            "remove.yml must refuse kubernetes/k8s via instance_orchestrator")
+    def test_declared_compose_only(self):
+        # canasta.py refuses the command on Kubernetes from this key.
+        with open(DEFS) as f:
+            commands = {c["name"]: c for c in yaml.safe_load(f)["commands"]}
+        for name in ['extension_remove', 'skin_remove']:
+            assert commands[name].get("orchestrators") == ['compose'], name
 
 
 class TestNameValidation:
