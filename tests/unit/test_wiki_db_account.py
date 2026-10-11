@@ -1,4 +1,4 @@
-"""MediaWiki connects to the bundled database with its own account (#1596).
+"""MediaWiki connects to the bundled database with its own account.
 
 ensure_wiki_db_account.sh runs inside the db container and makes the
 account match .env and the wiki database set. These tests run it against a

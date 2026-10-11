@@ -120,7 +120,7 @@ def cmd_maintenance_script(args):
     inst_id, inst = _helpers._resolve_instance(args)
     tokens = _helpers._script_arg_tokens(args)
 
-    # No script name → list available scripts (closes #444).
+    # No script name → list available scripts.
     if not tokens:
         return _helpers._stream_in_container(
             inst_id, inst,

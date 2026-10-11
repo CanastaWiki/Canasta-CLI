@@ -323,7 +323,7 @@ def test_podman_socket_runtime(inst):
 
     A lane that only ever takes the first route says nothing about the
     second, which is the one `canasta install podman` produces and every
-    real rootless host takes. That is where #1424 broke `create` outright
+    real rootless host takes. That route once broke `create` outright
     while this suite stayed green on every push to main.
 
     Skips where there is no socket, so Docker lanes are unaffected.
@@ -1502,7 +1502,7 @@ def test_gitops(inst):
 def test_gitops_join(inst):
     """Join a second instance to an existing gitops repo.
 
-    Exercises the join working-tree checkout (#571/#582): files present in
+    Exercises the join working-tree checkout: files present in
     the repo but not yet in the joining instance are materialized, and a
     tracked file that differs locally is replaced with the repo's version.
     Uses a host-owned settings file (not the container-managed Caddyfile)
@@ -1607,7 +1607,7 @@ def test_gitops_join(inst):
         # B now has a .git and 'hostb' is registered in the repo, so a plain
         # re-join is refused twice over (".git exists" / "host already
         # exists"). --reinit must wipe local state AND re-attach the existing
-        # host instead of erroring on the duplicate (#571), upserting the
+        # host instead of erroring on the duplicate, upserting the
         # entry rather than appending a second 'hostb'.
         print("Re-attaching B with --reinit (host 'hostb' already in repo)...")
         inst_b.run_ok(
@@ -2038,7 +2038,7 @@ def test_config_side_effects(inst):
         % (new_http_port, env.get("MW_SITE_SERVER"))
     )
 
-    # CADDY_AUTO_HTTPS toggle side effect (#46): flipping the scheme
+    # CADDY_AUTO_HTTPS toggle side effect: flipping the scheme
     # should switch the active port that's reflected in wikis.yaml /
     # MW_SITE_SERVER, even though neither HTTP_PORT nor HTTPS_PORT
     # changed.
@@ -2089,10 +2089,10 @@ def test_config_side_effects(inst):
         % env.get("MW_SITE_SERVER")
     )
 
-    # CANASTA_ENABLE_VERY_SHORT_URLS side-effect validation (#50): the
+    # CANASTA_ENABLE_VERY_SHORT_URLS side-effect validation: the
     # two incompatible-feature combinations should fail-fast at
     # config-set time with descriptive errors, before the
-    # misconfiguration lands in .env. The runtime in CanastaBase #150
+    # misconfiguration lands in .env. The CanastaBase runtime
     # catches them too as a safety net, but the CLI should be the
     # friendly first line.
     print("Validating CANASTA_ENABLE_VERY_SHORT_URLS=true is accepted "
@@ -2465,7 +2465,7 @@ def test_k8s_lifecycle(inst):
         "No running pods after start: %s" % result.stdout
     )
 
-    # #51: verify that `canasta config set` on a K8s instance actually
+    # Verify that `canasta config set` on a K8s instance actually
     # propagates an env var all the way to the running pod. Prior to
     # the env ConfigMap + envFrom plumbing, this would silently no-op:
     # .env on the controller would update but the pod's getenv() would
@@ -2515,7 +2515,7 @@ def test_k8s_lifecycle(inst):
         "Expected PHP_UPLOAD_MAX_FILESIZE=77M in pod, got: %r" % result.stdout
     )
 
-    # #53: verify that config set propagates values.yaml-backed knobs
+    # Verify that config set propagates values.yaml-backed knobs
     # on K8s. Previously, setting CANASTA_ENABLE_VARNISH via config set
     # updated .env but not values.yaml, so the Helm chart and the
     # running pod never saw the change.
@@ -2525,8 +2525,7 @@ def test_k8s_lifecycle(inst):
     values_path = os.path.join(inst.instance_path(), "values.yaml")
 
     # First, hand-edit replicaCount into values.yaml to verify it
-    # survives the config set round-trip. This is the #53 acceptance
-    # criterion: unrelated hand-edits must not be clobbered.
+    # survives the config set round-trip: unrelated hand-edits must not be clobbered.
     with open(values_path) as f:
         values = _yaml.safe_load(f)
     values.setdefault("web", {})["replicaCount"] = 7
@@ -3269,7 +3268,7 @@ def test_maintenance(inst):
 
 
 def test_config_set_gitops(inst):
-    """Verify config set propagates changes to gitops vars.yaml (#205)."""
+    """Verify config set propagates changes to gitops vars.yaml."""
     if shutil.which("git-crypt") is None:
         raise SkipTest("git-crypt not installed")
 
@@ -3504,7 +3503,7 @@ def test_config_set_gitops_port(inst):
 
 
 def test_gitops_push_shared_vars(inst):
-    """Verify gitops push auto-migrates shared credential keys (#206)."""
+    """Verify gitops push auto-migrates shared credential keys."""
     if shutil.which("git-crypt") is None:
         raise SkipTest("git-crypt not installed")
 
@@ -3604,7 +3603,7 @@ def test_gitops_push_shared_vars(inst):
 
 
 def test_gitops_push_reporting(inst):
-    """Verify gitops push reports correctly (#202)."""
+    """Verify gitops push reports correctly."""
     if shutil.which("git-crypt") is None:
         raise SkipTest("git-crypt not installed")
 
@@ -3662,7 +3661,7 @@ def test_gitops_push_reporting(inst):
 
 
 def test_backup_restore_excludes_safety(inst):
-    """Verify --snapshot latest skips safety-before-restore snapshots (#147)."""
+    """Verify --snapshot latest skips safety-before-restore snapshots."""
     # Stages a fake safety snapshot with `docker run`.
     require_docker()
     print("Creating instance...")
@@ -3745,7 +3744,7 @@ def test_backup_restore_excludes_safety(inst):
 
 
 def test_gitops_status_fetch(inst):
-    """Verify gitops status detects remote commits after fetch (#152)."""
+    """Verify gitops status detects remote commits after fetch."""
     if shutil.which("git-crypt") is None:
         raise SkipTest("git-crypt not installed")
 
@@ -3818,7 +3817,7 @@ def test_gitops_status_fetch(inst):
 
 
 def test_gitops_fix_submodules_orphan(inst):
-    """Verify fix-submodules recovers orphan gitlinks (#144)."""
+    """Verify fix-submodules recovers orphan gitlinks."""
     if shutil.which("git-crypt") is None:
         raise SkipTest("git-crypt not installed")
 
@@ -3950,7 +3949,7 @@ def test_gitops_fix_submodules_no_url(inst):
     A gitlink whose clone has no origin cannot become a valid .gitmodules
     entry — there is no url to write. Committing it anyway produces a repo
     where `git submodule update` fetches nothing and the extension is gone
-    on the next clone, so recovery fails loudly instead (#1183).
+    on the next clone, so recovery fails loudly instead.
     """
     if shutil.which("git-crypt") is None:
         raise SkipTest("git-crypt not installed")
@@ -4107,7 +4106,7 @@ def test_crowdsec(inst):
 
     # Recreating the caddy container makes CrowdSec auto-create an undeletable
     # 'canasta-caddy@<ip>' child each time it reconnects from a new IP,
-    # accumulating stale 'valid' rows (issue #619). They cannot be pruned
+    # accumulating stale 'valid' rows. They cannot be pruned
     # (deleting the parent cascades and revokes the shared key), so status
     # collapses the family for display instead. Simulate two duplicates and
     # verify status shows one active bouncer plus a stale-count note rather
@@ -4132,7 +4131,7 @@ def test_crowdsec(inst):
 def _k8s_caddy_ready(inst, timeout=300):
     """Wait until the caddy pod is Running with BOTH containers ready
     (caddy + the crowdsec sidecar, i.e. 2/2). If caddy were left on the
-    stock image (#681) it would crashloop on the crowdsec Caddyfile
+    stock image it would crashloop on the crowdsec Caddyfile
     directive and never reach ready, so this doubles as that regression
     guard."""
     ns = "canasta-%s" % inst.id
@@ -4191,14 +4190,14 @@ def _wait_bouncer_active(inst, timeout=120):
 
 def test_k8s_crowdsec(inst):
     """Kubernetes: bring up CrowdSec on a live cluster and exercise the command
-    surface (#683). This is the coverage gap that let two blockers reach main —
-    #677 (unquoted preflight jsonpath broke every K8s crowdsec command) and
-    #681 (caddy stuck on the stock image -> crashloop) — because the K8s
+    surface. This is the coverage gap that let two blockers reach main —
+    an unquoted preflight jsonpath that broke every K8s crowdsec command, and
+    caddy stuck on the stock image (crashloop) — because the K8s
     integration job never *enabled* CrowdSec. Unit tests assert file content,
     not runtime; only an enable-on-a-real-cluster test catches this.
 
     CrowdSec is enabled at CREATE time (-e). That path otherwise has no CI
-    coverage (it was broken until #685/#700), and it does one fewer full-stack
+    coverage (it was once broken there), and it does one fewer full-stack
     restart than the config-set-enable path — config set enable bounces the
     whole stack twice (enable + the bouncer-key store), and on a 2-CPU CI
     runner the MediaWiki pod's healthcheck start-period makes a second full
@@ -4231,7 +4230,7 @@ def test_k8s_crowdsec(inst):
         "-e", inst.env_file,
     )
 
-    # #681: the caddy deployment must run the plugin image and the pod must
+    # The caddy deployment must run the plugin image and the pod must
     # reach 2/2 (caddy + crowdsec sidecar). Stock image -> crashloop, never 2/2.
     _k8s_caddy_ready(inst)
     image = _k8s_caddy_image(inst)
@@ -4250,7 +4249,7 @@ def test_k8s_crowdsec(inst):
         % values.get("crowdsec")
     )
 
-    # #677: every K8s crowdsec command must exec cleanly into the sidecar.
+    # Every K8s crowdsec command must exec cleanly into the sidecar.
     # run_quiet raises on a non-zero exit, so these calls ARE the assertion.
     print("Verifying the bouncer enrolled at create time...")
     out = _wait_bouncer_active(inst)
@@ -4309,7 +4308,7 @@ def test_k8s_build_from(inst):
     """`create -o kubernetes --build-from`: the custom image is built, pushed to
     the in-cluster registry, and the web pod runs it from the registry ref.
 
-    Guards the #790 fix end to end: without it the pod silently ran the stock
+    Guards this end to end: without it the pod silently ran the stock
     ghcr image (wrong image ref) or never pulled (no registry). The build is a
     single FROM-stock layer plus a marker file, so the test exercises the
     build -> push -> pull delivery path without a heavyweight image build.
@@ -5108,7 +5107,7 @@ def test_upgrade_backfills_mycnf_template(inst):
     )
 
     # The shipped my.cnf carries only [client], so give it the tuning an
-    # operator would have added (see #1455) — that is what gets templated.
+    # operator would have added — that is what gets templated.
     my_cnf = os.path.join(inst.instance_path(), "my.cnf")
     with open(my_cnf, "w") as f:
         f.write("[client]\n\n[mysqld]\ninnodb_buffer_pool_size = 8G\n"
@@ -5210,7 +5209,7 @@ def test_gitops_renders_mycnf(inst):
 
     Also pins that the render keeps my.cnf's inode: it is bind-mounted into
     the db container as a single file, and an atomic write would strand the
-    container on the old inode (see #1456 for the same bug on the Caddyfile).
+    container on the old inode (as once happened to the Caddyfile).
     """
     if shutil.which("git-crypt") is None:
         raise SkipTest("git-crypt not installed")

@@ -18,7 +18,7 @@
 # A required value that arrives present-but-blank (e.g. --repo="" from a
 # failed `$(...)` substitution) is rejected with a distinct "given but is
 # empty" message so the empty-substitution case is self-explanatory rather
-# than reading as a missing-argument fault (#669). An absent argument never
+# than reading as a missing-argument fault. An absent argument never
 # reaches Ansible, so the sentinel default tells the two cases apart.
 - name: Check required parameters
   ansible.builtin.fail:

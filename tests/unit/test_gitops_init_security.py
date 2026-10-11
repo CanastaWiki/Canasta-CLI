@@ -4,7 +4,7 @@ The K8s gitops init writes a .gitignore on the target instance dir.
 A regression where that file omits .gitops-deploy-key causes the SSH
 deploy private key (with write access to the gitops repo) to be
 committed into that same repo on the next push, exposing it to every
-reader of the repo. See issue #505.
+reader of the repo.
 
 These tests parse init_kubernetes.yml's .gitignore-writing task and
 assert both that it sources the canonical gitignore.default file and
@@ -53,7 +53,7 @@ def _find_gitignore_task():
 class TestGitopsDeployKeyNotCommitted:
     """The K8s gitops init MUST NOT drop .gitops-deploy-key from the
     deployed .gitignore. This caused the deploy private key to be
-    committed into the gitops repo (#505) — anyone with read access
+    committed into the gitops repo — anyone with read access
     to the repo could extract the key and push."""
 
     def test_canonical_gitignore_default_contains_deploy_key(self):
@@ -70,7 +70,7 @@ class TestGitopsDeployKeyNotCommitted:
     def test_k8s_init_sources_canonical_gitignore_default(self):
         """The K8s init must compose .gitignore from gitignore.default
         rather than inlining its own list — past inlines drifted and
-        dropped security-critical entries (#505)."""
+        dropped security-critical entries."""
         copy = _find_gitignore_task()
         content = copy.get("content") or ""
         # The Jinja lookup is the canonical wiring; it pulls

@@ -251,7 +251,7 @@
   ansible.builtin.set_fact:
     _backup_init_containers:
       # canasta-<id>-backup-env carries MYSQL_HOST, MYSQL_USER,
-      # MYSQL_PASSWORD per #498. Internal-db falls back to the
+      # MYSQL_PASSWORD for an external DB. Internal-db falls back to the
       # 'db' / 'root' defaults baked into the script.
       - name: dump-databases
         image: >-
@@ -382,7 +382,7 @@
           - name: dump-status
             mountPath: /dump-status
       # Captures canasta-managed Secrets so a fresh-cluster restore
-      # can bring back MYSQL_PASSWORD / MW_SECRET_KEY (#510). Same
+      # can bring back MYSQL_PASSWORD / MW_SECRET_KEY. Same
       # by-name dump strategy the scheduled CronJob uses.
       - name: dump-secrets
         image: bitnami/kubectl:latest
@@ -480,7 +480,7 @@
                   - "{{ _restic_command }}"
                 # canasta-<id>-backup-env carries RESTIC_*, AWS_*,
                 # B2_*, AZURE_*, GOOGLE_*, OS_*, ST_* — every cloud-
-                # backend credential restic might need (#497). Mirrors
+                # backend credential restic might need. Mirrors
                 # what Compose's --env-file pattern provides.
                 envFrom:
                   - secretRef:

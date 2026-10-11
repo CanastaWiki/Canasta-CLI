@@ -5,7 +5,7 @@ pod start and never receives later ConfigMap updates. Without a checksum
 annotation on the pod template, `helm upgrade` updates the ConfigMap,
 nothing rolls the pod, and the CLI reports config and containers in sync
 while the server keeps running on the old file — the Kubernetes shape of
-the same failure #1456 fixed on Compose.
+the inode-stranding failure fixed on Compose.
 """
 
 import os

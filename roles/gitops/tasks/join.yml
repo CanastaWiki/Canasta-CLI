@@ -200,7 +200,7 @@
 # content already matches HEAD. Those files are bind-mounted and can be
 # owned by the container user, so the host account running the join may
 # not be able to unlink them — aborting the whole join with an opaque
-# "non-zero return code" (#571). Materialize .gitattributes first so
+# "non-zero return code". Materialize .gitattributes first so
 # git-crypt's filters decrypt encrypted paths (hosts/**) on checkout,
 # then rewrite only the paths that actually differ, and turn a
 # permission failure into an actionable message.

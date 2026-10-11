@@ -206,7 +206,7 @@ class TestKubernetesDump:
 
 
 class TestPasswordsStayOffTheCommandLine:
-    """#1452: a templated -p<password> is visible in the host's process
+    """A templated -p<password> is visible in the host's process
     table for the life of the command, which for a restore is minutes to
     hours. no_log hides it from Ansible's output but not from ps."""
 

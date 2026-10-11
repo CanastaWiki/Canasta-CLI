@@ -1,4 +1,4 @@
-"""Guards against the HTTP-only redirect bug in #666.
+"""Guards against the HTTP-only redirect bug.
 
 `canasta create` must derive the MW_SITE_SERVER scheme from
 CADDY_AUTO_HTTPS (via the _http_only fact), not hardcode https://.
@@ -83,9 +83,9 @@ class TestSiteServerScheme:
 
 
 class TestSkipTlsScheme:
-    """Guards against #1338, the ordering variant of #666.
+    """Guards against the --skip-tls ordering variant of that bug.
 
-    #666's fix derives the scheme from _http_only, which _envfile.yml
+    The fix derives the scheme from _http_only, which _envfile.yml
     reads out of CADDY_AUTO_HTTPS. That works when the operator supplies
     CADDY_AUTO_HTTPS=off via --envfile, because the merge happens before
     the fact is set. It does NOT work for --skip-tls: _settings_files.yml
@@ -107,7 +107,7 @@ class TestSkipTlsScheme:
         )
 
     def test_http_only_is_not_forced_by_orchestrator(self):
-        """K8s must keep https://, or #1094 comes back.
+        """K8s must keep https://, or MediaWiki emits http:// links.
 
         _settings_files.yml sets CADDY_AUTO_HTTPS=off for Kubernetes too,
         but there Caddy runs http-only behind an ingress that terminates

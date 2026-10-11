@@ -1,4 +1,4 @@
-"""Regression guard for #1166: `gitops push` must translate git's raw
+"""Regression guard: `gitops push` must translate git's raw
 non-fast-forward rejection into canasta-native guidance, not leak the raw
 `hint: use 'git pull'`.
 

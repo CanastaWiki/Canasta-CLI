@@ -5,7 +5,7 @@
 # controller is the CLI container, whose filesystem is gone when the
 # command exits — so unless the path happens to fall under a bind-mounted
 # directory ($HOME, the config dir, the working dir), the file vanishes
-# and the operator is told it was exported (#1443).
+# and the operator is told it was exported.
 #
 # What is lost is the git-crypt key that unlocks hosts/<host>/vars.yaml:
 # per-host secrets, admin passwords, RESTIC_PASSWORD. The initialized

@@ -9,7 +9,7 @@
 # JSON (not the table) so we can collapse the caddy bouncer family. CrowdSec
 # auto-creates an undeletable 'canasta-caddy@<ip>' child every time the caddy
 # container reconnects from a new IP, so the raw list grows a trail of stale
-# 'valid' rows that confuse the output (issue #619).
+# 'valid' rows that confuse the output.
 - name: List registered bouncers
   ansible.builtin.command:
     cmd: "{{ _cscli_prefix }} cscli bouncers list -o json"

@@ -28,7 +28,7 @@ class TestDisplayName:
         assert wp.cmd_display_name("backup_list") == "backup list"
 
     def test_hyphenated_subcommand_preserves_hyphen(self):
-        # The bug we shipped in #303 was that 'gitops_fix_submodules'
+        # The bug we once shipped was that 'gitops_fix_submodules'
         # rendered as 'gitops fix submodules' (three words, all spaces),
         # producing a wiki page title different from what the user
         # types ('canasta gitops fix-submodules').
@@ -260,16 +260,15 @@ class TestCwdResolutionFootnote:
         assert "matching the current directory" not in page
 
     def test_version_has_footnote(self):
-        # After the version redesign (#324), 'canasta version'
-        # cwd-resolves an instance just like every other per-instance
-        # command, so the footnote is accurate for it too.
+        # 'canasta version' cwd-resolves an instance just like every
+        # other per-instance command, so the footnote is accurate for it too.
         page = self._page_for("version")
         assert "matching the current directory" in page
 
     def test_command_without_id_param_has_no_footnote(self):
         # `canasta list` has no -i at all; don't accidentally emit the
         # footnote via some bug unrelated to the -i param. (Picked
-        # over `doctor` after #461 added an -i flag there.)
+        # over `doctor`, which has an -i flag.)
         page = self._page_for("list")
         assert "matching the current directory" not in page
 
@@ -392,7 +391,7 @@ class TestSubcommandGroupPages:
     """Subcommand-group landing pages (CLI:canasta host, CLI:canasta
     gitops, CLI:canasta storage setup, ...) are auto-generated from
     SUBCOMMAND_GROUPS / NESTED_SUBCOMMAND_GROUPS so they can't drift
-    from the actual command set. Guards against regressing #396."""
+    from the actual command set."""
 
     def _pages(self):
         data = wp.load_definitions()
@@ -438,7 +437,7 @@ class TestSubcommandGroupPages:
 
     def test_group_page_uses_global_flags_section(self):
         """Group pages share the standard Global Flags table with leaf
-        pages (helper extracted in #396)."""
+        pages."""
         pages = self._pages()
         for group in ("host", "gitops", "config"):
             page = pages[wp.PAGE_PREFIX + "canasta " + group]
@@ -717,7 +716,7 @@ class _StubClient:
 class TestPruneOrphans:
     """prune_orphans must delete exactly the CLI: pages the current run
     no longer generates — and only those (the 'crowdsec enroll' orphan
-    class, #723)."""
+    class)."""
 
     def test_deletes_only_orphans(self):
         # Generated titles are lowercase 'canasta'; the wiki stores them

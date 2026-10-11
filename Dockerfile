@@ -33,7 +33,7 @@ RUN mkdir -p /usr/local/lib/docker/cli-plugins \
     && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
 # Install kubectl (latest stable). dpkg --print-architecture maps to
-# amd64 / arm64, matching the directories under dl.k8s.io. See #62.
+# amd64 / arm64, matching the directories under dl.k8s.io.
 RUN curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors --retry-connrefused \
         "https://dl.k8s.io/release/$(curl -fsSL --retry 3 --retry-all-errors --retry-connrefused https://dl.k8s.io/release/stable.txt)/bin/linux/$(dpkg --print-architecture)/kubectl" \
         -o /usr/local/bin/kubectl \

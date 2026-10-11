@@ -246,7 +246,7 @@ class TestOldWikiDirs:
 
     def test_crowdsec_dir_is_never_selected(self, probe, instance_dir):
         """Regression: config/crowdsec/ must not be treated as a wiki
-        and moved into config/settings/wikis/crowdsec/ (issue #938)."""
+        and moved into config/settings/wikis/crowdsec/."""
         self._write_wikis(instance_dir, ["main"])
         (instance_dir / "config" / "main").mkdir()
         (instance_dir / "config" / "crowdsec").mkdir()

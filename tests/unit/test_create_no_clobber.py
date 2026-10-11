@@ -1,4 +1,4 @@
-"""Static guards against the data-loss bug in #560.
+"""Static guards against a create data-loss bug.
 
 `canasta create` must (a) refuse to enter a non-empty existing target
 directory and (b) never delete a pre-existing directory from the

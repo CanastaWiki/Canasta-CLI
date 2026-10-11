@@ -1,5 +1,5 @@
-"""Structural guards for --build-arg passthrough on `canasta image push`
-(issue #1037), mirroring test_build_from_build_args.py.
+"""Structural guards for --build-arg passthrough on `canasta image push`,
+mirroring test_build_from_build_args.py.
 
 A real image build needs Docker, which unit CI can't assume, so these lock
 in the wiring instead:

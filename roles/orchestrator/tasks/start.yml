@@ -512,8 +512,7 @@
     # three downstream reads (web.replicaCount, db.enabled,
     # argocd.syncPolicy) used to call lookup('file', instance_path ~
     # '/values.yaml'), which runs on the controller — broken when
-    # controller and target are different hosts (#514). Same fix shape
-    # PR #115 used for init_kubernetes.yml and push_kubernetes.yml.
+    # controller and target are different hosts.
     - name: Read values.yaml from target
       ansible.builtin.slurp:
         src: "{{ instance_path }}/values.yaml"

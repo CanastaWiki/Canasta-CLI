@@ -5,7 +5,7 @@ files staged from the exec's stdin, so neither reaches a command line
 (host or container) or the async job file of the long exec. The
 orchestrator exec primitive only redacts the command (and the task
 banner) when exec_no_log is true, so every exec that touches a password
-must still set it. See issues #722 and #1698.
+must still set it.
 """
 
 import os
@@ -56,7 +56,7 @@ def _exec_includes(path):
 
 
 class TestInstallSecretsNotLogged:
-    """install.php handles two passwords; the exec MUST be no_log (#722)."""
+    """install.php handles two passwords; the exec MUST be no_log."""
 
     def test_install_php_exec_sets_no_log(self):
         found = False

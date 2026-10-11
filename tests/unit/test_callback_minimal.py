@@ -1,6 +1,6 @@
 """Unit tests for the canasta_minimal stdout callback plugin.
 
-Regression coverage for the callback signature warnings (issue #572):
+Regression coverage for the callback signature warnings:
 modern Ansible calls runner callback methods with a variable number of
 positional arguments depending on context. Most notably, the meta-task
 skip path calls ``v2_runner_on_skipped(host, task, utr)`` with three

@@ -5,7 +5,7 @@
 # conflict. Under --reinit it's the opposite: the host is already
 # registered and we're re-attaching it (its prior join died after the
 # push, or its local gitops state was lost), so _register_host.yml upserts
-# the existing entry instead. See #571.
+# the existing entry instead.
 #
 # Input: host_name, _join_tmpdir, _join_host_noun ('host' or
 # 'environment', as the message names it). Optional: reinit.

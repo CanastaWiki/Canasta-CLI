@@ -235,8 +235,8 @@
 # the backup containers (scheduled runs go through the same Job via the
 # host crontab). Build a single Secret
 # from .env so envFrom: secretRef gives both flows everything they
-# need — including cloud-backend creds (#497) and external-DB
-# host/user (#498) — without per-task plumbing.
+# need — including cloud-backend creds and external-DB
+# host/user — without per-task plumbing.
 #
 # Filter to backup-relevant prefixes plus the explicit MYSQL_HOST/
 # USER/PASSWORD that the dump-databases init container uses. Other

@@ -278,7 +278,7 @@
 
         # `always`, not a following task: restic failing aborts the block,
         # and a repo left root-owned after a failed run is exactly when the
-        # operator needs to inspect it. Mirrors the K8s path (#1205).
+        # operator needs to inspect it. Mirrors the K8s path.
         - name: Reclaim local-path repo ownership
           ansible.builtin.command:
             argv:

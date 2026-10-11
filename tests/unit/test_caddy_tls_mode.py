@@ -165,7 +165,7 @@ class TestCustomModeFailsClosed:
 class TestCertificateDirectoryIsSafe:
     def test_mounted_into_caddy_read_only(self):
         """Without a mount there is no path inside the container for a cert —
-        the gap this feature exists to close (#566)."""
+        the gap this feature exists to close."""
         src = _read(COMPOSE)
         assert "./config/certs:/etc/caddy/certs:ro" in src
 

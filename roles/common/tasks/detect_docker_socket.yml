@@ -1,7 +1,7 @@
 ---
 # Probe the current target for the container runtime and its socket, setting
 # `_detected_container_runtime` and `_detected_docker_host`. An empty docker
-# host means "stick with the default /var/run/docker.sock". See #479.
+# host means "stick with the default /var/run/docker.sock".
 #
 # Docker is probed first. Podman is not a supported runtime yet, so a host
 # that has one installed for unrelated reasons must not be routed onto it

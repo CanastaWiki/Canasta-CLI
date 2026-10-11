@@ -5,7 +5,7 @@
 # touches a dozen files in the instance directory; if it fails on the
 # git push, the operator was previously stuck — `init` refused with
 # "GitOps already initialized", and `join` refused for the same
-# reason. See #462.
+# reason.
 #
 # We only delete files that gitops itself creates (or, in the K8s
 # case, copies in from the chart). Files that pre-exist canasta

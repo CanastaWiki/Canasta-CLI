@@ -5,7 +5,7 @@
 # already holds this host's instance files. A blind `git checkout HEAD --
 # .` rewrites *every* tracked path, so it unlinks files even when their
 # content already matches HEAD, and fails on ones the account running the
-# join cannot unlink (#571). Rewrite only the paths that actually differ,
+# join cannot unlink. Rewrite only the paths that actually differ,
 # and turn a permission failure into an actionable message. The caller
 # materializes .gitattributes first so git-crypt filters decrypt encrypted
 # paths on checkout.

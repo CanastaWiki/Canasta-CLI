@@ -227,8 +227,8 @@ echo ""
 
 # --- Test 6: config set with restart against remote (multi-resolve_instance) ---
 # Regression coverage for the "delegate_to: localhost after switch_connection
-# leaks the SSH connection" failure mode that 0d392a6 (resolve_instance) and
-# b7d3ed2 (delete deregistration) originally fixed by replacing delegate_to
+# leaks the SSH connection" failure mode that resolve_instance and delete
+# deregistration originally fixed by replacing delegate_to
 # with a save/switch/restore-connection dance. `canasta config set` without
 # --no-restart is the simplest remote command that calls resolve_instance.yml
 # twice in one play: once at the top of set.yml, then again from the restart
@@ -264,7 +264,7 @@ fi
 echo ""
 
 # --- Test 7: Delete without -H (resolved from registry) ---
-# Also exercises the controller-deregistration path b7d3ed2 fixed.
+# Also exercises the controller-deregistration path.
 # If the registry write inside delete is routed to the remote (regression),
 # Test 8's `canasta list` will still show the instance.
 echo "Test 7: canasta delete without -H"

@@ -1,5 +1,5 @@
 """Structural guards for --build-arg passthrough on `canasta create
---build-from` (issue #905).
+--build-from`.
 
 A real image build needs Docker, which unit CI can't assume, so these lock
 in the wiring instead:
@@ -84,7 +84,7 @@ def test_build_from_guards_output_tag_collision():
     # A user --build-arg BASE_IMAGE=canasta:local collides with the fixed
     # canasta:local output tag (the overlay builds FROM its own output). The
     # task must fail fast rather than silently overwrite the base / double-layer
-    # on a repeat build (#983). Guard the collision check and its order.
+    # on a repeat build. Guard the collision check and its order.
     with open(BUILD_FROM) as f:
         tasks = yaml.safe_load(f)
     names = [t.get("name", "") for t in tasks]
