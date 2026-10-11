@@ -18,11 +18,17 @@ UPGRADE_IMAGE_TAG = os.path.join(
 )
 
 
+def _flatten(tasks):
+    for t in tasks:
+        yield t
+        yield from _flatten(t.get("block") or [])
+
+
 def _blocks():
-    """Map top-level task name -> its inner task list."""
+    """Map top-level task name -> every task nested under it, in order."""
     with open(UPGRADE_IMAGE_TAG) as fh:
         tasks = yaml.safe_load(fh)
-    return {t.get("name"): t.get("block") or [] for t in tasks}
+    return {t.get("name"): list(_flatten(t.get("block") or [])) for t in tasks}
 
 
 def _cmd(task):

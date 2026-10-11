@@ -38,11 +38,14 @@ def _compose_task():
 
 def _tag_pattern():
     """The regex the guard uses to recognise a CLI-written pin."""
-    for cond in _compose_task()["when"]:
-        m = re.search(r"match\('(.+?)'\)", str(cond))
-        if m:
-            return m.group(1).replace("\\\\", "\\")
-    raise AssertionError("no match() condition found")
+    assert any("match(_upgrade_cli_pin_pattern)" in str(c)
+               for c in _compose_task()["when"])
+    with open(TASKS) as f:
+        for task in yaml.safe_load(f):
+            facts = task.get("ansible.builtin.set_fact") or {}
+            if "_upgrade_cli_pin_pattern" in facts:
+                return facts["_upgrade_cli_pin_pattern"]
+    raise AssertionError("_upgrade_cli_pin_pattern not set")
 
 
 def _would_rewrite(value):
