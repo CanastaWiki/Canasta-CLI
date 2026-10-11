@@ -267,7 +267,12 @@ def _set_env_lines(lines, key, value):
     """Rewrite the first line defining `key` as an unquoted 'key=value',
     dropping later duplicates and appending if absent. Untouched lines are
     kept verbatim so their quoting (and any inline '#') survives. Mirrors
-    canasta_env.set_line()."""
+    canasta_env.set_line(), including its ValueError for a value containing
+    CR or LF."""
+    if "\n" in value or "\r" in value:
+        raise ValueError(
+            "The value of %s contains a line break; .env values must be "
+            "a single line." % key)
     found = False
     new_lines = []
     for line in lines:

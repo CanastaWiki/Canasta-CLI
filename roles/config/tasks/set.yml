@@ -49,6 +49,22 @@
          | map('first') | list }}
   when: _config_bad | length > 0
 
+# A line break would write extra .env lines, and the side effects (such as
+# the database password rotation) run before the write that refuses it.
+- name: Reject settings whose value has a line break
+  ansible.builtin.fail:
+    msg: >-
+      .env values must be a single line. {{ 'Arguments' if _config_multiline_at
+      | length > 1 else 'Argument' }} {{ _config_multiline_at | join(', ') }}
+      of {{ _config_settings | length }} {{ 'contain' if _config_multiline_at
+      | length > 1 else 'contains' }} a line break.
+  vars:
+    _config_multiline_at: >-
+      {{ range(1, _config_settings | length + 1)
+         | zip(_config_settings) | selectattr('1', 'search', '[\r\n]')
+         | map('first') | list }}
+  when: _config_multiline_at | length > 0
+
 - name: Require --secret with --web
   ansible.builtin.fail:
     msg: "--web only applies to secret values; pass it together with --secret."

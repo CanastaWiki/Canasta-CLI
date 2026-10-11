@@ -106,7 +106,14 @@ def set_line(lines, key, value):
     """Rewrite the first line defining `key` as an unquoted 'key=value',
     dropping later duplicates and appending if absent. Untouched lines are
     kept verbatim so their quoting (and any inline '#') survives.
+
+    Raises ValueError for a value containing CR or LF, which would write
+    lines of its own.
     """
+    if "\n" in value or "\r" in value:
+        raise ValueError(
+            "The value of %s contains a line break; .env values must be "
+            "a single line." % key)
     found = False
     new_lines = []
     for line in lines:
@@ -274,7 +281,11 @@ def run_module():
                 break
         if old_raw != value:
             changed = True
-            new_lines = set_line(lines, key, value)
+            try:
+                new_lines = set_line(lines, key, value)
+            except ValueError as e:
+                module.fail_json(msg=str(e))
+                return
             if not module.check_mode:
                 new_content = lines_to_content(new_lines)
                 with open(path, "w") as f:

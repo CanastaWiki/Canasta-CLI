@@ -135,3 +135,33 @@ def test_message_says_to_quote_the_whole_setting():
     fails, msg = _render(["MW_SITE_NAME=My", "Wiki"])
     assert fails
     assert "quoted if its value contains spaces" in msg
+
+
+MULTILINE = "Reject settings whose value has a line break"
+
+
+def _render_multiline(settings):
+    task = next(t for t in _tasks() if t.get("name") == MULTILINE)
+    variables = {"_config_settings": settings}
+    variables.update(
+        {k: trust_as_template(v) for k, v in task["vars"].items()})
+    templar = Templar(loader=DataLoader(), variables=variables)
+    fails = templar.template(trust_as_template("{{ %s }}" % task["when"]))
+    msg = templar.template(
+        trust_as_template(task["ansible.builtin.fail"]["msg"]))
+    return fails, msg
+
+
+def test_line_break_in_value_is_rejected_before_dispatch():
+    names = [t.get("name", "") for t in _tasks()]
+    assert names.index(MULTILINE) < names.index("Apply the settings")
+    fails, msg = _render_multiline(
+        ["A=1", "MYSQL_PASSWORD=x\nMW_SECRET_KEY=evil", "B=2\r"])
+    assert fails
+    assert "Arguments 2, 3 of 3 contain a line break." in msg
+    assert "evil" not in msg
+
+
+def test_single_line_values_pass_the_line_break_check():
+    fails, _ = _render_multiline(["MW_SITE_NAME=My Wiki", "A="])
+    assert not fails
