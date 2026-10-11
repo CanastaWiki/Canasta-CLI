@@ -81,7 +81,7 @@
       ansible.builtin.set_fact:
         _exec_full_cmd: >-
           kubectl exec {{ '-i ' if (exec_stdin | default('')) | length > 0 else '' }}{{ _k8s_pod_name }}
-          -n {{ _k8s_namespace }} --
+          -n {{ _k8s_namespace }} -c {{ exec_service | default('web') }} --
           {{ _exec_shell }} {{ exec_command | quote }}
         _exec_chdir: null
       no_log: "{{ exec_no_log | default(false) }}"
