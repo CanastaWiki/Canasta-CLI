@@ -44,62 +44,11 @@
       (e.g. `apt install git` on Debian/Ubuntu).
   when: _git_check.rc | default(1) != 0
 
-- name: Set git user.name on target host
-  ansible.builtin.command:
-    argv:
-      - git
-      - config
-      - --global
-      - user.name
-      - "{{ git_user_name }}"
-    expand_argument_vars: false
-  changed_when: true
-  when: git_user_name is defined and git_user_name != ''
+- name: Configure the git identity
+  ansible.builtin.include_tasks: _git_identity.yml
 
-- name: Set git user.email on target host
-  ansible.builtin.command:
-    argv:
-      - git
-      - config
-      - --global
-      - user.email
-      - "{{ git_user_email }}"
-    expand_argument_vars: false
-  changed_when: true
-  when: git_user_email is defined and git_user_email != ''
-
-- name: Check git identity is configured
-  ansible.builtin.command:
-    cmd: "git config user.name"
-  register: _git_identity
-  changed_when: false
-  ignore_errors: true
-
-- name: Fail if git identity not configured
-  ansible.builtin.fail:
-    msg: >-
-      Git user identity is not configured for this canasta gitops setup.
-      Pass --git-user-name and --git-user-email to this command.
-  when: _git_identity.rc != 0
-
-- name: Reinit — wipe partial gitops state before re-running init
-  ansible.builtin.include_tasks: _reinit_cleanup.yml
-  when: reinit | default(false) | bool
-
-- name: Check for existing .git directory
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/.git"
-  register: _gitops_existing
-
-- name: Fail if git repo already exists
-  ansible.builtin.fail:
-    msg: >-
-      GitOps already initialized ({{ instance_path }}/.git exists).
-      Use 'gitops join' to attach this host to an existing remote
-      repo, or pass --reinit to wipe the local gitops state and
-      retry (typical when a previous init died mid-run before the
-      git push succeeded).
-  when: _gitops_existing.stat.exists
+- name: Refuse to init over an existing gitops repo
+  ansible.builtin.include_tasks: _init_require_no_repo.yml
 
 # --- SSH deploy key ---
 # The deploy key is generated on the controller (where {{ key }} is a
@@ -529,45 +478,8 @@
 # so they must be tracked. A loose git checkout under them is promoted to a
 # proper submodule (pinned to its current commit) — otherwise the staging step
 # below would record it as a bare gitlink whose files never get tracked.
-- name: Find git repos in extensions
-  ansible.builtin.find:
-    paths: "{{ instance_path }}/extensions"
-    patterns: ".git"
-    file_type: directory
-    hidden: true
-    # extensions/skins repos live at <dir>/<Name>/.git — one level below the
-    # search root — so recurse must be true (depth 2 keeps it to that level and
-    # skips nested submodules' own .git). file_type: directory matches only
-    # loose clones, never a real submodule's .git gitlink file.
-    recurse: true
-    depth: 2
-  register: _ext_git_repos
-
-- name: Convert extension git repos to submodules
-  ansible.builtin.include_tasks: _convert_submodule.yml
-  loop: "{{ _ext_git_repos.files | map(attribute='path') | map('dirname') | list }}"
-  loop_control:
-    loop_var: _repo_path
-
-- name: Find git repos in skins
-  ansible.builtin.find:
-    paths: "{{ instance_path }}/skins"
-    patterns: ".git"
-    file_type: directory
-    hidden: true
-    # extensions/skins repos live at <dir>/<Name>/.git — one level below the
-    # search root — so recurse must be true (depth 2 keeps it to that level and
-    # skips nested submodules' own .git). file_type: directory matches only
-    # loose clones, never a real submodule's .git gitlink file.
-    recurse: true
-    depth: 2
-  register: _skin_git_repos
-
-- name: Convert skin git repos to submodules
-  ansible.builtin.include_tasks: _convert_submodule.yml
-  loop: "{{ _skin_git_repos.files | map(attribute='path') | map('dirname') | list }}"
-  loop_control:
-    loop_var: _repo_path
+- name: Convert extensions/skins git repos to submodules
+  ansible.builtin.include_tasks: _init_convert_submodules.yml
 
 # --- Initial commit and push ---
 - name: Stage the gitops-managed paths
@@ -575,28 +487,10 @@
   vars:
     _stage_paths: "{{ gitops_k8s_tracked_paths }}"
 
-- name: Initial commit
-  ansible.builtin.command:
-    cmd: "git -c commit.gpgsign=false commit -m 'Initial gitops configuration'"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-
-- name: Add remote
-  ansible.builtin.command:
-    cmd: "git remote add origin {{ repo }}"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-
-- name: Push to remote
-  ansible.builtin.command:
-    cmd: "git push -u origin main {{ (force | default(false) | bool) | ternary('--force', '') }}"
-    chdir: "{{ instance_path }}"
-  environment:
-    GIT_SSH_COMMAND: >-
-      ssh -i {{ ssh_key | default(_ssh_key_target_path, true) }}
-      -o StrictHostKeyChecking=accept-new
-      -o UserKnownHostsFile=~/.ssh/known_hosts
-  changed_when: true
+- name: Commit and push the initial configuration
+  ansible.builtin.include_tasks: _init_commit_push.yml
+  vars:
+    _init_git_env: "{{ gitops_k8s_git_env }}"
 
 # --- Create Argo CD repo credential Secret ---
 - name: Apply Argo CD repo credential Secret + known-hosts trust

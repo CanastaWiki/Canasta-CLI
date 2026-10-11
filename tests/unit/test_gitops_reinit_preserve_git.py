@@ -15,6 +15,8 @@ import os
 
 import yaml
 
+from _gitops_flow import flow_tasks
+
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 
@@ -55,7 +57,7 @@ class TestJoinClonesBeforeCleanup:
     """A failed clone must not have already deleted the old .git."""
 
     def _assert(self, fname):
-        tasks = _load(fname)
+        tasks = flow_tasks(fname)
         clone_idx = next(i for i, t in enumerate(tasks)
                          if "git clone" in _cmd(t))
         cleanup_idx = next(i for i, t in enumerate(tasks)
@@ -77,7 +79,7 @@ class TestJoinGuardSkippedUnderReinit:
     we now keep that .git in place until the clone succeeds."""
 
     def _guard_when(self, fname):
-        for t in _load(fname):
+        for t in flow_tasks(fname):
             fail = t.get("ansible.builtin.fail") or t.get("fail") or {}
             if "GitOps already initialized" in (fail.get("msg") or ""):
                 return _when(t)

@@ -34,36 +34,30 @@
       failed_when: false
       when: _reconcile_wikis_tmpl.stat.exists | default(false)
 
-    - name: Read this host's gitops name
-      ansible.builtin.slurp:
-        src: "{{ instance_path }}/.gitops-host"
-      register: _urw_host_raw
-
-    - name: Read this host's vars
-      ansible.builtin.slurp:
-        src: "{{ instance_path }}/hosts/{{ _urw_host_raw.content | b64decode | trim }}/vars.yaml"
-      register: _urw_vars_raw
-      failed_when: false
-      no_log: true  # vars.yaml holds this host's secrets
+    - name: Read this host's gitops name and vars
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/gitops/tasks/_read_gitops_host.yml
+      vars:
+        gitops_host_read_shared_vars: false
+        gitops_host_vars_optional: true
 
     - name: Drop the wiki's url from this host's vars
       when:
-        - _urw_vars_raw.content is defined
-        - ('wiki_url_' ~ removed_wiki_id) in (_urw_vars_raw.content | b64decode | from_yaml | default({}, true))
+        - ('wiki_url_' ~ removed_wiki_id) in _gitops_host.host_vars
       block:
         - name: Write vars.yaml without the wiki's url
           ansible.builtin.copy:
             content: >-
-              {{ (_urw_vars_raw.content | b64decode | from_yaml)
+              {{ _gitops_host.host_vars
                  | dict2items | rejectattr('key', 'equalto', 'wiki_url_' ~ removed_wiki_id)
                  | items2dict | to_nice_yaml(indent=2) }}
-            dest: "{{ instance_path }}/hosts/{{ _urw_host_raw.content | b64decode | trim }}/vars.yaml"
+            dest: "{{ instance_path }}/hosts/{{ _gitops_host.hostname }}/vars.yaml"
             mode: "0600"
           no_log: true
 
         - name: Stage vars.yaml
           ansible.builtin.command:
-            cmd: "git add -- hosts/{{ _urw_host_raw.content | b64decode | trim }}/vars.yaml"
+            cmd: "git add -- hosts/{{ _gitops_host.hostname }}/vars.yaml"
             chdir: "{{ instance_path }}"
           changed_when: true
           failed_when: false

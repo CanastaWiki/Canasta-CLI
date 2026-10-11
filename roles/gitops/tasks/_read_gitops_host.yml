@@ -1,0 +1,82 @@
+---
+# Read this host's gitops identity and vars from the working tree.
+#
+# Reads the files as they are on disk. A caller that needs the sources as
+# staged in the index reads them with git cat-file instead. A locked
+# git-crypt checkout holds the vars encrypted, so a caller that can meet
+# one detects the lock first (_detect_gitcrypt_lock.yml).
+#
+# Input: instance_path. Optional:
+#   gitops_host_require: fail, as reading a missing file does, when
+#     .gitops-host is absent (default false: report is_gitops false).
+#   gitops_host_read_host_vars: read hosts/<host>/vars.yaml (default true).
+#   gitops_host_read_shared_vars: read hosts/_shared/vars.yaml (default true).
+#   gitops_host_vars_optional: a host vars.yaml that cannot be read yields
+#     {} instead of failing (default false).
+# Output: _gitops_host, a dict of
+#   is_gitops: whether .gitops-host exists
+#   hostname: its trimmed content, '' when absent
+#   host_vars: the parsed host vars.yaml, {} when not read
+#   shared_vars: the parsed shared vars.yaml, {} when absent or not read
+# An empty vars file parses to {}.
+
+- name: Check for the gitops host identity
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _rgh_marker
+
+- name: Read the gitops host identity
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-host"
+  register: _rgh_host_raw
+  when: _rgh_marker.stat.exists or (gitops_host_require | default(false) | bool)
+
+- name: Set the gitops host name
+  ansible.builtin.set_fact:
+    _rgh_hostname: "{{ _rgh_host_raw.content | default('') | b64decode | trim }}"
+
+- name: Read this host's gitops vars
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/{{ _rgh_hostname }}/vars.yaml"
+  register: _rgh_host_vars_raw
+  failed_when: false
+  no_log: true  # vars.yaml holds this host's secrets
+  when:
+    - _rgh_marker.stat.exists
+    - gitops_host_read_host_vars | default(true) | bool
+
+- name: Fail when this host's gitops vars cannot be read
+  ansible.builtin.fail:
+    msg: "{{ _rgh_host_vars_raw.msg | default('could not read hosts/' ~ _rgh_hostname ~ '/vars.yaml') }}"
+  when:
+    - _rgh_host_vars_raw is not skipped
+    - _rgh_host_vars_raw.content is not defined
+    - not (gitops_host_vars_optional | default(false) | bool)
+
+- name: Check for shared gitops vars
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/hosts/_shared/vars.yaml"
+  register: _rgh_shared_stat
+  when:
+    - _rgh_marker.stat.exists
+    - gitops_host_read_shared_vars | default(true) | bool
+
+- name: Read shared gitops vars
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/_shared/vars.yaml"
+  register: _rgh_shared_raw
+  no_log: true  # shared vars hold credentials
+  when: _rgh_shared_stat.stat.exists | default(false)
+
+- name: Parse the gitops host identity and vars
+  ansible.builtin.set_fact:
+    _gitops_host:
+      is_gitops: "{{ _rgh_marker.stat.exists }}"
+      hostname: "{{ _rgh_hostname }}"
+      host_vars: >-
+        {{ (_rgh_host_vars_raw.content | b64decode | from_yaml | default({}, true))
+           if _rgh_host_vars_raw.content is defined else {} }}
+      shared_vars: >-
+        {{ (_rgh_shared_raw.content | b64decode | from_yaml | default({}, true))
+           if _rgh_shared_raw.content is defined else {} }}
+  no_log: true  # the vars hold secrets

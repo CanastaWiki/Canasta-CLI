@@ -34,65 +34,11 @@
     cmd: "git-crypt --version"
   changed_when: false
 
-- name: Set git user.name on target host
-  ansible.builtin.command:
-    argv:
-      - git
-      - config
-      - --global
-      - user.name
-      - "{{ git_user_name }}"
-    expand_argument_vars: false
-  changed_when: true
-  when: git_user_name is defined and git_user_name != ''
+- name: Configure the git identity
+  ansible.builtin.include_tasks: _git_identity.yml
 
-- name: Set git user.email on target host
-  ansible.builtin.command:
-    argv:
-      - git
-      - config
-      - --global
-      - user.email
-      - "{{ git_user_email }}"
-    expand_argument_vars: false
-  changed_when: true
-  when: git_user_email is defined and git_user_email != ''
-
-- name: Check git identity is configured
-  ansible.builtin.command:
-    cmd: "git config user.name"
-  register: _git_identity
-  changed_when: false
-  ignore_errors: true  # OK if not set — we'll fail below
-
-- name: Fail if git identity not configured
-  ansible.builtin.fail:
-    msg: >-
-      Git user identity is not configured for this canasta gitops setup.
-      Pass --git-user-name and --git-user-email to this command.
-  when: _git_identity.rc != 0
-
-- name: Check for existing .git directory
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/.git"
-  register: _join_existing_git
-
-# Without --reinit a pre-existing .git means the instance is already
-# connected, so we stop. Under --reinit we leave that .git in place and
-# wipe it only *after* the clone below succeeds (the cleanup step just
-# before the .git move), so a failed clone can't strand the instance
-# with no repo (#663).
-- name: Fail if git repo already exists
-  ansible.builtin.fail:
-    msg: >-
-      GitOps already initialized ({{ instance_path }}/.git exists).
-      This instance is already connected to a gitops repository.
-      Pass --reinit to wipe the local gitops state and re-clone
-      from the remote (typical when a previous init or join died
-      mid-run).
-  when: >-
-    _join_existing_git.stat.exists
-    and not (reinit | default(false) | bool)
+- name: Refuse an instance already connected to a gitops repo
+  ansible.builtin.include_tasks: _join_require_no_repo.yml
 
 # --key is a controller-local path. The ansible.builtin.copy task
 # below reads src from the controller automatically (Ansible's
@@ -100,25 +46,10 @@
 # fail with a clear error.
 
 # --- Step 2: Clone repo to temp location ---
-- name: Create temp directory for clone
-  ansible.builtin.tempfile:
-    state: directory
-    prefix: "canasta-join-"
-  register: _join_tmpdir
-
-# Pin the branch: `gitops init` mandates main (git init -b main +
-# push -u origin main), so the repo's content always lives on main. A
-# bare `git clone` instead follows the remote's default HEAD — fine on
-# GitHub/GitLab (first push sets the default), but a plain `git init`
-# remote keeps HEAD on master and the clone checks out an empty tree,
-# so the join then fails reading hosts/hosts.yaml. -b main matches the
-# K8s join and init's guarantee.
-- name: Clone gitops repository
-  ansible.builtin.command:
-    cmd: "git clone -b main {{ repo }} ."
-    chdir: "{{ _join_tmpdir.path }}"
-  environment: "{{ gitops_git_env }}"
-  changed_when: true
+- name: Clone the gitops repository to a temp directory
+  ansible.builtin.include_tasks: _join_clone_repo.yml
+  vars:
+    _join_git_env: "{{ gitops_git_env }}"
 
 # --- Step 3: Unlock git-crypt ---
 # --key (the symmetric key) unlocks any git-crypt repo, including one that
@@ -192,31 +123,10 @@
       when: _join_keyfile.path is defined
 
 # --- Step 4: Validate host name not already in config ---
-- name: Read hosts.yaml from cloned repo
-  ansible.builtin.slurp:
-    src: "{{ _join_tmpdir.path }}/hosts/hosts.yaml"
-  register: _join_hosts_raw
-
-- name: Parse hosts config
-  ansible.builtin.set_fact:
-    _join_hosts: "{{ _join_hosts_raw.content | b64decode | from_yaml }}"
-
-# A normal join onboards a new host, so a name already in the repo is a
-# conflict. Under --reinit it's the opposite: the host is already
-# registered and we're re-attaching it (its prior join died after the
-# push, or its local gitops state was lost), so the write below upserts
-# the existing entry instead. See #571.
-- name: Fail if host name already exists
-  ansible.builtin.fail:
-    msg: >-
-      Host '{{ host_name }}' already exists in the gitops repository.
-      Choose a different name, remove the existing host first, or pass
-      --reinit to re-attach this host.
-  when: >-
-    not (reinit | default(false) | bool)
-    and _join_hosts.hosts | default([])
-    | selectattr('name', 'equalto', host_name)
-    | list | length > 0
+- name: Read hosts.yaml and refuse a host name already in it
+  ansible.builtin.include_tasks: _join_read_hosts.yml
+  vars:
+    _join_host_noun: host
 
 # Each wiki's url on this host comes from this instance's wikis.yaml, so
 # every wiki in the repo's farm must already exist here. Check before the
@@ -260,18 +170,8 @@
   when: _join_missing_wikis | length > 0
 
 # --- Step 5: Move .git into instance directory ---
-# Under --reinit the instance still holds the previous attempt's gitops
-# files (.git, hosts/, templates, ...). The clone has now succeeded, so
-# wipe them and move the fresh .git into a clean tree. Deferring the
-# cleanup until here keeps the old .git intact if the clone fails (#663).
-- name: Reinit — wipe previous gitops state now that the clone succeeded
-  ansible.builtin.include_tasks: _reinit_cleanup.yml
-  when: reinit | default(false) | bool
-
-- name: Move .git from temp clone to instance
-  ansible.builtin.command:
-    cmd: "mv {{ _join_tmpdir.path }}/.git {{ instance_path }}/.git"
-  changed_when: true
+- name: Move the cloned .git into the instance
+  ansible.builtin.include_tasks: _join_move_git.yml
 
 # When joining a host that was populated by a backup/restore move, the working
 # tree carries each submodule's .git gitlink file but not the .git/modules
@@ -315,37 +215,10 @@
 - name: Install and register the git-crypt merge driver
   ansible.builtin.include_tasks: "_ensure_merge_driver.yml"
 
-- name: Find tracked files whose content differs from the repo
-  ansible.builtin.command:
-    cmd: "git diff --name-only HEAD"
-    chdir: "{{ instance_path }}"
-  register: _join_diff
-  changed_when: false
-
-- name: Check out only the differing files (decrypted via git-crypt)
-  ansible.builtin.command:
-    cmd: "git checkout HEAD -- {{ item | quote }}"
-    chdir: "{{ instance_path }}"
-  loop: "{{ _join_diff.stdout_lines }}"
-  register: _join_checkout
-  changed_when: true
-  failed_when: false
-
-- name: Fail with guidance if any file could not be replaced
+- name: Check out the files that differ from the repo
+  ansible.builtin.include_tasks: _join_checkout_differing.yml
   vars:
-    _join_blocked: >-
-      {{ _join_checkout.results | default([])
-         | selectattr('rc', 'defined') | selectattr('rc', 'ne', 0)
-         | map(attribute='item') | list }}
-  ansible.builtin.fail:
-    msg: |
-      Could not replace these tracked files while joining the gitops
-      repository (permission denied):
-
-      {% for f in _join_blocked %}
-        {{ f }}
-      {% endfor %}
-
+    _join_blocked_remedy: |-
       They are likely owned by the container user (bind-mounted files
       under config/, such as Caddyfile.global, Caddyfile.site, or
       composer.local.json), so your account cannot overwrite them. Stop
@@ -355,15 +228,6 @@
         canasta stop -i {{ id | default('<id>') }}
         sudo chown -R "$(id -un):$(id -gn)" {{ instance_path }}
         canasta gitops join ... --reinit
-  when: _join_blocked | length > 0
-
-# Match what `canasta gitops pull` does (git pull --rebase), so an operator
-# who runs raw git in the instance directory gets the same result.
-- name: Configure git pull strategy
-  ansible.builtin.command:
-    cmd: "git config pull.rebase true"
-    chdir: "{{ instance_path }}"
-  changed_when: true
 
 # --- Step 6: Extract vars from current .env ---
 # Classify via the canonical secret classifier so join and init agree — a
@@ -453,26 +317,11 @@
   no_log: true
 
 # --- Step 7: Add host to config and write vars ---
-# Upsert: drop any existing entry with this name before appending, so a
-# --reinit re-attach replaces the host in place rather than duplicating it.
-- name: Add host to hosts.yaml
-  ansible.builtin.copy:
-    content: |
-      {{ _join_hosts
-         | combine({'hosts': (_join_hosts.hosts | default([])
-                    | rejectattr('name', 'equalto', host_name) | list)
-                    + [{'name': host_name,
-                        'role': role | default('both')}]},
-                   recursive=True)
-         | to_nice_yaml(indent=2) }}
-    dest: "{{ instance_path }}/hosts/hosts.yaml"
-    mode: "0600"
-
-- name: Create host vars directory
-  ansible.builtin.file:
-    path: "{{ instance_path }}/hosts/{{ host_name }}"
-    state: directory
-    mode: "0700"
+- name: Register this host in hosts.yaml
+  ansible.builtin.include_tasks: _register_host.yml
+  vars:
+    _register_file_mode: "0600"
+    _register_dir_mode: "0700"
 
 # A host's vars.yaml may already carry keys prepared in the repository before
 # this host existed, and not every per-host var is an .env key —
@@ -596,31 +445,11 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
-# A clean --reinit re-attach can reproduce the exact tree already in the
-# repo, leaving nothing staged. Skip the commit in that case so the join
-# doesn't abort on git's "nothing to commit" exit status. (--quiet exits
-# non-zero when there *are* staged changes.)
-- name: Check for staged changes
-  ansible.builtin.command:
-    cmd: "git diff --cached --quiet"
-    chdir: "{{ instance_path }}"
-  register: _join_staged
-  changed_when: false
-  failed_when: false
-
-- name: Commit
-  ansible.builtin.command:
-    cmd: "git -c commit.gpgsign=false commit -m 'Add host {{ host_name }}'"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-  when: _join_staged.rc != 0
-
-- name: Push to remote
-  ansible.builtin.command:
-    cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }}"
-    chdir: "{{ instance_path }}"
-  environment: "{{ gitops_git_env }}"
-  changed_when: true
+- name: Commit and push the host registration
+  ansible.builtin.include_tasks: _join_commit_push.yml
+  vars:
+    _join_commit_message: "Add host {{ host_name }}"
+    _join_git_env: "{{ gitops_git_env }}"
 
 # The rendered files match HEAD; `gitops pull` diffs against this commit.
 - name: Record HEAD as the applied commit

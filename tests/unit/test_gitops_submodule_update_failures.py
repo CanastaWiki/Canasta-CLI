@@ -14,6 +14,8 @@ import yaml
 from ansible.parsing.dataloader import DataLoader
 from ansible.template import Templar, trust_as_template
 
+from _gitops_flow import flow_tasks
+
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 GITOPS_TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 HELPER = os.path.join(GITOPS_TASKS, "_update_submodules.yml")
@@ -170,7 +172,7 @@ class TestCallers:
 
     @pytest.mark.parametrize("filename", ["join.yml", "join_kubernetes.yml"])
     def test_join_updates_submodules_before_pushing(self, filename):
-        tasks = _load(os.path.join(GITOPS_TASKS, filename))
+        tasks = flow_tasks(filename)
         names = _names(tasks)
         last_update = max(
             i for i, t in enumerate(_walk(tasks)) if _includes_helper(t))

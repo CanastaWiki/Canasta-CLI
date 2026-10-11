@@ -46,182 +46,166 @@
 # Gated on the end state, not just the template: every step below is
 # idempotent, so a migration interrupted partway converges on the next
 # upgrade instead of being locked half-done by a create-only check.
-- name: Migrate my.cnf to a rendered file
+- name: Decide whether my.cnf still needs migrating
+  ansible.builtin.set_fact:
+    _bmt_pending: >-
+      {{ (_bmt_stats.results[0].stat.exists | default(false))
+         and (_bmt_stats.results[1].stat.exists | default(false))
+         and ((not (_bmt_stats.results[2].stat.exists | default(false)))
+              or (_bmt_tracked.rc | default(1)) == 0) }}
+
+# hosts/** is git-crypt encrypted, so a locked checkout cannot be read or
+# written. Warn and skip rather than fail: an upgrade should not die
+# because this one migration cannot run yet.
+- name: Check git-crypt lock state
+  ansible.builtin.shell:
+    cmd: "set -o pipefail; head -c 10 hosts/hosts.yaml 2>/dev/null | od -An -tx1 | tr -d ' \\n'"
+  args:
+    chdir: "{{ instance_path }}"
+    executable: /bin/bash
+  register: _bmt_gitcrypt_hdr
+  changed_when: false
+  failed_when: false
+  when: _bmt_pending | bool
+
+- name: Set git-crypt locked fact
+  ansible.builtin.set_fact:
+    _bmt_locked: >-
+      {{ (_bmt_gitcrypt_hdr.stdout | default('')) == '00474954435259505400' }}
+
+- name: Warn that git-crypt is locked (my.cnf migration skipped)
+  ansible.builtin.debug:
+    msg: |-
+      WARNING: git-crypt is locked, so my.cnf was not migrated to a
+      rendered file. Unlock and re-run the upgrade:
+
+        git-crypt unlock /path/to/gitops.key
+  when: _bmt_locked | bool
+
+- name: Read the live my.cnf
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/my.cnf"
+  register: _bmt_mycnf_raw
   when:
-    - _bmt_stats.results[0].stat.exists | default(false)
-    - _bmt_stats.results[1].stat.exists | default(false)
-    - (not (_bmt_stats.results[2].stat.exists | default(false)))
-      or (_bmt_tracked.rc | default(1)) == 0
-  block:
-    # hosts/** is git-crypt encrypted, so a locked checkout cannot be read
-    # or written. Warn and skip rather than fail: an upgrade should not die
-    # because this one migration cannot run yet.
-    - name: Check git-crypt lock state
-      ansible.builtin.shell:
-        cmd: "set -o pipefail; head -c 10 hosts/hosts.yaml 2>/dev/null | od -An -tx1 | tr -d ' \\n'"
-      args:
-        chdir: "{{ instance_path }}"
-        executable: /bin/bash
-      register: _bmt_gitcrypt_hdr
-      changed_when: false
-      failed_when: false
+    - _bmt_pending | bool
+    - not (_bmt_locked | bool)
 
-    - name: Set git-crypt locked fact
-      ansible.builtin.set_fact:
-        _bmt_locked: >-
-          {{ (_bmt_gitcrypt_hdr.stdout | default('')) == '00474954435259505400' }}
+# regex_search returns None when my.cnf sets no buffer pool, which is the
+# shipped default ([client] and nothing else) — so this must not assume a
+# match. Piping None straight into `first` fails the task, and with it the
+# whole upgrade.
+- name: Look for a buffer pool setting in my.cnf
+  ansible.builtin.set_fact:
+    _bmt_match: >-
+      {{ (_bmt_mycnf_raw.content | default('') | b64decode)
+         | regex_search('innodb_buffer_pool_size\s*=\s*(\S+)', '\1')
+         | default([], true) }}
 
-    - name: Warn that git-crypt is locked (my.cnf migration skipped)
-      ansible.builtin.debug:
-        msg: |-
-          WARNING: git-crypt is locked, so my.cnf was not migrated to a
-          rendered file. Unlock and re-run the upgrade:
+- name: Record the current value, or none
+  ansible.builtin.set_fact:
+    _bmt_current: "{{ (_bmt_match | list)[0] | default('') }}"
 
-            git-crypt unlock /path/to/gitops.key
-      when: _bmt_locked | bool
+# Only a file that already sets the buffer pool has a value worth
+# templating. Where it does not, MariaDB is already at its compiled
+# default, so there is nothing to preserve and nothing to migrate.
+- name: Report that my.cnf sets no buffer pool (nothing to migrate)
+  ansible.builtin.debug:
+    msg: >-
+      my.cnf sets no innodb_buffer_pool_size, so it was not migrated
+      to a rendered file. Without it, MariaDB runs with a 128 MB
+      buffer pool, which is too small for most wikis.
+  when:
+    - _bmt_mycnf_raw.content is defined
+    - _bmt_current == ''
 
-    - name: Migrate
-      when: not (_bmt_locked | bool)
-      block:
-        - name: Read the live my.cnf
-          ansible.builtin.slurp:
-            src: "{{ instance_path }}/my.cnf"
-          register: _bmt_mycnf_raw
+- name: Decide whether to migrate my.cnf to a template plus a recorded value
+  ansible.builtin.set_fact:
+    _bmt_migrate: "{{ _bmt_mycnf_raw.content is defined and _bmt_current != '' }}"
 
-        # regex_search returns None when my.cnf sets no buffer pool, which
-        # is the shipped default ([client] and nothing else) — so this must
-        # not assume a match. Piping None straight into `first` fails the
-        # task, and with it the whole upgrade.
-        - name: Look for a buffer pool setting in my.cnf
-          ansible.builtin.set_fact:
-            _bmt_match: >-
-              {{ (_bmt_mycnf_raw.content | b64decode)
-                 | regex_search('innodb_buffer_pool_size\s*=\s*(\S+)', '\1')
-                 | default([], true) }}
+- name: Write my.cnf.template
+  ansible.builtin.copy:
+    content: >-
+      {{ (_bmt_mycnf_raw.content | b64decode)
+         | regex_replace('(innodb_buffer_pool_size\s*=\s*)\S+',
+                         '\1{{innodb_buffer_pool_size}}') }}
+    dest: "{{ instance_path }}/my.cnf.template"
+    mode: "0644"
+  when:
+    - _bmt_migrate | bool
+    - not (_bmt_stats.results[2].stat.exists | default(false))
 
-        - name: Record the current value, or none
-          ansible.builtin.set_fact:
-            _bmt_current: "{{ (_bmt_match | list)[0] | default('') }}"
+- name: Read the vars this host resolves
+  ansible.builtin.include_tasks: _read_gitops_host.yml
+  vars:
+    gitops_host_require: true
+  when: _bmt_migrate | bool
 
-        # Only a file that already sets the buffer pool has a value worth
-        # templating. Where it does not, MariaDB is already at its compiled
-        # default, so there is nothing to preserve and nothing to migrate.
-        - name: Report that my.cnf sets no buffer pool (nothing to migrate)
-          ansible.builtin.debug:
-            msg: >-
-              my.cnf sets no innodb_buffer_pool_size, so it was not migrated
-              to a rendered file. Without it, MariaDB runs with a 128 MB
-              buffer pool, which is too small for most wikis.
-          when: _bmt_current == ''
+# The value goes in _shared, not this host's vars: shared vars are merged
+# with the host winning, so every host in the repo inherits a working value
+# the moment the untrack lands, and a host that needs a different one
+# overrides it in its own vars. Writing it per-host instead would leave
+# every other host with no value and, after the untrack, no my.cnf either.
+#
+# copy does not create missing parent directories, and a repo with no
+# shared vars yet has no hosts/_shared at all.
+- name: Ensure the shared vars directory exists
+  ansible.builtin.file:
+    path: "{{ instance_path }}/hosts/_shared"
+    state: directory
+    mode: "0700"
+  when: _bmt_migrate | bool
 
-        - name: Migrate my.cnf to a template plus a recorded value
-          when: _bmt_current != ''
-          block:
-            - name: Write my.cnf.template
-              when: not (_bmt_stats.results[2].stat.exists | default(false))
-              ansible.builtin.copy:
-                content: >-
-                  {{ (_bmt_mycnf_raw.content | b64decode)
-                     | regex_replace('(innodb_buffer_pool_size\s*=\s*)\S+',
-                                     '\1{{innodb_buffer_pool_size}}') }}
-                dest: "{{ instance_path }}/my.cnf.template"
-                mode: "0644"
+- name: Record the buffer pool as the shared default
+  ansible.builtin.copy:
+    content: >-
+      {{ _gitops_host.shared_vars
+         | combine({'innodb_buffer_pool_size': _bmt_current})
+         | to_nice_yaml(indent=2) }}
+    dest: "{{ instance_path }}/hosts/_shared/vars.yaml"
+    mode: "0600"
+  when:
+    - _bmt_migrate | bool
+    - "'innodb_buffer_pool_size' not in _gitops_host.shared_vars"
+    - "'innodb_buffer_pool_size' not in _gitops_host.host_vars"
+  no_log: true
 
-            - name: Read this host's name
-              ansible.builtin.slurp:
-                src: "{{ instance_path }}/.gitops-host"
-              register: _bmt_host_raw
+# --cached only: my.cnf stays on disk and is now gitignored, so this host
+# keeps serving from it until the render replaces it.
+- name: Untrack my.cnf
+  ansible.builtin.command:
+    cmd: "git rm --cached -- my.cnf"
+    chdir: "{{ instance_path }}"
+  when:
+    - _bmt_migrate | bool
+    - _bmt_tracked.rc == 0
+  changed_when: true
 
-            - name: Set host name
-              ansible.builtin.set_fact:
-                _bmt_hostname: "{{ _bmt_host_raw.content | b64decode | trim }}"
+# hosts/_shared/vars.yaml is not written when a host's vars already carry
+# the buffer pool size, and git add fails on a path that does not exist.
+- name: Stage the migration
+  ansible.builtin.shell:
+    cmd: >-
+      git add -- my.cnf.template
+      $(test -e hosts/_shared/vars.yaml && echo hosts/_shared/vars.yaml)
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when: _bmt_migrate | bool
 
-            - name: Check for shared vars
-              ansible.builtin.stat:
-                path: "{{ instance_path }}/hosts/_shared/vars.yaml"
-              register: _bmt_shared_stat
+- name: Report the my.cnf migration
+  ansible.builtin.debug:
+    msg: |-
+      my.cnf is now a rendered, per-host file.
 
-            - name: Read shared vars (if present)
-              ansible.builtin.slurp:
-                src: "{{ instance_path }}/hosts/_shared/vars.yaml"
-              register: _bmt_shared_raw
-              when: _bmt_shared_stat.stat.exists
-              no_log: true
+      Created my.cnf.template, recorded
+      innodb_buffer_pool_size: {{ _bmt_current }} as the shared
+      default, and untracked my.cnf (it is gitignored now). All
+      staged — publish with:
 
-            - name: Read this host's vars
-              ansible.builtin.slurp:
-                src: "{{ instance_path }}/hosts/{{ _bmt_hostname }}/vars.yaml"
-              register: _bmt_host_vars_raw
-              no_log: true
+        canasta gitops push
 
-            - name: Parse the vars this host resolves
-              ansible.builtin.set_fact:
-                _bmt_shared: >-
-                  {{ (_bmt_shared_stat.stat.exists
-                      | ternary(_bmt_shared_raw.content | b64decode | from_yaml, {}))
-                     | default({}, true) }}
-                _bmt_host_vars: >-
-                  {{ (_bmt_host_vars_raw.content | b64decode | from_yaml)
-                     | default({}, true) }}
-              no_log: true
+      Every host inherits {{ _bmt_current }} until it overrides
+      it. On a host with less RAM, set its own value:
 
-            # The value goes in _shared, not this host's vars: shared vars
-            # are merged with the host winning, so every host in the repo
-            # inherits a working value the moment the untrack lands, and a
-            # host that needs a different one overrides it in its own vars.
-            # Writing it per-host instead would leave every other host with
-            # no value and, after the untrack, no my.cnf either.
-            #
-            # copy does not create missing parent directories, and a repo
-            # with no shared vars yet has no hosts/_shared at all.
-            - name: Ensure the shared vars directory exists
-              ansible.builtin.file:
-                path: "{{ instance_path }}/hosts/_shared"
-                state: directory
-                mode: "0700"
-
-            - name: Record the buffer pool as the shared default
-              ansible.builtin.copy:
-                content: >-
-                  {{ _bmt_shared
-                     | combine({'innodb_buffer_pool_size': _bmt_current})
-                     | to_nice_yaml(indent=2) }}
-                dest: "{{ instance_path }}/hosts/_shared/vars.yaml"
-                mode: "0600"
-              when: >-
-                'innodb_buffer_pool_size' not in _bmt_shared
-                and 'innodb_buffer_pool_size' not in _bmt_host_vars
-              no_log: true
-
-            # --cached only: my.cnf stays on disk and is now gitignored, so
-            # this host keeps serving from it until the render replaces it.
-            - name: Untrack my.cnf
-              ansible.builtin.command:
-                cmd: "git rm --cached -- my.cnf"
-                chdir: "{{ instance_path }}"
-              when: _bmt_tracked.rc == 0
-              changed_when: true
-
-            - name: Stage the migration
-              ansible.builtin.command:
-                cmd: "git add -- my.cnf.template hosts/_shared/vars.yaml"
-                chdir: "{{ instance_path }}"
-              changed_when: true
-
-            - name: Report the my.cnf migration
-              ansible.builtin.debug:
-                msg: |-
-                  my.cnf is now a rendered, per-host file.
-
-                  Created my.cnf.template, recorded
-                  innodb_buffer_pool_size: {{ _bmt_current }} as the shared
-                  default, and untracked my.cnf (it is gitignored now). All
-                  staged — publish with:
-
-                    canasta gitops push
-
-                  Every host inherits {{ _bmt_current }} until it overrides
-                  it. On a host with less RAM, set its own value:
-
-                    canasta gitops pull
-                    # hosts/<host>/vars.yaml: innodb_buffer_pool_size: 2G
+        canasta gitops pull
+        # hosts/<host>/vars.yaml: innodb_buffer_pool_size: 2G
+  when: _bmt_migrate | bool

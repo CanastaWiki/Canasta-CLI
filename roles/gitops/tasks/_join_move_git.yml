@@ -1,0 +1,18 @@
+---
+# Move the temp clone's .git into the instance.
+#
+# Under --reinit the instance still holds the previous attempt's gitops
+# files (.git, hosts/, templates, ...). The clone has now succeeded, so
+# wipe them and move the fresh .git into a clean tree. Deferring the
+# cleanup until here keeps the old .git intact if the clone fails (#663).
+#
+# Input: instance_path, _join_tmpdir. Optional: reinit.
+
+- name: Reinit — wipe previous gitops state now that the clone succeeded
+  ansible.builtin.include_tasks: _reinit_cleanup.yml
+  when: reinit | default(false) | bool
+
+- name: Move .git from temp clone to instance
+  ansible.builtin.command:
+    cmd: "mv {{ _join_tmpdir.path }}/.git {{ instance_path }}/.git"
+  changed_when: true

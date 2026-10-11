@@ -45,7 +45,8 @@ def _load_tasks(path):
 
 
 def _cmd(task):
-    c = task.get("ansible.builtin.command") or task.get("command") or {}
+    c = (task.get("ansible.builtin.command") or task.get("command")
+         or task.get("ansible.builtin.shell") or {})
     return c.get("cmd", "") if isinstance(c, dict) else str(c)
 
 

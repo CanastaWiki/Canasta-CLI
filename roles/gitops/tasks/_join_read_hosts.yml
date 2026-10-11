@@ -1,0 +1,34 @@
+---
+# Read hosts/hosts.yaml from the temp clone and refuse a name already in it.
+#
+# A normal join onboards a new host, so a name already in the repo is a
+# conflict. Under --reinit it's the opposite: the host is already
+# registered and we're re-attaching it (its prior join died after the
+# push, or its local gitops state was lost), so _register_host.yml upserts
+# the existing entry instead. See #571.
+#
+# Input: host_name, _join_tmpdir, _join_host_noun ('host' or
+# 'environment', as the message names it). Optional: reinit.
+# Output: _join_hosts (the parsed hosts.yaml).
+
+- name: Read hosts.yaml from cloned repo
+  ansible.builtin.slurp:
+    src: "{{ _join_tmpdir.path }}/hosts/hosts.yaml"
+  register: _join_hosts_raw
+
+- name: Parse hosts config
+  ansible.builtin.set_fact:
+    _join_hosts: "{{ _join_hosts_raw.content | b64decode | from_yaml }}"
+
+- name: Fail if host name already exists
+  ansible.builtin.fail:
+    msg: >-
+      {{ _join_host_noun | capitalize }} '{{ host_name }}' already exists
+      in the gitops repository. Choose a different name, remove the
+      existing {{ _join_host_noun }} first, or pass --reinit to re-attach
+      this {{ _join_host_noun }}.
+  when: >-
+    not (reinit | default(false) | bool)
+    and _join_hosts.hosts | default([])
+    | selectattr('name', 'equalto', host_name)
+    | list | length > 0

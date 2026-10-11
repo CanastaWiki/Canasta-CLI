@@ -5,14 +5,14 @@
 #
 # Requires: instance_path, instance_id (set by dispatcher)
 
-- name: Read .gitops-host
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/.gitops-host"
-  register: _render_host_file
+- name: Read this host's gitops identity and vars
+  ansible.builtin.include_tasks: _read_gitops_host.yml
+  vars:
+    gitops_host_require: true
 
 - name: Set hostname
   ansible.builtin.set_fact:
-    _render_hostname: "{{ _render_host_file.content | b64decode | trim }}"
+    _render_hostname: "{{ _gitops_host.hostname }}"
 
 - name: Read values.template.yaml
   ansible.builtin.slurp:
@@ -23,31 +23,9 @@
   ansible.builtin.set_fact:
     _render_template: "{{ _render_template_raw.content | b64decode | from_yaml }}"
 
-- name: Read host vars
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/hosts/{{ _render_hostname }}/vars.yaml"
-  register: _render_vars_raw
-
-- name: Parse host vars
-  ansible.builtin.set_fact:
-    _render_vars: "{{ _render_vars_raw.content | b64decode | from_yaml }}"
-
-- name: Read shared vars if present
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/hosts/_shared/vars.yaml"
-  register: _render_shared_raw
-  ignore_errors: true
-
-- name: Parse shared vars
-  ansible.builtin.set_fact:
-    _render_shared: >-
-      {{ (_render_shared_raw.content | b64decode | from_yaml)
-         if _render_shared_raw is succeeded
-         else {} }}
-
 - name: Merge shared + host vars (host wins)
   ansible.builtin.set_fact:
-    _render_merged_vars: "{{ _render_shared | combine(_render_vars, recursive=True) }}"
+    _render_merged_vars: "{{ _gitops_host.shared_vars | combine(_gitops_host.host_vars, recursive=True) }}"
 
 - name: Apply per-host overrides to template
   ansible.builtin.set_fact:

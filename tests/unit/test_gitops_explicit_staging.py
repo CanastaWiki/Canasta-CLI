@@ -15,6 +15,8 @@ import subprocess
 import pytest
 import yaml
 
+from _gitops_flow import flow_tasks
+
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 TASKS_DIR = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 VARS = os.path.join(REPO_ROOT, "roles", "gitops", "vars", "main.yml")
@@ -136,7 +138,7 @@ class TestPathLists:
 class TestComposeInitGuard:
     def test_gitcrypt_check_between_staging_and_commit(self):
         names = []
-        for t in _walk(_load(os.path.join(TASKS_DIR, "init_compose.yml"))):
+        for t in _walk(flow_tasks("init_compose.yml")):
             if _include(t) in ("_stage_tracked_paths.yml",
                                "_check_gitcrypt_staged.yml"):
                 names.append(_include(t))

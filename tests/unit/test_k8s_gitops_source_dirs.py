@@ -15,6 +15,8 @@ import os
 
 import yaml
 
+from _gitops_flow import flow_tasks
+
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 INIT_K8S = os.path.join(
     REPO_ROOT, "roles", "gitops", "tasks", "init_kubernetes.yml",
@@ -69,8 +71,7 @@ class TestK8sInitConvertsSubmodules:
     def test_init_converts_extensions_and_skins(self):
         """extensions/skins loose git checkouts must be promoted to submodules
         before the initial `git add -A`, else they land as bare gitlinks."""
-        with open(INIT_K8S) as f:
-            tasks = yaml.safe_load(f)
+        tasks = flow_tasks("init_kubernetes.yml")
         includes = [
             t.get("ansible.builtin.include_tasks") or t.get("include_tasks")
             for t in _walk_tasks(tasks)

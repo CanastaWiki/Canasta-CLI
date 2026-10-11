@@ -9,37 +9,16 @@
 # Requires: instance_path. Must only be called when the instance is
 # a gitops checkout (.gitops-host exists).
 
-- name: Read .gitops-host
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/.gitops-host"
-  register: _render_host_raw
+- name: Read this host's gitops identity and vars
+  ansible.builtin.include_tasks: _read_gitops_host.yml
+  vars:
+    gitops_host_require: true
 
-- name: Set host name
+- name: Merge host vars over shared vars (host wins)
   ansible.builtin.set_fact:
-    _render_hostname: "{{ _render_host_raw.content | b64decode | trim }}"
-
-- name: Read host vars
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/hosts/{{ _render_hostname }}/vars.yaml"
-  register: _render_vars_raw
-
-- name: Check for shared vars
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/hosts/_shared/vars.yaml"
-  register: _render_shared_vars_stat
-
-- name: Read shared vars (if present)
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/hosts/_shared/vars.yaml"
-  register: _render_shared_vars_raw
-  when: _render_shared_vars_stat.stat.exists
-
-- name: Parse host vars (with shared merged in; host wins)
-  ansible.builtin.set_fact:
-    _render_vars: >-
-      {{ (_render_shared_vars_stat.stat.exists
-          | ternary(_render_shared_vars_raw.content | b64decode | from_yaml, {}))
-         | combine(_render_vars_raw.content | b64decode | from_yaml) }}
+    _render_hostname: "{{ _gitops_host.hostname }}"
+    _render_vars: "{{ _gitops_host.shared_vars | combine(_gitops_host.host_vars) }}"
+  no_log: true  # the vars hold secrets
 
 - name: Render .env from template
   ansible.builtin.include_tasks: _render_env.yml

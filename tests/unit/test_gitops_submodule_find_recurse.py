@@ -11,7 +11,8 @@ one level and to skip a nested submodule's own ``.git``). See issue #1126.
 
 import os
 
-import yaml
+
+from _gitops_flow import flow_tasks
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 INIT_COMPOSE = os.path.join(
@@ -38,9 +39,7 @@ def _walk_tasks(tasks):
 def _submodule_find_tasks(path):
     """Yield (task_name, find_args) for every find that looks for a `.git`
     directory under extensions/ or skins/."""
-    with open(path) as f:
-        tasks = yaml.safe_load(f)
-    for task in _walk_tasks(tasks):
+    for task in _walk_tasks(flow_tasks(os.path.basename(path))):
         find = task.get("ansible.builtin.find") or task.get("find")
         if not isinstance(find, dict):
             continue
@@ -86,8 +85,8 @@ class TestSubmoduleFindRecurses:
 
 
 def _tasks_by_name(path):
-    with open(path) as f:
-        return {t.get("name"): t for t in _walk_tasks(yaml.safe_load(f))}
+    return {t.get("name"): t
+            for t in _walk_tasks(flow_tasks(os.path.basename(path)))}
 
 
 class TestKubernetesInitMatchesCompose:

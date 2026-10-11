@@ -11,10 +11,11 @@ import os
 
 import yaml
 
+from _gitops_flow import flow_tasks
+
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 RECOVER = os.path.join(
     REPO_ROOT, "roles", "gitops", "tasks", "_recover_orphan_gitlinks.yml")
-INIT = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "init_compose.yml")
 
 
 def _load(path):
@@ -105,7 +106,7 @@ class TestOrphanRecoveryTask:
 
 class TestInitUsesRecovery:
     def _recovery_and_commit_indices(self):
-        tasks = list(_walk(_load(INIT)))
+        tasks = list(_walk(flow_tasks("init_compose.yml")))
         recover_i = commit_i = -1
         for i, t in enumerate(tasks):
             inc = (t.get("ansible.builtin.include_tasks")

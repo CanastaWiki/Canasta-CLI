@@ -135,7 +135,13 @@ def test_gitops_vars_are_checked_before_anything_changes():
     tasks = _load(ROTATE)
     names = [t.get("name") for t in tasks]
     check = tasks[names.index("Require a readable gitops vars.yaml")]
-    assert check["when"] == "_rdp_gitops_host.stat.exists"
+    # The reader reports a non-gitops instance rather than failing, so the
+    # block wrapping its include runs unconditionally.
+    assert "when" not in check
+    read = check["block"][0]
+    assert read["ansible.builtin.include_tasks"].endswith(
+        "/roles/gitops/tasks/_read_gitops_host.yml")
+    assert read["vars"] == {"gitops_host_read_shared_vars": False}
     assert names.index("Require a readable gitops vars.yaml") < names.index(
         "Create a temp file for the password change")
     refuse = check["rescue"][0]["ansible.builtin.fail"]["msg"]

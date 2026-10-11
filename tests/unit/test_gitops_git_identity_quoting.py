@@ -12,6 +12,8 @@ import sys
 import pytest
 import yaml
 
+from _gitops_flow import flow_tasks
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 FILES = ["init_compose.yml", "init_kubernetes.yml", "join.yml"]
@@ -20,9 +22,7 @@ EMAIL = "o'brien@example.com"
 
 
 def _identity_tasks(name):
-    with open(os.path.join(TASKS, name)) as f:
-        tasks = yaml.safe_load(f)
-    found = [t for t in tasks if t.get("name") in (
+    found = [t for t in flow_tasks(name) if t.get("name") in (
         "Set git user.name on target host", "Set git user.email on target host")]
     assert len(found) == 2, name
     return found

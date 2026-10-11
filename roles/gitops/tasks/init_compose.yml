@@ -39,63 +39,12 @@
   when: _gitcrypt_check.rc | default(1) != 0
 
 # --- Step 1b: Configure git identity if provided ---
-- name: Set git user.name on target host
-  ansible.builtin.command:
-    argv:
-      - git
-      - config
-      - --global
-      - user.name
-      - "{{ git_user_name }}"
-    expand_argument_vars: false
-  changed_when: true
-  when: git_user_name is defined and git_user_name != ''
-
-- name: Set git user.email on target host
-  ansible.builtin.command:
-    argv:
-      - git
-      - config
-      - --global
-      - user.email
-      - "{{ git_user_email }}"
-    expand_argument_vars: false
-  changed_when: true
-  when: git_user_email is defined and git_user_email != ''
-
-- name: Check git identity is configured
-  ansible.builtin.command:
-    cmd: "git config user.name"
-  register: _git_identity
-  changed_when: false
-  ignore_errors: true  # OK if not set — we'll fail below
-
-- name: Fail if git identity not configured
-  ansible.builtin.fail:
-    msg: >-
-      Git user identity is not configured for this canasta gitops setup.
-      Pass --git-user-name and --git-user-email to this command.
-  when: _git_identity.rc != 0
+- name: Configure the git identity
+  ansible.builtin.include_tasks: _git_identity.yml
 
 # --- Step 2: Check no existing repo ---
-- name: Reinit — wipe partial gitops state before re-running init
-  ansible.builtin.include_tasks: _reinit_cleanup.yml
-  when: reinit | default(false) | bool
-
-- name: Check for existing .git directory
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/.git"
-  register: _existing_git
-
-- name: Fail if git repo already exists
-  ansible.builtin.fail:
-    msg: >-
-      GitOps already initialized ({{ instance_path }}/.git exists).
-      Use 'gitops join' to attach this host to an existing remote
-      repo, or pass --reinit to wipe the local gitops state and
-      retry (typical when a previous init died mid-run before the
-      git push succeeded).
-  when: _existing_git.stat.exists
+- name: Refuse to init over an existing gitops repo
+  ansible.builtin.include_tasks: _init_require_no_repo.yml
 
 # --- Step 3: Key file overwrite check skipped ---
 # The key is fetched to the controller at --key path after export.
@@ -372,45 +321,8 @@
     mode: "0644"
 
 # --- Step 13: Convert extensions/skins git repos to submodules ---
-- name: Find git repos in extensions
-  ansible.builtin.find:
-    paths: "{{ instance_path }}/extensions"
-    patterns: ".git"
-    file_type: directory
-    hidden: true
-    # extensions/skins repos live at <dir>/<Name>/.git — one level below the
-    # search root — so recurse must be true (depth 2 keeps it to that level and
-    # skips nested submodules' own .git). file_type: directory matches only
-    # loose clones, never a real submodule's .git gitlink file.
-    recurse: true
-    depth: 2
-  register: _ext_git_repos
-
-- name: Convert extension git repos to submodules
-  ansible.builtin.include_tasks: _convert_submodule.yml
-  loop: "{{ _ext_git_repos.files | map(attribute='path') | map('dirname') | list }}"
-  loop_control:
-    loop_var: _repo_path
-
-- name: Find git repos in skins
-  ansible.builtin.find:
-    paths: "{{ instance_path }}/skins"
-    patterns: ".git"
-    file_type: directory
-    hidden: true
-    # extensions/skins repos live at <dir>/<Name>/.git — one level below the
-    # search root — so recurse must be true (depth 2 keeps it to that level and
-    # skips nested submodules' own .git). file_type: directory matches only
-    # loose clones, never a real submodule's .git gitlink file.
-    recurse: true
-    depth: 2
-  register: _skin_git_repos
-
-- name: Convert skin git repos to submodules
-  ansible.builtin.include_tasks: _convert_submodule.yml
-  loop: "{{ _skin_git_repos.files | map(attribute='path') | map('dirname') | list }}"
-  loop_control:
-    loop_var: _repo_path
+- name: Convert extensions/skins git repos to submodules
+  ansible.builtin.include_tasks: _init_convert_submodules.yml
 
 # --- Step 14: Initial commit and push ---
 - name: Stage the gitops-managed paths
@@ -430,24 +342,10 @@
 - name: Guard against committing unencrypted git-crypt files
   ansible.builtin.include_tasks: "_check_gitcrypt_staged.yml"
 
-- name: Initial commit
-  ansible.builtin.command:
-    cmd: "git -c commit.gpgsign=false commit -m 'Initial gitops configuration'"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-
-- name: Add remote
-  ansible.builtin.command:
-    cmd: "git remote add origin {{ repo }}"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-
-- name: Push to remote
-  ansible.builtin.command:
-    cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }} -u origin main"
-    chdir: "{{ instance_path }}"
-  environment: "{{ gitops_git_env }}"
-  changed_when: true
+- name: Commit and push the initial configuration
+  ansible.builtin.include_tasks: _init_commit_push.yml
+  vars:
+    _init_git_env: "{{ gitops_git_env }}"
 
 # The rendered files match HEAD; `gitops pull` diffs against this commit.
 - name: Record HEAD as the applied commit

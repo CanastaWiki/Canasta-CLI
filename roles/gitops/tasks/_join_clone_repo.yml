@@ -1,0 +1,28 @@
+---
+# Clone the gitops repo's main branch into a temp directory.
+#
+# Pin the branch: `gitops init` mandates main (git init -b main + push -u
+# origin main), so the repo's content always lives on main. A bare `git
+# clone` instead follows the remote's default HEAD — fine on GitHub/GitLab
+# (first push sets the default), but a plain `git init` remote keeps HEAD on
+# master and the clone checks out an empty tree, so the join then fails
+# reading hosts/hosts.yaml.
+#
+# The caller removes the temp directory; it holds decrypted files once
+# git-crypt is unlocked.
+#
+# Input: repo, _join_git_env (environment for the clone).
+# Output: _join_tmpdir (the temp clone).
+
+- name: Create temp directory for clone
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: "canasta-join-"
+  register: _join_tmpdir
+
+- name: Clone gitops repository
+  ansible.builtin.command:
+    cmd: "git clone -b main {{ repo }} ."
+    chdir: "{{ _join_tmpdir.path }}"
+  environment: "{{ _join_git_env }}"
+  changed_when: true

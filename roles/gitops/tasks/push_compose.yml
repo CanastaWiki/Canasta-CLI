@@ -123,28 +123,16 @@
 # the list — including environment-identifying values like
 # RESTIC_REPOSITORY and AWS_BUCKET_NAME — stay per-host so dev /
 # staging / prod can address different infrastructure.
-- name: Read host vars
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/hosts/{{ _push_hostname }}/vars.yaml"
-  register: _push_host_vars_raw
-
-- name: Check for _shared/vars.yaml
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/hosts/_shared/vars.yaml"
-  register: _push_shared_stat
-
-- name: Read existing shared vars
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/hosts/_shared/vars.yaml"
-  register: _push_shared_vars_raw
-  when: _push_shared_stat.stat.exists
+- name: Read this host's gitops vars
+  ansible.builtin.include_tasks: _read_gitops_host.yml
+  vars:
+    gitops_host_require: true
 
 - name: Migrate shared-category keys
   ansible.builtin.set_fact:
-    _push_host_vars: "{{ _push_host_vars_raw.content | b64decode | from_yaml }}"
-    _push_shared_vars: >-
-      {{ (_push_shared_stat.stat.exists
-          | ternary(_push_shared_vars_raw.content | b64decode | from_yaml, {})) }}
+    _push_host_vars: "{{ _gitops_host.host_vars }}"
+    _push_shared_vars: "{{ _gitops_host.shared_vars }}"
+  no_log: true  # the vars hold secrets
 
 # An empty value means this host has no opinion, not "erase this everywhere".
 # Migrating one would replace every other host's credential with "", which is
