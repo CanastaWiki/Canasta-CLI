@@ -84,6 +84,7 @@ class TestClearTheDefault:
         assert clear["vars"]["ansible_connection"] == "local"
 
     def test_it_reports_the_cleared_class(self):
-        report = _task(CLEAR)["block"][1]
+        report = next(t for t in _task(CLEAR)["block"]
+                      if t.get("name") == "Report default storage class cleared")
         assert "_uninstall_default_sc.value" in (
             report["ansible.builtin.debug"]["msg"])
