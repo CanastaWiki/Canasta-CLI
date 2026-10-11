@@ -1,7 +1,7 @@
 """A full k8s restore must exactly match the snapshot. Each host-source dir
 (config, extensions, skins, public_assets) is cleared before restore so a
-create-seeded file the source deleted doesn't survive, and the shared images
-PVC is cleared before restic — but ONLY on a full restore. A single-wiki
+create-seeded file the source deleted doesn't survive, and restic --delete
+prunes the shared images PVC within its include filter. A single-wiki
 restore must not clear the shared images PVC or other wikis' dirs."""
 
 import os
@@ -43,11 +43,12 @@ def test_full_user_dirs_restore_clears_first():
     assert t["loop"] == ["extensions", "skins", "public_assets"]
 
 
-def test_images_pvc_cleared_only_on_full_restore():
+def test_images_pvc_matches_snapshot_without_a_pre_wipe():
+    # restic --delete prunes the PVC; emptying it first would leave it empty
+    # if restic then failed.
     text = open(RESTORE_K8S).read()
-    # The images-PVC clear is gated on a full restore.
-    assert "{% if wiki is not defined %}" in text
-    assert "rm -rf /currentsnapshot/images/" in text
+    assert "rm -rf /currentsnapshot/images/" not in text
+    assert "--delete --target /" in text
 
 
 def test_single_wiki_still_scoped_not_pruned():

@@ -348,8 +348,9 @@ class TestListFastPath:
             lambda args: ("test", {"path": "/srv/test",
                                    "orchestrator": "compose"}))
         monkeypatch.setattr(
-            direct_commands._helpers, "_read_env_file",
-            lambda *a: {"RESTIC_REPOSITORY": "s3:s3.amazonaws.com/b"})
+            direct_commands._helpers, "_read_env_content",
+            lambda *a: "RESTIC_REPOSITORY=s3:s3.amazonaws.com/b\n"
+                       "RESTIC_PASSWORD=pw\n")
         calls = []
 
         def fake_run(argv, **kw):

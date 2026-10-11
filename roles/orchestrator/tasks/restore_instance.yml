@@ -8,8 +8,9 @@
 # The DB import replaces the tables present in the dump; tables added
 # since the snapshot (a later extension install, a MediaWiki upgrade)
 # remain. Config files are replaced outright.
-# Kubernetes: delegate to restore_k8s.yml (pod-based restore + DB and
-#   Secret handling) -> preserve DB password in the restored .env.
+# Kubernetes: optional safety backup -> delegate to restore_k8s.yml
+#   (pod-based restore + DB and Secret handling) -> preserve DB password
+#   in the restored .env.
 #
 # Input: instance_id, instance_path, instance_orchestrator,
 #        _resolved_snapshot, _restore_dbpass, snapshot, skip_safety_backup,
@@ -152,6 +153,8 @@
           ansible.builtin.include_tasks: run_backup.yml
           vars:
             backup_args:
+              - "--host"
+              - "{{ instance_id }}"
               - "--tag"
               - "{{ _safety_tag }}"
               - "backup"
@@ -161,14 +164,7 @@
       # failed safety backup must not leave them there.
       always:
         - name: Clean up safety DB dump directory
-          ansible.builtin.include_tasks:
-            file: exec.yml
-            # Apply to the included tasks — best-effort cleanup.
-            apply:
-              ignore_errors: true
-          vars:
-            exec_service: web
-            exec_command: "rm -rf /mediawiki/config/backup"
+          ansible.builtin.include_tasks: backup_cleanup_db_dumps.yml
 
     - name: Report the restore phase
       ansible.builtin.debug:
@@ -455,14 +451,7 @@
         {{ [wiki] if wiki is defined else _restore_import_wikis }}
 
     - name: Clean up backup dump directory
-      ansible.builtin.include_tasks:
-        file: exec.yml
-        # Apply to the included tasks — OK if backup dir doesn't exist.
-        apply:
-          ignore_errors: true
-      vars:
-        exec_service: web
-        exec_command: "rm -rf /mediawiki/config/backup"
+      ansible.builtin.include_tasks: backup_cleanup_db_dumps.yml
 
     # When the instance is under gitops, the snapshot just restored contains
     # the SOURCE host's rendered files (.env, wikis.yaml, Caddyfile). On this
@@ -612,6 +601,21 @@
 - name: Restore (Kubernetes)
   when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
   block:
+    # A normal backup Job: it dumps the databases and Secrets itself and
+    # tags the snapshot INCOMPLETE when a dump fails. --host groups it with
+    # the instance's other snapshots, so retention policies apply to it.
+    - name: Take safety backup before restore
+      ansible.builtin.include_tasks: run_backup.yml
+      vars:
+        backup_args:
+          - "--host"
+          - "{{ instance_id }}"
+          - "--tag"
+          - "safety-before-restore"
+          - "backup"
+          - "/currentsnapshot"
+      when: not (skip_safety_backup | default(false) | bool)
+
     # Uses include_tasks (dynamic) so kubernetes.core.k8s is only parsed
     # when actually running K8s. Compose-only controllers no longer need
     # the kubernetes.core collection installed.
