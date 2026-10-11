@@ -18,6 +18,9 @@
 #   as_list           - For positional multi. Reaches Ansible as a list, so a
 #                       value may contain spaces. Without it, the values are
 #                       joined with spaces into one string.
+#   aliases           - For type:bool. Deprecated flag spellings (e.g. ["--yes",
+#                       "-y"]) that set the same parameter but are hidden
+#                       from --help and the generated reference.
 #   validator         - Name of a regex in canasta.py:_VALIDATORS (e.g. 'hostname')
 #   path_kind         - For type:path. 'remote' = remote target dir (default with
 #                       --host is '~/canasta'; relative paths rejected with --host).
@@ -1340,22 +1343,19 @@ commands:
       upgrade never changes them; use this to adopt an improved shipped
       version, or to restore a seed file you deleted.
 
-      This command is read-only unless --yes is given. With no file
+      This command is read-only unless --apply is given. With no file
       argument it lists the seed files whose instance copy differs from
       the current template. With one or more files it shows the diff but
-      changes nothing; add --yes to overwrite, so review the diff first
+      changes nothing; add --apply to overwrite, so review the diff first
       (your local edits to that file are replaced). Rendered files (.env,
       wikis.yaml, Caddyfile) belong to 'canasta reconcile' and per-wiki
-      Settings.php is user-owned; neither is touched here.
+      Settings.php is user-owned; neither is touched here. --yes is
+      accepted as a deprecated spelling of --apply.
     examples:
       - "canasta config refresh-template"
       - "canasta config refresh-template config/default.vcl"
-      - "canasta config refresh-template config/default.vcl --yes"
+      - "canasta config refresh-template config/default.vcl --apply"
     playbook: config_refresh_template.yml
-    # Read-only by default (lists drift / previews a diff); only --yes
-    # writes. Opt out of the generic destructive-confirmation prompt so
-    # the no-arg and preview invocations don't ask before doing nothing.
-    self_confirm: true
     parameters:
       - name: id
         short: i
@@ -1368,10 +1368,10 @@ commands:
         description: >-
           Template-seeded file path(s) to refresh, relative to the
           instance root (e.g. config/default.vcl)
-      - name: "yes"
-        short: "y"
+      - name: apply
         type: bool
         default: false
+        aliases: ["--yes", "-y"]
         description: "Overwrite the instance copy (without this, only previews the diff)"
 
   - name: config_unset

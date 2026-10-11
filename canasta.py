@@ -875,6 +875,15 @@ def add_params_to_parser(parser, params):
                 help=desc,
                 dest=name,
             )
+            # Deprecated spellings keep working but stay out of --help.
+            if param.get("aliases"):
+                parser.add_argument(
+                    *param["aliases"],
+                    action="store_true",
+                    default=False,
+                    help=argparse.SUPPRESS,
+                    dest=name,
+                )
         elif ptype == "choice":
             choices = param.get("choices", [])
             parser.add_argument(
@@ -2071,13 +2080,8 @@ def should_prompt_confirmation(cmd_def, yes_passed):
     """Whether to show the generic destructive-confirmation prompt.
 
     The net fires for a command that declares a "yes" parameter and was
-    invoked without --yes. A command that is read-only unless an explicit
-    write flag is given (so prompting before it has done anything is
-    wrong) opts out with 'self_confirm: true' and does its own gating in
-    the playbook.
+    invoked without --yes.
     """
-    if cmd_def.get("self_confirm"):
-        return False
     has_yes_param = any(
         p["name"] == "yes" for p in cmd_def.get("parameters", [])
     )
@@ -2309,7 +2313,6 @@ def main():
     # Interactive confirmation for destructive commands.
     # If the command defines a "yes" parameter and the user did not pass it,
     # prompt interactively rather than making them re-run with --yes.
-    # Commands that are read-only by default opt out with 'self_confirm'.
     if should_prompt_confirmation(cmd_def, getattr(args, "yes", False)):
         description = cmd_def.get("description", command_name)
         instance_id = getattr(args, "id", None)

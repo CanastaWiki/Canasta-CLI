@@ -85,6 +85,8 @@ def flag_spec(command, definitions):
         longs.add("--" + (param.get("long") or param["name"]).replace("_", "-"))
         if param.get("short"):
             shorts.add("-" + param["short"])
+        for alias in param.get("aliases") or []:
+            (longs if alias.startswith("--") else shorts).add(alias)
     for param in definitions.get("global_flags") or []:
         longs.add("--" + param["name"].replace("_", "-"))
         if param.get("short"):

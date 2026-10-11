@@ -55,6 +55,8 @@ def flag_table(command, definitions):
         longs["--" + (param.get("long") or param["name"]).replace("_", "-")] = param
         if param.get("short"):
             shorts["-" + param["short"]] = param
+        for alias in param.get("aliases") or []:
+            (longs if alias.startswith("--") else shorts)[alias] = param
     for param in definitions.get("global_flags") or []:
         longs["--" + param["name"].replace("_", "-")] = param
         if param.get("short"):
@@ -97,6 +99,34 @@ def check_short_flag_reuse(definitions, accepted=None):
                 "give it a different short flag or none"
                 % (short, long_flag, ", ".join(longs[long_flag]),
                    ", ".join(sorted(set(longs) - {long_flag}))))
+    return errors
+
+
+ALIAS_FLAG = re.compile(r"^(--[a-z0-9][a-z0-9-]*|-[A-Za-z])$")
+
+
+def check_aliases(command, param):
+    """Errors for a parameter's `aliases:` (hidden deprecated spellings)."""
+    aliases = param.get("aliases")
+    if param.get("type") != "bool" or param.get("positional"):
+        return ["'aliases' is only supported on non-positional bool parameters"]
+    if not isinstance(aliases, list) or not aliases:
+        return ["'aliases' must be a non-empty list of flags"]
+    errors = []
+    others = set()
+    for other in command.get("parameters") or []:
+        if other is param or other.get("positional"):
+            continue
+        others.add("--" + (other.get("long") or other["name"]).replace("_", "-"))
+        if other.get("short"):
+            others.add("-" + other["short"])
+        others.update(other.get("aliases") or [])
+    own = "--" + (param.get("long") or param["name"]).replace("_", "-")
+    for alias in aliases:
+        if not isinstance(alias, str) or not ALIAS_FLAG.match(alias):
+            errors.append("alias %r is not a flag like --name or -n" % (alias,))
+        elif alias in others or alias == own or alias in ("-h", "--help"):
+            errors.append("alias %s is already a flag of this command" % alias)
     return errors
 
 
@@ -307,6 +337,9 @@ def main():
             if ptype and ptype not in VALID_TYPES:
                 errors.append("%s: invalid type '%s' (must be one of %s)" % (
                     ppfx, ptype, ", ".join(sorted(VALID_TYPES))))
+            if param.get("aliases") is not None:
+                for problem in check_aliases(cmd, param):
+                    errors.append("%s: %s" % (ppfx, problem))
             if ptype == "choice" and not param.get("choices"):
                 errors.append("%s: type 'choice' requires 'choices' list" % ppfx)
             # Needs the playbook on disk; a missing one is already an error.
