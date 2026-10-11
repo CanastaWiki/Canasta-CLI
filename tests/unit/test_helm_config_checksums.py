@@ -28,11 +28,12 @@ def _checksums():
 
 def test_the_chart_has_config_checksums():
     keys = {key for _, key, _ in _checksums()}
-    assert {"web", "env", "caddy", "varnish", "db"} <= keys
+    assert {"web", "env", "caddy", "varnish", "db", "crowdsec"} <= keys
 
 
 def test_every_config_checksum_treats_a_missing_key_as_empty():
     for name, key, pipeline in _checksums():
-        assert re.match(r"\s*default dict\s*\|\s*toJson", pipeline), (
+        assert re.match(r"\s*default (dict|\(dict [^|]*\))\s*\|\s*toJson",
+                        pipeline), (
             "%s: checksum of configData.%s must use 'default dict' before "
             "toJson" % (name, key))

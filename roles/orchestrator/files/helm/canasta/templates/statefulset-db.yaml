@@ -24,7 +24,9 @@ spec:
         # start and never picks up a later ConfigMap change. Without this
         # the config reaches the cluster and stops one layer short of the
         # server, while the CLI reports config and containers in sync.
-        checksum/db-config: {{ .Values.configData.db | default dict | toJson | sha256sum }}
+        # The fallback mirrors configmap-db.yaml, so the hash covers the
+        # chart's my.cnf whenever that is what the ConfigMap holds.
+        checksum/db-config: {{ .Values.configData.db | default (dict "my.cnf" (.Files.Get "files/my.cnf")) | toJson | sha256sum }}
     spec:
       containers:
         - name: db

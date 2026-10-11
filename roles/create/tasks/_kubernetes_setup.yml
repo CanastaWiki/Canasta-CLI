@@ -93,13 +93,17 @@
     dest: "{{ instance_path }}/values.yaml"
     mode: "0644"
 
+# The pods must get the key .env holds, which keeps one supplied with -e.
 - name: Apply K8s secrets
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: k8s_apply_secrets.yml
   vars:
     _k8s_namespace: "canasta-{{ id }}"
-    _mw_secret_key: "{{ lookup('password', '/dev/null length=64 chars=hexdigits') }}"
+    _mw_secret_key: >-
+      {{ _k8s_env_for_values.variables.MW_SECRET_KEY
+         if (_k8s_env_for_values.variables.MW_SECRET_KEY | default('') | trim | length > 0)
+         else lookup('password', '/dev/null length=64 chars=hexdigits') }}
 
 # Push to the registry's loopback hostPort on this (control-plane) node:
 # localhost is auto-insecure for docker (no daemon.json) and not exposed. The
