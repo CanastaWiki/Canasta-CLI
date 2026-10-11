@@ -261,6 +261,234 @@ def get_db_groups(wikis):
     return groups
 
 
+def _require(module, state, *names):
+    """Fail unless every named parameter is set; return True when all are."""
+    for name in names:
+        if not module.params.get(name):
+            module.fail_json(msg="%s is required for %s" % (name, state))
+            return False
+    return True
+
+
+def _read_or_fail(module, instance_path):
+    try:
+        return read_wikis(instance_path)
+    except (yaml.YAMLError, ValueError) as exc:
+        module.fail_json(msg="Failed to read %s: %s"
+                         % (wikis_yaml_path(instance_path), exc))
+
+
+def _write_if_changed(module, instance_path, wikis, changed):
+    if changed and not module.check_mode:
+        write_wikis(instance_path, wikis)
+
+
+def _state_read(module, instance_path, state):
+    result = {"changed": False}
+    wikis = _read_or_fail(module, instance_path)
+    result["wikis"] = wikis
+    result["wiki_ids"] = get_wiki_ids(wikis)
+    try:
+        result["db_groups"] = get_db_groups(wikis)
+    except ValueError as exc:
+        module.fail_json(msg=str(exc))
+        return None
+    return result
+
+
+def _state_query(module, instance_path, state):
+    if not _require(module, state, "wiki_id"):
+        return None
+    wiki_id = module.params["wiki_id"]
+    result = {"changed": False}
+    wikis = _read_or_fail(module, instance_path)
+    result["exists"] = wiki_id_exists(wikis, wiki_id)
+    for w in wikis:
+        if w.get("id") == wiki_id:
+            result["wiki"] = w
+            try:
+                result["databases"] = get_db_groups([w])[0]["databases"]
+            except ValueError as exc:
+                module.fail_json(msg=str(exc))
+                return None
+            break
+    return result
+
+
+def _new_wiki_entry(module, state):
+    """Validate the parameters of a new wiki and return its entry."""
+    if not _require(module, state, "wiki_id", "domain"):
+        return None
+    wiki_id = module.params["wiki_id"]
+    err = validate_wiki_id(wiki_id)
+    if err:
+        module.fail_json(msg=err)
+        return None
+    url = build_url(module.params["domain"], module.params.get("wiki_path"))
+    name = module.params.get("site_name") or wiki_id
+    return {"id": wiki_id, "url": url, "name": name}
+
+
+def _state_generate(module, instance_path, state):
+    entry = _new_wiki_entry(module, state)
+    if entry is None:
+        return None
+    wikis = [entry]
+    _write_if_changed(module, instance_path, wikis, True)
+    return {"changed": True, "wikis": wikis}
+
+
+def _state_add(module, instance_path, state):
+    entry = _new_wiki_entry(module, state)
+    if entry is None:
+        return None
+    wiki_id = entry["id"]
+    wikis = _read_or_fail(module, instance_path)
+    if wiki_id_exists(wikis, wiki_id):
+        module.fail_json(msg="Wiki ID '%s' already exists" % wiki_id)
+        return None
+    if wiki_url_exists(wikis, module.params["domain"],
+                       module.params.get("wiki_path")):
+        module.fail_json(msg="Wiki URL '%s' already exists" % entry["url"])
+        return None
+    wikis.append(entry)
+    _write_if_changed(module, instance_path, wikis, True)
+    return {"changed": True, "wikis": wikis}
+
+
+def _state_remove(module, instance_path, state):
+    if not _require(module, state, "wiki_id"):
+        return None
+    wiki_id = module.params["wiki_id"]
+    wikis = _read_or_fail(module, instance_path)
+    if not wiki_id_exists(wikis, wiki_id):
+        module.fail_json(msg="Wiki ID '%s' not found" % wiki_id)
+        return None
+    new_wikis = [w for w in wikis if w.get("id") != wiki_id]
+    if not new_wikis:
+        module.fail_json(msg="Cannot remove the last wiki")
+        return None
+    _write_if_changed(module, instance_path, new_wikis, True)
+    return {"changed": True, "wikis": new_wikis}
+
+
+def _state_database(module, instance_path, state):
+    """Handle add_database and remove_database."""
+    if not _require(module, state, "wiki_id", "database"):
+        return None
+    wiki_id = module.params["wiki_id"]
+    database = module.params["database"]
+    err = validate_extra_database(database)
+    if err:
+        module.fail_json(msg=err)
+        return None
+    wikis = _read_or_fail(module, instance_path)
+    if not wiki_id_exists(wikis, wiki_id):
+        module.fail_json(
+            msg="Wiki ID '%s' not found (present: %s)"
+                % (wiki_id, ", ".join(get_wiki_ids(wikis)))
+        )
+        return None
+    updated = []
+    changed = False
+    for wiki in wikis:
+        wiki = dict(wiki)
+        if wiki.get("id") == wiki_id:
+            try:
+                current = extra_databases(wiki)
+            except ValueError as exc:
+                module.fail_json(msg=str(exc))
+                return None
+            if state == "add_database":
+                if database == wiki_id:
+                    module.fail_json(
+                        msg="'%s' is the wiki's own database, which every "
+                            "backup already includes" % database
+                    )
+                    return None
+                if database not in current:
+                    wiki["extra_databases"] = current + [database]
+                    changed = True
+            elif database in current:
+                remaining = [n for n in current if n != database]
+                if remaining:
+                    wiki["extra_databases"] = remaining
+                else:
+                    wiki.pop("extra_databases", None)
+                changed = True
+        updated.append(wiki)
+    _write_if_changed(module, instance_path, updated, changed)
+    return {
+        "changed": changed,
+        "wikis": updated,
+        "databases": get_db_groups(
+            [w for w in updated if w.get("id") == wiki_id])[0]["databases"],
+    }
+
+
+def _state_update_port(module, instance_path, state):
+    if not _require(module, state, "port"):
+        return None
+    port = module.params["port"]
+    default_port = module.params.get("default_port") or "443"
+    wikis = _read_or_fail(module, instance_path)
+    updated = []
+    changed = False
+    for w in wikis:
+        w = dict(w)
+        old_url = w.get("url", "")
+        new_url = update_url_port(old_url, port, default_port)
+        if new_url != old_url:
+            w["url"] = new_url
+            changed = True
+        updated.append(w)
+    _write_if_changed(module, instance_path, updated, changed)
+    return {"changed": changed, "wikis": updated}
+
+
+def _state_update_domain(module, instance_path, state):
+    if not _require(module, state, "domain"):
+        return None
+    domain = module.params["domain"]
+    old_domain = module.params.get("old_domain")
+    if not old_domain:
+        module.fail_json(
+            msg="old_domain is required for update_domain "
+                "(filter prevents clobbering wikis on other domains)"
+        )
+        return None
+    # Strip port from old_domain for host-only comparison.
+    old_colon = old_domain.rfind(":")
+    old_host = old_domain[:old_colon] if old_colon != -1 else old_domain
+    wikis = _read_or_fail(module, instance_path)
+    updated = []
+    changed = False
+    for w in wikis:
+        w = dict(w)
+        url = w.get("url", "")
+        if url_host(url) == old_host:
+            new_url = update_url_domain(url, domain)
+            if new_url != url:
+                w["url"] = new_url
+                changed = True
+        updated.append(w)
+    _write_if_changed(module, instance_path, updated, changed)
+    return {"changed": changed, "wikis": updated}
+
+
+STATE_HANDLERS = {
+    "read": _state_read,
+    "query": _state_query,
+    "generate": _state_generate,
+    "add": _state_add,
+    "remove": _state_remove,
+    "add_database": _state_database,
+    "remove_database": _state_database,
+    "update_port": _state_update_port,
+    "update_domain": _state_update_domain,
+}
+
+
 def run_module():
     module_args = dict(
         instance_path=dict(type="str", required=True),
@@ -283,217 +511,11 @@ def run_module():
         supports_check_mode=True,
     )
 
-    instance_path = module.params["instance_path"]
     state = module.params["state"]
-    wiki_id = module.params.get("wiki_id")
-    domain = module.params.get("domain")
-    wiki_path = module.params.get("wiki_path")
-    site_name = module.params.get("site_name")
-    port = module.params.get("port")
-    default_port = module.params.get("default_port") or "443"
-    database = module.params.get("database")
-
-    result = {"changed": False}
-
-    def _read_wikis():
-        try:
-            return read_wikis(instance_path)
-        except (yaml.YAMLError, ValueError) as exc:
-            module.fail_json(msg="Failed to read %s: %s"
-                             % (wikis_yaml_path(instance_path), exc))
-
-    if state == "read":
-        wikis = _read_wikis()
-        result["wikis"] = wikis
-        result["wiki_ids"] = get_wiki_ids(wikis)
-        try:
-            result["db_groups"] = get_db_groups(wikis)
-        except ValueError as exc:
-            module.fail_json(msg=str(exc))
-            return
-
-    elif state == "query":
-        if not wiki_id:
-            module.fail_json(msg="wiki_id is required for query")
-            return
-        wikis = _read_wikis()
-        result["exists"] = wiki_id_exists(wikis, wiki_id)
-        for w in wikis:
-            if w.get("id") == wiki_id:
-                result["wiki"] = w
-                try:
-                    result["databases"] = get_db_groups([w])[0]["databases"]
-                except ValueError as exc:
-                    module.fail_json(msg=str(exc))
-                    return
-                break
-
-    elif state == "generate":
-        if not wiki_id:
-            module.fail_json(msg="wiki_id is required for generate")
-            return
-        if not domain:
-            module.fail_json(msg="domain is required for generate")
-            return
-        err = validate_wiki_id(wiki_id)
-        if err:
-            module.fail_json(msg=err)
-            return
-        url = build_url(domain, wiki_path)
-        name = site_name or wiki_id
-        wikis = [{"id": wiki_id, "url": url, "name": name}]
-        if not module.check_mode:
-            write_wikis(instance_path, wikis)
-        result["changed"] = True
-        result["wikis"] = wikis
-
-    elif state == "add":
-        if not wiki_id:
-            module.fail_json(msg="wiki_id is required for add")
-            return
-        if not domain:
-            module.fail_json(msg="domain is required for add")
-            return
-        err = validate_wiki_id(wiki_id)
-        if err:
-            module.fail_json(msg=err)
-            return
-        wikis = _read_wikis()
-        if wiki_id_exists(wikis, wiki_id):
-            module.fail_json(msg="Wiki ID '%s' already exists" % wiki_id)
-            return
-        url = build_url(domain, wiki_path)
-        if wiki_url_exists(wikis, domain, wiki_path):
-            module.fail_json(msg="Wiki URL '%s' already exists" % url)
-            return
-        name = site_name or wiki_id
-        wikis.append({"id": wiki_id, "url": url, "name": name})
-        if not module.check_mode:
-            write_wikis(instance_path, wikis)
-        result["changed"] = True
-        result["wikis"] = wikis
-
-    elif state == "remove":
-        if not wiki_id:
-            module.fail_json(msg="wiki_id is required for remove")
-            return
-        wikis = _read_wikis()
-        if not wiki_id_exists(wikis, wiki_id):
-            module.fail_json(msg="Wiki ID '%s' not found" % wiki_id)
-            return
-        new_wikis = [w for w in wikis if w.get("id") != wiki_id]
-        if not new_wikis:
-            module.fail_json(msg="Cannot remove the last wiki")
-            return
-        if not module.check_mode:
-            write_wikis(instance_path, new_wikis)
-        result["changed"] = True
-        result["wikis"] = new_wikis
-
-    elif state in ("add_database", "remove_database"):
-        if not wiki_id:
-            module.fail_json(msg="wiki_id is required for %s" % state)
-            return
-        if not database:
-            module.fail_json(msg="database is required for %s" % state)
-            return
-        err = validate_extra_database(database)
-        if err:
-            module.fail_json(msg=err)
-            return
-        wikis = _read_wikis()
-        if not wiki_id_exists(wikis, wiki_id):
-            module.fail_json(
-                msg="Wiki ID '%s' not found (present: %s)"
-                    % (wiki_id, ", ".join(get_wiki_ids(wikis)))
-            )
-            return
-        updated = []
-        changed = False
-        for wiki in wikis:
-            wiki = dict(wiki)
-            if wiki.get("id") == wiki_id:
-                try:
-                    current = extra_databases(wiki)
-                except ValueError as exc:
-                    module.fail_json(msg=str(exc))
-                    return
-                if state == "add_database":
-                    if database == wiki_id:
-                        module.fail_json(
-                            msg="'%s' is the wiki's own database, which every "
-                                "backup already includes" % database
-                        )
-                        return
-                    if database not in current:
-                        wiki["extra_databases"] = current + [database]
-                        changed = True
-                elif database in current:
-                    remaining = [n for n in current if n != database]
-                    if remaining:
-                        wiki["extra_databases"] = remaining
-                    else:
-                        wiki.pop("extra_databases", None)
-                    changed = True
-            updated.append(wiki)
-        if changed and not module.check_mode:
-            write_wikis(instance_path, updated)
-        result["changed"] = changed
-        result["wikis"] = updated
-        result["databases"] = get_db_groups(
-            [w for w in updated if w.get("id") == wiki_id])[0]["databases"]
-
-    elif state == "update_port":
-        if not port:
-            module.fail_json(msg="port is required for update_port")
-            return
-        wikis = _read_wikis()
-        updated = []
-        changed = False
-        for w in wikis:
-            w = dict(w)
-            old_url = w.get("url", "")
-            new_url = update_url_port(old_url, port, default_port)
-            if new_url != old_url:
-                w["url"] = new_url
-                changed = True
-            updated.append(w)
-        if changed and not module.check_mode:
-            write_wikis(instance_path, updated)
-        result["changed"] = changed
-        result["wikis"] = updated
-
-    elif state == "update_domain":
-        if not domain:
-            module.fail_json(msg="domain is required for update_domain")
-            return
-        old_domain = module.params.get("old_domain")
-        if not old_domain:
-            module.fail_json(
-                msg="old_domain is required for update_domain "
-                    "(filter prevents clobbering wikis on other domains)"
-            )
-            return
-        # Strip port from old_domain for host-only comparison.
-        old_colon = old_domain.rfind(":")
-        old_host = old_domain[:old_colon] if old_colon != -1 else old_domain
-        wikis = _read_wikis()
-        updated = []
-        changed = False
-        for w in wikis:
-            w = dict(w)
-            url = w.get("url", "")
-            if url_host(url) == old_host:
-                new_url = update_url_domain(url, domain)
-                if new_url != url:
-                    w["url"] = new_url
-                    changed = True
-            updated.append(w)
-        if changed and not module.check_mode:
-            write_wikis(instance_path, updated)
-        result["changed"] = changed
-        result["wikis"] = updated
-
+    result = STATE_HANDLERS[state](
+        module, module.params["instance_path"], state)
+    if result is None:
+        return
     module.exit_json(**result)
 
 
