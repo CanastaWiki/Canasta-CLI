@@ -42,6 +42,29 @@
     msg: "k3s is not installed."
   when: not _k3s_uninstall_script
 
+# A run interrupted after the k3s uninstall script but before its own
+# cleanup leaves the kubeconfig behind. With k3s gone, one that points at
+# the local API server is stale, and the NFS export withdrawal below would
+# take it for a live cluster. Remove it, as the interrupted run would have;
+# a kubeconfig for any other cluster is left alone.
+- name: Read a kubeconfig left behind by a removed k3s
+  ansible.builtin.slurp:
+    src: "~/.kube/config"
+  register: _k3s_leftover_kubeconfig
+  failed_when: false
+  when: not _k3s_uninstall_script
+
+- name: Remove the kubeconfig of the removed local k3s
+  ansible.builtin.file:
+    path: "~/.kube/config"
+    state: absent
+  when:
+    - not _k3s_uninstall_script
+    - _k3s_leftover_kubeconfig.content is defined
+    - >-
+      'server: https://127.0.0.1:6443' in (_k3s_leftover_kubeconfig.content | b64decode)
+      or 'server: https://localhost:6443' in (_k3s_leftover_kubeconfig.content | b64decode)
+
 # Worker uninstalls leave a Node entry on the control plane unless we
 # delete it. To keep cluster state coherent, require --cp-host so we
 # know where to send the delete. Control-plane uninstalls don't need

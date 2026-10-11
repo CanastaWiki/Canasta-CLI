@@ -144,6 +144,37 @@ class TestUninstall:
         # must still withdraw the exports.
         assert "when" not in task
 
+    def test_rerun_removes_only_a_kubeconfig_for_the_removed_local_k3s(self):
+        # Interrupted after the k3s script but before its own cleanup, the
+        # run leaves the kubeconfig, which the withdrawal reads as a live
+        # cluster. A re-run removes it when it points at the local k3s.
+        import base64
+        from ansible.parsing.dataloader import DataLoader
+        from ansible.template import Templar, trust_as_template
+        task = _named(UNINSTALL_K3S, "Remove the kubeconfig of the removed local k3s")
+        assert task["ansible.builtin.file"]["state"] == "absent"
+
+        def removes(server, script=""):
+            cfg = "clusters:\n- cluster:\n    server: %s\n" % server
+            templar = Templar(loader=DataLoader(), variables={
+                "_k3s_uninstall_script": script,
+                "_k3s_leftover_kubeconfig": {
+                    "content": base64.b64encode(cfg.encode()).decode()}})
+            return all(templar.template(trust_as_template("{{ %s }}" % c))
+                       is True for c in task["when"])
+
+        assert removes("https://127.0.0.1:6443")
+        assert removes("https://localhost:6443")
+        assert not removes("https://k8s.example.com:6443")
+        assert not removes("https://10.0.0.5:6443")
+        assert not removes("https://127.0.0.1:6443",
+                           script="/usr/local/bin/k3s-uninstall.sh")
+
+    def test_the_stale_kubeconfig_goes_before_the_withdrawal(self):
+        names = [t.get("name") for t in _load(UNINSTALL_K3S)]
+        assert names.index("Remove the kubeconfig of the removed local k3s") < (
+            names.index("Withdraw NFS exports that followed this cluster"))
+
     def test_withdrawal_waits_for_the_cluster_to_be_gone(self):
         # Ungated in the uninstall, so the removal itself must leave the
         # exports alone while the cluster's kubeconfig still exists.
