@@ -35,6 +35,8 @@ def _instance(tmp_path, repository, tag, gitops=False):
               "image": {"repository": repository, "tag": tag,
                         "pullPolicy": "IfNotPresent"}}
     (inst / "values.yaml").write_text(yaml.safe_dump(values))
+    (inst / ".env").write_text(
+        f"MW_SITE_FQDN=example.com\nCANASTA_IMAGE={repository}:{tag}\n")
     if gitops:
         (inst / "hosts" / HOST).mkdir(parents=True)
         (inst / "hosts" / HOST / "vars.yaml").write_text(
@@ -90,6 +92,13 @@ def test_an_older_cli_pin_is_bumped(tmp_path):
     assert changed is True
 
 
+def test_a_bumped_pin_updates_canasta_image_in_env(tmp_path):
+    inst = _instance(tmp_path, "ghcr.io/canastawiki/canasta", "3.5.23")
+    _run(tmp_path, inst)
+    assert (inst / ".env").read_text() == (
+        f"MW_SITE_FQDN=example.com\nCANASTA_IMAGE={DEFAULT}\n")
+
+
 @pytest.mark.parametrize("repository, tag", [
     ("myregistry.example.com/custom", "1.0.0"),
     ("ghcr.io/example/canasta", "3.5.23"),
@@ -101,8 +110,10 @@ def test_an_older_cli_pin_is_bumped(tmp_path):
 def test_an_image_the_cli_did_not_pin_is_left_alone(tmp_path, repository, tag):
     inst = _instance(tmp_path, repository, tag)
     before = (inst / "values.yaml").read_text()
+    env_before = (inst / ".env").read_text()
     image, changed = _run(tmp_path, inst)
     assert (inst / "values.yaml").read_text() == before
+    assert (inst / ".env").read_text() == env_before
     assert image == {"repository": repository, "tag": tag,
                      "pullPolicy": "IfNotPresent"}
     assert changed is False

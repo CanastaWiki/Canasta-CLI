@@ -1,6 +1,7 @@
 ---
 # Bump the instance's configured image to the new default for the
-# orchestrator. Kubernetes: update values.yaml image.tag. Compose:
+# orchestrator. Kubernetes: update values.yaml image.tag and
+# CANASTA_IMAGE in .env. Compose:
 # update CANASTA_IMAGE in .env (only when it's the default ghcr.io
 # image and not a custom/local build).
 # Input: instance_path, instance_orchestrator, canasta_default_image,
@@ -62,6 +63,17 @@
             dest: "{{ instance_path }}/values.yaml"
             mode: "0644"
           when: _upgrade_new_values != _upgrade_values
+
+        # .env's CANASTA_IMAGE is the operator-facing setting values.yaml's
+        # image is derived from (create, config set), and what `canasta
+        # version` reports. K8s gitops does not track .env, so there is no
+        # env.template to keep in step; image_tag below is the durable copy.
+        - name: Keep CANASTA_IMAGE in .env in step with values.yaml
+          canasta_env:
+            path: "{{ instance_path }}/.env"
+            state: set
+            key: CANASTA_IMAGE
+            value: "{{ canasta_default_image }}"
 
         # Nothing pulls images on Kubernetes, so the upgrade's restart decision
         # needs to know the tag moved in order to roll the pods onto it.

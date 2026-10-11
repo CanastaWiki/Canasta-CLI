@@ -212,7 +212,8 @@
     _k8s_image_tag_changed: false
 
 # --- Bump configured image tag (orchestrator-specific) ---
-# K8s updates values.yaml image.tag; Compose updates CANASTA_IMAGE in .env.
+# K8s updates values.yaml image.tag and CANASTA_IMAGE in .env; Compose
+# updates CANASTA_IMAGE in .env.
 - name: Update configured image tag
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/upgrade_image_tag.yml
