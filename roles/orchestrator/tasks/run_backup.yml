@@ -223,7 +223,7 @@
               {% endif %}
                 docker.io/restic/restic \
                 --cache-dir /tmp/restic-cache \
-                {{ backup_args | join(' ') }} {{ _backup_tee }}
+                {{ backup_args | map('quote') | join(' ') }} {{ _backup_tee }}
             chdir: "{{ instance_path }}"
           args:
             executable: /bin/bash

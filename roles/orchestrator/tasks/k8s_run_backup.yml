@@ -379,7 +379,7 @@
 
 - name: Build the restic container command
   ansible.builtin.set_fact:
-    _restic_command: "restic --cache-dir /tmp/restic-cache {{ backup_args | join(' ') }}"
+    _restic_command: "restic --cache-dir /tmp/restic-cache {{ backup_args | map('quote') | join(' ') }}"
 
 # Same tags as the Compose path: INCOMPLETE plus missing-db:<name> per
 # database the init container could not dump. The failures are echoed so

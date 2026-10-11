@@ -193,6 +193,12 @@ _VALIDATORS = {
         "with an optional :tag (e.g. 'myapp-elasticsearch' or "
         "'custom-web:v2'), without a registry host.",
     ),
+    # restic reads a comma as a separator between tags.
+    "backup_tag": (
+        re.compile(r"^[A-Za-z0-9_.:-]+$"),
+        "is not a valid backup tag. Expected letters, digits, '_', '.', "
+        "':' and '-' only (e.g. 'before-upgrade').",
+    ),
 }
 
 

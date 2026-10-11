@@ -2368,6 +2368,7 @@ commands:
         short: t
         type: string
         required: true
+        validator: backup_tag
         description: "Backup tag"
 
   - name: backup_restore
@@ -3456,10 +3457,6 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
-      - name: path
-        short: p
-        type: string
-        description: "Path to the Canasta instance directory"
       - name: file
         short: f
         type: path
@@ -3482,10 +3479,6 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
-      - name: path
-        short: p
-        type: string
-        description: "Path to the Canasta instance directory"
 
   - name: sidecar_remove
     description: "Remove an app sidecar from config/sidecars.yaml"
@@ -3500,10 +3493,6 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
-      - name: path
-        short: p
-        type: string
-        description: "Path to the Canasta instance directory"
       - name: sidecar_name
         long: name
         short: n
@@ -3529,10 +3518,6 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
-      - name: path
-        short: p
-        type: string
-        description: "Path to the Canasta instance directory"
       - name: dry_run
         long: dry-run
         type: bool
