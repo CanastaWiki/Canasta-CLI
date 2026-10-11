@@ -3,10 +3,15 @@
 # Input: instance_path, instance_orchestrator, instance_id,
 #        import_wiki_id, import_database_path
 #
-# The mariadb client reads the root password from the db container's own
-# MYSQL_PWD/$MYSQL_ROOT_PASSWORD env, so the secret never enters the command
-# line. That keeps these execs off no_log, so a load failure surfaces the
-# actual mariadb stderr (the SQL error) instead of a redacted message.
+# The load runs where db_admin.yml says database administration runs (the
+# db service, or web for an external database), and the mariadb client
+# reads its password from that container's own environment, so the secret
+# never enters the command line. That keeps these execs off no_log, so a
+# load failure surfaces the actual mariadb stderr (the SQL error) instead
+# of a redacted message.
+
+- name: Find where database administration runs
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/db_admin.yml"
 
 - name: Check if database file is gzipped
   ansible.builtin.set_fact:
@@ -16,8 +21,8 @@
 - name: Create database if it does not exist
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
-    exec_service: db
-    exec_command: "MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mariadb -u root -e 'CREATE DATABASE IF NOT EXISTS `{{ import_wiki_id }}`'"
+    exec_service: "{{ _db_admin_service }}"
+    exec_command: "{{ _db_admin_pwd }} mariadb {{ _db_admin_args }} -e 'CREATE DATABASE IF NOT EXISTS `{{ import_wiki_id }}`'"
 
 - name: Create a private temp file on the target host for the dump
   ansible.builtin.tempfile:
@@ -35,29 +40,29 @@
         dest: "{{ _import_host_tmp.path }}"
         mode: "0600"
 
-    # The orchestrator owns how a file lands in the db container (docker
+    # The orchestrator owns how a file lands in a container (docker
     # compose cp vs kubectl cp); dispatch.
-    - name: Copy database dump into the db container
+    - name: Copy database dump into the database administration container
       ansible.builtin.include_tasks: >-
         {{ canasta_root }}/roles/orchestrator/tasks/copy_into_container.yml
       vars:
-        copy_service: db
+        copy_service: "{{ _db_admin_service }}"
         copy_src: "{{ _import_host_tmp.path }}"
         copy_dest: "{{ _import_container_file }}"
 
     - name: Import gzipped database
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
       vars:
-        exec_service: db
-        exec_command: "gunzip -c /tmp/import.sql.gz | MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mariadb -u root '{{ import_wiki_id }}'"
+        exec_service: "{{ _db_admin_service }}"
+        exec_command: "gunzip -c /tmp/import.sql.gz | {{ _db_admin_pwd }} mariadb {{ _db_admin_args }} '{{ import_wiki_id }}'"
         exec_long: true
       when: _is_gzipped | bool
 
     - name: Import plain SQL database
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
       vars:
-        exec_service: db
-        exec_command: "MYSQL_PWD=\"$MYSQL_ROOT_PASSWORD\" mariadb -u root '{{ import_wiki_id }}' < /tmp/import.sql"
+        exec_service: "{{ _db_admin_service }}"
+        exec_command: "{{ _db_admin_pwd }} mariadb {{ _db_admin_args }} '{{ import_wiki_id }}' < /tmp/import.sql"
         exec_long: true
       when: not (_is_gzipped | bool)
   always:
@@ -69,5 +74,5 @@
     - name: Clean up temp dump file
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
       vars:
-        exec_service: db
+        exec_service: "{{ _db_admin_service }}"
         exec_command: "rm -f /tmp/import.sql /tmp/import.sql.gz"
