@@ -45,3 +45,14 @@ def test_fix_submodules_passes_the_git_env():
     assert updates
     for t in updates:
         assert t.get("environment") == "{{ gitops_git_env }}", t.get("name")
+
+
+def test_kubernetes_join_passes_the_clone_ssh_command_to_submodule_updates():
+    includes = [t for t in _tasks("join_kubernetes.yml")
+                if "_update_submodules.yml"
+                in str(t.get("ansible.builtin.include_tasks", ""))]
+    assert includes
+    for t in includes:
+        env = (t.get("vars") or {}).get("submodule_git_env") or {}
+        assert "default(_ssh_key_target_path, true)" in env.get(
+            "GIT_SSH_COMMAND", ""), t.get("name")
