@@ -14,6 +14,8 @@ import sys
 
 import yaml
 
+from _gitops_flow import flow_tasks
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 GITOPS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 CONFIG = os.path.join(REPO_ROOT, "roles", "config", "tasks")
@@ -114,7 +116,9 @@ class TestHostsWriteModes:
         offenders = []
         seen = 0
         for path in COMPOSE_WRITERS:
-            for t in _walk(_load(path)):
+            tasks = (flow_tasks(os.path.basename(path))
+                     if os.path.dirname(path) == GITOPS else _load(path))
+            for t in _walk(tasks):
                 for mod in ("ansible.builtin.copy", "ansible.builtin.file"):
                     args = t.get(mod)
                     if not isinstance(args, dict) or not _targets_hosts(args):
@@ -151,7 +155,7 @@ class TestRestrictWiring:
             tasks[pull + 1].get("ansible.builtin.include_tasks", ""))
 
     def test_join_restricts_after_the_checkout(self):
-        tasks = _load(os.path.join(GITOPS, "join.yml"))
+        tasks = flow_tasks("join.yml")
         names = [t.get("name") for t in tasks]
         checkout = names.index(
             "Check out only the differing files (decrypted via git-crypt)")

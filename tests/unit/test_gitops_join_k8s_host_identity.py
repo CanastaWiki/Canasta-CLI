@@ -7,20 +7,11 @@ Ingress then serves the other host's hostname and 404s on its own. The read must
 come from a snapshot taken before any repo work touches the file.
 """
 
-import os
-
-import yaml
-
-
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-JOIN_K8S = os.path.join(
-    REPO_ROOT, "roles", "gitops", "tasks", "join_kubernetes.yml"
-)
+from _gitops_flow import flow_tasks
 
 
 def _tasks():
-    with open(JOIN_K8S) as fh:
-        return yaml.safe_load(fh)
+    return flow_tasks("join_kubernetes.yml")
 
 
 def _index(pred):

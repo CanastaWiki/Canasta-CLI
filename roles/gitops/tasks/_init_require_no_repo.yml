@@ -1,0 +1,24 @@
+---
+# Refuse to init over an existing gitops repo, after --reinit has wiped a
+# previous attempt's partial state.
+#
+# Input: instance_path. Optional: reinit.
+
+- name: Reinit — wipe partial gitops state before re-running init
+  ansible.builtin.include_tasks: _reinit_cleanup.yml
+  when: reinit | default(false) | bool
+
+- name: Check for existing .git directory
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.git"
+  register: _init_existing_repo
+
+- name: Fail if git repo already exists
+  ansible.builtin.fail:
+    msg: >-
+      GitOps already initialized ({{ instance_path }}/.git exists).
+      Use 'gitops join' to attach this host to an existing remote
+      repo, or pass --reinit to wipe the local gitops state and
+      retry (typical when a previous init died mid-run before the
+      git push succeeded).
+  when: _init_existing_repo.stat.exists

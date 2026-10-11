@@ -5,13 +5,12 @@ host comes from the instance's own wikis.yaml."""
 import os
 import sys
 
-import yaml
-
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
 from canasta_gitops import canasta_wikis_template_ids  # noqa: E402
 
-JOIN = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "join.yml")
+from _gitops_flow import flow_tasks  # noqa: E402
+
 
 TEMPLATE = """wikis:
 - id: main
@@ -26,8 +25,7 @@ TEMPLATE = """wikis:
 
 
 def _tasks():
-    with open(JOIN) as f:
-        return yaml.safe_load(f)
+    return flow_tasks("join.yml")
 
 
 def _index(tasks, name):

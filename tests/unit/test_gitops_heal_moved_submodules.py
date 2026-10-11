@@ -13,10 +13,11 @@ import os
 
 import yaml
 
+from _gitops_flow import flow_tasks
+
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 HEAL = os.path.join(TASKS, "_heal_dangling_submodules.yml")
-JOIN = os.path.join(TASKS, "join.yml")
 FIX = os.path.join(TASKS, "fix_submodules.yml")
 # The orphan-recovery .gitmodules parse lives in the shared task.
 RECOVER = os.path.join(TASKS, "_recover_orphan_gitlinks.yml")
@@ -107,7 +108,7 @@ class TestWiredIntoRecoveryPaths:
         )
 
     def test_join_heals_before_diff(self):
-        tasks = _load(JOIN)
+        tasks = flow_tasks("join.yml")
         heal = _include_index(tasks, "_heal_dangling_submodules")
         diff = _first_cmd_index(tasks, "diff --name-only HEAD")
         assert heal is not None, "join.yml must include the heal task"

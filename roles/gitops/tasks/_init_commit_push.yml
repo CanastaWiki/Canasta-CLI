@@ -1,0 +1,24 @@
+---
+# Make the initial gitops commit from what is staged and push it to main.
+#
+# Input: instance_path, repo, _init_git_env (environment for the push).
+# Optional: force.
+
+- name: Initial commit
+  ansible.builtin.command:
+    cmd: "git -c commit.gpgsign=false commit -m 'Initial gitops configuration'"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Add remote
+  ansible.builtin.command:
+    cmd: "git remote add origin {{ repo }}"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Push to remote
+  ansible.builtin.command:
+    cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }} -u origin main"
+    chdir: "{{ instance_path }}"
+  environment: "{{ _init_git_env }}"
+  changed_when: true

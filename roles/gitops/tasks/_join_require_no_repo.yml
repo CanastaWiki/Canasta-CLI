@@ -1,0 +1,26 @@
+---
+# Refuse to join an instance that is already connected to a gitops repo.
+#
+# Without --reinit a pre-existing .git means the instance is already
+# connected, so we stop. Under --reinit we leave that .git in place and
+# wipe it only *after* the clone succeeds (_join_move_git.yml), so a failed
+# clone can't strand the instance with no repo (#663).
+#
+# Input: instance_path. Optional: reinit.
+
+- name: Check for existing .git directory
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.git"
+  register: _join_existing_git
+
+- name: Fail if git repo already exists
+  ansible.builtin.fail:
+    msg: >-
+      GitOps already initialized ({{ instance_path }}/.git exists).
+      This instance is already connected to a gitops repository.
+      Pass --reinit to wipe the local gitops state and re-clone
+      from the remote (typical when a previous init or join died
+      mid-run).
+  when: >-
+    _join_existing_git.stat.exists
+    and not (reinit | default(false) | bool)

@@ -9,15 +9,15 @@ and backup-schedule follow-ups for the commit's changes were never reported.
 import os
 
 import pytest
-import yaml
+
+from _gitops_flow import flow_tasks
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 
 
 def _tasks(name):
-    with open(os.path.join(TASKS, name)) as f:
-        return [t for t in yaml.safe_load(f) if isinstance(t, dict)]
+    return [t for t in flow_tasks(name) if isinstance(t, dict)]
 
 
 def _index(tasks, name):

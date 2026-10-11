@@ -5,6 +5,8 @@ import os
 import pytest
 import yaml
 
+from _gitops_flow import flow_source, flow_tasks
+
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 HELM_CHART = os.path.join(
@@ -676,9 +678,7 @@ class TestGitopsComposeGitEnv:
 
     @pytest.mark.parametrize("filename", COMPOSE_FILES)
     def test_every_git_command_has_gitops_git_env(self, filename):
-        path = os.path.join(GITOPS_TASKS, filename)
-        with open(path) as f:
-            tasks = yaml.safe_load(f) or []
+        tasks = flow_tasks(filename)
         # Recursive walk: gitops_*_compose files nest tasks inside
         # block: structures, so we descend into block/rescue/always
         # rather than just iterating the top level.
@@ -804,8 +804,7 @@ class TestGitopsReinit:
 
     @pytest.mark.parametrize("filename", INIT_JOIN_FILES)
     def test_includes_reinit_cleanup(self, filename):
-        with open(os.path.join(GITOPS_TASKS, filename)) as f:
-            content = f.read()
+        content = flow_source(filename)
         assert "_reinit_cleanup.yml" in content, (
             "%s should include _reinit_cleanup.yml so --reinit can "
             "wipe partial gitops state" % filename
@@ -816,8 +815,7 @@ class TestGitopsReinit:
 
     @pytest.mark.parametrize("filename", INIT_JOIN_FILES)
     def test_already_initialized_message_mentions_reinit(self, filename):
-        with open(os.path.join(GITOPS_TASKS, filename)) as f:
-            content = f.read()
+        content = flow_source(filename)
         assert "already initialized" in content
         # The error has to point users at the recovery flag, otherwise
         # the message is the same brick wall #462 was reported about.

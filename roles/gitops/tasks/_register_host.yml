@@ -1,0 +1,27 @@
+---
+# Add this host to hosts/hosts.yaml and create its vars directory.
+#
+# Upsert: drop any existing entry with this name before appending, so a
+# --reinit re-attach replaces the host in place rather than duplicating it.
+#
+# Input: instance_path, host_name, _join_hosts (the parsed hosts.yaml),
+# _register_file_mode, _register_dir_mode. Optional: role.
+
+- name: Add host to hosts.yaml
+  ansible.builtin.copy:
+    content: |
+      {{ _join_hosts
+         | combine({'hosts': (_join_hosts.hosts | default([])
+                    | rejectattr('name', 'equalto', host_name) | list)
+                    + [{'name': host_name,
+                        'role': role | default('both')}]},
+                   recursive=True)
+         | to_nice_yaml(indent=2) }}
+    dest: "{{ instance_path }}/hosts/hosts.yaml"
+    mode: "{{ _register_file_mode }}"
+
+- name: Create host vars directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}/hosts/{{ host_name }}"
+    state: directory
+    mode: "{{ _register_dir_mode }}"
