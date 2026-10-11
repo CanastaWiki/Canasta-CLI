@@ -32,6 +32,17 @@
     _sync_env_plan: {}
     _sync_url_plan: {}
 
+- name: Check for a pull still to be applied
+  ansible.builtin.include_tasks: _gitops_apply_pending.yml
+  when: _sync_env_active | bool
+
+- name: Leave .env alone until the pulled commit is applied
+  ansible.builtin.set_fact:
+    _sync_env_active: false
+  when:
+    - _sync_env_active | bool
+    - _gitops_apply_pending | bool
+
 - name: Stop on a locked git-crypt checkout
   ansible.builtin.include_tasks: _detect_gitcrypt_lock.yml
   when: _sync_env_active | bool
