@@ -124,6 +124,47 @@ class TestDrift:
             {".env": "PHP_UPLOAD_MAX_FILESIZE=200M\n"})
         assert doctor._k8s_config_drift(base, cur) == [(".env", "changed")]
 
+    def test_crowdsec_files_ignored_when_crowdsec_disabled(self):
+        base = {"web": {".env": "CANASTA_ENABLE_CROWDSEC=false\n"},
+                "crowdsec": {}}
+        cur = doctor._k8s_current_channels({
+            ".env": "CANASTA_ENABLE_CROWDSEC=false\n",
+            "config/crowdsec/acquis.yaml": "a\n",
+            "config/crowdsec/whitelists.yaml": "w\n",
+        })
+        assert doctor._k8s_config_drift(base, cur) == []
+
+    def test_crowdsec_files_ignored_when_flag_unset(self):
+        base = {"web": {".env": "K=V\n"}, "crowdsec": {}}
+        cur = doctor._k8s_current_channels({
+            ".env": "K=V\n",
+            "config/crowdsec/acquis.yaml": "a\n",
+        })
+        assert doctor._k8s_config_drift(base, cur) == []
+
+    def test_crowdsec_files_compared_when_crowdsec_enabled(self):
+        env = 'CANASTA_ENABLE_CROWDSEC="True"\n'
+        base = {"web": {".env": env}, "crowdsec": {"acquis.yaml": "a\n"}}
+        cur = doctor._k8s_current_channels({
+            ".env": env,
+            "config/crowdsec/acquis.yaml": "a2\n",
+            "config/crowdsec/whitelists.yaml": "w\n",
+        })
+        assert doctor._k8s_config_drift(base, cur) == [
+            ("config/crowdsec/acquis.yaml", "changed"),
+            ("config/crowdsec/whitelists.yaml", "added"),
+        ]
+
+    def test_disabling_crowdsec_reports_deployed_files_removed(self):
+        base = {"web": {".env": "CANASTA_ENABLE_CROWDSEC=false\n"},
+                "crowdsec": {"acquis.yaml": "a\n"}}
+        cur = doctor._k8s_current_channels({
+            ".env": "CANASTA_ENABLE_CROWDSEC=false\n",
+            "config/crowdsec/acquis.yaml": "a\n",
+        })
+        assert doctor._k8s_config_drift(base, cur) == [
+            ("config/crowdsec/acquis.yaml", "removed")]
+
 
 # --- payload parsing --------------------------------------------------------
 
