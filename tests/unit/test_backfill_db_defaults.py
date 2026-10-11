@@ -6,6 +6,7 @@ Ansible start path and the Compose fast path must fill them in.
 """
 
 import os
+import subprocess
 import sys
 
 import pytest
@@ -137,12 +138,49 @@ class TestFastPathsBackfillBeforeUp:
 
 
 class TestParityWithAnsible:
-    def test_same_keys_and_values(self):
-        with open(HEAL) as f:
-            tasks = yaml.safe_load(f)
-        block = next(t for t in tasks if "block" in t)["block"]
-        ansible = [
-            (t["canasta_env"]["key"], str(t["canasta_env"]["value"]))
-            for t in block if t["canasta_env"].get("state") == "set"
-        ]
-        assert ansible == list(_helpers._BUNDLED_DB_DEFAULTS)
+    def test_python_table_comes_from_the_vars_file(self):
+        with open(os.path.join(REPO_ROOT, "vars", "mysql_defaults.yml")) as f:
+            table = yaml.safe_load(f)["canasta_bundled_db_defaults"]
+        assert list(_helpers._BUNDLED_DB_DEFAULTS) == [
+            (d["key"], d["value"]) for d in table]
+
+    @pytest.mark.parametrize("content", [
+        "MYSQL_PASSWORD=pw\n",
+        "MYSQL_HOST=\nMYSQL_PORT=3307\nMYSQL_PASSWORD=pw\n",
+        "USE_EXTERNAL_DB=true\nMYSQL_HOST=db.example.com\nMYSQL_PASSWORD=pw\n",
+    ])
+    def test_ansible_writes_what_the_fast_path_writes(self, tmp_path, content):
+        py_dir = tmp_path / "py"
+        py_dir.mkdir()
+        (py_dir / ".env").write_text(content)
+        _helpers._backfill_db_defaults(_inst(py_dir))
+
+        inst = tmp_path / "inst"
+        inst.mkdir()
+        (inst / ".env").write_text(content)
+        play = tmp_path / "play.yml"
+        play.write_text(yaml.safe_dump([{
+            "hosts": "localhost",
+            "connection": "local",
+            "gather_facts": False,
+            "vars_files": [os.path.join(
+                os.path.abspath(REPO_ROOT), "vars", "mysql_defaults.yml")],
+            "vars": {"instance_path": str(inst),
+                     "ansible_python_interpreter": sys.executable},
+            "tasks": [{"ansible.builtin.include_tasks":
+                       os.path.abspath(HEAL)}],
+        }]))
+        common = os.path.join(os.path.abspath(REPO_ROOT), "roles", "common")
+        env = dict(os.environ, ANSIBLE_NOCOLOR="1",
+                   ANSIBLE_LOCALHOST_WARNING="0",
+                   ANSIBLE_LIBRARY=os.path.join(common, "library"),
+                   ANSIBLE_MODULE_UTILS=os.path.join(common, "module_utils"))
+        playbook = os.path.join(
+            os.path.dirname(sys.executable), "ansible-playbook")
+        proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
+                              capture_output=True, text=True, env=env,
+                              cwd=tmp_path)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        # canasta_env and the fast path lay out blank lines differently.
+        assert ((inst / ".env").read_text().split()
+                == _env(py_dir).split())

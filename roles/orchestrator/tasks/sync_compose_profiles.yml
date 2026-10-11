@@ -22,22 +22,29 @@
 # instance whose COMPOSE_PROFILES lost internal-db (created before external-DB
 # support, or a gitops .env render that dropped it). It is excluded from the
 # teardown below (_profile_services), so the database container is never removed.
-- name: Compute desired profiles
+- name: Keep the profiles Canasta does not manage
   ansible.builtin.set_fact:
     _desired_profiles: >-
-      {{
-        (_current_profiles | reject('in', ['observable', 'elasticsearch', 'varnish', 'crowdsec', 'internal-db']) | list) +
-        ((_env_profiles.variables.CANASTA_ENABLE_OBSERVABILITY | default('false', true)
-          | lower == 'true') | ternary(['observable'], [])) +
-        ((_env_profiles.variables.CANASTA_ENABLE_ELASTICSEARCH | default('false', true)
-          | lower == 'true') | ternary(['elasticsearch'], [])) +
-        ((_env_profiles.variables.CANASTA_ENABLE_VARNISH | default('true', true)
-          | lower == 'true') | ternary(['varnish'], [])) +
-        ((_env_profiles.variables.CANASTA_ENABLE_CROWDSEC | default('false', true)
-          | lower == 'true') | ternary(['crowdsec'], [])) +
-        ((_env_profiles.variables.USE_EXTERNAL_DB | default('false', true)
-          | lower != 'true') | ternary(['internal-db'], []))
-      }}
+      {{ _current_profiles
+         | reject('in', (canasta_managed_profiles | map(attribute='profile') | list) + ['internal-db'])
+         | list }}
+
+- name: Add the feature profiles whose flag is on
+  ansible.builtin.set_fact:
+    _desired_profiles: "{{ _desired_profiles + [item.profile] }}"
+  loop: "{{ canasta_managed_profiles }}"
+  loop_control:
+    label: "{{ item.profile }}"
+  when: >-
+    _env_profiles.variables[item.flag] | default(item.default, true)
+    | lower == 'true'
+
+- name: Add internal-db unless an external database is configured
+  ansible.builtin.set_fact:
+    _desired_profiles: "{{ _desired_profiles + ['internal-db'] }}"
+  when: >-
+    _env_profiles.variables.USE_EXTERNAL_DB | default('false', true)
+    | lower != 'true'
 
 - name: Update COMPOSE_PROFILES in .env
   canasta_env:
@@ -53,15 +60,10 @@
 # profile is treated as an orphan and left running. Stop and remove those
 # containers so disabling a feature actually tears it down. Scoped to the
 # managed feature profiles; internal-db is intentionally excluded so a
-# database container is never auto-removed. The service lists must match the
-# `profiles:` keys in roles/orchestrator/files/compose/docker-compose.yml.
+# database container is never auto-removed.
 - name: Tear down containers for deactivated feature profiles
   vars:
-    _profile_services:
-      observable: [opensearch, logstash, opensearch-dashboards, observable-init]
-      elasticsearch: [elasticsearch]
-      varnish: [varnish]
-      crowdsec: [crowdsec]
+    _profile_services: "{{ canasta_managed_profile_services }}"
     _removed_profiles: >-
       {{ _current_profiles | difference(_desired_profiles)
          | select('in', _profile_services.keys() | list) | list }}
@@ -129,18 +131,18 @@
 # uses Caddy's built-in 'static' source and runs on stock Caddy.
 # CANASTA_CADDY_IMAGE is treated as Canasta-managed when it is empty or
 # already holds the managed image — a custom value the operator set is
-# left untouched. Mirrors _CADDY_PLUGIN_IMAGE in direct_commands/_helpers.py.
+# left untouched.
 - name: Reconcile CANASTA_CADDY_IMAGE for plugin features
   vars:
     _crowdsec_on: "{{ _env_profiles.variables.CANASTA_ENABLE_CROWDSEC | default('false', true) | lower == 'true' }}"
     _tp_mode: "{{ _env_profiles.variables.CADDY_TRUSTED_PROXIES | default('') | trim | lower }}"
     _plugin_needed: "{{ _crowdsec_on or (_tp_mode in ['cloudflare', 'imperva']) }}"
     _current_caddy_image: "{{ _env_profiles.variables.CANASTA_CADDY_IMAGE | default('') }}"
-    _plugin_caddy_image: "ghcr.io/canastawiki/canasta-caddy:2.11.3"
+    _plugin_caddy_image: "{{ canasta_caddy_plugin_image }}"
     # Managed when empty or ANY tag of the managed repo — so an instance
     # carrying an older managed tag is recognized as managed and bumped to
     # the current one, rather than stranded. Match _helpers.py.
-    _managed_caddy_prefix: "ghcr.io/canastawiki/canasta-caddy:"
+    _managed_caddy_prefix: "{{ canasta_caddy_plugin_image | regex_replace(':[^:]*$', ':') }}"
   canasta_env:
     path: "{{ instance_path }}/.env"
     state: set

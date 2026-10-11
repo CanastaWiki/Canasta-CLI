@@ -1,0 +1,16 @@
+---
+# Directories, relative to the instance, handed back to the operator on
+# rootless Podman, and whether to recurse. Read by _rootless_operator_chown.yml
+# and direct_commands/_helpers.py.
+canasta_rootless_operator_dirs:
+  # config/ (non-recursive): the directory itself must be operator-writable
+  # so wikis.yaml / Caddyfile can be replaced. Its subdirs that containers
+  # write into (config/persistent, config/backup, config/crowdsec,
+  # config/logstash) are intentionally left untouched.
+  - {path: config, recurse: false}
+  # config/settings is operator-managed only.
+  - {path: config/settings, recurse: true}
+  # public_assets, extensions, skins are operator-managed; containers read them.
+  - {path: public_assets, recurse: true}
+  - {path: extensions, recurse: true}
+  - {path: skins, recurse: true}

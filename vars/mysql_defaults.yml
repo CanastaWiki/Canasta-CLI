@@ -1,0 +1,10 @@
+---
+# .env keys pinned for the bundled database when absent or empty. podman-compose
+# passes ${MYSQL_HOST:-db} through literally instead of expanding it, so these
+# must be in .env. Read by heal_mysql_defaults.yml and
+# direct_commands/_helpers.py.
+canasta_bundled_db_defaults:
+  - {key: MYSQL_HOST, value: "db"}
+  - {key: MYSQL_PORT, value: "3306"}
+  - {key: MYSQL_USER, value: "root"}
+  - {key: MYSQL_SSL, value: "false"}

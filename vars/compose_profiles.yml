@@ -1,0 +1,20 @@
+---
+# Compose profiles Canasta derives from the CANASTA_ENABLE_* feature flags,
+# in the order they are appended to COMPOSE_PROFILES. A flag that is unset
+# or empty takes its default. Read by sync_compose_profiles.yml and by
+# direct_commands/_helpers.py.
+canasta_managed_profiles:
+  - {profile: observable, flag: CANASTA_ENABLE_OBSERVABILITY, default: "false"}
+  - {profile: elasticsearch, flag: CANASTA_ENABLE_ELASTICSEARCH, default: "false"}
+  - {profile: varnish, flag: CANASTA_ENABLE_VARNISH, default: "true"}
+  - {profile: crowdsec, flag: CANASTA_ENABLE_CROWDSEC, default: "false"}
+
+# Services declared under each managed profile, removed when the profile is
+# turned off. internal-db (the db service) is deliberately absent so a
+# database is never removed. Must match the `profiles:` keys in
+# roles/orchestrator/files/compose/docker-compose.yml.
+canasta_managed_profile_services:
+  observable: [opensearch, logstash, opensearch-dashboards, observable-init]
+  elasticsearch: [elasticsearch]
+  varnish: [varnish]
+  crowdsec: [crowdsec]

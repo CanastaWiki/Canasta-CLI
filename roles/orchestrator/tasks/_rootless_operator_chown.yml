@@ -1,7 +1,7 @@
 ---
 # Rootless Podman bind-mount ownership fix (Compose only).
-# The Compose fast path (direct_commands/_helpers.py,
-# _rootless_operator_chown) chowns the same directories; keep them in sync.
+# The directories are vars/rootless_operator_dirs.yml, which the Compose fast
+# path (direct_commands/_helpers.py, _rootless_operator_chown) reads too.
 #
 # In rootless Podman the container's app UID maps to a subuid on the host,
 # so any file or directory a container writes into a bind-mounted instance
@@ -41,19 +41,8 @@
 # empty directories), so only existing ones are chowned.
 - name: Find the operator-managed directories that exist
   ansible.builtin.stat:
-    path: "{{ item.path }}"
-  loop:
-    # config/ (non-recursive): the directory itself must be operator-writable
-    # so wikis.yaml / Caddyfile can be replaced. Its subdirs that containers
-    # write into (config/persistent, config/backup, config/crowdsec,
-    # config/logstash) are intentionally left untouched.
-    - { path: "{{ instance_path }}/config", recurse: false }
-    # config/settings is operator-managed only.
-    - { path: "{{ instance_path }}/config/settings", recurse: true }
-    # public_assets, extensions, skins are operator-managed; containers read them.
-    - { path: "{{ instance_path }}/public_assets", recurse: true }
-    - { path: "{{ instance_path }}/extensions", recurse: true }
-    - { path: "{{ instance_path }}/skins", recurse: true }
+    path: "{{ instance_path }}/{{ item.path }}"
+  loop: "{{ canasta_rootless_operator_dirs }}"
   register: _rootless_chown_dirs
   when:
     - (instance_orchestrator | default(orchestrator | default('compose'))) == 'compose'
@@ -63,7 +52,7 @@
   ansible.builtin.command:
     cmd: >-
       podman unshare chown {{ '-R' if item.item.recurse else '' }}
-      0:0 {{ item.item.path | quote }}
+      0:0 {{ (instance_path ~ '/' ~ item.item.path) | quote }}
     chdir: "/"
   loop: >-
     {{ _rootless_chown_dirs.results | default([])
@@ -71,5 +60,5 @@
        | selectattr('stat.exists')
        | list }}
   loop_control:
-    label: "{{ item.item.path }}"
+    label: "{{ instance_path }}/{{ item.item.path }}"
   changed_when: true
