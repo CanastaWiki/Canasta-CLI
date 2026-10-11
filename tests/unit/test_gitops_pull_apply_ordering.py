@@ -194,7 +194,7 @@ class TestFingerprintIgnoresLayout:
         with open(FINGERPRINT) as f:
             tasks = yaml.safe_load(f)
         task = next(t for t in tasks
-                    if t.get("name") == "Fingerprint .env and config/wikis.yaml")
+                    if t.get("name") == "Fingerprint the rendered files")
         exprs = task["ansible.builtin.set_fact"]["_rendered_fingerprint"]
         wikis = ({"content": base64.b64encode(wikis_text.encode()).decode()}
                  if wikis_text is not None else {})
@@ -202,6 +202,8 @@ class TestFingerprintIgnoresLayout:
             k: _env().from_string(v).render(
                 _rendered_fp_env={"variables": variables},
                 _rendered_fp_wikis=wikis,
+                _rendered_fp_mycnf={},
+                _rendered_fp_media_hosts={},
             ).strip()
             for k, v in exprs.items()
         }
@@ -224,4 +226,5 @@ class TestFingerprintIgnoresLayout:
         assert a["env"] != b["env"]
 
     def test_missing_files_fingerprint_empty(self):
-        assert self._fingerprint({}, None) == {"env": "", "wikis": ""}
+        assert self._fingerprint({}, None) == {
+            "env": "", "wikis": "", "mycnf": "", "media_hosts": ""}
