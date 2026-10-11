@@ -42,6 +42,13 @@
   vars:
     _settings_action: Enable
 
+# update.php has to run with the item loaded.
+- name: "Apply the {{ _item_type }} change to the running instance"
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: apply_config.yml
+  when: _settings_change is changed
+
 # Without --wiki the item is enabled for every wiki, so each one needs
 # its schema updates.
 - name: Read wikis for update.php

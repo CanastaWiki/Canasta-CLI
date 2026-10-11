@@ -62,7 +62,7 @@ class TestDbConfigChecksum:
         # The caddy deployment already does this; the two should not drift.
         with open(STATEFULSET) as f:
             text = f.read()
-        assert "{{ .Values.configData.db | toJson | sha256sum }}" in text
+        assert "{{ .Values.configData.db | default dict | toJson | sha256sum }}" in text
 
     def test_my_cnf_is_still_mounted_with_subpath(self):
         # The annotation exists *because* of subPath. If the mount ever
