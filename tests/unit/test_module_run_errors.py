@@ -129,8 +129,7 @@ class TestRegistryRunModuleErrors:
         before = open(os.path.join(tmp_dir, "conf.json")).read()
         _, failed, fail_msg = run_module_with_params(
             canasta_registry,
-            dict({"orchestrator": None, "dev_mode": None,
-                  "managed_cluster": None},
+            dict({"orchestrator": None, "dev_mode": None},
                  **params, config_dir=tmp_dir))
         assert failed
         assert msg in fail_msg

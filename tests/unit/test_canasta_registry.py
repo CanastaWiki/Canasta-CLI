@@ -26,10 +26,9 @@ class TestInstanceToDict:
 
     def test_omits_false_booleans(self):
         result = canasta_registry.instance_to_dict({
-            "id": "test", "path": "/test", "devMode": False, "managedCluster": False
+            "id": "test", "path": "/test", "devMode": False
         })
         assert "devMode" not in result
-        assert "managedCluster" not in result
 
     def test_includes_true_booleans(self):
         result = canasta_registry.instance_to_dict({
@@ -39,9 +38,8 @@ class TestInstanceToDict:
 
     def test_includes_optional_strings(self):
         result = canasta_registry.instance_to_dict({
-            "id": "test", "path": "/test", "registry": "localhost:5000", "buildFrom": "/src"
+            "id": "test", "path": "/test", "buildFrom": "/src"
         })
-        assert result["registry"] == "localhost:5000"
         assert result["buildFrom"] == "/src"
 
     def test_includes_host(self):
@@ -117,8 +115,7 @@ class TestRunModuleQuery:
         result, failed, _ = run_module_with_params(canasta_registry, {
             "state": "query", "id": "mysite", "path": None,
             "orchestrator": "compose", "dev_mode": False,
-            "managed_cluster": False, "registry": None,
-            "kind_cluster": None, "build_from": None,
+            "build_from": None,
             "host": None, "filter_host": None,
             "config_dir": config_dir,
         })
@@ -130,8 +127,7 @@ class TestRunModuleQuery:
         result, failed, msg = run_module_with_params(canasta_registry, {
             "state": "query", "id": "nonexistent", "path": None,
             "orchestrator": "compose", "dev_mode": False,
-            "managed_cluster": False, "registry": None,
-            "kind_cluster": None, "build_from": None,
+            "build_from": None,
             "host": None, "filter_host": None,
             "config_dir": config_dir,
         })
@@ -145,8 +141,7 @@ class TestRunModuleQueryAll:
         result, failed, _ = run_module_with_params(canasta_registry, {
             "state": "query_all", "id": None, "path": None,
             "orchestrator": "compose", "dev_mode": False,
-            "managed_cluster": False, "registry": None,
-            "kind_cluster": None, "build_from": None,
+            "build_from": None,
             "host": None, "filter_host": None,
             "config_dir": config_dir,
         })
@@ -164,8 +159,7 @@ class TestRunModuleQueryAll:
         result, failed, _ = run_module_with_params(canasta_registry, {
             "state": "query_all", "id": None, "path": None,
             "orchestrator": "compose", "dev_mode": False,
-            "managed_cluster": False, "registry": None,
-            "kind_cluster": None, "build_from": None,
+            "build_from": None,
             "host": None, "filter_host": "host1",
             "config_dir": tmp_dir,
         })
@@ -185,8 +179,7 @@ class TestQueryAllFilterHost:
         result, failed, msg = run_module_with_params(canasta_registry, {
             "state": "query_all", "id": None, "path": None,
             "orchestrator": "compose", "dev_mode": False,
-            "managed_cluster": False, "registry": None,
-            "kind_cluster": None, "build_from": None,
+            "build_from": None,
             "host": None, "filter_host": filter_host,
             "config_dir": tmp_dir,
         })
@@ -254,8 +247,7 @@ class TestRunModulePresent:
         result, failed, _ = run_module_with_params(canasta_registry, {
             "state": "present", "id": "new", "path": inst_path,
             "orchestrator": "compose", "dev_mode": False,
-            "managed_cluster": False, "registry": None,
-            "kind_cluster": None, "build_from": None,
+            "build_from": None,
             "host": "localhost", "filter_host": None,
             "config_dir": tmp_dir,
         })
@@ -269,8 +261,7 @@ class TestRunModulePresent:
         params = {
             "state": "present", "id": "idem", "path": inst_path,
             "orchestrator": "compose", "dev_mode": False,
-            "managed_cluster": False, "registry": None,
-            "kind_cluster": None, "build_from": None,
+            "build_from": None,
             "host": None, "filter_host": None,
             "config_dir": tmp_dir,
         }
@@ -286,8 +277,7 @@ class TestRunModuleAbsent:
         result, failed, _ = run_module_with_params(canasta_registry, {
             "state": "absent", "id": "mysite", "path": None,
             "orchestrator": "compose", "dev_mode": False,
-            "managed_cluster": False, "registry": None,
-            "kind_cluster": None, "build_from": None,
+            "build_from": None,
             "host": None, "filter_host": None,
             "config_dir": config_dir,
         })
@@ -299,8 +289,7 @@ class TestRunModuleAbsent:
         result, failed, _ = run_module_with_params(canasta_registry, {
             "state": "absent", "id": "nonexistent", "path": None,
             "orchestrator": "compose", "dev_mode": False,
-            "managed_cluster": False, "registry": None,
-            "kind_cluster": None, "build_from": None,
+            "build_from": None,
             "host": None, "filter_host": None,
             "config_dir": config_dir,
         })
@@ -315,8 +304,7 @@ class TestRunModuleQueryByPath:
         result, failed, _ = run_module_with_params(canasta_registry, {
             "state": "query_by_path", "id": None, "path": mysite_path,
             "orchestrator": None, "dev_mode": False,
-            "managed_cluster": False, "registry": None,
-            "kind_cluster": None, "build_from": None,
+            "build_from": None,
             "host": None, "filter_host": None,
             "config_dir": config_dir,
         })
@@ -328,8 +316,7 @@ class TestRunModuleQueryByPath:
         result, failed, msg = run_module_with_params(canasta_registry, {
             "state": "query_by_path", "id": None, "path": "/nonexistent",
             "orchestrator": None, "dev_mode": False,
-            "managed_cluster": False, "registry": None,
-            "kind_cluster": None, "build_from": None,
+            "build_from": None,
             "host": None, "filter_host": None,
             "config_dir": config_dir,
         })
@@ -342,8 +329,7 @@ def _base_params(config_dir, **overrides):
     params = {
         "state": "query", "id": None, "path": None,
         "orchestrator": "compose", "dev_mode": False,
-        "managed_cluster": False, "registry": None,
-        "kind_cluster": None, "build_from": None,
+        "build_from": None,
         "host": None, "filter_host": None,
         "setting_key": None, "setting_value": None,
         "config_dir": config_dir,

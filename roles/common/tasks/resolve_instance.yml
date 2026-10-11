@@ -16,7 +16,7 @@
 #
 # Input: id (optional)
 # Output: instance_id, instance_path, instance_orchestrator,
-#   instance_devmode, instance_managed_cluster
+#   instance_devmode
 #
 # Implementation note: this file uses a save/switch/restore dance on
 # ansible_host/ansible_connection because the alternative
@@ -24,8 +24,7 @@
 # does NOT reliably override connection state previously set via
 # set_fact (e.g. when this file is included a second time after
 # switch_connection.yml has set ansible_connection=ssh on the play
-# host). See commits 0d392a6 and b7d3ed2 for the original incidents
-# this is guarding against. Save the inbound state into a single dict
+# host). Save the inbound state into a single dict
 # (so a future field addition can't drift) and restore it inside an
 # `always:` (so a registry-task failure cannot leave the play stuck
 # in the switched state).
@@ -149,7 +148,6 @@
     instance_path: "{{ _instance_result.instance.path }}"
     instance_orchestrator: "{{ _instance_result.instance.orchestrator | default('compose') }}"
     instance_devmode: "{{ _instance_result.instance.devMode | default(false) }}"
-    instance_managed_cluster: "{{ _instance_result.instance.managedCluster | default(false) }}"
     # instance_docker_host feeds canasta.yml's play-level
     # `environment: DOCKER_HOST: …`. Empty string when the registry
     # has no override so the env-var ternary picks the next default.

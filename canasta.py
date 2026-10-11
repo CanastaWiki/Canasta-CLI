@@ -208,7 +208,7 @@ _VALIDATORS = {
 # partner) fails in milliseconds instead of after Argo CD/helm/image-pull
 # steps have already done work. The playbook re-validates the same
 # command_definitions.yml metadata in roles/common/tasks/validate_params.yml
-# so values that bypass the CLI (CANASTA_FORCE_ANSIBLE, Molecule, a raw
+# so values that bypass the CLI (CANASTA_FORCE_ANSIBLE, a raw
 # ansible-playbook run) are still caught. Both layers read the same
 # definition fields; neither is authoritative alone. Each function returns
 # a list of (exit_code, message) so the caller decides how to surface them.

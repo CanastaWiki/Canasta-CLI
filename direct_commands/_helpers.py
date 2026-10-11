@@ -216,8 +216,7 @@ def _lint_env_content(content):
 def _parse_env_entries(content):
     """Parse .env content into ordered (key, value, is_comment) tuples.
 
-    Preserves comments and blank lines so a round-trip through
-    _entries_to_content leaves untouched lines intact. Mirrors
+    Values have surrounding quotes stripped, for reads. Mirrors
     canasta_env.parse_env_file() in the Ansible module.
     """
     entries = []
@@ -239,34 +238,6 @@ def _parse_env_entries(content):
         else:
             entries.append((None, line, True))
     return entries
-
-
-def _entries_to_content(entries):
-    lines = []
-    for key, value, is_comment in entries:
-        if is_comment:
-            lines.append(value)
-        else:
-            lines.append("%s=%s" % (key, value))
-    return "\n".join(lines)
-
-
-def _set_env_entry(entries, key, value):
-    """Update first occurrence, drop duplicate lines for the same key,
-    append if absent. Matches canasta_env.set_variable() in Ansible."""
-    found = False
-    new_entries = []
-    for k, v, c in entries:
-        if not c and k == key:
-            if not found:
-                new_entries.append((key, value, False))
-                found = True
-            # Drop subsequent duplicates
-        else:
-            new_entries.append((k, v, c))
-    if not found:
-        new_entries.append((key, value, False))
-    return new_entries
 
 
 def _env_key_of(line):

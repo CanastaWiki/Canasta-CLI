@@ -1758,14 +1758,11 @@ class TestLifecycleCommands:
 
 
 class TestEnvFileWriter:
-    """_parse_env_entries + _set_env_entry + _entries_to_content round trip."""
+    """_parse_env_entries and _write_env_content."""
 
-    def test_round_trip_preserves_comments_and_blanks(self):
+    def test_parse_keeps_comments_and_blanks_in_order(self):
         content = "# header comment\n\nKEY=value\n# inline\nOTHER=x\n"
         entries = direct_commands._parse_env_entries(content)
-        out = direct_commands._entries_to_content(entries)
-        assert out == content.rstrip("\n") or out == content
-        # Specifically: comment + blank + entry + comment + entry
         assert entries[0] == (None, "# header comment", True)
         assert entries[1] == (None, "", True)
         assert entries[2] == ("KEY", "value", False)
@@ -1778,20 +1775,6 @@ class TestEnvFileWriter:
         )
         vals = {k: v for k, v, c in entries if not c}
         assert vals == {"A": "quoted", "B": "single", "C": "bare"}
-
-    def test_set_updates_first_occurrence_and_dedupes(self):
-        entries = direct_commands._parse_env_entries("K=old\nK=dup\nX=y\n")
-        new = direct_commands._set_env_entry(entries, "K", "new")
-        out = direct_commands._entries_to_content(new)
-        # First occurrence updated, duplicate dropped, other untouched
-        assert out.split("\n") == ["K=new", "X=y", ""]
-
-    def test_set_appends_when_absent(self):
-        entries = direct_commands._parse_env_entries("A=1\n")
-        new = direct_commands._set_env_entry(entries, "B", "2")
-        out = direct_commands._entries_to_content(new)
-        assert out == "A=1\n\nB=2" or out.endswith("B=2")
-        assert "B=2" in out
 
     def test_write_env_content_local(self, tmp_path):
         p = str(tmp_path)

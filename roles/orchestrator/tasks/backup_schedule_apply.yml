@@ -17,20 +17,6 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_validate.yml
 
-# Migration: older K8s instances scheduled via an in-cluster CronJob. Now
-# that the crontab drives scheduling, remove any legacy CronJob so a
-# re-scheduled instance doesn't back up twice. Best-effort — connection is
-# already on the cp node, which has kubectl.
-- name: Remove legacy backup CronJob (Kubernetes)
-  kubernetes.core.k8s:
-    state: absent
-    api_version: batch/v1
-    kind: CronJob
-    name: "canasta-backup-{{ instance_id }}"
-    namespace: "canasta-{{ instance_id }}"
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
-  ignore_errors: true  # OK if no CronJob / no cluster access
-
 # Cron runs 'canasta backup create' on the target host. cron's PATH is
 # minimal (often /usr/bin:/bin) and usually excludes /usr/local/bin, so
 # the entry needs an absolute path to canasta.
