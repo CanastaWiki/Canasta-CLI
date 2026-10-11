@@ -33,9 +33,11 @@ jobs:
 
       - name: Run unit tests with coverage
         run: |
-          .venv/bin/pytest tests/unit/ -v \
+          .venv/bin/pytest tests/unit/ -v -rs \
             --cov=roles/common/library \
             --cov=roles/extensions_skins/library \
+            --cov=filter_plugins \
+            --cov=callback_plugins \
             --cov=scripts \
             --cov=direct_commands \
             --cov=canasta \
