@@ -86,7 +86,7 @@ class TestAFailedInitContainerIsReported:
 
     def test_init_statuses_are_read_only_without_restic_logs(self):
         task = _block_task("Get the init containers' exit codes")
-        assert task["when"] == "_restic_log.rc != 0"
+        assert "_restic_log.rc != 0" in task["when"]
         assert task["failed_when"] is False
         assert "initContainerStatuses" in task["ansible.builtin.command"]["cmd"]
 

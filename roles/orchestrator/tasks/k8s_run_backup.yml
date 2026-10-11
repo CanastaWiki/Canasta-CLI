@@ -56,15 +56,29 @@
     _restic_node_selector:
       node-role.kubernetes.io/control-plane: "true"
 
-# Detect 'backup' verb in backup_args. The on-demand Job is also used
-# for non-snapshot operations (forget, snapshots, init, unlock, etc.);
-# only true backup operations need the DB-dump and Secret-dump init
-# containers. See #513 for the bug this closes — pre-fix, on-demand
-# 'canasta backup create' on K8s captured static files only and
-# silently lost the wiki database.
+# The on-demand Job is also used for non-snapshot operations (forget,
+# snapshots, init, unlock, etc.); only a `restic backup` needs the DB-dump
+# and Secret-dump init containers. The subcommand is the first argument
+# that is neither a flag nor a flag's value: callers put valued flags
+# (--host X, --tag Y) before it, and a later argument such as
+# `--keep-tag backup` must not count.
+- name: Find the restic subcommand
+  ansible.builtin.set_fact:
+    _restic_subcommand: >-
+      {%- set ns = namespace(skip=false, cmd='') -%}
+      {%- for arg in backup_args | map('string') -%}
+      {%- if ns.cmd == '' -%}
+      {%- if ns.skip -%}{%- set ns.skip = false -%}
+      {%- elif arg is match('-[^=]*$') -%}{%- set ns.skip = true -%}
+      {%- elif arg is not match('-') -%}{%- set ns.cmd = arg -%}
+      {%- endif -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ ns.cmd }}
+
 - name: Detect backup operation
   ansible.builtin.set_fact:
-    _is_backup_op: "{{ 'backup' in backup_args }}"
+    _is_backup_op: "{{ _restic_subcommand == 'backup' }}"
 
 - name: Read wiki database groups for dump-databases (backup ops only)
   canasta_wikis_yaml:
@@ -223,6 +237,15 @@
   failed_when: false
   when: _is_backup_op | bool
 
+# An external database server may hold other tenants' databases, which
+# are not this instance's to back up (or to restore).
+- name: Detect an external database (backup ops only)
+  ansible.builtin.set_fact:
+    _backup_external_db: >-
+      {{ (_backup_env.variables.USE_EXTERNAL_DB | default('false'))
+         | string | lower == 'true' }}
+  when: _is_backup_op | bool
+
 - name: Build init containers for backup ops
   when: _is_backup_op | bool
   ansible.builtin.set_fact:
@@ -242,10 +265,12 @@
             set -u
             export MYSQL_PWD="$MYSQL_PASSWORD"
             EXCLUDE='^(information_schema|performance_schema|mysql|sys)$'
+            EXTERNAL_DB='{{ _backup_external_db | bool | lower }}'
             WIKI_GROUPS='{{ _backup_groups_encoded | default('') }}'
             # List databases first so a connection/auth failure aborts the
             # backup loudly instead of silently saving a DB-less snapshot.
-            if ! DBLIST=$(mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" \
+            if ! DBLIST=$(mariadb -h "${MYSQL_HOST:-db}" -P "${MYSQL_PORT:-3306}" \
+                -u "${MYSQL_USER:-root}" \
                 -N -e "SHOW DATABASES"); then
               echo "FATAL: could not list databases (DB connection or auth failed)" >&2
               exit 1
@@ -264,7 +289,8 @@
               # succeeded and is not empty.
               file=$1
               shift
-              if mariadb-dump -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}" \
+              if mariadb-dump -h "${MYSQL_HOST:-db}" -P "${MYSQL_PORT:-3306}" \
+                  -u "${MYSQL_USER:-root}" \
                   --single-transaction --databases "$@" \
                   > "$file" 2> /tmp/dump.err; then
                 cat /tmp/dump.err >&2
@@ -317,29 +343,39 @@
             GROUPED=''
             while read -r wiki extras; do
               [ -n "$wiki" ] || continue
-              exists "$wiki" || continue
-              members=$wiki
-              for db in $extras; do
+              members=''
+              for db in $wiki $extras; do
                 if exists "$db"; then
                   members="$members $db"
                 else
-                  echo "WARNING: wiki '$wiki' declares extra database '$db', which does not exist; skipping it" >&2
+                  echo "database does not exist" > /tmp/dump.err
+                  dump_failed "$db"
                 fi
               done
-              dump "$wiki" $members
-              GROUPED="$GROUPED $members"
+              if [ -n "$members" ]; then
+                dump "$wiki" $members
+              fi
+              GROUPED="$GROUPED $wiki $extras"
             done < /tmp/db_groups
-            # Everything else on the server, one dump per database — the
-            # coverage this path has always had.
-            for db in $DBS; do
-              case " $GROUPED " in
-                *" $db "*) continue ;;
-              esac
-              dump "$db" "$db"
-            done
+            # Everything else on a bundled server, one dump per database.
+            if [ "$EXTERNAL_DB" != true ]; then
+              for db in $DBS; do
+                case " $GROUPED " in
+                  *" $db "*) continue ;;
+                esac
+                dump "$db" "$db"
+              done
+            fi
         envFrom:
           - secretRef:
               name: "canasta-{{ instance_id }}-backup-env"
+        # The backup-env Secret carries no port; the bundled db listens
+        # on the default.
+        env:
+          - name: MYSQL_PORT
+            value: >-
+              {{ (_backup_env.variables.MYSQL_PORT | default('3306', true)
+                  if _backup_external_db | bool else '3306') | string }}
         volumeMounts:
           - name: dumps
             mountPath: /currentsnapshot/config/backup
@@ -458,6 +494,41 @@
                 volumeMounts: "{{ _restic_volume_mounts }}"
             volumes: "{{ _restic_volumes }}"
 
+# A Job whose pod cannot be created (refused by PodSecurity or a quota)
+# never finishes, so it is caught here instead of after the long wait.
+# The first output line lists the Job's pods; any further line is a
+# FailedCreate event, which ends the wait at once.
+- name: Wait for the restic Job's pod to be created
+  ansible.builtin.command:
+    argv:
+      - sh
+      - -c
+      - >-
+        kubectl get pods -n "$1" -l "job-name=$2"
+        -o jsonpath='{.items[*].metadata.name}' && echo &&
+        kubectl get events -n "$1" -o name --field-selector
+        "involvedObject.kind=Job,involvedObject.name=$2,reason=FailedCreate"
+      - sh
+      - "{{ _k8s_namespace }}"
+      - "{{ _backup_job_name }}"
+  register: _backup_pod_wait
+  until: >-
+    _backup_pod_wait.rc == 0 and
+    (_backup_pod_wait.stdout_lines | map('trim') | select | list | length > 0)
+  retries: "{{ _backup_pod_wait_seconds // 2 }}"
+  delay: 2
+  changed_when: false
+  failed_when: false
+  vars:
+    _backup_pod_wait_seconds: 120
+
+- name: Record whether the Job got a pod
+  ansible.builtin.set_fact:
+    _backup_pod_created: >-
+      {{ _backup_pod_wait.rc == 0 and
+         ((_backup_pod_wait.stdout_lines | default(['']) | first
+           | default('') | trim) != '') }}
+
 - name: Wait for restic Job to complete
   kubernetes.core.k8s_info:
     api_version: batch/v1
@@ -469,11 +540,12 @@
     _backup_job_status.resources | length > 0 and
     (_backup_job_status.resources[0].status.succeeded | default(0) > 0 or
      _backup_job_status.resources[0].status.failed | default(0) > 0)
-  retries: 120
+  retries: "{{ [(canasta_k8s_backup_timeout | default(3600) | int) // 5, 1] | max }}"
   delay: 5
   # A Job that never finishes (a pod stuck pulling its image) is reported
   # below, after it is deleted.
   failed_when: false
+  when: _backup_pod_created | bool
 
 - name: Record whether the Job finished
   ansible.builtin.set_fact:
@@ -481,41 +553,71 @@
       {{ (_backup_job_status.resources | default([])) | length > 0 and
          (_backup_job_status.resources[0].status.succeeded | default(0) > 0 or
           _backup_job_status.resources[0].status.failed | default(0) > 0) }}
+    _backup_job_succeeded: >-
+      {{ (_backup_job_status.resources | default([])) | length > 0 and
+         _backup_job_status.resources[0].status.succeeded | default(0) > 0 }}
 
 # The Job is deleted however reading its output goes, so a failed run does
 # not linger until its TTL.
 - name: Read the restic Job's output and delete the Job
   block:
+    # A Job whose pod was never created (refused by PodSecurity or a
+    # quota) has no pod to read; that is reported with the Job's events.
     - name: Get restic Job pod name
       ansible.builtin.command:
         cmd: >-
           kubectl get pods -n {{ _k8s_namespace }}
           -l job-name={{ _backup_job_name }}
-          -o jsonpath='{.items[0].metadata.name}'
+          -o jsonpath='{.items[*].metadata.name}'
       register: _backup_pod_name
       changed_when: false
+      failed_when: false
+
+    - name: Record the restic Job's pod
+      ansible.builtin.set_fact:
+        _backup_pod: "{{ (_backup_pod_name.stdout | default('')).split() | first | default('') }}"
+
+    - name: Get why the Job has no pod
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - events
+          - -n
+          - "{{ _k8s_namespace }}"
+          - --field-selector
+          - "involvedObject.kind=Job,involvedObject.name={{ _backup_job_name }}"
+          - -o
+          - 'jsonpath={range .items[*]}{.reason}: {.message}{"\n"}{end}'
+      register: _backup_job_events
+      changed_when: false
+      failed_when: false
+      when: _backup_pod == '' or not (_backup_pod_created | bool)
 
     # When an init container fails, restic never starts and has no logs;
     # the failed init container's logs are read instead.
     - name: Get restic output
       ansible.builtin.command:
-        cmd: "kubectl logs -n {{ _k8s_namespace }} {{ _backup_pod_name.stdout | trim }}"
+        cmd: "kubectl logs -n {{ _k8s_namespace }} {{ _backup_pod }}"
       register: _restic_log
       changed_when: false
       failed_when:
         - _restic_log.rc != 0
-        - _backup_job_status.resources[0].status.succeeded | default(0) > 0
+        - _backup_job_succeeded | bool
+      when: _backup_pod != ''
 
     - name: Get the init containers' exit codes
       ansible.builtin.command:
         cmd: >-
           kubectl get pod -n {{ _k8s_namespace }}
-          {{ _backup_pod_name.stdout | trim }}
+          {{ _backup_pod }}
           -o jsonpath='{range .status.initContainerStatuses[*]}{.name}={.state.terminated.exitCode}{" "}{end}'
       register: _backup_init_status
       changed_when: false
       failed_when: false
-      when: _restic_log.rc != 0
+      when:
+        - _backup_pod != ''
+        - _restic_log.rc != 0
 
     - name: Find the init container that failed
       ansible.builtin.set_fact:
@@ -528,7 +630,7 @@
       ansible.builtin.command:
         cmd: >-
           kubectl logs -n {{ _k8s_namespace }}
-          {{ _backup_pod_name.stdout | trim }} -c {{ _backup_failed_init }}
+          {{ _backup_pod }} -c {{ _backup_failed_init }}
       register: _backup_init_log
       changed_when: false
       failed_when: false
@@ -542,7 +644,7 @@
           - pod
           - -n
           - "{{ _k8s_namespace }}"
-          - "{{ _backup_pod_name.stdout | trim }}"
+          - "{{ _backup_pod }}"
           - -o
           - >-
             jsonpath={range .status.initContainerStatuses[*]}{.name}:
@@ -552,7 +654,9 @@
       register: _backup_stuck_status
       changed_when: false
       failed_when: false
-      when: not (_backup_job_finished | bool)
+      when:
+        - _backup_pod != ''
+        - not (_backup_job_finished | bool)
   always:
     # The API's default for a Job is to orphan its pod, which then
     # outlives the Job (and keeps running if the Job had not finished).
@@ -571,25 +675,40 @@
   ansible.builtin.fail:
     msg: >-
       The backup Job {{ _backup_job_name }} in namespace
-      {{ _k8s_namespace }} did not finish within 10 minutes and was
-      deleted.{{ (' Its pod was waiting: ' ~ _backup_stuck_waiting | join('; '))
-                  if _backup_stuck_waiting else '' }}
+      {{ _k8s_namespace }} {{ _backup_unfinished_summary }}{{ _backup_stuck_reason }}
   vars:
     _backup_stuck_waiting: >-
       {{ (_backup_stuck_status.stdout | default('')).splitlines()
          | map('trim') | reject('match', '^[^:]+:$') | list }}
+    _backup_job_event_lines: >-
+      {{ (_backup_job_events.stdout | default('')).splitlines()
+         | map('trim') | reject('equalto', '') | list }}
+    _backup_unfinished_summary: >-
+      {{ ('got no pod, so restic ' ~ _restic_subcommand ~ ' never started.'
+          ~ ' The Job was deleted.')
+         if not (_backup_pod_created | bool)
+         else ('did not finish within '
+               ~ (canasta_k8s_backup_timeout | default(3600)) ~ ' seconds.'
+               ~ ' The Job and its pod were deleted, so restic '
+               ~ _restic_subcommand ~ ' was stopped and did not complete.') }}
+    _backup_stuck_reason: >-
+      {{ ((' Kubernetes reported: ' ~ _backup_job_event_lines | join('; '))
+          if _backup_job_event_lines else '')
+         if not (_backup_pod_created | bool)
+         else ((' Its pod was waiting: ' ~ _backup_stuck_waiting | join('; '))
+               if _backup_stuck_waiting else '') }}
   when: not (_backup_job_finished | bool)
 
 - name: Set restic result
   ansible.builtin.set_fact:
     _restic_result:
-      stdout: "{{ _restic_log.stdout }}"
-      rc: "{{ (_backup_job_status.resources[0].status.succeeded | default(0) > 0) | ternary(0, 1) }}"
+      stdout: "{{ _restic_log.stdout | default('') }}"
+      rc: "{{ (_backup_job_succeeded | bool) | ternary(0, 1) }}"
 
 - name: Collect the database dumps that failed
   ansible.builtin.set_fact:
     _backup_dump_failures: >-
-      {{ _restic_log.stdout.splitlines()
+      {{ (_restic_log.stdout | default('')).splitlines()
          | select('match', '^DUMP-FAILED ')
          | map('regex_replace', '^DUMP-FAILED ', '')
          | map('trim') | list }}

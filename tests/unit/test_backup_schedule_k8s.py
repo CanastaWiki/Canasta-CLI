@@ -362,8 +362,8 @@ class TestOnDemandBackupCapturesDB:
             sf = task.get("ansible.builtin.set_fact") or task.get("set_fact")
             if isinstance(sf, dict) and "_is_backup_op" in sf:
                 expr = sf["_is_backup_op"]
-                assert "'backup' in backup_args" in expr, (
-                    "_is_backup_op should test for 'backup' in backup_args"
+                assert "_restic_subcommand == 'backup'" in expr, (
+                    "_is_backup_op should test the restic subcommand"
                 )
                 return
         raise AssertionError(
