@@ -36,13 +36,25 @@
 
 - name: Set git user.name on target host
   ansible.builtin.command:
-    cmd: "git config --global user.name '{{ git_user_name }}'"
+    argv:
+      - git
+      - config
+      - --global
+      - user.name
+      - "{{ git_user_name }}"
+    expand_argument_vars: false
   changed_when: true
   when: git_user_name is defined and git_user_name != ''
 
 - name: Set git user.email on target host
   ansible.builtin.command:
-    cmd: "git config --global user.email '{{ git_user_email }}'"
+    argv:
+      - git
+      - config
+      - --global
+      - user.email
+      - "{{ git_user_email }}"
+    expand_argument_vars: false
   changed_when: true
   when: git_user_email is defined and git_user_email != ''
 
@@ -287,6 +299,8 @@
 
 - name: Re-clone healed submodules
   ansible.builtin.include_tasks: "_update_submodules.yml"
+  vars:
+    submodule_git_env: "{{ gitops_git_env }}"
 
 # Joining overlays the repo's tracked files onto a working tree that
 # already holds this host's instance files. A blind `git checkout HEAD
@@ -574,6 +588,8 @@
 # --- Step 10: Update submodules ---
 - name: Update submodules
   ansible.builtin.include_tasks: "_update_submodules.yml"
+  vars:
+    submodule_git_env: "{{ gitops_git_env }}"
 
 # --- Step 11: Commit and push ---
 # Stage only the join's own artifacts — the host registration and this host's

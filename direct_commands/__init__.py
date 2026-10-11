@@ -31,6 +31,7 @@ on the package alone wouldn't propagate.
 from ._helpers import (  # noqa: F401
     DIRECT_COMMANDS,
     FALLBACK,
+    AnsibleHandoff,
     is_direct_command,
     register,
     run_direct_command,

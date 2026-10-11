@@ -112,6 +112,7 @@
   ansible.builtin.command:
     cmd: "git submodule update --init --recursive"
     chdir: "{{ instance_path }}"
+  environment: "{{ gitops_git_env }}"
   changed_when: true
 
 - name: Report submodules fixed

@@ -42,6 +42,14 @@ def _load_vars(name):
         return yaml.safe_load(f)
 
 
+class AnsibleHandoff:
+    """Returned by a handler that has done its own part and wants the run
+    finished by another command's playbook, with the same arguments."""
+
+    def __init__(self, command):
+        self.command = command
+
+
 def is_direct_command(command_name):
     return command_name in DIRECT_COMMANDS
 
@@ -656,6 +664,33 @@ def _sync_compose_profiles(inst):
                 )
 
     return env
+
+
+_CROWDSEC_BIND_FILES = ("acquis.yaml", "whitelists.yaml")
+
+
+def _crowdsec_setup_pending(inst, env):
+    """True when CrowdSec is enabled and the Ansible start still has
+    CrowdSec setup to do: no bouncer key is stored, or a file the crowdsec
+    container bind-mounts is not a regular file yet (Docker would create a
+    directory in its place). Mirrors the conditions under which
+    ensure_crowdsec_config.yml and crowdsec_autoenroll.yml change anything.
+    """
+    if not env:
+        return False
+    if (env.get("CANASTA_ENABLE_CROWDSEC") or "false").strip().lower() != "true":
+        return False
+    if not (env.get("CROWDSEC_BOUNCER_API_KEY") or "").strip():
+        return True
+    path = inst.get("path", "")
+    host = inst.get("host") or "localhost"
+    files = [os.path.join(path, "config", "crowdsec", f)
+             for f in _CROWDSEC_BIND_FILES]
+    if _is_localhost(host):
+        return not all(os.path.isfile(f) for f in files)
+    rc, _ = _ssh_run(
+        host, " && ".join("test -f %s" % _shell_quote(f) for f in files))
+    return rc != 0
 
 
 def _remove_podman_service_containers(inst, services):
