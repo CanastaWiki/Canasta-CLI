@@ -3393,8 +3393,9 @@ class TestBackupList:
                 "orchestrator": "compose",
             }),
         )
-        monkeypatch.setattr(direct_commands._helpers, "_read_env_file",
-            lambda *a: {"RESTIC_REPOSITORY": "s3:s3.amazonaws.com/bucket"},
+        monkeypatch.setattr(direct_commands._helpers, "_read_env_content",
+            lambda *a: "RESTIC_REPOSITORY=s3:s3.amazonaws.com/bucket\n"
+                       "RESTIC_PASSWORD=pw\n",
         )
         monkeypatch.setattr(
             subprocess, "run",
@@ -3416,8 +3417,9 @@ class TestBackupList:
                 "orchestrator": "compose",
             }),
         )
-        monkeypatch.setattr(direct_commands._helpers, "_read_env_file",
-            lambda *a: {"RESTIC_REPOSITORY": "s3:s3.amazonaws.com/bucket"},
+        monkeypatch.setattr(direct_commands._helpers, "_read_env_content",
+            lambda *a: "RESTIC_REPOSITORY=s3:s3.amazonaws.com/bucket\n"
+                       "RESTIC_PASSWORD=pw\n",
         )
         monkeypatch.setattr(
             subprocess, "run",
@@ -3450,8 +3452,9 @@ class TestBackupList:
                 "orchestrator": "compose",
             }),
         )
-        monkeypatch.setattr(direct_commands._helpers, "_read_env_file",
-            lambda *a: {"RESTIC_REPOSITORY": "s3:s3.amazonaws.com/bucket"},
+        monkeypatch.setattr(direct_commands._helpers, "_read_env_content",
+            lambda *a: "RESTIC_REPOSITORY=s3:s3.amazonaws.com/bucket\n"
+                       "RESTIC_PASSWORD=pw\n",
         )
         monkeypatch.setattr(
             subprocess, "run",
@@ -3467,6 +3470,77 @@ class TestBackupList:
         assert rc == 0
         assert capsys.readouterr().err == "", (
             "a successful listing should not print stderr chatter")
+
+    def _list_with_env(self, monkeypatch, env, host=None):
+        inst = {"path": "/srv/test", "orchestrator": "compose"}
+        if host:
+            inst["host"] = host
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
+            lambda args: ("test", inst))
+        monkeypatch.setattr(direct_commands._helpers, "_read_env_content",
+            lambda *a: env)
+        calls = []
+
+        def fake_run(argv, **kw):
+            calls.append((argv, kw))
+            return type("R", (), {"returncode": 0, "stdout": "abc123\n",
+                                  "stderr": ""})()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        rc = direct_commands.cmd_backup_list(
+            type("Args", (), {"id": "test"})())
+        return rc, calls
+
+    def test_missing_password_fails_before_restic(self, monkeypatch, capsys):
+        rc, calls = self._list_with_env(
+            monkeypatch, "RESTIC_REPOSITORY=/backups/repo\n")
+        assert rc == 1
+        assert calls == []
+        assert ("RESTIC_REPOSITORY and RESTIC_PASSWORD must be set in .env."
+                in capsys.readouterr().err)
+
+    def test_missing_repository_fails_before_restic(self, monkeypatch, capsys):
+        rc, calls = self._list_with_env(monkeypatch, "RESTIC_PASSWORD=pw\n")
+        assert rc == 1
+        assert calls == []
+
+    def test_local_repo_directory_is_created(self, monkeypatch):
+        rc, calls = self._list_with_env(
+            monkeypatch,
+            "RESTIC_REPOSITORY=/backups/repo\nRESTIC_PASSWORD=pw\n")
+        assert rc == 0
+        cmd = calls[0][0][-1]
+        assert cmd.startswith("mkdir -p -m 0755 '/backups/repo' || exit; ")
+        assert "-v '/backups/repo':'/backups/repo'" in cmd
+
+    def test_remote_repo_creates_no_directory(self, monkeypatch):
+        rc, calls = self._list_with_env(
+            monkeypatch,
+            "RESTIC_REPOSITORY=s3:s3.amazonaws.com/b\nRESTIC_PASSWORD=pw\n")
+        assert rc == 0
+        assert "mkdir" not in calls[0][0][-1]
+
+    def test_quoted_and_crlf_env_warns(self, monkeypatch, capsys):
+        rc, _ = self._list_with_env(
+            monkeypatch,
+            'RESTIC_REPOSITORY=s3:x/b\r\nRESTIC_PASSWORD="pw"\r\n')
+        assert rc == 0
+        err = capsys.readouterr().err
+        assert "quoted values (RESTIC_PASSWORD)" in err
+        assert "CRLF line endings" in err
+
+    def test_remote_run_gets_the_restic_timeout(self, monkeypatch):
+        from direct_commands import backup as backup_cmd
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_ssh_target",
+            lambda host: host)
+        rc, calls = self._list_with_env(
+            monkeypatch,
+            "RESTIC_REPOSITORY=s3:x/b\nRESTIC_PASSWORD=pw\n",
+            host="prod1.example.com")
+        assert rc == 0
+        assert calls[0][0][0] == "ssh"
+        assert calls[0][1]["timeout"] == backup_cmd._RESTIC_TIMEOUT
+        assert backup_cmd._RESTIC_TIMEOUT > 30
 
 
 # ---------------------------------------------------------------------------
