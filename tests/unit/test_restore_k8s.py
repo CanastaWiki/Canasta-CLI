@@ -20,7 +20,7 @@ import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 RESTORE = os.path.join(
-    REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml")
+    REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml")
 BACKUP = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_run_backup.yml")
 
@@ -71,7 +71,7 @@ def test_restore_brings_back_user_dirs_to_host():
 
 def test_restore_covers_every_dir_the_backup_captures():
     # Parity guard: every directory the k8s backup mounts under
-    # /currentsnapshot must be restored by restore_k8s. This is the class of
+    # /currentsnapshot must be restored by k8s_restore_instance. This is the class of
     # bug that silently dropped images + extensions/skins/public_assets on
     # restore — the backup saved them, but restore never brought them back.
     captured = set(re.findall(r"/currentsnapshot/([A-Za-z_]+)", _text(BACKUP)))
@@ -85,6 +85,6 @@ def test_restore_covers_every_dir_the_backup_captures():
     restore_logic = yaml.safe_dump(_tasks())
     missing = [d for d in captured if d not in restore_logic]
     assert not missing, (
-        "k8s backup captures %s but restore_k8s never restores %s — restore "
+        "k8s backup captures %s but k8s_restore_instance never restores %s — restore "
         "would silently drop it (the images/extensions/skins/public_assets "
         "restore gap). Every captured dir must be restored." % (captured, missing))

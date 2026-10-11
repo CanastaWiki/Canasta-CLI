@@ -22,7 +22,7 @@ from direct_commands import _helpers, info  # noqa: E402
 RESTORE = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "restore.yml")
 RESTORE_INSTANCE = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "restore_instance.yml")
-RESTORE_K8S = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml")
+RESTORE_K8S = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml")
 MARKER_TASKS = os.path.join(
     REPO_ROOT, "roles", "backup", "tasks", "_restore_marker.yml")
 MARKER_VARS = os.path.join(REPO_ROOT, "vars", "restore_marker.yml")
@@ -136,7 +136,8 @@ class TestTheKubernetesRestoreMarksItsPhases:
     def test_the_marks_use_the_marker_tasks(self):
         for phase in ("databases", "secrets"):
             task = _named(RESTORE_K8S, "Mark the %s phase" % phase)
-            assert task["ansible.builtin.include_tasks"] == "_restore_marker.yml"
+            assert task["ansible.builtin.include_tasks"].strip().endswith(
+                "/roles/backup/tasks/_restore_marker.yml")
             assert task["vars"]["restore_marker_phase"] == phase
 
     def test_the_secrets_phase_is_marked_only_when_there_are_secrets(self):

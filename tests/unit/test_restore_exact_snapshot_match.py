@@ -8,9 +8,11 @@ import os
 
 import yaml
 
+from _k8s_restore_copy import resolve_copy_task
+
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 RESTORE_K8S = os.path.join(
-    REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+    REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml",
 )
 
 
@@ -22,7 +24,7 @@ def _tasks():
 def _task(name_substr):
     for t in _tasks():
         if name_substr in (t.get("name") or ""):
-            return t
+            return resolve_copy_task(t)
     raise AssertionError("task %r not found" % name_substr)
 
 

@@ -27,7 +27,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
 SITES = (
     os.path.join("roles", "orchestrator", "tasks", "run_backup.yml"),
     os.path.join("direct_commands", "backup.py"),
-    os.path.join("roles", "backup", "tasks", "restore_k8s.yml"),
+    os.path.join("roles", "orchestrator", "tasks", "k8s_restore_instance.yml"),
     os.path.join("roles", "orchestrator", "tasks", "k8s_run_backup.yml"),
 )
 

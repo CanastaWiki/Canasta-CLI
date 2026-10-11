@@ -13,7 +13,7 @@ import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 RESTORE = os.path.join(
-    REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml")
+    REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml")
 APPLY = "Restore canasta-managed K8s Secrets from snapshot"
 FAIL = "Fail when the Secrets could not be restored"
 

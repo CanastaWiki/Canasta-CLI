@@ -19,7 +19,7 @@ import pytest
 import yaml
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-RESTORE_K8S = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml")
+RESTORE_K8S = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml")
 RESTORE_INSTANCE = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "restore_instance.yml")
 COMMON = os.path.join(REPO_ROOT, "roles", "common")

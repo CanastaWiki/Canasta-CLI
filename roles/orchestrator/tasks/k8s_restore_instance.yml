@@ -132,7 +132,8 @@
 # The restore pod writes uploaded media straight into the instance's volume,
 # so the instance starts changing here.
 - name: Mark the files phase
-  ansible.builtin.include_tasks: _restore_marker.yml
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/backup/tasks/_restore_marker.yml
   vars:
     restore_marker_phase: files
 
@@ -306,39 +307,20 @@
 # on the host.
 - name: Copy restored config to host
   when: wiki is not defined
-  ansible.builtin.shell:
-    cmd: >-
-      set -eo pipefail;
-      if kubectl exec -n {{ _k8s_namespace }} restic-restore --
-      test -d /currentsnapshot/config; then
-      rm -rf "{{ instance_path }}/config";
-      mkdir -p "{{ instance_path }}/config";
-      kubectl exec -n {{ _k8s_namespace }} restic-restore --
-      tar cf - -C /currentsnapshot/config . |
-      tar xf - --exclude=./backup -C "{{ instance_path }}/config/";
-      fi
-  args:
-    executable: /bin/bash
-  changed_when: true
+  ansible.builtin.include_tasks: _k8s_restore_copy_dir.yml
+  vars:
+    copy_src: /currentsnapshot/config
+    copy_dest: "{{ instance_path }}/config"
+    copy_tar_extract_args: --exclude=./backup
 
 # Single-wiki restore replaces only the target wiki's settings dir on the host;
 # k8s_sync_config below pushes it into the ConfigMap the pods read.
 - name: Copy restored single wiki settings to host
   when: wiki is defined
-  ansible.builtin.shell:
-    cmd: >-
-      set -eo pipefail;
-      if kubectl exec -n {{ _k8s_namespace }} restic-restore --
-      test -d /currentsnapshot/config/settings/wikis/{{ wiki }}; then
-      rm -rf "{{ instance_path }}/config/settings/wikis/{{ wiki }}";
-      mkdir -p "{{ instance_path }}/config/settings/wikis/{{ wiki }}";
-      kubectl exec -n {{ _k8s_namespace }} restic-restore --
-      tar cf - -C /currentsnapshot/config/settings/wikis/{{ wiki }} . |
-      tar xf - -C "{{ instance_path }}/config/settings/wikis/{{ wiki }}/";
-      fi
-  args:
-    executable: /bin/bash
-  changed_when: true
+  ansible.builtin.include_tasks: _k8s_restore_copy_dir.yml
+  vars:
+    copy_src: /currentsnapshot/config/settings/wikis/{{ wiki }}
+    copy_dest: "{{ instance_path }}/config/settings/wikis/{{ wiki }}"
 
 # Full restore round-trips the source host's .env; single-wiki leaves it alone.
 - name: Copy restored .env to host
@@ -389,20 +371,10 @@
 # Compose restore does.
 - name: Restore sidecar build contexts to host
   when: wiki is not defined
-  ansible.builtin.shell:
-    cmd: >-
-      set -eo pipefail;
-      if kubectl exec -n {{ _k8s_namespace }} restic-restore --
-      test -d /currentsnapshot/sidecars; then
-      rm -rf "{{ instance_path }}/sidecars";
-      mkdir -p "{{ instance_path }}/sidecars";
-      kubectl exec -n {{ _k8s_namespace }} restic-restore --
-      tar cf - -C /currentsnapshot/sidecars . |
-      tar xf - -C "{{ instance_path }}/sidecars/";
-      fi
-  args:
-    executable: /bin/bash
-  changed_when: true
+  ansible.builtin.include_tasks: _k8s_restore_copy_dir.yml
+  vars:
+    copy_src: /currentsnapshot/sidecars
+    copy_dest: "{{ instance_path }}/sidecars"
 
 # Single-wiki restore: public_assets is per-wiki, so restore only this wiki's
 # subdir to the host (extensions/skins are shared and left untouched). The
@@ -529,7 +501,8 @@
           and not (_restore_incomplete | default(false) | bool))
 
 - name: Mark the databases phase
-  ansible.builtin.include_tasks: _restore_marker.yml
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/backup/tasks/_restore_marker.yml
   vars:
     restore_marker_phase: databases
 
@@ -600,7 +573,8 @@
   no_log: true
 
 - name: Mark the secrets phase
-  ansible.builtin.include_tasks: _restore_marker.yml
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/backup/tasks/_restore_marker.yml
   vars:
     restore_marker_phase: secrets
   when: _restore_secrets_filename != ''
