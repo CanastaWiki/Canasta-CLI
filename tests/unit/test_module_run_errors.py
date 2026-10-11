@@ -4,7 +4,6 @@ import json
 import os
 
 import pytest
-import yaml
 
 import canasta_registry
 import canasta_wikis_yaml
@@ -89,11 +88,6 @@ class TestWikisYamlRunModuleErrors:
         else:
             assert open(after_path).read() == before
 
-    @pytest.mark.xfail(
-        reason="an unparseable wikis.yaml raises yaml.YAMLError out of "
-               "run_module (a module traceback) instead of fail_json",
-        raises=yaml.YAMLError, strict=True,
-    )
     def test_unparseable_wikis_yaml_fails_cleanly(self, tmp_dir):
         _write_wikis(tmp_dir, "wikis: [\n")
         _, failed, fail_msg = run_module_with_params(
@@ -149,11 +143,6 @@ class TestRegistryRunModuleErrors:
         assert failed
         assert fail_msg.startswith("Failed to read config: ")
 
-    @pytest.mark.xfail(
-        reason="a conf.json whose top level is not an object raises "
-               "TypeError out of run_module instead of fail_json",
-        raises=TypeError, strict=True,
-    )
     def test_non_object_conf_json(self, tmp_dir):
         self._config(tmp_dir, raw="[]")
         _, failed, fail_msg = run_module_with_params(

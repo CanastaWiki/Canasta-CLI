@@ -974,6 +974,7 @@ LOCKED_COMMANDS = {
     "start": "start",
     "stop": "stop",
     "restart": "restart",
+    "rebuild": "rebuild",
 }
 
 
@@ -2275,7 +2276,7 @@ def main():
             # to Ansible for the service-listing case.
             pass
 
-    acquire_instance_lock(command_name, args)
+    lock_fd = acquire_instance_lock(command_name, args)
 
     # Direct command bypass: run simple commands without Ansible overhead.
     # direct_only commands always run via direct_commands and never fall
@@ -2290,7 +2291,10 @@ def main():
             if isinstance(result, direct_commands.AnsibleHandoff):
                 command_name = result.command
                 cmd_def = cmd_index.get(command_name, {})
-                acquire_instance_lock(command_name, args)
+                # A second flock on the held lock file would refuse this
+                # run as busy, so keep the lock the first command took.
+                if lock_fd is None:
+                    acquire_instance_lock(command_name, args)
             elif result is not direct_commands.FALLBACK:
                 sys.exit(result)
             elif direct_only:

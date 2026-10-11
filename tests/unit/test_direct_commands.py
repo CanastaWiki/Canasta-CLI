@@ -636,6 +636,22 @@ class TestCleanup:
         out = capsys.readouterr().out
         assert "Removed stale entries" in out
 
+    def test_cleanup_write_failure_leaves_conf_intact(
+            self, registry, monkeypatch):
+        tmp_path, _ = registry
+        conf = tmp_path / "conf.json"
+        before = conf.read_text()
+
+        def boom(src, dst):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(os, "replace", boom)
+        with pytest.raises(OSError):
+            direct_commands._write_registry(str(conf), {})
+        assert conf.read_text() == before
+        assert [p.name for p in tmp_path.iterdir()
+                if p.name.endswith(".tmp")] == []
+
     def test_cleanup_keeps_unreachable_remote_by_default(
         self, registry_with_remote, monkeypatch, capsys
     ):
@@ -845,7 +861,7 @@ class TestGatherInstanceInfo:
             "host": "unreachable",
         }
         detail = direct_commands._gather_instance_info("x", inst)
-        assert detail["status"] == "NOT FOUND"
+        assert detail["status"] == "UNREACHABLE"
 
 
 class TestGatherAllInstances:

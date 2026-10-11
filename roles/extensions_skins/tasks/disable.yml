@@ -5,6 +5,21 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Read wikis
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _disable_wikis
+
+- name: Fail when the named wiki is not in this instance
+  ansible.builtin.fail:
+    msg: >-
+      Wiki '{{ wiki }}' is not in this instance. Present wikis:
+      {{ _disable_wikis.wiki_ids | join(', ') }}.
+  when:
+    - wiki | default('') != ''
+    - wiki not in _disable_wikis.wiki_ids
+
 - name: "Disable {{ _item_type }}"
   canasta_settings_yaml:
     instance_path: "{{ instance_path }}"

@@ -16,6 +16,7 @@ import time
 import urllib.parse
 import urllib.request
 
+import canasta_config
 import yaml
 
 
@@ -1273,10 +1274,7 @@ def _write_registry(conf_path, instances):
     else:
         data = {}
     data["Instances"] = instances
-    os.makedirs(os.path.dirname(conf_path), exist_ok=True)
-    with open(conf_path, "w") as f:
-        json.dump(data, f, indent=4)
-        f.write("\n")
+    canasta_config.write_config(os.path.dirname(conf_path), data)
 
 
 def _host_matches(stored, target):
@@ -2069,6 +2067,9 @@ def _gather_instance_info(inst_id, inst):
     ) % {"p": qpath, "d": _SENTINEL, "m": RESTORE_MARKER}
 
     rc, stdout = _ssh_run(host, script)
+    if rc == _SSH_CONN_FAILURE_RC:
+        return _make_detail(inst_id, host, path, orchestrator, "UNREACHABLE",
+                            [])
     if rc != 0 and not stdout.strip():
         return _make_detail(inst_id, host, path, orchestrator, "NOT FOUND", [])
 
@@ -2118,7 +2119,14 @@ def _gather_local(inst_id, path, orchestrator, host, docker_host=None,
 
 
 def _gather_k8s(inst_id, path, host):
-    dir_exists = _check_dir_exists(path, host)
+    if _is_localhost(host):
+        dir_exists = _check_dir_exists(path, host)
+    else:
+        rc, _ = _ssh_run(host, "test -d %s" % _shell_quote(path))
+        if rc == _SSH_CONN_FAILURE_RC:
+            return _make_detail(inst_id, host, path, "kubernetes",
+                                "UNREACHABLE", [])
+        dir_exists = rc == 0
     wikis = _read_wikis(path, host) if dir_exists else []
 
     if not dir_exists:

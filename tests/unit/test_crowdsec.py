@@ -1768,13 +1768,14 @@ class TestBouncerEnrollForceGuard:
         with open(BOUNCER_ENROLL) as f:
             tasks = yaml.safe_load(f)
         task = next(
-            (t for t in tasks if t.get("name") == "Enroll the bouncer"), None
+            (t for t in tasks if t.get("name") == "Decide whether to enroll"),
+            None,
         )
-        assert task is not None, "bouncer_enroll.yml must have the enroll task"
-        return task
+        assert task is not None, "bouncer_enroll.yml must have the decision"
+        return task["ansible.builtin.set_fact"]["_crowdsec_enroll_stack"]
 
     def test_force_branch_is_gated_on_not_auto(self):
-        when = " ".join(str(self._enroll_task().get("when", "")).split())
+        when = " ".join(str(self._enroll_task()).split())
         # The force branch must be conjoined with `not bouncer_enroll_auto`.
         assert "force" in when and "bouncer_enroll_auto" in when, (
             "the enroll `when` must guard `force` with `bouncer_enroll_auto`"
@@ -1787,7 +1788,7 @@ class TestBouncerEnrollForceGuard:
     def test_no_key_and_no_bouncer_still_enroll(self):
         # The non-force re-enroll conditions must remain so a genuinely
         # un-enrolled instance (no bouncer / no stored key) still enrolls.
-        when = " ".join(str(self._enroll_task().get("when", "")).split())
+        when = " ".join(str(self._enroll_task()).split())
         assert "_crowdsec_existing" in when
         assert "_crowdsec_have_key" in when
 

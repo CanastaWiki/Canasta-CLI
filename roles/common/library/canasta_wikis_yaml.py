@@ -93,6 +93,8 @@ def read_wikis(instance_path):
         return []
     with open(path, "r") as f:
         data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise ValueError("top level is not a mapping")
     return data.get("wikis", [])
 
 
@@ -293,8 +295,15 @@ def run_module():
 
     result = {"changed": False}
 
+    def _read_wikis():
+        try:
+            return read_wikis(instance_path)
+        except (yaml.YAMLError, ValueError) as exc:
+            module.fail_json(msg="Failed to read %s: %s"
+                             % (wikis_yaml_path(instance_path), exc))
+
     if state == "read":
-        wikis = read_wikis(instance_path)
+        wikis = _read_wikis()
         result["wikis"] = wikis
         result["wiki_ids"] = get_wiki_ids(wikis)
         try:
@@ -307,7 +316,7 @@ def run_module():
         if not wiki_id:
             module.fail_json(msg="wiki_id is required for query")
             return
-        wikis = read_wikis(instance_path)
+        wikis = _read_wikis()
         result["exists"] = wiki_id_exists(wikis, wiki_id)
         for w in wikis:
             if w.get("id") == wiki_id:
@@ -349,7 +358,7 @@ def run_module():
         if err:
             module.fail_json(msg=err)
             return
-        wikis = read_wikis(instance_path)
+        wikis = _read_wikis()
         if wiki_id_exists(wikis, wiki_id):
             module.fail_json(msg="Wiki ID '%s' already exists" % wiki_id)
             return
@@ -368,7 +377,7 @@ def run_module():
         if not wiki_id:
             module.fail_json(msg="wiki_id is required for remove")
             return
-        wikis = read_wikis(instance_path)
+        wikis = _read_wikis()
         if not wiki_id_exists(wikis, wiki_id):
             module.fail_json(msg="Wiki ID '%s' not found" % wiki_id)
             return
@@ -392,7 +401,7 @@ def run_module():
         if err:
             module.fail_json(msg=err)
             return
-        wikis = read_wikis(instance_path)
+        wikis = _read_wikis()
         if not wiki_id_exists(wikis, wiki_id):
             module.fail_json(
                 msg="Wiki ID '%s' not found (present: %s)"
@@ -438,7 +447,7 @@ def run_module():
         if not port:
             module.fail_json(msg="port is required for update_port")
             return
-        wikis = read_wikis(instance_path)
+        wikis = _read_wikis()
         updated = []
         changed = False
         for w in wikis:
@@ -468,7 +477,7 @@ def run_module():
         # Strip port from old_domain for host-only comparison.
         old_colon = old_domain.rfind(":")
         old_host = old_domain[:old_colon] if old_colon != -1 else old_domain
-        wikis = read_wikis(instance_path)
+        wikis = _read_wikis()
         updated = []
         changed = False
         for w in wikis:
