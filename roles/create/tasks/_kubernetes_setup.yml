@@ -34,11 +34,36 @@
 - name: Apply default storage class
   ansible.builtin.set_fact:
     storage_class: "{{ _default_sc.value }}"
+    _storage_class_is_default: true
   when:
     - storage_class is not defined or storage_class == ''
     - _default_sc.value is defined
     - _default_sc.value is not none
     - _default_sc.value | length > 0
+
+# The default access mode belongs to the default storage class, so it applies
+# only when that class does: an explicit --storage-class (local-path, say) may
+# not support it.
+- name: Read default access mode from registry
+  canasta_registry:
+    state: get_setting
+    setting_key: defaultAccessMode
+  delegate_to: canasta_controller
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  register: _default_access_mode
+  when:
+    - _storage_class_is_default | default(false) | bool
+    - access_mode is not defined or access_mode == ''
+
+- name: Apply default access mode
+  ansible.builtin.set_fact:
+    access_mode: "{{ _default_access_mode.value }}"
+  when:
+    - _storage_class_is_default | default(false) | bool
+    - access_mode is not defined or access_mode == ''
+    - _default_access_mode.value | default('', true) | length > 0
 
 # Read external-DB configuration from .env so the values.yaml
 # template can switch db.enabled and populate externalDatabase.
