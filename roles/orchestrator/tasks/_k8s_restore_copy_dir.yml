@@ -1,0 +1,21 @@
+---
+# Replace a host directory with a directory from the restic-restore pod.
+# A snapshot without the source directory leaves the host's copy in place.
+# Input: _k8s_namespace, copy_src (path in the pod), copy_dest (host path),
+#        copy_tar_extract_args (optional extra args for the host-side tar)
+
+- name: "Copy {{ copy_src }} from the restore pod to the host"
+  ansible.builtin.shell:
+    cmd: >-
+      set -eo pipefail;
+      if kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      test -d {{ copy_src }}; then
+      rm -rf "{{ copy_dest }}";
+      mkdir -p "{{ copy_dest }}";
+      kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      tar cf - -C {{ copy_src }} . |
+      tar xf - {{ copy_tar_extract_args | default('') }} -C "{{ copy_dest }}/";
+      fi
+  args:
+    executable: /bin/bash
+  changed_when: true

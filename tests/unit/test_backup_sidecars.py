@@ -11,6 +11,8 @@ import os
 
 import yaml
 
+from _k8s_restore_copy import resolve_copy_task
+
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 CREATE = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "create.yml")
 K8S_BACKUP = os.path.join(
@@ -18,7 +20,7 @@ K8S_BACKUP = os.path.join(
 COMPOSE_RESTORE = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "restore_instance.yml")
 K8S_RESTORE = os.path.join(
-    REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml")
+    REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml")
 
 
 def _flatten(tasks):
@@ -39,7 +41,7 @@ def _tasks(path):
 def _task(path, name):
     task = next((t for t in _tasks(path) if t.get("name") == name), None)
     assert task is not None, "missing task: %s" % name
-    return task
+    return resolve_copy_task(task)
 
 
 def _when(task):

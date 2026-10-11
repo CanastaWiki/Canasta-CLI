@@ -719,7 +719,7 @@ class TestCrowdsecInspectionRoles:
     def test_inspection_command_is_orchestrator_agnostic(self, name):
         # These run on K8s too (issue #604), so they must route cscli through
         # the resolved prefix — never the hardcoded Compose invocation, which
-        # lives only in _resolve_cscli.yml. Without this, the rewritten
+        # lives only in crowdsec_cscli_prefix.yml. Without this, the rewritten
         # preflight (which no longer refuses K8s) would let them run
         # `docker compose exec` on a Kubernetes instance and fail confusingly.
         content = self._role(name)
@@ -1123,9 +1123,9 @@ class TestCrowdsecConsoleEnrollRole:
 
     def test_restarts_engine_to_apply(self):
         content = self._console()
-        assert "_restart_engine.yml" in content, (
+        assert "crowdsec_restart_engine.yml" in content, (
             "the engine must restart (via the shared, orchestrator-aware "
-            "_restart_engine include) so it picks up the console credentials"
+            "crowdsec_restart_engine include) so it picks up the console credentials"
         )
 
 
@@ -1140,8 +1140,8 @@ class TestCrowdsecReloadRole:
         Compose; the caddy pod that hosts the sidecar on K8s), via the shared
         orchestrator-aware restart include — not the whole instance."""
         content = self._reload()
-        assert "_restart_engine.yml" in content, (
-            "reload must restart the engine via the shared _restart_engine "
+        assert "crowdsec_restart_engine.yml" in content, (
+            "reload must restart the engine via the shared crowdsec_restart_engine "
             "include"
         )
 
@@ -1168,14 +1168,14 @@ class TestCrowdsecReloadRole:
         # The restart rolls the engine. On K8s (Recreate strategy) that gives
         # the caddy pod a new name, so the cscli prefix built in preflight then
         # points at a dead pod. The purge must re-resolve the prefix AFTER
-        # _restart_engine and BEFORE exec-ing cscli, or the delete targets a
+        # crowdsec_restart_engine and BEFORE exec-ing cscli, or the delete targets a
         # pod that no longer exists (issue #604).
         content = self._reload()
-        restart = content.index("_restart_engine.yml")
-        resolve = content.index("_resolve_cscli.yml")
+        restart = content.index("crowdsec_restart_engine.yml")
+        resolve = content.index("crowdsec_cscli_prefix.yml")
         delete = content.index("'cscli', 'decisions', 'delete'")
         assert restart < resolve < delete, (
-            "reload must re-include _resolve_cscli.yml after the engine "
+            "reload must re-include crowdsec_cscli_prefix.yml after the engine "
             "restart and before the purge delete, so the K8s prefix targets "
             "the post-rollout pod"
         )
@@ -1316,8 +1316,8 @@ class TestCrowdsecCapiRegistration:
 
     def test_restarts_engine_to_load_credentials(self):
         content = self._capi()
-        assert "_restart_engine.yml" in content, (
-            "the engine must restart (via the shared _restart_engine include) "
+        assert "crowdsec_restart_engine.yml" in content, (
+            "the engine must restart (via the shared crowdsec_restart_engine include) "
             "to pick up the new CAPI credentials"
         )
 
@@ -1361,7 +1361,7 @@ class TestCrowdsecRestartEngine:
 
     def _content(self):
         return _read(os.path.join(
-            REPO_ROOT, "roles", "crowdsec", "tasks", "_restart_engine.yml",
+            REPO_ROOT, "roles", "orchestrator", "tasks", "crowdsec_restart_engine.yml",
         ))
 
     def test_compose_restarts_only_the_service(self):
@@ -1382,7 +1382,7 @@ class TestCrowdsecResolveCscli:
 
     def _content(self):
         return _read(os.path.join(
-            REPO_ROOT, "roles", "crowdsec", "tasks", "_resolve_cscli.yml",
+            REPO_ROOT, "roles", "orchestrator", "tasks", "crowdsec_cscli_prefix.yml",
         ))
 
     def test_compose_prefix(self):
@@ -1408,7 +1408,7 @@ class TestCrowdsecResolveCscli:
         preflight = _read(os.path.join(
             REPO_ROOT, "roles", "crowdsec", "tasks", "_preflight.yml",
         ))
-        assert "_resolve_cscli.yml" in preflight
+        assert "crowdsec_cscli_prefix.yml" in preflight
 
 
 class TestCrowdsecPreflightK8sReadiness:

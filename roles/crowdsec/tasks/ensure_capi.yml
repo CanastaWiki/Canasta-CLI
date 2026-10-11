@@ -8,7 +8,7 @@
 # Called directly from start.yml (not via _preflight), so build the cscli
 # prefix here. Idempotent — safe to include on every start.
 - name: Build the cscli command prefix for this orchestrator
-  ansible.builtin.include_tasks: _resolve_cscli.yml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/crowdsec_cscli_prefix.yml"
 
 - name: Check whether CrowdSec is registered with the Central API
   ansible.builtin.command:
@@ -57,7 +57,7 @@
           no_log: true
 
         - name: Restart the engine so it loads the CAPI credentials
-          ansible.builtin.include_tasks: _restart_engine.yml
+          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/crowdsec_restart_engine.yml"
       rescue:
         - name: Warn that CAPI registration did not succeed
           ansible.builtin.debug:

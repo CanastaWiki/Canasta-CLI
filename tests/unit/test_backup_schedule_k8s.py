@@ -1,7 +1,7 @@
 """Structural tests for K8s backup-scheduling tasks.
 
 These exercise YAML structure rather than runtime behavior — the K8s
-backup task files (k8s_run_backup.yml, restore_k8s.yml, the shared RBAC)
+backup task files (k8s_run_backup.yml, k8s_restore_instance.yml, the shared RBAC)
 are parsed and we assert that field-name conventions and K8s-side defaults
 are in place. They guard against regressions that show up only in
 production (slow failure feedback, missing history, etc.).
@@ -148,12 +148,12 @@ class TestK8sSecretBackupRBAC:
 
 
 class TestK8sRestoreReplaysSecrets:
-    """restore_k8s.yml must apply the snapshot's secrets-<id>.yaml
+    """k8s_restore_instance.yml must apply the snapshot's secrets-<id>.yaml
     file when present, so a fresh-cluster restore brings back
     MYSQL_PASSWORD / MW_SECRET_KEY (#510)."""
 
     RESTORE_K8S = os.path.join(
-        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+        REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml",
     )
 
     def test_restore_apply_secrets_task_exists(self):
@@ -162,11 +162,11 @@ class TestK8sRestoreReplaysSecrets:
         # The task name explicitly mentions Secrets; the command pipes
         # through 'kubectl apply -f -'. Both should be present.
         assert "Restore canasta-managed K8s Secrets" in content, (
-            "restore_k8s.yml must have a task that restores the "
+            "k8s_restore_instance.yml must have a task that restores the "
             "canasta-managed Secrets from the snapshot (#510)"
         )
         assert "kubectl apply" in content, (
-            "restore_k8s.yml's secrets-restore task must use "
+            "k8s_restore_instance.yml's secrets-restore task must use "
             "'kubectl apply' so it's idempotent against an existing "
             "Secret with the same value"
         )
@@ -179,11 +179,11 @@ class TestK8sRestoreReplaysSecrets:
             content = f.read()
         # The when-guard checks for the filename being non-empty
         assert "_restore_secrets_filename" in content, (
-            "restore_k8s.yml should resolve the secrets filename "
+            "k8s_restore_instance.yml should resolve the secrets filename "
             "conditionally so pre-#510 snapshots restore cleanly"
         )
         assert "_restore_secrets_filename != ''" in content, (
-            "restore_k8s.yml's secrets-restore task must guard "
+            "k8s_restore_instance.yml's secrets-restore task must guard "
             "on the filename being non-empty (pre-#510 snapshots)"
         )
 
@@ -199,7 +199,7 @@ class TestK8sRestorePreservesCurrentDBPassword:
     snapshot's."""
 
     RESTORE_K8S = os.path.join(
-        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+        REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml",
     )
 
     def _content(self):
@@ -211,16 +211,16 @@ class TestK8sRestorePreservesCurrentDBPassword:
         # Two anchors: the k8s_info read of <id>-db-credentials, and
         # the set_fact that captures the current MYSQL_PASSWORD.
         assert "k8s_info:" in content, (
-            "restore_k8s.yml must read the cluster's current "
+            "k8s_restore_instance.yml must read the cluster's current "
             "<id>-db-credentials Secret BEFORE applying the snapshot's "
             "Secrets, so the live DB user's password can be preserved."
         )
         assert "_restore_current_mysql_pwd" in content, (
-            "restore_k8s.yml must capture the running cluster's "
+            "k8s_restore_instance.yml must capture the running cluster's "
             "MYSQL_PASSWORD into a fact for re-application post-restore"
         )
         assert "_restore_current_mysql_root_pwd" in content, (
-            "restore_k8s.yml must also capture MYSQL_ROOT_PASSWORD; "
+            "k8s_restore_instance.yml must also capture MYSQL_ROOT_PASSWORD; "
             "both DB user passwords were hashed against the running "
             "cluster's values during pod init"
         )
@@ -230,12 +230,12 @@ class TestK8sRestorePreservesCurrentDBPassword:
         # The strategic-merge patch on <id>-db-credentials with both
         # password keys, gated on the snapshot's secrets file existing.
         assert "state: patched" in content, (
-            "restore_k8s.yml must use 'state: patched' (strategic merge) "
+            "k8s_restore_instance.yml must use 'state: patched' (strategic merge) "
             "to re-apply MYSQL_PASSWORD without touching MW_SECRET_KEY "
             "in the snapshot-restored Secret"
         )
         assert "Preserve current DB password in restored Secret" in content, (
-            "restore_k8s.yml is missing the explicit preserve task — "
+            "k8s_restore_instance.yml is missing the explicit preserve task — "
             "without it, fresh-cluster restore auth-mismatches"
         )
 
@@ -280,7 +280,7 @@ class TestK8sRestoreFailsLoudlyOnResticError:
     error while still tolerating the benign xattr exit 1."""
 
     RESTORE_K8S = os.path.join(
-        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+        REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml",
     )
 
     def _content(self):
@@ -300,7 +300,7 @@ class TestK8sRestoreFailsLoudlyOnResticError:
     def test_fails_loudly_on_fatal_restic_error(self):
         content = self._content()
         assert "Fail when restic restore reported a fatal error" in content, (
-            "restore_k8s.yml must have an explicit fail task for fatal "
+            "k8s_restore_instance.yml must have an explicit fail task for fatal "
             "restic errors so a failed restore is not reported as success"
         )
         # Gated on a non-zero rc AND restic's 'Fatal:' marker, so the
@@ -317,7 +317,7 @@ class TestK8sRestoreFailsLoudlyOnResticError:
         # fall through to a false success.
         content = self._content()
         assert "Fail when the restic restore exit code is unreadable" in content, (
-            "restore_k8s.yml must abort when the exit code can't be read, "
+            "k8s_restore_instance.yml must abort when the exit code can't be read, "
             "closing the dead-pod-after-sentinel false-success window"
         )
         assert "is not match('^[0-9]+$')" in content, (
@@ -548,7 +548,7 @@ class TestK8sRestoreImportRegexNotDoubleEscaped:
     restore. Surfaced during PR #518 validation."""
 
     RESTORE_K8S = os.path.join(
-        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+        REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml",
     )
 
     def _content(self):
@@ -558,10 +558,10 @@ class TestK8sRestoreImportRegexNotDoubleEscaped:
     def test_db_dump_regex_uses_single_backslash(self):
         c = self._content()
         assert "'^db_.*\\.sql$'" in c, (
-            "restore_k8s.yml must filter dumps with `'^db_.*\\.sql$'`"
+            "k8s_restore_instance.yml must filter dumps with `'^db_.*\\.sql$'`"
         )
         assert "'^db_.*\\\\.sql$'" not in c, (
-            "restore_k8s.yml has `\\\\.sql` (double-escaped) in the "
+            "k8s_restore_instance.yml has `\\\\.sql` (double-escaped) in the "
             "dump-import regex; in YAML block scalar this becomes the "
             "regex `\\.` for 'literal backslash + any char', never "
             "matches *.sql, and the import task silently skips."
@@ -583,7 +583,7 @@ class TestK8sRestoreStalePodCleanup:
     Need to delete first."""
 
     RESTORE_K8S = os.path.join(
-        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+        REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml",
     )
 
     def test_stale_pod_cleanup_before_create(self):
@@ -604,7 +604,7 @@ class TestK8sRestoreStalePodCleanup:
             elif name == "Create restore pod":
                 create_idx = i
         assert clean_idx != -1, (
-            "restore_k8s.yml must have a stale-pod cleanup task before "
+            "k8s_restore_instance.yml must have a stale-pod cleanup task before "
             "Create restore pod (kubernetes.core.k8s state: present "
             "can't update an existing Pod)"
         )
@@ -616,13 +616,13 @@ class TestK8sRestoreStalePodCleanup:
 
 class TestK8sRestoreNoComposeRenderForK8sGitops:
     """K8s gitops uses values.template.yaml + hosts/<name>/vars.yaml,
-    not env.template. restore_k8s.yml previously invoked
+    not env.template. k8s_restore_instance.yml previously invoked
     render_compose.yml which crashes with 'File not found:
     env.template' for K8s gitops instances. The include must be
     removed or replaced with K8s-aware logic."""
 
     RESTORE_K8S = os.path.join(
-        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+        REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml",
     )
 
     def test_does_not_invoke_render_compose(self):
@@ -634,7 +634,7 @@ class TestK8sRestoreNoComposeRenderForK8sGitops:
                 if not line.lstrip().startswith("#")
             )
         assert "render_compose.yml" not in non_comment, (
-            "restore_k8s.yml must not invoke render_compose.yml — that "
+            "k8s_restore_instance.yml must not invoke render_compose.yml — that "
             "task expects env.template (Compose-only artifact) and "
             "fails for K8s gitops instances. See #521."
         )
@@ -678,7 +678,7 @@ class TestDumpSecretsStripsEphemeralMetadata:
 class TestK8sRestoreCloudBackendDoesNotMountHostPath:
     """Guard #519: cloud-backend RESTIC_REPOSITORY values (s3:...,
     b2:..., azure:..., gs:...) are URIs, not filesystem paths.
-    Pre-fix, restore_k8s.yml unconditionally mounted RESTIC_REPOSITORY
+    Pre-fix, k8s_restore_instance.yml unconditionally mounted RESTIC_REPOSITORY
     as a hostPath; for cloud URIs this failed container init with
     'no such file or directory' and the entire restore aborted.
     Only local-path repos (^/...) should get the hostPath bind.
@@ -686,7 +686,7 @@ class TestK8sRestoreCloudBackendDoesNotMountHostPath:
     use for the backup direction."""
 
     RESTORE_K8S = os.path.join(
-        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+        REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml",
     )
 
     def _content(self):
@@ -699,7 +699,7 @@ class TestK8sRestoreCloudBackendDoesNotMountHostPath:
         backup-side detection in schedule_set.yml and k8s_run_backup.yml."""
         c = self._content()
         assert "_restore_local_repo:" in c, (
-            "restore_k8s.yml must define _restore_local_repo to "
+            "k8s_restore_instance.yml must define _restore_local_repo to "
             "distinguish path-style RESTIC_REPOSITORY from URIs (#519)"
         )
         assert "is match('^/')" in c, (
@@ -714,10 +714,10 @@ class TestK8sRestoreCloudBackendDoesNotMountHostPath:
         c = self._content()
         # The conditional add tasks
         assert "Add local-repo mount when RESTIC_REPOSITORY is a path" in c, (
-            "restore_k8s.yml needs the conditional volume-mount append"
+            "k8s_restore_instance.yml needs the conditional volume-mount append"
         )
         assert "Add local-repo hostPath volume when RESTIC_REPOSITORY is a path" in c, (
-            "restore_k8s.yml needs the conditional volume append"
+            "k8s_restore_instance.yml needs the conditional volume append"
         )
         # And both gated on _restore_local_repo
         # Each conditional add should have when: _restore_local_repo
@@ -779,7 +779,7 @@ class TestK8sRestoreImportTarget:
     web pod as the operator's MYSQL_USER."""
 
     RESTORE_K8S = os.path.join(
-        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+        REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml",
     )
 
     def _tasks(self):
@@ -824,7 +824,7 @@ class TestK8sBackupLocalRepoNodeAffinity:
     RUN_BACKUP = os.path.join(
         REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_run_backup.yml")
     RESTORE = os.path.join(
-        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml")
+        REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml")
     SCHEDULE = os.path.join(
         REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_set.yml")
 
@@ -881,7 +881,7 @@ class TestBackupEnvSecretAppliedBeforeJob:
         REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_run_backup.yml",
     )
     RESTORE_K8S = os.path.join(
-        REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml",
+        REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml",
     )
 
     def test_apply_secret_task_exists_and_builds_secret(self):
@@ -909,6 +909,6 @@ class TestBackupEnvSecretAppliedBeforeJob:
         i = content.find("k8s_apply_backup_env_secret.yml")
         j = content.find("Create restore pod")
         assert 0 <= i < j, (
-            "restore_k8s.yml must apply the backup-env Secret before "
+            "k8s_restore_instance.yml must apply the backup-env Secret before "
             "creating the restore pod"
         )
