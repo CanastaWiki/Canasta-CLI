@@ -80,8 +80,10 @@ def test_remove_existence_check(wiki, wiki_ids, expected):
 
 
 def test_remove_quotes_the_database_as_an_identifier():
-    drop = next(t for t in _tasks("remove.yml")
-                if t.get("name") == "Drop wiki database")
+    block = next(t for t in _tasks("remove.yml")
+                 if t.get("name") == "Drop the wiki's databases")
+    drop = next(t for t in block["block"]
+                if t.get("name") == "Drop wiki databases")
     command = drop["vars"]["exec_command"]
-    assert "DROP DATABASE IF EXISTS `{{ wiki }}`" in command
+    assert "DROP DATABASE IF EXISTS `{{ db }}`" in command
     assert "quote" not in command.split("DROP", 1)[1]
