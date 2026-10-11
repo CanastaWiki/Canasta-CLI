@@ -61,3 +61,31 @@ class TestCreateBackupHost:
     def test_host_precedes_backup_subcommand(self):
         args = _create_backup_args()
         assert args.index("--host") < args.index("backup")
+
+
+RESTORE_INSTANCE_YML = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "tasks", "restore_instance.yml",
+)
+
+
+class TestSafetyBackupHost:
+    """The pre-restore safety snapshot shares the instance's host, so
+    `forget --keep-*` groups it with the instance's other snapshots
+    instead of keeping each one in a group of its own forever."""
+
+    def _args(self):
+        with open(RESTORE_INSTANCE_YML) as f:
+            tasks = yaml.safe_load(f)
+        for task in _walk_tasks(tasks):
+            if task.get("name") == "Run safety backup with staged files":
+                return task.get("vars", {}).get("backup_args", [])
+        raise AssertionError("restore_instance.yml has no safety backup task")
+
+    def test_host_is_instance_id(self):
+        args = self._args()
+        assert "--host" in args, args
+        assert args[args.index("--host") + 1] == STABLE_HOST
+
+    def test_host_precedes_backup_subcommand(self):
+        args = self._args()
+        assert args.index("--host") < args.index("backup")
