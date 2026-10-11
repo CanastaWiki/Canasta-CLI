@@ -57,6 +57,23 @@
          | rejectattr('rc', 'equalto', 0) | list }}
   when: _git_add_failures | length > 0
 
+- name: Check for a pull still to be applied
+  ansible.builtin.include_tasks: _gitops_apply_pending.yml
+  when: _add_has_wikis
+
+# Until the pulled commit is rendered, config/wikis.yaml still holds the
+# previous values, so capturing it would undo the pulled change.
+- name: Refuse to capture config/wikis.yaml before a pulled commit is applied
+  ansible.builtin.fail:
+    msg: >-
+      The last 'canasta gitops pull' fetched a commit but stopped before
+      applying it, so config/wikis.yaml does not reflect it yet. Fix what
+      stopped the pull, then run 'canasta gitops pull' again before
+      capturing config/wikis.yaml.
+  when:
+    - _add_has_wikis
+    - _gitops_apply_pending | bool
+
 # config/wikis.yaml: capture the literal edit into the template rather
 # than staging the rendered file.
 - name: Capture wikis.yaml edits into the gitops template

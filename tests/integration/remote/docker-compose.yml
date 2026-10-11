@@ -12,6 +12,22 @@ services:
       - canasta-test
     restart: unless-stopped
 
+  # A second host for multi-host tests. It shares the Docker socket and
+  # the test data directory with the first, but has its own sshd, its own
+  # /etc/canasta and its own registry entry on the controller.
+  remote-host-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: canasta-remote-test-2
+    ports:
+      - "2223:22"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - canasta-test
+    restart: unless-stopped
+
 networks:
   canasta-test:
     name: canasta-test
