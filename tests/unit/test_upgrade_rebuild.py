@@ -127,7 +127,7 @@ class TestRunningVsConfiguredAllInstances:
             "the running-vs-configured check must not require buildable "
             "services; it applies to every Compose instance"
         )
-        assert "compose" in when and "_images_updated" in when, (
+        assert "not (instance_is_k8s | bool)" in when and "_images_updated" in when, (
             "it must stay Compose-scoped and skip when pull already flagged "
             "an update"
         )

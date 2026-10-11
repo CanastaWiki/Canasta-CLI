@@ -7,8 +7,11 @@ edge) CADDY_AUTO_HTTPS still drives it."""
 
 import os
 
-import jinja2
 import yaml
+from ansible.parsing.dataloader import DataLoader
+from ansible.template import Templar, trust_as_template
+
+from _orchestrator import TEMPLAR_VARS
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 REWRITE_CADDY = os.path.join(
@@ -31,12 +34,12 @@ def _eval(orchestrator, caddy_auto_https):
     variables = {}
     if caddy_auto_https is not None:
         variables["CADDY_AUTO_HTTPS"] = caddy_auto_https
-    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
-    out = env.from_string(_http_only_expr()).render(
+    templar = Templar(loader=DataLoader(), variables=dict(
+        TEMPLAR_VARS,
         instance_orchestrator=orchestrator,
         _env_caddy={"variables": variables},
-    ).strip()
-    return out == "True"
+    ))
+    return str(templar.template(trust_as_template(_http_only_expr()))).strip() == "True"
 
 
 def test_k8s_forces_http_only_even_without_caddy_auto_https():
@@ -58,4 +61,4 @@ def test_compose_still_driven_by_caddy_auto_https():
 
 def test_expression_references_the_orchestrator():
     # Guard against the k8s clause being dropped in a future refactor.
-    assert "instance_orchestrator" in _http_only_expr()
+    assert "instance_is_k8s" in _http_only_expr()

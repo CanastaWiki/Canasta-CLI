@@ -21,7 +21,7 @@
 
 - name: Note whether this is a Compose instance
   ansible.builtin.set_fact:
-    _gi_compose: "{{ instance_orchestrator | default('compose') not in ['kubernetes', 'k8s'] }}"
+    _gi_compose: "{{ not (instance_is_k8s | bool) }}"
 
 - name: Refresh managed ignore rules
   when:

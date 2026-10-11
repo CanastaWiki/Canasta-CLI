@@ -202,7 +202,7 @@
     - CANASTA_ENABLE_ELASTICSEARCH
     - CANASTA_ENABLE_OBSERVABILITY
   register: _create_mem_flags
-  when: orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Enforce the profile-aware host memory floor
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/check_host_memory.yml"
@@ -211,4 +211,4 @@
       {{ _create_mem_flags.results[0].value | default('false') | lower == 'true' }}
     _mem_obs_enabled: >-
       {{ _create_mem_flags.results[1].value | default('false') | lower == 'true' }}
-  when: orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)

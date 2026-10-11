@@ -88,7 +88,7 @@
     key: CADDY_AUTO_HTTPS
     value: "off"
   when: >-
-    (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+    instance_is_k8s | bool
     or (skip_tls | default(false) | bool)
 
 # Persist --staging-certs as CANASTA_STAGING_CERTS so all TLS-

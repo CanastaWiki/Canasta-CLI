@@ -30,6 +30,8 @@ import canasta_sidecars_yaml
 from _classifier import secret_key_regex
 from mock_ansible import run_module_with_params
 
+from _orchestrator import INSTANCE_IS_K8S_VARS
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ORCH_TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 GITOPS = os.path.join(REPO_ROOT, "roles", "gitops")
@@ -342,7 +344,7 @@ def _play(tmp_path, inst, tasks, orchestrator="compose"):
         "connection": "local",
         "gather_facts": False,
         "vars": {"instance_path": str(inst), "canasta_root": REPO_ROOT,
-                 "instance_orchestrator": orchestrator,
+                 "instance_orchestrator": orchestrator, **INSTANCE_IS_K8S_VARS,
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_vars": {"file": CLASSIFICATION}}]
         + tasks,

@@ -11,7 +11,7 @@
       --filter label=com.docker.compose.service=web
       --format {% raw %}{{.ID}}{% endraw %}
     _check_chdir: "{{ instance_path }}"
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Build K8s check command
   ansible.builtin.set_fact:
@@ -20,9 +20,7 @@
       -n canasta-{{ instance_id }}
       -o jsonpath={.status.readyReplicas}
     _check_chdir: null
-  when: >-
-    instance_orchestrator | default('compose')
-    in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
 
 - name: Check if web is running
   ansible.builtin.command:

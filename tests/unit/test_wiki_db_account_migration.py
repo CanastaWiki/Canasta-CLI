@@ -22,6 +22,8 @@ sys.path.insert(0, REPO_ROOT)
 
 from direct_commands import _helpers  # noqa: E402
 
+from _orchestrator import TEMPLAR_VARS
+
 UPGRADE = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks")
 MIGRATE = os.path.join(UPGRADE, "migrate_wiki_db_account.yml")
 DEFAULTS = os.path.join(REPO_ROOT, "roles", "config", "defaults", "main.yml")
@@ -55,7 +57,8 @@ class TestWhoIsMoved:
                       "Decide whether to move MediaWiki to its own database account")
         return _render(task["ansible.builtin.set_fact"]["_mig_db_account"],
                        _mig_db_env={"variables": env},
-                       instance_orchestrator=orchestrator, _was_running=running)
+                       instance_orchestrator=orchestrator, _was_running=running,
+                       **TEMPLAR_VARS)
 
     def test_a_running_root_instance_is_moved(self):
         assert self._decide({"WIKI_DB_USER": "root"}) is True

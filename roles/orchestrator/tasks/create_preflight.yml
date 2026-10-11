@@ -9,11 +9,8 @@
 # stale-state check (it must confirm kubectl reachability immediately
 # before it) and reused by the storage-setup playbooks — so there is no
 # Kubernetes branch here.
-#
-# At this stage the raw extra-var `orchestrator` is authoritative; the
-# `instance_orchestrator` fact isn't set until later in create.
 - name: Compose create pre-flight checks
-  when: orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
   block:
     # Auto-detect rootless container socket on the target before the
     # first docker call fires. Only runs when the operator didn't pass

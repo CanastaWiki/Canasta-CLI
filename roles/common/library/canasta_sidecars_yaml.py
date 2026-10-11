@@ -58,6 +58,7 @@ import os
 import yaml
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.canasta_config import is_k8s_orchestrator
 from ansible.module_utils.canasta_sidecar_render import (
     secret_classifier,
     validate_k8s_secret_refs,
@@ -221,8 +222,7 @@ def run_module():
                         % sidecar.get("name"))
                     return
         err = validate_sidecars(incoming)
-        orchestrator = module.params.get("orchestrator") or "compose"
-        if not err and orchestrator != "compose":
+        if not err and is_k8s_orchestrator(module.params.get("orchestrator")):
             regex = module.params.get("secret_key_regex")
             if not regex:
                 module.fail_json(

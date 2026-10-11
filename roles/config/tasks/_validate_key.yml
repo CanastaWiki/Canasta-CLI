@@ -44,7 +44,7 @@
         3. Restart the wiki pods so they pick up the new value:
              canasta restart -i {{ id | default('<id>') }}
   when:
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - instance_is_k8s | bool
     - _config_key in ['MYSQL_PASSWORD', 'WIKI_DB_PASSWORD', 'MYSQL_ROOT_PASSWORD', 'MW_SECRET_KEY']
 
 # Listening ports are a Compose-only concept. On Kubernetes the Ingress
@@ -65,7 +65,7 @@
       To expose the wiki on a different external port, configure it at the
       load balancer or Ingress controller in front of the cluster.
   when:
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - instance_is_k8s | bool
     - _config_key in ['HTTP_PORT', 'HTTPS_PORT']
 
 # CADDY_AUTO_HTTPS is Compose-only for the same reasons as the ports above.
@@ -83,7 +83,7 @@
       TLS for a Kubernetes instance is handled by the Ingress and
       cert-manager, not by Caddy.
   when:
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - instance_is_k8s | bool
     - _config_key == 'CADDY_AUTO_HTTPS'
 
 - name: Check if key is recognized

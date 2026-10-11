@@ -45,6 +45,7 @@ import canasta_config  # noqa: E402
 from direct_commands._helpers import (  # noqa: E402
     forward_agent_option,
     _compose_profile_args,
+    _is_k8s,
     _is_local_target,
     _read_env,
     _resolve_compose_cmd,
@@ -1033,10 +1034,7 @@ def orchestrator_refusal(cmd_def, command_name, orchestrator):
     allowed = cmd_def.get("orchestrators")
     if not allowed:
         return None
-    if orchestrator in ("kubernetes", "k8s"):
-        orchestrator = "kubernetes"
-    else:
-        orchestrator = orchestrator or "compose"
+    orchestrator = canasta_config.normalize_orchestrator(orchestrator) or "compose"
     if orchestrator in allowed:
         return None
     message = "Error: 'canasta %s' is only supported on %s instances." % (
@@ -1221,7 +1219,7 @@ def check_docker_mode_can_reach_runtime(args):
 
     blocked = sorted(
         k for k, v in candidates.items()
-        if v.get("orchestrator", "compose") == "compose"
+        if not _is_k8s(v)
         and v.get("host") in ("localhost", "", None)
         and _runs_under_podman(v)
     )
@@ -1411,7 +1409,6 @@ def handle_interactive_exec(args):
         return False
 
     inst = resolve_instance(getattr(args, "id", None))
-    orchestrator = inst.get("orchestrator", "compose")
 
     if not service:
         service = "web"
@@ -1423,7 +1420,7 @@ def handle_interactive_exec(args):
                    "if command -v bash >/dev/null 2>&1; then exec bash; "
                    "else exec sh; fi"]
 
-    if orchestrator in ("kubernetes", "k8s"):
+    if _is_k8s(inst):
         ns = "canasta-%s" % inst["id"]
         # With --stdin-file the exec is non-interactive: keep stdin open
         # (-i) but drop the TTY (-t), which would otherwise mangle a piped
@@ -2344,8 +2341,9 @@ def resolve_command_or_exit(parser, args, data):
 def validate_command_args(cmd_def, args):
     """Normalize and validate the parsed arguments before dispatch."""
     # Normalize orchestrator alias: k8s → kubernetes.
-    if getattr(args, "orchestrator", None) == "k8s":
-        args.orchestrator = "kubernetes"
+    if getattr(args, "orchestrator", None) is not None:
+        args.orchestrator = canasta_config.normalize_orchestrator(
+            args.orchestrator)
 
     # CLI-layer parameter validation (required_unless, orchestrator_only,
     # named regex validators). Runs before Ansible so typos fail in

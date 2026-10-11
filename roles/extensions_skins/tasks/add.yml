@@ -341,7 +341,7 @@
       ansible.builtin.include_role:
         name: orchestrator
         tasks_from: start.yml
-      when: instance_orchestrator | default('compose') not in ['kubernetes', 'k8s']
+      when: not (instance_is_k8s | bool)
 
     - name: "Enable added {{ _item_type }}"
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/enable.yml"

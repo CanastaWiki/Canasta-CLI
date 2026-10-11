@@ -14,6 +14,8 @@ import sys
 
 import yaml
 
+from _orchestrator import INSTANCE_IS_K8S_VARS
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ADD = os.path.join(REPO_ROOT, "playbooks", "add.yml")
 REMOVE = os.path.join(REPO_ROOT, "playbooks", "remove.yml")
@@ -47,7 +49,7 @@ def _run_play(tmp_path, play_vars, tasks):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": play_vars,
+        "vars": dict(INSTANCE_IS_K8S_VARS, **play_vars),
         "tasks": tasks,
     }]))
     env = dict(

@@ -15,7 +15,7 @@
   register: _set_ext_db
   when:
     - _config_key == 'MYSQL_PASSWORD'
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
 
 - name: Refuse MYSQL_PASSWORD for an external database without --force
   ansible.builtin.fail:
@@ -25,7 +25,7 @@
       rerun with --force.
   when:
     - _config_key == 'MYSQL_PASSWORD'
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
     - (_set_ext_db.value | default('', true) | lower) == 'true'
     - not (force | default(false) | bool)
 
@@ -41,7 +41,7 @@
   ansible.builtin.include_tasks: _rotate_db_password.yml
   when:
     - _config_key == 'MYSQL_PASSWORD'
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
     - (_set_ext_db.value | default('', true) | lower) != 'true'
 
 - name: Set value in .env

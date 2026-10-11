@@ -97,4 +97,4 @@ def test_upgrade_runs_the_migration_for_kubernetes():
     task = _by_name(_load(UPGRADE), "Restrict the k3s kubeconfig (Kubernetes)")
     assert task["ansible.builtin.include_tasks"].strip().endswith(
         "roles/orchestrator/tasks/k8s_kubeconfig_mode_upgrade.yml")
-    assert "kubernetes" in task["when"]
+    assert task["when"] == "instance_is_k8s | bool"

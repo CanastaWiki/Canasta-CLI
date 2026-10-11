@@ -27,7 +27,7 @@
   ansible.builtin.set_fact:
     _wiki_db_undeclared: []
     _ensure_needed: >-
-      {{ instance_orchestrator | default('compose') == 'compose'
+      {{ not (instance_is_k8s | bool)
          and (_ensure_env.variables.USE_EXTERNAL_DB | default('false')
               | string | lower) != 'true'
          and (_ensure_env.variables.WIKI_DB_USER | default('root', true)) != 'root' }}

@@ -300,7 +300,7 @@
     name: orchestrator
     tasks_from: start.yml
   when:
-    - instance_orchestrator | default('compose') not in ['kubernetes', 'k8s']
+    - not (instance_is_k8s | bool)
     - >-
       _remove_present | length > 0
       or _remove_enabled | length > 0

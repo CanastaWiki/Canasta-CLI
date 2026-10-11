@@ -137,7 +137,7 @@ class TestComposeLayering:
         render = [t for t in tasks
                   if "render_web_env.yml" in str(t.get(
                       "ansible.builtin.include_tasks", ""))]
-        assert render and "compose" in str(render[0]["when"])
+        assert render and str(render[0]["when"]) == "not (instance_is_k8s | bool)"
 
     def test_gitops_pull_renders_and_restarts_on_list_change(self):
         body = _read(os.path.join(GITOPS_TASKS, "pull_compose.yml"))

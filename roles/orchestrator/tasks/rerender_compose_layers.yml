@@ -13,12 +13,12 @@
     orchestrator: compose
     secret_key_regex: "{{ canasta_secret_key_regex }}"
   register: _sidecar_render
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Report secret variables left out of the sidecar env bridge
   ansible.builtin.include_tasks: report_bridge_omitted.yml
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Render web secret keys to a compose override layer
   ansible.builtin.include_tasks: render_web_env.yml
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)

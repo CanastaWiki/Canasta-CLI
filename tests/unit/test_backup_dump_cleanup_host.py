@@ -12,6 +12,8 @@ import sys
 import pytest
 import yaml
 
+from _orchestrator import INSTANCE_IS_K8S_VARS
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 CLEANUP = os.path.join(TASKS, "backup_cleanup_db_dumps.yml")
@@ -33,7 +35,7 @@ def _run_cleanup(tmp_path, inst, compose_command):
         "connection": "local",
         "gather_facts": False,
         "vars": {"instance_path": str(inst), "canasta_root": REPO_ROOT,
-                 "instance_orchestrator": "compose",
+                 "instance_orchestrator": "compose", **INSTANCE_IS_K8S_VARS,
                  "compose_command": compose_command,
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_tasks": CLEANUP}],

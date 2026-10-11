@@ -50,7 +50,7 @@ def test_disable_applies_the_change():
 def test_apply_is_a_no_op_on_compose():
     task = _load(os.path.join(ORCH_TASKS, "apply_config.yml"))[0]
     assert task["ansible.builtin.include_tasks"] == "k8s_apply_config.yml"
-    assert "kubernetes" in task["when"]
+    assert task["when"] == "instance_is_k8s | bool"
 
 
 def test_k8s_apply_syncs_deploys_then_waits_for_replaced_pods():

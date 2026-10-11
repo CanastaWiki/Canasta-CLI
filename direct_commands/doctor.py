@@ -736,7 +736,7 @@ def _instance_consistency_lines(inst):
     not applicable (no instance / unreadable state)."""
     if not inst:
         return []
-    if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
+    if _helpers._is_k8s(inst):
         return _k8s_config_consistency_lines(inst)
     path = inst.get("path", "")
     host = inst.get("host") or "localhost"
@@ -1017,7 +1017,7 @@ def _db_tuning_lines(inst):
         return []
     # Kubernetes ships its own my.cnf through the chart and the tuning
     # path differs; Compose is where the instance-directory file applies.
-    if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
+    if _helpers._is_k8s(inst):
         return []
     path = inst.get("path", "")
     if not path:
@@ -1131,7 +1131,7 @@ def _origin_tls_lines(inst):
     if not path:
         return []
     host = inst.get("host") or "localhost"
-    is_k8s = inst.get("orchestrator", "compose") in ("kubernetes", "k8s")
+    is_k8s = _helpers._is_k8s(inst)
     if is_k8s:
         # The ingress controller terminates TLS, not Caddy.
         port = "443"

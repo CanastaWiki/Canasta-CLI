@@ -7,4 +7,4 @@
 - name: MySQL-to-MariaDB migration (Compose only)
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/upgrade/tasks/migrations/mysql_to_mariadb.yml
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)

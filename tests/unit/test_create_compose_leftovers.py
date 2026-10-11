@@ -12,6 +12,8 @@ import sys
 
 import yaml
 
+from _orchestrator import INSTANCE_IS_K8S_VARS
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 VALIDATE = os.path.join(REPO_ROOT, "roles", "create", "tasks",
                         "_validate_inputs.yml")
@@ -43,7 +45,8 @@ def _run(tmp_path, tasks, extra_vars, env_extra=None):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": dict(extra_vars, ansible_python_interpreter=sys.executable),
+        "vars": dict(INSTANCE_IS_K8S_VARS, **extra_vars,
+                     ansible_python_interpreter=sys.executable),
         "tasks": tasks,
     }]))
     env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",

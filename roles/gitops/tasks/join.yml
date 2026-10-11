@@ -17,11 +17,11 @@
 # dedicated, integration-tested change rather than a mechanical move.
 - name: Dispatch to K8s join
   ansible.builtin.include_tasks: join_kubernetes.yml
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
 
 - name: Skip Compose join for K8s
   ansible.builtin.meta: end_play
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
 
 # --- Step 1: Validate prerequisites ---
 - name: Check git is installed
@@ -423,7 +423,7 @@
 # user now, excluding runtime dirs the containers keep writing into.
 - name: Fix operator directory ownership (rootless Podman)
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/_rootless_operator_chown.yml"
-  when: (orchestrator | default('compose')) == 'compose'
+  when: not (instance_is_k8s | bool)
 
 # --- Step 10: Update submodules ---
 - name: Update submodules

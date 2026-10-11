@@ -23,7 +23,7 @@
     chdir: "{{ instance_path }}"
   register: _list_services_compose
   changed_when: false
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Get service list (Kubernetes)
   ansible.builtin.command:
@@ -32,11 +32,11 @@
       -o jsonpath='{range .items[*]}{.metadata.labels.app\.kubernetes\.io/component}{"\n"}{end}'
   register: _list_services_k8s
   changed_when: false
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
 
 - name: Set running services output
   ansible.builtin.set_fact:
     _running_services: >-
       {{ (_list_services_compose.stdout | default(''))
-         if (instance_orchestrator | default('compose')) == 'compose'
+         if not (instance_is_k8s | bool)
          else (_list_services_k8s.stdout | default('')) }}

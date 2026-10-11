@@ -21,7 +21,7 @@
   ignore_errors: true
   when:
     - _delete_query is succeeded
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - instance_is_k8s | bool
 
 - name: Set K8s reachability fact
   ansible.builtin.set_fact:
@@ -29,7 +29,7 @@
       {{ (_k8s_reachable.rc | default(1)) == 0 }}
   when:
     - _delete_query is succeeded
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - instance_is_k8s | bool
 
 - name: Warn when K8s API is unreachable
   ansible.builtin.debug:
@@ -40,5 +40,5 @@
       cleanup (Argo CD Application, helm release, namespace).
   when:
     - _delete_query is succeeded
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - instance_is_k8s | bool
     - not _k8s_api_reachable

@@ -109,7 +109,7 @@ class TestUpgrade:
         task = _named(UPGRADE_MAIN,
                       "Limit Canasta NFS exports to the cluster's nodes (Kubernetes)")
         assert "k8s_nfs_exports_upgrade.yml" in task["ansible.builtin.include_tasks"]
-        assert "kubernetes" in task["when"]
+        assert task["when"] == "instance_is_k8s | bool"
 
     def test_only_the_exact_earlier_line_is_matched(self):
         task = _named(UPGRADE_TASKS,

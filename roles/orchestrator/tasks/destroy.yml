@@ -3,7 +3,7 @@
 # Input: instance_path, instance_orchestrator, instance_id
 
 - name: Destroy (Docker Compose)
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
   block:
     - name: Check for docker-compose.sidecars.yml
       ansible.builtin.stat:
@@ -144,7 +144,7 @@
       ignore_errors: true  # OK if volume doesn't exist
 
 - name: Destroy (Kubernetes)
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
   block:
     - name: Set K8s namespace
       ansible.builtin.set_fact:

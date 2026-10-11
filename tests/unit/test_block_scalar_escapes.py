@@ -14,6 +14,8 @@ import sys
 
 import yaml
 
+from _orchestrator import INSTANCE_IS_K8S_VARS
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
 K8S_SYNC = os.path.join(
@@ -38,7 +40,7 @@ def _run(tmp_path, tasks, variables):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": dict(variables, canasta_root=REPO_ROOT,
+        "vars": dict(INSTANCE_IS_K8S_VARS, **variables, canasta_root=REPO_ROOT,
                      ansible_python_interpreter=sys.executable),
         "tasks": tasks,
     }]))

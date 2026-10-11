@@ -41,7 +41,7 @@
           kubectl rollout status deployment/canasta-{{ instance_id }}-caddy
           -n canasta-{{ instance_id }} --timeout=300s
       changed_when: false
-      when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+      when: instance_is_k8s | bool
 
     - name: Ensure CrowdSec is registered with the Central API
       ansible.builtin.include_role:

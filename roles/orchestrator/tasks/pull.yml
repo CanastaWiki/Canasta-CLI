@@ -9,7 +9,7 @@
     state: read
     key: CANASTA_IMAGE
   register: _pull_image_env
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Get image ID before pull
   ansible.builtin.command:
@@ -17,7 +17,7 @@
   register: _pre_pull_id
   changed_when: false
   ignore_errors: true
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 # Launched detached and polled (resilient_exec): an image pull can run for
 # minutes, and a controller-side SSH reset mid-pull would otherwise abort it.
@@ -57,7 +57,7 @@
     rx_chdir: "{{ instance_path }}"
     rx_async: 1800
     rx_cmd: "{{ compose_command }} {{ _pull_profile_flags | default('') }} pull {{ _pull_compat_flags }}"
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Get image ID after pull
   ansible.builtin.command:
@@ -65,14 +65,14 @@
   register: _post_pull_id
   changed_when: false
   ignore_errors: true
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Detect image changes
   ansible.builtin.set_fact:
     _pull_changed: >-
       {{ (_pre_pull_id.stdout | default('')) !=
          (_post_pull_id.stdout | default('')) }}
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 # Kubernetes: image pulls happen automatically during helm upgrade.
 # No explicit pull needed.

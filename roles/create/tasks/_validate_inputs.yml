@@ -33,7 +33,7 @@
       MediaWiki connects to the database as root. Omit --wikidbuser or
       pass --wikidbuser root.
   when:
-    - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+    - instance_is_k8s | bool
     - (wikidbuser | default('')) not in ['', 'root']
 
 - name: Check the input files are on the controller
@@ -146,7 +146,7 @@
 # the existing volume contents, producing an unrecoverable auth mismatch.
 # Refuse upfront with a clear recovery hint.
 - name: Check for stale Compose volumes from prior failed create
-  when: (orchestrator | default('compose')) == 'compose'
+  when: not (instance_is_k8s | bool)
   block:
     - name: Probe for existing docker volumes
       ansible.builtin.command:
@@ -178,7 +178,7 @@
         - _stale_volumes.stdout | trim | length > 0
 
 - name: Kubernetes setup (validate + stale-state check + Argo CD)
-  when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
   block:
     - name: Validate Kubernetes prerequisites
       ansible.builtin.include_role:

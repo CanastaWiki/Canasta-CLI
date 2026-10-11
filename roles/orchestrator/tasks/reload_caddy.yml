@@ -24,7 +24,7 @@
 - name: Determine whether Caddy can be reloaded
   ansible.builtin.set_fact:
     _reload_caddy: >-
-      {{ (instance_orchestrator | default('compose') == 'compose')
+      {{ (not (instance_is_k8s | bool))
          and 'caddy' in (_running_services | default('') | trim).split() }}
 
 - name: Reload Caddy

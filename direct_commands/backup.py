@@ -80,9 +80,7 @@ def cmd_backup_list(args):
     inst_id, inst = _helpers._resolve_instance(args)
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
-    orchestrator = inst.get("orchestrator", "compose")
-
-    if orchestrator in ("kubernetes", "k8s"):
+    if _helpers._is_k8s(inst):
         return _helpers.FALLBACK
 
     bvol = "canasta-backup-%s" % os.path.basename(path)

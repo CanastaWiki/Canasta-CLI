@@ -7,7 +7,7 @@
 
 - name: Clean up container-owned files (Kubernetes)
   when:
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - instance_is_k8s | bool
     - _k8s_api_reachable | default(true)
   block:
     - name: Check if K8s pods are running

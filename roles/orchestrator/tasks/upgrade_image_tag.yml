@@ -21,7 +21,7 @@
 # and re-pulled on restart (image.pullPolicy: Always for build_from).
 - name: Update Kubernetes image tag in values.yaml
   when:
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - instance_is_k8s | bool
     - _upgrade_inst.instance.buildFrom | default('') == ''
   block:
     - name: Read current values.yaml
@@ -142,7 +142,7 @@
 # what separates "the CLI put this here" from "the operator did".
 - name: Update Compose image tag
   when:
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
     - _upgrade_inst.instance.buildFrom | default('') == ''
     # CANASTA_IMAGE was already read by the migration probe; reuse
     # those values instead of re-reading .env.

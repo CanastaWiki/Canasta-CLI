@@ -6,6 +6,7 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import canasta_config
 
 from . import _helpers
 from ._helpers import register
@@ -212,7 +213,7 @@ def _read_instance_image(inst_id, inst):
     # web service, K8s execs the Running web pod (mirroring `canasta exec`).
     running = None
     orchestrator = (inst.get("orchestrator") or "compose").lower()
-    if orchestrator in ("kubernetes", "k8s"):
+    if canasta_config.is_k8s_orchestrator(orchestrator):
         ns = "canasta-%s" % inst_id
         probe_cmd = (
             "pod=\"$(kubectl get pods -n %s "
@@ -469,7 +470,7 @@ def cmd_status(args):
     print("Host:         %s" % host)
     print("Orchestrator: %s" % orchestrator.upper())
 
-    if orchestrator in ("kubernetes", "k8s"):
+    if _helpers._is_k8s(inst):
         running = _helpers._check_running_k8s(inst_id, host)
         print("Status:       %s" % ("RUNNING" if running else "STOPPED"))
         _print_restore_marker(_helpers._read_restore_marker(path, host))

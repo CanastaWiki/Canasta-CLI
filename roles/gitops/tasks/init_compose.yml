@@ -360,7 +360,7 @@
 # user now, excluding runtime dirs the containers keep writing into.
 - name: Fix operator directory ownership (rootless Podman)
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/_rootless_operator_chown.yml"
-  when: (orchestrator | default('compose')) == 'compose'
+  when: not (instance_is_k8s | bool)
 
 # Verify before announcing: the message named a path the file may not be
 # at, and the loss stays invisible until a join or a rebuild needs it.

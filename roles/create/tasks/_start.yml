@@ -26,10 +26,10 @@
     # this create has not written yet. The step-14 restart re-runs start
     # too, but enrollment is idempotent (skips once the key is stored).
     crowdsec_autoenroll: false
-  when: (orchestrator | default('compose')) == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Start containers (Kubernetes)
-  when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
   block:
     # Reconcile caddy image + crowdsec.enabled from .env before deploy, so
     # a create-time `-e CANASTA_ENABLE_CROWDSEC=true` brings up the engine

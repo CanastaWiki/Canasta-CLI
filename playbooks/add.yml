@@ -287,7 +287,7 @@
 # routes new wikis via the Caddyfile regenerated above). No Compose
 # equivalent to dispatch to; kept here by design.
 - name: Update Kubernetes values.yaml domains list
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
   block:
     - name: Read current values.yaml
       ansible.builtin.slurp:

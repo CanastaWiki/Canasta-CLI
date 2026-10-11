@@ -13,6 +13,8 @@ import sys
 
 import yaml
 
+from _orchestrator import INSTANCE_IS_K8S_VARS
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
 
@@ -29,7 +31,7 @@ def _config_set(tmp_path, setting):
         "vars_files": [os.path.join(REPO_ROOT, "vars",
                                     "secret_classification.yml")],
         "vars": {"instance_path": str(inst), "canasta_root": REPO_ROOT,
-                 "instance_orchestrator": "compose",
+                 "instance_orchestrator": "compose", **INSTANCE_IS_K8S_VARS,
                  "settings": [setting], "no_restart": True,
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_role": {

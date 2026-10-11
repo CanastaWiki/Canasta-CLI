@@ -7,8 +7,8 @@
 - name: Not applicable for Compose
   ansible.builtin.debug:
     msg: "'gitops sync' is only applicable for the kubernetes orchestrator. No action taken."
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Trigger Argo CD sync
   ansible.builtin.include_tasks: k8s_argocd_sync.yml
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool

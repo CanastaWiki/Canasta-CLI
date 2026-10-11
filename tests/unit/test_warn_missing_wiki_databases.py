@@ -151,4 +151,4 @@ def test_reconcile_runs_the_check_on_compose_after_converging():
     names = [t.get("name") for t in tasks]
     [check] = _includes(RECONCILE)
     assert names.index(check["name"]) > names.index("Converge containers (sync profiles + up -d)")
-    assert check["when"] == "instance_orchestrator | default('compose') == 'compose'"
+    assert check["when"] == "not (instance_is_k8s | bool)"

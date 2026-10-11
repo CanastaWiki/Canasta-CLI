@@ -42,7 +42,7 @@
       when:
         - instance_path is defined
         - not (keep_config | default(false) | bool)
-        - (orchestrator | default('compose')) == 'compose'
+        - not (instance_is_k8s | bool)
         - compose_command | default('docker compose') is search('podman')
       ignore_errors: true  # Best-effort cleanup on failure
 
@@ -64,7 +64,7 @@
       when:
         - instance_path is defined
         - not (keep_config | default(false) | bool)
-        - (orchestrator | default('compose')) == 'compose'
+        - not (instance_is_k8s | bool)
       changed_when: true
       ignore_errors: true  # Best-effort cleanup on failure
 
@@ -73,7 +73,7 @@
         cmd: "helm uninstall canasta-{{ id }} -n canasta-{{ id }}"
       when:
         - not (keep_config | default(false) | bool)
-        - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+        - instance_is_k8s | bool
         - _create_owns_namespace | default(false) | bool
       changed_when: true
       ignore_errors: true  # Best-effort cleanup on failure
@@ -83,7 +83,7 @@
         cmd: "kubectl delete namespace canasta-{{ id }} --ignore-not-found"
       when:
         - not (keep_config | default(false) | bool)
-        - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+        - instance_is_k8s | bool
         - _create_owns_namespace | default(false) | bool
       changed_when: true
       ignore_errors: true  # Best-effort cleanup on failure

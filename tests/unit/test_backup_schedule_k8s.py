@@ -455,7 +455,7 @@ class TestOnDemandBackupCapturesDB:
             if "Dump each wiki's database group" not in name:
                 continue
             when = task.get("when", "")
-            assert "compose" in str(when).lower(), (
+            assert "not (instance_is_k8s | bool)" in when, (
                 "The 'Dump each wiki's database group' task must be gated on "
                 "the Compose orchestrator — running on K8s writes to a "
                 "transient emptyDir the restic Job can't see (#513)"

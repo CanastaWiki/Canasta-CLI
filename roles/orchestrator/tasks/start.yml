@@ -7,7 +7,7 @@
 #   recreated.
 
 - name: Start (Docker Compose)
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
   block:
     - name: Sync compose profiles
       ansible.builtin.include_tasks: sync_compose_profiles.yml
@@ -496,7 +496,7 @@
       when: crowdsec_autoenroll | default(true) | bool
 
 - name: Start (Kubernetes)
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
   block:
     - name: Set K8s namespace
       ansible.builtin.set_fact:

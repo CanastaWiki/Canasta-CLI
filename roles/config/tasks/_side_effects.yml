@@ -32,7 +32,7 @@
 # disabling never needs more memory. Compose-only host-memory check.
 - name: Enforce memory floor when enabling Elasticsearch or observability
   when:
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
     - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ENABLE_OBSERVABILITY']
     - _config_value | lower == 'true'
   block:
@@ -336,7 +336,7 @@
 # (orchestrator-specific side effect, not dispatched).
 - name: Sync COMPOSE_PROFILES / caddy image when feature flags change
   when:
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
     - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ENABLE_VARNISH',
                       'CANASTA_ENABLE_OBSERVABILITY', 'CANASTA_ENABLE_CROWDSEC',
                       'CADDY_TRUSTED_PROXIES']
@@ -350,7 +350,7 @@
 # Compose-only advisory side effect of a config change. Kept in place by design.
 - name: Note bouncer enrollment when CrowdSec is enabled without a key
   when:
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
     - _config_key == 'CANASTA_ENABLE_CROWDSEC'
     - _config_value | lower == 'true'
   block:
@@ -408,7 +408,7 @@
 # (Compose reads .env directly). Kept in place by design (not dispatched).
 - name: Propagate config key to K8s values.yaml
   when:
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - instance_is_k8s | bool
     - _config_key in ['MW_SITE_FQDN', 'CANASTA_ENABLE_VARNISH',
                       'CANASTA_ENABLE_ELASTICSEARCH',
                       'CANASTA_STAGING_CERTS', 'CANASTA_IMAGE',
@@ -526,7 +526,7 @@
     # Intrinsically K8s (cert-manager + values.yaml). Kept in place by design.
     - name: Enable TLS for K8s instance on localhost→domain change
       when:
-        - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+        - instance_is_k8s | bool
         - _new_fqdn != 'localhost'
         - _new_scheme == 'https'
       block:

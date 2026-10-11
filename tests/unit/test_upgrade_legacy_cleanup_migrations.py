@@ -99,7 +99,7 @@ class TestCronJobMigration:
         assert spec["kind"] == "CronJob"
         assert spec["name"] == "canasta-backup-{{ instance_id }}"
         assert spec["namespace"] == "canasta-{{ instance_id }}"
-        assert "kubernetes" in task["when"]
+        assert task["when"] == "instance_is_k8s | bool"
         assert task["ignore_errors"] is True
 
 

@@ -26,7 +26,7 @@
 
 # --- Compose: the crowdsec service must be running ---
 - name: Verify crowdsec service is running (Compose)
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
   block:
     - name: List running services
       ansible.builtin.command:
@@ -65,7 +65,7 @@
 
 # --- Kubernetes: the crowdsec sidecar must be Ready in the caddy pod ---
 - name: Verify crowdsec sidecar is running (Kubernetes)
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
   block:
     # Space-separated `name=ready` pairs for every container in the caddy pod,
     # e.g. "caddy=true crowdsec=true ". kubectl jsonpath has no filter
