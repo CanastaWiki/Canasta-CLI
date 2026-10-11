@@ -48,6 +48,7 @@
       when:
         - not (keep_config | default(false) | bool)
         - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+        - _create_owns_namespace | default(false) | bool
       changed_when: true
       ignore_errors: true  # Best-effort cleanup on failure
 
@@ -57,6 +58,7 @@
       when:
         - not (keep_config | default(false) | bool)
         - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+        - _create_owns_namespace | default(false) | bool
       changed_when: true
       ignore_errors: true  # Best-effort cleanup on failure
 
