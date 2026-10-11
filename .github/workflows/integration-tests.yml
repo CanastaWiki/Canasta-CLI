@@ -76,7 +76,7 @@ jobs:
             "rebuild & tools")    tests=(rebuild version doctor host-management) ;;
             *) echo "unknown core leg: $LEG" >&2; exit 1 ;;
           esac
-          .venv/bin/python tests/integration/run_tests.py "${tests[@]}"
+          .venv/bin/python tests/integration/run_tests.py --no-skip "${tests[@]}"
         timeout-minutes: 18
 
   # Podman is a supported container runtime, but every other integration job
@@ -383,7 +383,7 @@ jobs:
             "rebuild & socket")    tests=(rebuild podman-socket-runtime) ;;
             *) echo "unknown podman leg: $LEG" >&2; exit 1 ;;
           esac
-          .venv/bin/python tests/integration/run_tests.py "${tests[@]}"
+          .venv/bin/python tests/integration/run_tests.py --no-skip "${tests[@]}"
         timeout-minutes: 18
 
   integration-features:
@@ -434,7 +434,7 @@ jobs:
             "reconcile & config")    tests=(reconcile config-refresh-template crowdsec) ;;
             *) echo "unknown feature leg: $LEG" >&2; exit 1 ;;
           esac
-          .venv/bin/python tests/integration/run_tests.py "${tests[@]}"
+          .venv/bin/python tests/integration/run_tests.py --no-skip "${tests[@]}"
         timeout-minutes: 18
 
   integration-gitops:
@@ -494,7 +494,7 @@ jobs:
             "sidecars")      tests="sidecar-lifecycle sidecar-migrate" ;;
             *) echo "unknown gitops leg: $LEG" >&2; exit 1 ;;
           esac
-          sg www-data -c ".venv/bin/python tests/integration/run_tests.py $tests"
+          sg www-data -c ".venv/bin/python tests/integration/run_tests.py --no-skip $tests"
         timeout-minutes: 18
 
   integration-k8s:
@@ -537,7 +537,7 @@ jobs:
         run: ./canasta-native install k8s-cp
       - name: Run K8s tests
         run: >-
-          .venv/bin/python tests/integration/run_tests.py
+          .venv/bin/python tests/integration/run_tests.py --no-skip
           k8s-lifecycle
         timeout-minutes: 20
       # Reuse the same bootstrapped cluster (k8s-lifecycle deletes its instance
@@ -545,7 +545,7 @@ jobs:
       # adds only the build/push/pull path, not a second k3s bootstrap.
       - name: Run K8s build-from test
         run: >-
-          .venv/bin/python tests/integration/run_tests.py
+          .venv/bin/python tests/integration/run_tests.py --no-skip
           k8s-build-from
         timeout-minutes: 18
 
@@ -592,7 +592,7 @@ jobs:
         run: ./canasta-native install k8s-cp
       - name: Run K8s CrowdSec test
         run: >-
-          .venv/bin/python tests/integration/run_tests.py
+          .venv/bin/python tests/integration/run_tests.py --no-skip
           k8s-crowdsec
         timeout-minutes: 35
 
@@ -639,7 +639,7 @@ jobs:
         run: ./canasta-native install k8s-cp
       - name: Run K8s backup test
         run: >-
-          .venv/bin/python tests/integration/run_tests.py
+          .venv/bin/python tests/integration/run_tests.py --no-skip
           k8s-backup
         timeout-minutes: 20
 
