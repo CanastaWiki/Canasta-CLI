@@ -104,10 +104,9 @@
 # one (canasta_secret_key_regex) so no key can slip through a stale list.
 - name: Filter secret-bearing keys out of .env for ConfigMap embedding
   ansible.builtin.set_fact:
-    _sync_env_no_secrets: >-
-      {{ (_sync_env.content | b64decode).splitlines()
-         | reject('match', canasta_secret_key_regex)
-         | join('\n') + '\n' }}
+    _sync_env_no_secrets: "{{ (_sync_env.content | b64decode).splitlines()
+      | reject('match', canasta_secret_key_regex)
+      | join('\n') + '\n' }}"
 
 - name: Build web config data
   ansible.builtin.set_fact:
