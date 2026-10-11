@@ -161,4 +161,4 @@ def test_config_set_restarts_after_a_failure_once_the_password_changed():
     assert restart["ansible.builtin.include_role"] == {
         "name": "instance_lifecycle", "tasks_from": "restart.yml"}
     assert restart["when"] == "_db_password_rotated | default(false) | bool"
-    assert "ansible_failed_result" in report["ansible.builtin.fail"]["msg"]
+    assert "see the error above" in report["ansible.builtin.fail"]["msg"]
