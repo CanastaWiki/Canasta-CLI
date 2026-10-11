@@ -331,6 +331,17 @@ def _parse_gitops_status(stdout, instance_id):
         "",
     ]
 
+    # A pull that stopped before rendering leaves config/wikis.yaml on the
+    # previous commit; its difference from the template is the pending
+    # change, not an edit to capture.
+    pending = applied != "none" and commit != "none" and not applied.startswith(commit)
+    if pending:
+        wikis_drift = False
+        lines.append(
+            "The last pull stopped before applying commit %s. Fix what "
+            "stopped it, then run 'canasta gitops pull' again." % commit)
+        lines.append("")
+
     changes = _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift)
     if changes:
         lines.extend(changes)

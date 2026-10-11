@@ -2434,6 +2434,24 @@ class TestParseGitopsStatus:
             )
         return out
 
+    _LIVE = "wikis:\n- id: main\n  url: example.com\n  name: Main\n"
+    _TMPL = ("wikis:\n- id: main\n  url: {{wiki_url_main}}\n  name: Main\n"
+             "- id: docs\n  url: {{wiki_url_docs}}\n  name: Docs\n")
+
+    def test_unapplied_pull_is_not_reported_as_wikis_edit(self):
+        out = self._make_output(commit="def5678", applied="abc1234" + "0" * 33,
+                                wikis=self._LIVE, template=self._TMPL)
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Uncaptured config/wikis.yaml edits" not in result
+        assert "stopped before applying commit def5678" in result
+
+    def test_applied_checkout_still_reports_wikis_edit(self):
+        out = self._make_output(commit="def5678", applied="def5678" + "0" * 33,
+                                wikis=self._LIVE, template=self._TMPL)
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Uncaptured config/wikis.yaml edits" in result
+        assert "stopped before applying" not in result
+
     def test_basic_status(self):
         out = self._make_output()
         result = direct_commands._parse_gitops_status(out, "mysite")
