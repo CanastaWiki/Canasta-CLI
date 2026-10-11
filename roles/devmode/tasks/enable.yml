@@ -53,48 +53,8 @@
   when: _mw_code_dir.stat.exists
 
 - name: Extract MediaWiki code for live editing
+  ansible.builtin.include_tasks: _extract_code.yml
   when: not _mw_code_dir.stat.exists or (_mw_code_contents.files | default([]) | length == 0)
-  block:
-    - name: Create mediawiki-code directory
-      ansible.builtin.file:
-        path: "{{ instance_path }}/mediawiki-code"
-        state: directory
-        mode: "0755"
-
-    - name: Pull base image if from registry
-      ansible.builtin.command:
-        cmd: "{{ inspect_command }} pull {{ _dev_base_image }}"
-      changed_when: true
-      when: "'/' in _dev_base_image"
-
-    - name: Create temporary container for code extraction
-      ansible.builtin.command:
-        cmd: "{{ inspect_command }} create --name canasta-dev-extract {{ _dev_base_image }} sleep infinity"
-      register: _extract_container
-      changed_when: true
-
-    - name: Run create-symlinks.sh in temp container
-      ansible.builtin.command:
-        cmd: "{{ inspect_command }} start canasta-dev-extract && {{ inspect_command }} exec canasta-dev-extract /create-symlinks.sh"
-      changed_when: true
-      ignore_errors: true  # OK if script missing in image
-
-    - name: Extract code from container
-      ansible.builtin.shell:
-        cmd: >-
-          set -o pipefail;
-          {{ inspect_command }} exec canasta-dev-extract
-          tar -cf - -C /var/www/mediawiki/w . |
-          tar -xf - -C mediawiki-code/
-        chdir: "{{ instance_path }}"
-      args:
-        executable: /bin/bash
-      changed_when: true
-
-    - name: Remove temporary container
-      ansible.builtin.command:
-        cmd: "{{ inspect_command }} rm -f canasta-dev-extract"
-      changed_when: true
 
 # --- Consolidate user extensions/skins ---
 - name: Consolidate user extensions
