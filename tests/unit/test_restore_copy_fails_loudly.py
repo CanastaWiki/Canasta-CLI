@@ -9,10 +9,12 @@ import os
 
 import yaml
 
+from _k8s_restore_copy import resolve_copy_task
+
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 COMPOSE = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "restore_instance.yml")
-K8S = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml")
+K8S = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml")
 
 COMPOSE_COPY_TASKS = (
     "Copy files from volume to host",
@@ -40,7 +42,7 @@ def _flatten(tasks):
 def _task(path, name):
     with open(path) as f:
         tasks = list(_flatten(yaml.safe_load(f)))
-    return next(t for t in tasks if t.get("name") == name)
+    return resolve_copy_task(next(t for t in tasks if t.get("name") == name))
 
 
 def _container_script(cmd):

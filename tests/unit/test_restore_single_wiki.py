@@ -13,11 +13,13 @@ import os
 
 import yaml
 
+from _k8s_restore_copy import resolve_copy_task
+
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 RESTORE = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "restore.yml")
 COMPOSE = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "restore_instance.yml")
-K8S = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml")
+K8S = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml")
 
 
 def _flatten(tasks):
@@ -35,7 +37,8 @@ def _tasks(path):
 
 
 def _by_name(path, name):
-    return next((t for t in _tasks(path) if t.get("name") == name), None)
+    task = next((t for t in _tasks(path) if t.get("name") == name), None)
+    return task and resolve_copy_task(task)
 
 
 def _when(task):
@@ -89,7 +92,7 @@ def test_compose_env_password_preserve_gated_off_for_single_wiki():
         "single-wiki restore must not rewrite the shared .env")
 
 
-# --- Kubernetes (restore_k8s.yml) ---
+# --- Kubernetes (k8s_restore_instance.yml) ---
 
 def test_k8s_builds_include_filters_for_single_wiki():
     inc = _by_name(K8S, "Build restic include filters for single-wiki restore")

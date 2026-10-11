@@ -66,7 +66,7 @@
         _k8s_namespace: "canasta-{{ instance_id }}"
 
     - name: Resolve the caddy pod (hosts the crowdsec sidecar)
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_get_pod.yml"
+      ansible.builtin.include_tasks: k8s_get_pod.yml
       vars:
         _k8s_component: caddy
 

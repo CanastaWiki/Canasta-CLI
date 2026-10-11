@@ -8,7 +8,7 @@
 # The DB import replaces the tables present in the dump; tables added
 # since the snapshot (a later extension install, a MediaWiki upgrade)
 # remain. Config files are replaced outright.
-# Kubernetes: optional safety backup -> delegate to restore_k8s.yml
+# Kubernetes: optional safety backup -> delegate to k8s_restore_instance.yml
 #   (pod-based restore + DB and Secret handling) -> preserve DB password
 #   in the restored .env.
 #
@@ -620,8 +620,7 @@
     # when actually running K8s. Compose-only controllers no longer need
     # the kubernetes.core collection installed.
     - name: Restore (Kubernetes pod-based restore + DB/Secret handling)
-      ansible.builtin.include_tasks: >-
-        {{ canasta_root }}/roles/backup/tasks/restore_k8s.yml
+      ansible.builtin.include_tasks: k8s_restore_instance.yml
 
     # Full restore round-trips the source host's .env; single-wiki leaves the
     # running instance's .env (and its DB password) untouched.

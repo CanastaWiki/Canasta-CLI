@@ -2,7 +2,7 @@
 # Register CAPI + auto-enroll the CrowdSec bouncer, when CrowdSec is
 # enabled but no bouncer key is stored yet. Orchestrator-agnostic: the
 # crowdsec role tasks dispatch Compose vs k8s internally via
-# _resolve_cscli, so only the K8s sidecar-readiness wait is guarded here.
+# crowdsec_cscli_prefix, so only the K8s sidecar-readiness wait is guarded here.
 #
 # Shared by the orchestrator start path and the create first-start path so
 # every entry point brings up a fully-enforcing CrowdSec (engine +

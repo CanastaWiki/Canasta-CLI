@@ -16,11 +16,13 @@ import yaml
 
 from _gitops_flow import flow_tasks
 
+from _k8s_restore_copy import resolve_copy_task
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 GITOPS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 CONFIG = os.path.join(REPO_ROOT, "roles", "config", "tasks")
 RESTRICT = os.path.join(GITOPS, "_restrict_hosts_dir.yml")
-RESTORE_K8S = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "restore_k8s.yml")
+RESTORE_K8S = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml")
 
 
 def _load(path):
@@ -166,8 +168,9 @@ class TestRestrictWiring:
 
 class TestK8sRestoreKeepsDumpsOffHost:
     def test_full_restore_does_not_copy_config_backup(self):
-        task = next(t for t in _load(RESTORE_K8S)
-                    if t.get("name") == "Copy restored config to host")
+        task = resolve_copy_task(next(
+            t for t in _load(RESTORE_K8S)
+            if t.get("name") == "Copy restored config to host"))
         cmd = task["ansible.builtin.shell"]["cmd"]
         assert "tar xf - --exclude=./backup" in cmd
 

@@ -20,7 +20,7 @@ REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 BACKUP = os.path.join(REPO_ROOT, "roles", "backup", "tasks")
 ORCH = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 RESTORE = os.path.join(BACKUP, "restore.yml")
-RESTORE_K8S = os.path.join(BACKUP, "restore_k8s.yml")
+RESTORE_K8S = os.path.join(ORCH, "k8s_restore_instance.yml")
 RESTORE_INSTANCE = os.path.join(ORCH, "restore_instance.yml")
 RUN_BACKUP = os.path.join(ORCH, "run_backup.yml")
 
