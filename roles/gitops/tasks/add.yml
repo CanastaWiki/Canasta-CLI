@@ -18,7 +18,7 @@
   ansible.builtin.set_fact:
     _add_files: >-
       {{ (files | default('', true)).split()
-         | map('regex_replace', '^\\./', '') | list }}
+         | map('regex_replace', '^\./', '') | list }}
 
 - name: Classify the request
   ansible.builtin.set_fact:

@@ -173,9 +173,10 @@
     msg: |
       Building service '{{ item.item }}' of instance '{{ instance_id }}' failed:
 
-        {{ ((item.stderr | default('') | trim
-             or item.stdout | default('') | trim).splitlines()[-20:])
-           | join('\n') | indent(8) }}
+      {% for line in (item.stderr | default('') | trim
+                      or item.stdout | default('') | trim).splitlines()[-20:] %}
+        {{ line }}
+      {% endfor %}
   loop: "{{ _upgrade_build_results.results | default([])
             | selectattr('rc', 'defined') | rejectattr('rc', 'equalto', 0)
             | list }}"

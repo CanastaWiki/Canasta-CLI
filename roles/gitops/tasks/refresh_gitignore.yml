@@ -30,17 +30,30 @@
   vars:
     _gi_bridge: config/settings/global/00-canasta-sidecar-env.php
   block:
+    - name: Read the shipped ignore files
+      ansible.builtin.set_fact:
+        _gi_default_lines: "{{ lookup('file', canasta_root ~ '/roles/gitops/files/gitignore.default').splitlines() }}"
+        _gi_orch_lines: >-
+          {{ lookup('file', canasta_root ~ '/roles/gitops/files/gitignore.'
+                    ~ ('compose' if _gi_compose | bool else 'kubernetes')).splitlines() }}
+
     - name: Read the shipped ignore rules
       ansible.builtin.set_fact:
         _gi_shipped_rules: >-
-          {{ (lookup('file', canasta_root ~ '/roles/gitops/files/gitignore.default')
-              ~ '\n'
-              ~ lookup('file', canasta_root ~ '/roles/gitops/files/gitignore.'
-                       ~ ('compose' if _gi_compose | bool else 'kubernetes'))).splitlines()
+          {{ (_gi_default_lines + _gi_orch_lines)
              | map('trim')
              | reject('match', '^#')
              | reject('equalto', '')
              | list }}
+
+    # Earlier upgrades appended the last default rule and the first line of
+    # the orchestrator file as one line joined by a literal backslash-n.
+    - name: Remove the merged rule line earlier upgrades appended
+      ansible.builtin.lineinfile:
+        path: "{{ instance_path }}/.gitignore"
+        regexp: >-
+          ^{{ _gi_default_lines[-1] | trim | regex_escape }}\\n({{ _gi_orch_lines[0] | default('') | trim | regex_escape }})?$
+        state: absent
 
     - name: Ensure each shipped ignore rule is present
       ansible.builtin.lineinfile:
