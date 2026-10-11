@@ -11,9 +11,9 @@ Two structural invariants keep the fix in place:
     rc decision in "Report failure", so the load fails fast with the stderr and
     `rx_fail` is honored.
 
-  * import_database.yml must source the DB root password from the db
-    container's own $MYSQL_ROOT_PASSWORD env, not inline it on the command
-    line. Inlining forces `exec_no_log`, which redacts "Report failure" — so
+  * import_database.yml must source the DB password from the container's
+    own environment (db_admin.yml's MYSQL_PWD assignment), not inline it on
+    the command line. Inlining forces `exec_no_log`, which redacts "Report failure" — so
     the operator sees a censored message instead of the SQL error.
 """
 
@@ -101,9 +101,9 @@ class TestImportSurfacesError:
 
     def test_password_sourced_from_container_env(self):
         for _t, _v, cmd in self._load_commands():
-            assert "MYSQL_ROOT_PASSWORD" in cmd, (
-                "the DB load must source the password from the db container's "
-                "$MYSQL_ROOT_PASSWORD env: %r" % cmd)
+            assert "{{ _db_admin_pwd }}" in cmd, (
+                "the DB load must source the password from the container's "
+                "own env via db_admin.yml: %r" % cmd)
 
     def test_load_execs_not_no_log(self):
         for t, v, _cmd in self._load_commands():
