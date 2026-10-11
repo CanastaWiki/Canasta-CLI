@@ -18,7 +18,7 @@
 
 # --- Compose restore path ---
 - name: Restore (Compose)
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
   block:
     - name: Take safety backup before restore
       when: not (skip_safety_backup | default(false) | bool)
@@ -599,7 +599,7 @@
 
 # --- Kubernetes restore path ---
 - name: Restore (Kubernetes)
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
   block:
     # A normal backup Job: it dumps the databases and Secrets itself and
     # tags the snapshot INCOMPLETE when a dump fails. --host groups it with
