@@ -1,0 +1,59 @@
+---
+# Warn about each database config/wikis.yaml declares — a wiki's own and the
+# extra databases it lists — that this instance's database server does not
+# have. Configuration can name a wiki that has no database here: a gitops pull
+# brings in a wiki added on another host, but gitops carries configuration,
+# not databases. A server that cannot be reached, such as a stopped
+# instance's, skips the check rather than failing the caller.
+#
+# Compose only.
+# Input: instance_path, instance_id, compose_command
+
+- name: Read the databases the wikis declare
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _missing_db_wikis
+
+- name: Find where database administration runs
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/db_admin.yml"
+
+- name: List the databases on the server
+  ansible.builtin.command:
+    cmd: >-
+      {{ _db_admin_exec }} sh -c
+      '{{ _db_admin_pwd }} mariadb {{ _db_admin_args }} -N -e "SHOW DATABASES"'
+    chdir: "{{ instance_path }}"
+  register: _missing_db_list
+  changed_when: false
+  failed_when: false
+
+- name: Note that the database check was skipped
+  ansible.builtin.debug:
+    msg: >-
+      Could not reach the database server, so whether each wiki's database
+      exists was not checked.
+  when: _missing_db_list.rc != 0
+
+- name: Warn about each missing database
+  ansible.builtin.debug:
+    msg: >-
+      {% if item.1 == item.0.wiki %}WARNING: wiki '{{ item.0.wiki }}' has no
+      database on this host's database server. Import one with
+      'canasta import -i {{ instance_id }} -w {{ item.0.wiki }} -d <dump>',
+      {% else %}WARNING: database '{{ item.1 }}', which wiki
+      '{{ item.0.wiki }}' declares, is not on this host's database server.
+      Import it with
+      'canasta import -i {{ instance_id }} -w {{ item.0.wiki }} -d <dump>'
+      with its dump beside the wiki's as '<stem>.{{ item.1 }}.sql' (the
+      wiki's own database is replaced too), {% endif %}or restore it from a
+      backup snapshot that contains it with 'canasta backup restore -i
+      {{ instance_id }} -s <snapshot> -w {{ item.0.wiki }}' — a restore also
+      overwrites the wiki's settings, images and public assets with the
+      snapshot's.
+  loop: "{{ _missing_db_wikis.db_groups | subelements('databases') }}"
+  loop_control:
+    label: "{{ item.1 }}"
+  when:
+    - _missing_db_list.rc == 0
+    - item.1 not in _missing_db_list.stdout_lines
