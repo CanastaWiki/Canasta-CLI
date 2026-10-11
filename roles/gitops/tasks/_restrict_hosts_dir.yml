@@ -1,0 +1,19 @@
+---
+# hosts/ holds every host's vars.yaml, decrypted in the working tree, and git
+# writes the files it checks out with the operator's umask (usually 0644).
+# Restrict the tree to the operator after any step that lets git write it.
+# Containers never mount hosts/, so the operator is the only reader.
+# Requires: instance_path
+
+- name: Check for the hosts directory
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/hosts"
+  register: _rhd_stat
+
+- name: Restrict hosts/ to the operator
+  ansible.builtin.file:
+    path: "{{ instance_path }}/hosts"
+    state: directory
+    recurse: true
+    mode: "u=rwX,go="
+  when: _rhd_stat.stat.isdir | default(false)

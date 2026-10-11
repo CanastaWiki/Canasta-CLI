@@ -24,6 +24,18 @@
     - skip_install | default(false) | bool
     - database is defined and database != ''
 
+# The chart connects MediaWiki as root and nothing on Kubernetes creates
+# another account, so a different one would leave the wiki unable to log in.
+- name: Fail if --wikidbuser names an account other than root on Kubernetes
+  ansible.builtin.fail:
+    msg: >-
+      --wikidbuser {{ wikidbuser }} is not supported on Kubernetes, where
+      MediaWiki connects to the database as root. Omit --wikidbuser or
+      pass --wikidbuser root.
+  when:
+    - (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+    - (wikidbuser | default('')) not in ['', 'root']
+
 - name: Check the input files are on the controller
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/common/tasks/check_controller_files.yml

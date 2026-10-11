@@ -63,6 +63,18 @@ class TestEncoding:
             "CANASTA_ENABLE_VARNISH=true",
         ]
 
+    def test_strip_env_secrets_uses_the_shared_classification(self):
+        text = ("# comment\n"
+                "MW_SITE_SERVER=https://example.com\n"
+                "WIKI_DB_PASSWORD=pw\n"
+                "RESTIC_REPOSITORY=s3:bucket\n"
+                "AWS_ACCESS_KEY_ID=id\n"
+                "SMTP_HOST=mail.example.com\n")
+        assert doctor._k8s_strip_env_secrets(text) == [
+            "# comment",
+            "MW_SITE_SERVER=https://example.com",
+        ]
+
 
 # --- drift comparison -------------------------------------------------------
 

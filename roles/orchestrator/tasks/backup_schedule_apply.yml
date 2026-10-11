@@ -117,7 +117,7 @@
   ansible.builtin.set_fact:
     _cron_cmd: >-
       {{ ('{ ' + _cron_base + ' ' + _cron_purge + ' ; } ' + _cron_log)
-         | regex_replace('\\s+', ' ') | trim }}
+         | regex_replace('\s+', ' ') | trim }}
 
 # The write below only replaces an entry with THIS code path's marker
 # (#Ansible: for the cron module, # BEGIN/END for blockinfile). An entry left

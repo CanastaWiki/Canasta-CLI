@@ -178,7 +178,9 @@ class TestPull:
         block = _named(_load("pull_compose.yml"),
                        "Refuse a pull that weakens encryption")
         assert block["when"] == "_gitattributes_missing | length > 0"
-        reset, fail = block["block"]
+        reset, restrict, fail = block["block"]
+        assert "_restrict_hosts_dir.yml" in restrict[
+            "ansible.builtin.include_tasks"]
         assert reset["ansible.builtin.command"]["cmd"] == (
             "git reset --hard --quiet {{ _pull_prev_commit.stdout }}")
         assert "_gitattributes_missing" in fail["ansible.builtin.fail"]["msg"]

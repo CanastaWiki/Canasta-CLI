@@ -77,6 +77,9 @@
   changed_when: _pull_abort.rc == 0
   failed_when: false
 
+- name: Restrict the restored hosts/ tree to the operator
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_restrict_hosts_dir.yml"
+
 - name: Fail with an explanation of what blocked the pull
   ansible.builtin.fail:
     msg: |-

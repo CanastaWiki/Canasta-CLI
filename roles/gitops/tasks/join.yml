@@ -337,7 +337,9 @@
       Could not replace these tracked files while joining the gitops
       repository (permission denied):
 
-        {{ _join_blocked | join('\n        ') }}
+      {% for f in _join_blocked %}
+        {{ f }}
+      {% endfor %}
 
       They are likely owned by the container user (bind-mounted files
       under config/, such as Caddyfile.global, Caddyfile.site, or
@@ -459,13 +461,13 @@
                    recursive=True)
          | to_nice_yaml(indent=2) }}
     dest: "{{ instance_path }}/hosts/hosts.yaml"
-    mode: "0644"
+    mode: "0600"
 
 - name: Create host vars directory
   ansible.builtin.file:
     path: "{{ instance_path }}/hosts/{{ host_name }}"
     state: directory
-    mode: "0755"
+    mode: "0700"
 
 # A host's vars.yaml may already carry keys prepared in the repository before
 # this host existed, and not every per-host var is an .env key —
@@ -513,8 +515,11 @@
   ansible.builtin.copy:
     content: "{{ _join_existing_vars | combine(_join_vars) | to_nice_yaml(indent=2) }}"
     dest: "{{ instance_path }}/hosts/{{ host_name }}/vars.yaml"
-    mode: "0644"
+    mode: "0600"
   no_log: true
+
+- name: Restrict the checked-out hosts/ tree to the operator
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_restrict_hosts_dir.yml"
 
 - name: Report committed vars kept from the repository
   ansible.builtin.debug:
