@@ -2356,9 +2356,9 @@ def test_k8s_backup(inst):
     Exercises the runtime backup path that previously had only unit
     coverage: a local (hostPath) restic repo, the on-demand backup Job
     with its dump-databases init container, and the host-crontab schedule
-    lifecycle. Restore is covered by the Compose backup test; here the
-    focus is that the K8s backup Job machinery and host-crontab scheduling
-    actually run.
+    lifecycle, and a full restore: the restore pod, the pre-restore safety
+    snapshot, the database import, and restic --delete pruning the images
+    volume back to the snapshot.
     """
     result = subprocess.run(["kubectl", "cluster-info"], capture_output=True)
     if result.returncode != 0:
@@ -2402,6 +2402,60 @@ def test_k8s_backup(inst):
             "db not ready: %s\n%s" % (result.stdout, result.stderr)
         )
 
+        def web_pod():
+            result = subprocess.run(
+                ["kubectl", "rollout", "status",
+                 "deployment/canasta-%s-web" % inst.id,
+                 "-n", ns, "--timeout=300s"],
+                capture_output=True, text=True,
+            )
+            assert result.returncode == 0, (
+                "web not ready: %s\n%s" % (result.stdout, result.stderr)
+            )
+            result = subprocess.run(
+                ["kubectl", "get", "pods", "-n", ns,
+                 "-l", "app.kubernetes.io/component=web",
+                 "--field-selector=status.phase=Running",
+                 "-o", "jsonpath={.items[0].metadata.name}"],
+                capture_output=True, text=True,
+            )
+            assert result.returncode == 0 and result.stdout.strip(), (
+                "Could not find web pod: %s" % result.stderr
+            )
+            return result.stdout.strip()
+
+        def in_web(script, stdin=None):
+            # A pod from the previous rollout can still be terminating
+            # just after a restart, so a failed exec is retried.
+            for _ in range(6):
+                result = subprocess.run(
+                    ["kubectl", "exec", "-i", "-n", ns, web_pod(), "-c", "web",
+                     "--", "sh", "-c", script],
+                    input=stdin, capture_output=True, text=True,
+                )
+                if result.returncode == 0:
+                    break
+                time.sleep(10)
+            assert result.returncode == 0, (
+                "web pod command failed: %s\n%s\n%s"
+                % (script, result.stdout, result.stderr)
+            )
+            return result.stdout
+
+        page = "Restore_sentinel"
+
+        def edit_page(text):
+            in_web("cd /var/www/mediawiki/w && php maintenance/run.php edit "
+                   "--wiki=main --summary=test %s" % page, stdin=text)
+
+        def page_text():
+            return in_web("cd /var/www/mediawiki/w && php maintenance/run.php "
+                          "getText --wiki=main %s" % page).strip()
+
+        print("Creating a sentinel page...")
+        edit_page("before the snapshot")
+        assert page_text() == "before the snapshot"
+
         print("Initializing backup repository...")
         inst.run_ok("backup", "init", "-i", inst.id)
 
@@ -2412,6 +2466,64 @@ def test_k8s_backup(inst):
         output = inst.run_quiet("backup", "list", "-i", inst.id)
         assert "k8s-test-snapshot" in output, (
             "Snapshot tag not found in list output:\n%s" % output
+        )
+        snapshot_id = None
+        for line in output.splitlines():
+            if "k8s-test-snapshot" in line:
+                match = re.search(r'\b([0-9a-f]{8,})\b', line)
+                if match:
+                    snapshot_id = match.group(1)
+                    break
+        assert snapshot_id, "Could not extract snapshot ID from:\n%s" % output
+
+        print("Checking the snapshot holds the database dump...")
+        files = inst.run_quiet(
+            "backup", "files", "-i", inst.id, "-s", snapshot_id)
+        assert "db_main.sql" in files, (
+            "the wiki's dump is missing from the snapshot:\n%s" % files
+        )
+
+        print("Changing the page and adding an upload after the snapshot...")
+        edit_page("after the snapshot")
+        assert page_text() == "after the snapshot"
+        stray = "/mediawiki/images/restore-sentinel-after-snapshot.txt"
+        in_web("echo stray > %s" % stray)
+
+        print("Restoring the snapshot...")
+        inst.run_ok("backup", "restore", "-i", inst.id, "-s", snapshot_id)
+
+        print("Verifying the page came back...")
+        assert page_text() == "before the snapshot", (
+            "the restore did not bring back the page as it was in the "
+            "snapshot"
+        )
+        print("Verifying the post-snapshot upload is gone...")
+        assert in_web("test -e %s && echo present || echo absent"
+                      % stray).strip() == "absent", (
+            "a file added after the snapshot survived a full restore"
+        )
+        marker = os.path.join(inst.instance_path(),
+                              ".canasta-restore-in-progress")
+        assert not os.path.exists(marker), (
+            "the restore marker was left behind after a successful restore"
+        )
+
+        print("Checking the restore took a safety snapshot...")
+        output = inst.run_quiet("backup", "list", "-i", inst.id)
+        safety_id = None
+        for line in output.splitlines():
+            if "safety-before-restore" in line:
+                match = re.search(r'\b([0-9a-f]{8,})\b', line)
+                if match:
+                    safety_id = match.group(1)
+        assert safety_id, (
+            "no safety-before-restore snapshot in list output:\n%s" % output
+        )
+
+        print("Diffing the snapshot against the safety snapshot...")
+        inst.run_ok(
+            "backup", "diff", "-i", inst.id,
+            "-s", snapshot_id, "--snapshot2", safety_id,
         )
 
         print("Setting a backup schedule (host crontab on the cp node)...")

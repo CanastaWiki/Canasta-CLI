@@ -83,12 +83,17 @@
                       'type': 'DirectoryOrCreate'}}] }}
   when: _restore_local_repo | bool
 
-# Single-wiki restore (-w) constrains restic to the target wiki's paths so it
-# never writes other wikis' media into the shared images PVC — restic does not
-# prune the restore target, so their existing files stay put. Limiting the DB
-# dump to db_<id>.sql also means the downstream DB-import and Secret-restore
-# steps self-scope: only that wiki's dump (and no secrets-*.yaml) lands in the
-# pod. A full restore uses no filter.
+# The restore runs with --delete, so the images PVC ends up matching the
+# snapshot without being emptied first. restic deletes only paths its include
+# filter selects, and the target is the pod's /, so even a full restore needs
+# a filter: /currentsnapshot keeps the deletion away from the container's own
+# files.
+#
+# Single-wiki restore (-w) constrains restic to the target wiki's paths, so it
+# neither writes nor deletes other wikis' media in the shared images PVC.
+# Limiting the DB dump to db_<id>.sql also means the downstream DB-import and
+# Secret-restore steps self-scope: only that wiki's dump (and no
+# secrets-*.yaml) lands in the pod.
 - name: Build restic include filters for single-wiki restore
   ansible.builtin.set_fact:
     _restore_include: >-
@@ -98,9 +103,9 @@
          ~ ' --include /currentsnapshot/public_assets/' ~ wiki }}
   when: wiki is defined
 
-- name: Default to a full (unfiltered) restore
+- name: Default to a full restore
   ansible.builtin.set_fact:
-    _restore_include: ""
+    _restore_include: " --include /currentsnapshot"
   when: wiki is not defined
 
 # If a previous restore failed mid-run, the restic-restore pod may
@@ -153,14 +158,6 @@
               - sh
               - -c
               - |
-                # Full restore: empty the images PVC (mounted at
-                # /currentsnapshot/images) first so it exactly matches the
-                # snapshot. Single-wiki restore must NOT — the PVC is shared
-                # across the farm's wikis and restic's --include already scopes
-                # the write to just this wiki's subdir.
-                {% if wiki is not defined %}
-                rm -rf /currentsnapshot/images/* /currentsnapshot/images/.[!.]* 2>/dev/null || true
-                {% endif %}
                 # Capture restic's rc + output so the controller can tell a
                 # real failure (restic prints "Fatal:") from the benign exit 1
                 # on EBS-backed PVCs whose selinux xattrs the overlay fs
@@ -168,7 +165,7 @@
                 # can't hang; the controller inspects the rc + log below.
                 restic --cache-dir /tmp/restic-cache \
                   restore {{ _resolved_snapshot }}{{ _restore_include }} \
-                  --target / > /tmp/restore-log 2>&1
+                  --delete --target / > /tmp/restore-log 2>&1
                 echo $? > /tmp/restore-rc
                 touch /tmp/restore-done
                 sleep 3600
@@ -199,8 +196,9 @@
   until: (_restore_pod_ready.stdout | trim) == 'True'
 
 # Poll for the restore sentinel with short `kubectl exec test -f` calls
-# instead of a single held exec that loops on the target for up to 10
-# minutes — same resilience rationale as the readiness poll above.
+# instead of a single held exec — same resilience rationale as the
+# readiness poll above. A large media library can take far longer than the
+# readiness wait, so the limit is canasta_k8s_backup_timeout (seconds).
 - name: Wait for restore to complete
   ansible.builtin.command:
     cmd: >-
@@ -209,9 +207,21 @@
   register: _restore_done
   changed_when: false
   failed_when: false
-  retries: 300
+  retries: "{{ ((canasta_k8s_backup_timeout | default(3600) | int) / 2) | int }}"
   delay: 2
   until: _restore_done.rc == 0
+
+- name: Fail when the restore did not finish in time
+  ansible.builtin.fail:
+    msg: >-
+      restic restore did not finish within
+      {{ canasta_k8s_backup_timeout | default(3600) }} seconds. It may still
+      be running in pod restic-restore in namespace {{ _k8s_namespace }},
+      writing into the images volume; follow it with 'kubectl exec -n
+      {{ _k8s_namespace }} restic-restore -- cat /tmp/restore-log'. Running
+      the restore again deletes that pod and starts over. The limit is the
+      canasta_k8s_backup_timeout variable.
+  when: _restore_done.rc != 0
 
 # Inspect restic's captured exit code and output. A non-zero rc is only
 # tolerated when it is the known xattr noise (no "Fatal:" line); anything
@@ -436,7 +446,7 @@
     _restore_import_login: >-
       {{ 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mariadb -u root'
          if (_restore_db_pod.stdout | trim)
-         else 'MYSQL_PWD="$MYSQL_PASSWORD" mariadb -h "${MYSQL_HOST:-db}" -u "${MYSQL_USER:-root}"' }}
+         else 'MYSQL_PWD="$MYSQL_PASSWORD" mariadb -h "${MYSQL_HOST:-db}" -P "${MYSQL_PORT:-3306}" -u "${MYSQL_USER:-root}"' }}
 
 - name: Get web pod name (import target for an external database)
   ansible.builtin.include_tasks: >-
@@ -452,7 +462,71 @@
       ls /currentsnapshot/config/backup/
   register: _restore_db_files
   changed_when: false
-  ignore_errors: true
+  failed_when: false
+
+- name: Fail when the DB dumps could not be listed
+  ansible.builtin.fail:
+    msg: >-
+      Could not list the database dumps in the restore pod (exit
+      {{ _restore_db_files.rc }}): {{ _restore_db_files.stderr | default('') }}.
+      No database was imported.
+  when: _restore_db_files.rc != 0
+
+# An external server can hold other tenants' databases, and a snapshot taken
+# with a broadly privileged MYSQL_USER can carry their dumps too. Only the
+# databases of the wikis in the restored wikis.yaml are imported there.
+- name: Note whether the database server is external
+  ansible.builtin.set_fact:
+    _restore_external_db: "{{ _restore_env.variables.USE_EXTERNAL_DB | default('false') | bool }}"
+
+- name: Read the restored wikis' databases (external database)
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _restore_k8s_wikis
+  when: _restore_external_db | bool
+
+- name: Choose the DB dumps to import
+  ansible.builtin.set_fact:
+    _restore_dumps_found: >-
+      {{ _restore_db_files.stdout_lines | default([])
+         | select('match', '^db_.*\.sql$') | list }}
+    _restore_dumps_allowed: >-
+      {{ _restore_k8s_wikis.db_groups | default([])
+         | map(attribute='databases') | flatten
+         | map('regex_replace', '^(.*)$', 'db_\1.sql') | list }}
+
+- name: Narrow the DB dumps to the restored wikis (external database)
+  ansible.builtin.set_fact:
+    _restore_dumps: >-
+      {{ _restore_dumps_found | select('in', _restore_dumps_allowed) | list
+         if _restore_external_db | bool
+         else _restore_dumps_found }}
+
+- name: Report DB dumps left out on an external database
+  ansible.builtin.debug:
+    msg: >-
+      Not importing {{ _restore_dumps_found | difference(_restore_dumps) | join(', ') }}:
+      the external database server is shared, and these are not databases of
+      the wikis in the restored wikis.yaml.
+  when: _restore_dumps_found | difference(_restore_dumps) | length > 0
+
+- name: Fail when the snapshot has no DB dump to import
+  ansible.builtin.fail:
+    msg: >-
+      {% if wiki is defined -%}
+      Snapshot {{ _resolved_snapshot }} has no database dump for wiki
+      '{{ wiki }}' (no db_{{ wiki }}.sql). No database was imported.
+      {%- else -%}
+      Snapshot {{ _resolved_snapshot }} has no database dumps
+      {{- ' for the wikis in its wikis.yaml' if _restore_external_db | bool else '' }}.
+      No database was imported.
+      {%- endif %}
+  when: >-
+    ('db_' ~ wiki ~ '.sql') not in _restore_dumps
+    if wiki is defined
+    else (_restore_dumps | length == 0
+          and not (_restore_incomplete | default(false) | bool))
 
 - name: Mark the databases phase
   ansible.builtin.include_tasks: _restore_marker.yml
@@ -460,7 +534,6 @@
     restore_marker_phase: databases
 
 - name: Import each DB dump
-  when: _restore_db_files is succeeded and _restore_db_files.stdout | trim | length > 0
   ansible.builtin.shell:
     cmd: >-
       set -o pipefail;
@@ -471,9 +544,7 @@
       bash -c '{{ _restore_import_login }}'
   args:
     executable: /bin/bash
-  loop: >-
-    {{ _restore_db_files.stdout_lines | default([])
-       | select('match', '^db_.*\.sql$') | list }}
+  loop: "{{ _restore_dumps }}"
   changed_when: true
   no_log: true
 
