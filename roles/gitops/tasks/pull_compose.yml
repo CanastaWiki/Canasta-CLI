@@ -446,3 +446,10 @@
       else ('Pulled ' ~ _pull_prev_commit.stdout[:7] ~ '..'
       ~ _pull_new_commit.stdout[:7] ~ '.') }}
       {{ _pull_followup | join(' ') }}
+
+# --- Step 13: Warn about wikis with no database here ---
+# Gitops carries configuration, not databases, so a wiki added on another
+# host arrives here without one.
+- name: Warn about wiki databases missing on this host
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/warn_missing_wiki_databases.yml

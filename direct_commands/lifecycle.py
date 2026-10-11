@@ -1,10 +1,6 @@
 """start, stop, restart, scale — lifecycle commands."""
 
-import os
-import subprocess
 import sys
-
-import yaml
 
 from . import _helpers
 from ._helpers import register
@@ -36,6 +32,10 @@ def cmd_start(args):
     # Ansible's start re-creates MediaWiki's own database account if the
     # database server lost it; that step has no fast-path copy.
     if _helpers._uses_wiki_db_account(env):
+        return _helpers.FALLBACK
+    # Nor do its CrowdSec steps: writing the files the crowdsec container
+    # bind-mounts, and enrolling the Caddy bouncer.
+    if _helpers._crowdsec_setup_pending(inst, env):
         return _helpers.FALLBACK
     if _helpers._check_running_compose(path, host, docker_host, compose_cmd):
         missing = _helpers._missing_profile_services(inst, compose_cmd)
@@ -133,118 +133,7 @@ def cmd_scale(args):
         print("Error: --replicas must be ≥ 1", file=sys.stderr)
         return 1
 
-    path = inst.get("path", "")
-    host = inst.get("host") or "localhost"
-    if not path:
-        print("Error: instance '%s' has no path" % inst_id, file=sys.stderr)
-        return 1
-
-    values_path = os.path.join(path, "values.yaml")
-    content = _helpers._read_remote_or_local_file(values_path, host)
-    if content is None:
-        return 1
-
-    try:
-        data = yaml.safe_load(content) or {}
-    except yaml.YAMLError as e:
-        print("Error: %s is not valid YAML: %s" % (values_path, e), file=sys.stderr)
-        return 1
-    if not isinstance(data, dict):
-        print("Error: %s does not parse as a mapping" % values_path, file=sys.stderr)
-        return 1
-
-    section = data.setdefault(component, {}) or {}
-    if not isinstance(section, dict):
-        print(
-            "Error: %s.%s is not a mapping; refusing to overwrite "
-            "scalar with a replicaCount key." % (values_path, component),
-            file=sys.stderr,
-        )
-        return 1
-    current = section.get("replicaCount")
-    if current == replicas:
-        print(
-            "%s.replicaCount is already %d; nothing to do." % (component, replicas)
-        )
-        return 0
-    section["replicaCount"] = replicas
-    data[component] = section
-
-    new_content = yaml.safe_dump(
-        data, default_flow_style=False, sort_keys=False,
-    )
-    if not _helpers._write_remote_or_local_file(values_path, host, new_content):
-        return 1
-
-    # Apply via helm upgrade. Mirror the args helm_deploy.yml uses so
-    # the result matches what `canasta start` / `canasta restart`
-    # would render — including values-configdata.yaml,
-    # values-sidecars.yaml and values-domains.yaml when present.
-    namespace = "canasta-%s" % inst_id
-    chart = os.path.join(path, "_chart")
-    configdata = os.path.join(path, "values-configdata.yaml")
-    sidecars = os.path.join(path, "values-sidecars.yaml")
-    domains = os.path.join(path, "values-domains.yaml")
-    cmd_parts = [
-        "helm upgrade --install canasta-%s %s" % (inst_id, _helpers._shell_quote(chart)),
-        "--namespace %s --create-namespace" % namespace,
-        "-f %s" % _helpers._shell_quote(values_path),
-    ]
-
-    # Probe for the optional values files the same way helm_deploy.yml does.
-    def _file_on_host(p):
-        if _helpers._is_localhost(host):
-            return os.path.isfile(p)
-        rc, _ = _helpers._ssh_run(
-            host, "test -f %s" % _helpers._shell_quote(p),
-        )
-        return rc == 0
-
-    if _file_on_host(configdata):
-        cmd_parts.append("-f %s" % _helpers._shell_quote(configdata))
-    # The sidecars layer is mandatory when present: with --reset-values,
-    # omitting it would revert to the chart default (sidecars: []) and
-    # prune every sidecar Deployment/Service/PVC.
-    if _file_on_host(sidecars):
-        cmd_parts.append("-f %s" % _helpers._shell_quote(sidecars))
-    # Last, as in helm_deploy.yml: the derived domains override the
-    # domains in values.yaml, which can be stale after create.
-    if _file_on_host(domains):
-        cmd_parts.append("-f %s" % _helpers._shell_quote(domains))
-    cmd_parts.extend(["--reset-values", "--wait", "--timeout 10m"])
-    helm_cmd = " ".join(cmd_parts)
-
-    print("Scaling %s to %d replica(s)…" % (component, replicas))
-    # Don't go through _helpers._ssh_run for the helm call — its 30s timeout is
-    # short by an order of magnitude vs helm's own `--wait --timeout
-    # 10m`, which would falsely report failure on a slow rollout.
-    # Stream the helm output through to the operator so they can see
-    # progress / diagnose stuck rollouts.
-    try:
-        if _helpers._is_localhost(host):
-            rc = subprocess.call(["bash", "-c", helm_cmd])
-        else:
-            target = _helpers._resolve_ssh_target(host)
-            argv = ["ssh"] + _helpers._ssh_args() + [target, helm_cmd]
-            # helm upgrade --install is idempotent; retry on an ssh
-            # connection-level failure (exit 255) so a transient
-            # controller-to-target reset during the up-to-10m rollout
-            # doesn't abort a deploy that may still be progressing.
-            rc = _helpers._retry_on_ssh_reset(lambda: subprocess.call(argv))
-    except OSError as e:
-        print("Error running helm upgrade: %s" % e, file=sys.stderr)
-        return 1
-    if rc != 0:
-        print(
-            "Error: helm upgrade failed; values.yaml is updated but "
-            "the deployment may not match. Re-run after fixing the "
-            "underlying error.",
-            file=sys.stderr,
-        )
-        return rc
-
-    print(
-        "Scaled %s to %d replica(s). Persisted to %s."
-        % (component, replicas, values_path)
-    )
-    return 0
+    # Persisting the count and deploying it run in Ansible, so scale
+    # shares the chart sync, domain derivation and rollout-failure
+    # reporting of every other Helm deploy.
+    return _helpers.FALLBACK
