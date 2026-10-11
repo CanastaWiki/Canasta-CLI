@@ -32,7 +32,7 @@
               pull_requests: false
           {% endfor %}
         dest: "{{ instance_path }}/hosts/hosts.yaml"
-        mode: "0644"
+        mode: "0600"
 
     # hosts.yaml is a managed gitops file (gitops init commits it; gitops
     # push reads it for each host's role). Stage it so the next 'gitops

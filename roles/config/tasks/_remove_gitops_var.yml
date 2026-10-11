@@ -45,7 +45,7 @@
       ansible.builtin.copy:
         content: "{{ _rgv_updated_vars | to_nice_yaml(indent=2) }}"
         dest: "{{ _rgv_vars_file }}"
-        mode: "0644"
+        mode: "0600"
       no_log: true
 
     - name: Remove placeholder line from env.template
