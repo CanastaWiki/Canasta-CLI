@@ -1,0 +1,31 @@
+---
+# Whether a pull moved HEAD past the last rendered commit and then stopped
+# before rendering. Until the retry renders it, the index already holds the
+# new sources while .env and config/wikis.yaml still hold the old values,
+# so comparing them would mistake the old values for local edits and write
+# them back over the pulled change.
+#
+# Input: instance_path. Output: _gitops_apply_pending.
+
+- name: Read the last applied commit
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-applied"
+  register: _gap_applied_raw
+  failed_when: false
+
+- name: Read the checked-out commit
+  ansible.builtin.command:
+    cmd: git rev-parse HEAD
+    chdir: "{{ instance_path }}"
+  register: _gap_head
+  changed_when: false
+  failed_when: false
+
+- name: Decide whether the checked-out commit is still to be applied
+  ansible.builtin.set_fact:
+    _gitops_apply_pending: >-
+      {{ _gap_applied_raw.content is defined
+         and (_gap_applied_raw.content | b64decode | trim) != ''
+         and _gap_head.rc == 0
+         and (_gap_applied_raw.content | b64decode | trim)
+             != _gap_head.stdout | trim }}
