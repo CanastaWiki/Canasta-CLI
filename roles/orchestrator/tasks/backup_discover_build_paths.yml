@@ -36,7 +36,7 @@
     _build_staging_paths: []
 
 - name: Discover custom build inputs (Compose)
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
   block:
     # `docker compose config` reports build.context as a physical path (symlinks
     # resolved). Resolve the instance dir the same way so the two are comparable

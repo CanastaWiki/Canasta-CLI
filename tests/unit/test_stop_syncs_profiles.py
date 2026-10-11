@@ -28,7 +28,7 @@ def _compose_block():
     with open(STOP) as f:
         tasks = yaml.safe_load(f)
     compose = next(
-        (t for t in tasks if "compose" in str(t.get("when", ""))
+        (t for t in tasks if t.get("when") == "not (instance_is_k8s | bool)"
          and t.get("block")),
         None,
     )

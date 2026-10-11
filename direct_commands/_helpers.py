@@ -74,6 +74,11 @@ def _get_script_dir():
     return SCRIPT_DIR
 
 
+def _is_k8s(inst):
+    """Return True when the registry entry `inst` runs on Kubernetes."""
+    return canasta_config.is_k8s_orchestrator(inst.get("orchestrator"))
+
+
 def _resolve_instance(args):
     """Resolve instance from --id flag or cwd. Returns (id, inst_dict) or exits.
 
@@ -1030,9 +1035,7 @@ def _exec_in_container(inst_id, inst, command, service="web"):
     """Execute a command inside a container/pod. Returns (rc, stdout)."""
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
-    orchestrator = inst.get("orchestrator", "compose")
-
-    if orchestrator in ("kubernetes", "k8s"):
+    if _is_k8s(inst):
         if not _is_localhost(host):
             return _ssh_run(host, _k8s_remote_exec_cmd(
                 inst_id, service, command, forward_stdin=False))
@@ -1099,10 +1102,9 @@ def _stream_in_container(inst_id, inst, command, service="web",
     """
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
-    orchestrator = inst.get("orchestrator", "compose")
     wrapped = "stdbuf -oL %s" % command
 
-    if orchestrator in ("kubernetes", "k8s"):
+    if _is_k8s(inst):
         if not _is_localhost(host):
             # kubectl and the cluster live on the instance's host — run
             # the pod lookup and the exec there via ssh, mirroring the
@@ -1183,7 +1185,7 @@ def _stream_in_container(inst_id, inst, command, service="web",
     # — re-streaming a non-idempotent operator script would double-apply it.
     # localhost and in-cluster `kubectl exec` never return 255.
     is_remote_ssh = (
-        orchestrator not in ("kubernetes", "k8s") and not _is_localhost(host)
+        not _is_k8s(inst) and not _is_localhost(host)
     )
     if is_remote_ssh and retry_on_reset:
         return _retry_on_ssh_reset(_run)
@@ -1608,7 +1610,7 @@ def _docker_env(docker_host):
 
 def _check_running(instance_id, path, orchestrator, host, docker_host=None,
                     compose_cmd=None):
-    if orchestrator in ("kubernetes", "k8s"):
+    if canasta_config.is_k8s_orchestrator(orchestrator):
         return _check_running_k8s(instance_id, host)
     return _check_running_compose(path, host, docker_host, compose_cmd)
 
@@ -2016,7 +2018,7 @@ def _gather_instance_info(inst_id, inst):
         return _gather_local(inst_id, path, orchestrator, host, docker_host,
                              compose_cmd)
 
-    if orchestrator in ("kubernetes", "k8s"):
+    if _is_k8s(inst):
         return _gather_k8s(inst_id, path, host)
 
     runtime = "podman" if "podman" in compose_cmd[0] else "docker"

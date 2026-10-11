@@ -12,5 +12,5 @@
     kind: CronJob
     name: "canasta-backup-{{ instance_id }}"
     namespace: "canasta-{{ instance_id }}"
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
   ignore_errors: true  # OK if no CronJob / no cluster access

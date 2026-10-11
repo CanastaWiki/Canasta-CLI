@@ -72,7 +72,7 @@ class TestKubernetesGuard:
         for t in _walk(_load(ADD)):
             start = t.get("ansible.builtin.include_role") or {}
             if isinstance(start, dict) and start.get("tasks_from") == "start.yml":
-                assert "not in ['kubernetes', 'k8s']" in str(t.get("when")), (
+                assert t.get("when") == "not (instance_is_k8s | bool)", (
                     "the orchestrator restart must be guarded against "
                     "kubernetes instances")
 

@@ -55,6 +55,7 @@ import os
 import yaml
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.canasta_config import is_k8s_orchestrator
 from ansible.module_utils.canasta_sidecar_render import (
     bridge_omitted_secrets,
     read_env,
@@ -127,13 +128,13 @@ def run_module():
 
     error = (validate_spec(sidecars)
              or validate_host_access(sidecars, instance_path))
-    if not error and orchestrator != "compose":
+    if not error and is_k8s_orchestrator(orchestrator):
         error = validate_k8s_secret_refs(sidecars, is_secret)
     if error:
         module.fail_json(msg="Refusing config/sidecars.yaml: %s." % error)
     env = read_env(instance_path)
 
-    if orchestrator == "compose":
+    if not is_k8s_orchestrator(orchestrator):
         override = render_compose(sidecars)
         dest = os.path.join(instance_path, "docker-compose.sidecars.yml")
         content = None

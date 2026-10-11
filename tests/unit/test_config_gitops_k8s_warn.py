@@ -36,12 +36,12 @@ def test_compose_branch_updates_vars():
                if str(t.get("ansible.builtin.include_tasks", ""))
                .endswith("_update_gitops_vars.yml")]
     assert compose, "Compose must still update vars.yaml"
-    assert "== 'compose'" in _when(compose[0])
+    assert _when(compose[0]) == "not (instance_is_k8s | bool)"
 
 
 def test_k8s_branch_warns_to_push():
     k8s = [t for t in _tasks()
-           if "kubernetes" in _when(t) and "k8s" in _when(t)]
+           if _when(t) == "instance_is_k8s | bool"]
     assert k8s, "must have a K8s-gated task"
     warn = k8s[0]
     msg = _debug_msg(warn)
@@ -53,7 +53,7 @@ def test_k8s_branch_warns_to_push():
 def test_k8s_branch_is_not_a_silent_noop():
     # Regression: the K8s path used to be an unmentioned no-op, silently
     # dropping the change from the gitops source.
-    k8s = [t for t in _tasks() if "kubernetes" in _when(t)]
+    k8s = [t for t in _tasks() if _when(t) == "instance_is_k8s | bool"]
     assert any(_debug_msg(t) for t in k8s), (
         "K8s config set on a gitops instance must surface a warning, "
         "not silently skip")

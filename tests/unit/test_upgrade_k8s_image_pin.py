@@ -14,6 +14,8 @@ import sys
 import pytest
 import yaml
 
+from _orchestrator import INSTANCE_IS_K8S_VARS
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
                      "upgrade_image_tag.yml")
@@ -57,7 +59,7 @@ def _run(tmp_path, inst):
         "gather_facts": False,
         "vars": {
             "instance_path": str(inst),
-            "instance_orchestrator": "kubernetes",
+            "instance_orchestrator": "kubernetes", **INSTANCE_IS_K8S_VARS,
             "canasta_default_image": DEFAULT,
             "canasta_root": REPO_ROOT,
             "_upgrade_inst": {"instance": {}},

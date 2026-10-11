@@ -14,6 +14,11 @@
   vars:
     canasta_root: "{{ playbook_dir }}"
     canasta_default_image: "ghcr.io/canastawiki/canasta:{{ lookup('file', playbook_dir + '/CANASTA_VERSION') | trim }}"
+    # Templated on every use, so it follows instance_orchestrator wherever
+    # that is set. Until it is, create's `orchestrator` extra-var decides.
+    instance_is_k8s: >-
+      {{ (instance_orchestrator | default(orchestrator | default('compose')))
+         in ['kubernetes', 'k8s'] }}
     # CANASTA_LOCAL_REMOTE_TEMP (set by canasta-docker) is for local
     # connections only. Templated per task because switch_connection.yml
     # rebinds the localhost play host to SSH targets with set_fact.

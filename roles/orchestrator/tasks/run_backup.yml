@@ -12,10 +12,10 @@
 
 - name: Run backup (Kubernetes)
   ansible.builtin.include_tasks: k8s_run_backup.yml
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
 
 - name: Run backup (Compose)
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
   block:
     - name: Set backup volume name
       ansible.builtin.set_fact:

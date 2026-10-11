@@ -92,7 +92,7 @@ class TestInitKeyOptionalInGpgMode:
         assert names.index(guard) < names.index(
             "Reinit — move existing .git aside before re-init")
         when = " ".join(_named(tasks, guard)["when"])
-        assert "kubernetes" in when and "git_crypt_gpg_user" in when
+        assert "instance_is_k8s | bool" in when and "git_crypt_gpg_user" in when
 
 
 class TestJoinUnlockChoice:

@@ -113,7 +113,7 @@ class TestReloadCaddyTask:
         )
         assert gate is not None, "reload_caddy must compute a _reload_caddy gate"
         expr = gate["ansible.builtin.set_fact"]["_reload_caddy"]
-        assert "compose" in expr, (
+        assert "not (instance_is_k8s | bool)" in expr, (
             "K8s rolls the caddy pod off the ConfigMap checksum annotation; "
             "it must not be reloaded through the Compose path"
         )

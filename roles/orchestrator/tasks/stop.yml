@@ -9,7 +9,7 @@
     msg: "Stopping containers..."
 
 - name: Stop (Docker Compose)
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
   block:
     # Reconcile COMPOSE_PROFILES before `down`: docker compose down only tears
     # down services in the active profiles, so a drifted profile set would
@@ -72,7 +72,7 @@
       changed_when: true
 
 - name: Stop (Kubernetes)
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
   block:
     - name: Set K8s namespace
       ansible.builtin.set_fact:

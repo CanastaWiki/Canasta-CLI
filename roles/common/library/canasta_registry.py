@@ -104,6 +104,7 @@ from ansible.module_utils.canasta_config import (
     find_by_path,
     get_config_dir,
     is_root,
+    normalize_orchestrator,
     read_config,
     write_config,
 )
@@ -179,6 +180,15 @@ def preserved_on_present():
     return tuple(k for k in probe if k not in _ALWAYS_WRITTEN)
 
 
+def _as_read(instance):
+    """A copy of a stored record with its orchestrator normalized, so
+    readers never see the `k8s` alias."""
+    result = dict(instance)
+    if "orchestrator" in result:
+        result["orchestrator"] = normalize_orchestrator(result["orchestrator"])
+    return result
+
+
 def run_module():
     module_args = dict(
         state=dict(type="str", default="query",
@@ -234,7 +244,7 @@ def run_module():
         if inst_id not in instances:
             module.fail_json(msg="Instance '%s' not found in registry" % inst_id)
             return
-        result["instance"] = dict(instances[inst_id])
+        result["instance"] = _as_read(instances[inst_id])
         result["instance"]["id"] = inst_id
 
     elif state == "query_all":
@@ -247,11 +257,12 @@ def run_module():
                 return bare == target or stored == target
 
             result["instances"] = {
-                k: v for k, v in instances.items()
+                k: _as_read(v) for k, v in instances.items()
                 if host_matches(v.get("host", "localhost"), filter_host)
             }
         else:
-            result["instances"] = instances
+            result["instances"] = {
+                k: _as_read(v) for k, v in instances.items()}
 
     elif state == "query_by_path":
         if not inst_path:
@@ -261,7 +272,7 @@ def run_module():
         if not found_id:
             module.fail_json(msg="No instance found for path '%s'" % inst_path)
             return
-        result["instance"] = dict(found_inst)
+        result["instance"] = _as_read(found_inst)
         result["instance"]["id"] = found_id
 
     elif state == "present":

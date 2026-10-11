@@ -22,7 +22,7 @@
 - name: Decide whether to move MediaWiki to its own database account
   ansible.builtin.set_fact:
     _mig_db_account: >-
-      {{ instance_orchestrator | default('compose') == 'compose'
+      {{ not (instance_is_k8s | bool)
          and (_was_running | default(false) | bool)
          and (_mig_db_env.variables.USE_EXTERNAL_DB | default('false') | string | lower) != 'true'
          and (_mig_db_env.variables.CANASTA_DB_ROOT_ACCOUNT | default('false') | string | lower) != 'true'

@@ -93,7 +93,7 @@ class TestCrowdsecReloadSyncsConfig:
         tasks = _load(RELOAD)
         names = [t.get("name") for t in tasks]
         apply = _task(tasks, "Apply edited CrowdSec config (Kubernetes)")
-        assert "kubernetes" in apply["when"]
+        assert apply["when"] == "instance_is_k8s | bool"
         inner = _task(apply["block"], "Sync config and deploy")
         assert inner["ansible.builtin.include_role"] == {
             "name": "orchestrator", "tasks_from": "apply_config.yml"}

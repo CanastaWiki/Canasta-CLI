@@ -20,7 +20,7 @@
 - name: Mark the Kubernetes namespace as this create's
   ansible.builtin.set_fact:
     _create_owns_namespace: true
-  when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
 
 # --- Step 2: Determine base image ---
 - name: Report preparing image
@@ -193,7 +193,7 @@
 # --- Step 10b: Kubernetes instance setup ---
 - name: Kubernetes instance setup
   ansible.builtin.include_tasks: _kubernetes_setup.yml
-  when: (orchestrator | default('compose')) in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
 
 # --- Step 11: Start containers (without dev mode) ---
 # From here on containers write into the directory too, so a later
@@ -243,13 +243,13 @@
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: stop.yml
-  when: (orchestrator | default('compose')) == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Start containers with full config
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: start.yml
-  when: (orchestrator | default('compose')) == 'compose'
+  when: not (instance_is_k8s | bool)
 
 # Rootless Podman maps container writes to a host subuid, so the operator
 # can later be blocked from writing config/ (e.g. `gitops pull`
@@ -258,7 +258,7 @@
 # runtime dirs (and we can exclude them).
 - name: Fix operator directory ownership (rootless Podman)
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/_rootless_operator_chown.yml"
-  when: (orchestrator | default('compose')) == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: SMTP note
   ansible.builtin.debug:

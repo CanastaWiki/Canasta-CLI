@@ -55,4 +55,4 @@
     # re-init without --encrypt-secrets regenerates a plain-helm Application
     # that never renders them.
     - .sops.yaml
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool

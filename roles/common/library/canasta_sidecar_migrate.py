@@ -48,6 +48,7 @@ import os
 import yaml
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.canasta_config import is_k8s_orchestrator
 from ansible.module_utils.canasta_override_migrate import plan_migration
 from ansible.module_utils.canasta_sidecar_render import (
     secret_classifier,
@@ -90,7 +91,7 @@ def run_module():
     existing_names = [s.get("name") for s in existing]
     plan = plan_migration(override, existing_names=existing_names)
 
-    if (module.params.get("orchestrator") or "compose") != "compose":
+    if is_k8s_orchestrator(module.params.get("orchestrator")):
         regex = module.params.get("secret_key_regex")
         if not regex:
             module.fail_json(

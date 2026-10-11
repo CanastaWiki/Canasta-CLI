@@ -73,12 +73,12 @@ def test_gitops_sync_is_a_compose_noop():
     # orchestrator — no reconciler to trigger.
     debug_compose = [
         t for t in tasks
-        if "ansible.builtin.debug" in t and "== 'compose'" in str(t.get("when", ""))
+        if "ansible.builtin.debug" in t and t.get("when") == "not (instance_is_k8s | bool)"
     ]
     assert debug_compose, "gitops sync must be a no-op (debug only) on Compose"
     # The Argo CD sync is gated on the kubernetes orchestrator.
     argocd = [t for t in tasks if "k8s_argocd_sync.yml" in _includes(t)]
-    assert argocd and "kubernetes" in str(argocd[0].get("when", "")), (
+    assert argocd and argocd[0].get("when") == "instance_is_k8s | bool", (
         "gitops sync must dispatch to Argo CD sync only on Kubernetes"
     )
 

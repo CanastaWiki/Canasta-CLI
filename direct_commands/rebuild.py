@@ -89,7 +89,7 @@ def _list_buildable_services(inst, include_sidecars=False):
 def cmd_rebuild(args):
     inst_id, inst = _helpers._resolve_instance(args)
 
-    if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
+    if _helpers._is_k8s(inst):
         print(
             "Error: 'canasta rebuild' is only supported for Compose "
             "instances. For Kubernetes instances with a custom image, "

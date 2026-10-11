@@ -1637,7 +1637,7 @@ class TestCrowdsecAutoEnroll:
         content = self._autoenroll()
         assert "rollout status deployment/canasta-{{ instance_id }}-caddy" in content
         wait = content[content.index("rollout status"):]
-        assert "instance_orchestrator | default('compose') in ['kubernetes', 'k8s']" in wait
+        assert "when: instance_is_k8s | bool" in wait
 
     def test_autoenroll_shared_by_start_and_create(self):
         start = _read(os.path.join(

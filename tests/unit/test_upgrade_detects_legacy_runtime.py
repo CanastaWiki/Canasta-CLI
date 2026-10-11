@@ -78,8 +78,7 @@ class TestUpgradeChecksTheRecordedRuntime:
             "re-probing only when composeCommand is absent leaves an "
             "instance that recorded the wrong runtime unrepairable"
         )
-        assert any("compose" in str(c) and "orchestrator" in str(c)
-                   for c in conds), (
+        assert "not (instance_is_k8s | bool)" in conds, (
             "Kubernetes instances have no compose runtime to probe"
         )
 

@@ -21,6 +21,8 @@ sys.path.insert(0, REPO_ROOT)
 
 from direct_commands import _helpers  # noqa: E402
 
+from _orchestrator import TEMPLAR_VARS
+
 SCRIPT = os.path.join(REPO_ROOT, "roles", "orchestrator", "files",
                       "ensure_wiki_db_account.sh")
 TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
@@ -157,7 +159,7 @@ class TestWiring:
                 ({"WIKI_DB_USER": "mediawiki"}, "kubernetes", False)):
             templar = Templar(loader=DataLoader(), variables={
                 "_ensure_env": {"variables": env},
-                "instance_orchestrator": orch})
+                "instance_orchestrator": orch, **TEMPLAR_VARS})
             assert templar.template(trust_as_template(expr)) is needed, (env, orch)
 
     def test_web_gets_the_wiki_account_and_db_can_set_it(self):
@@ -180,7 +182,7 @@ class TestWiring:
                                       ("root", "compose", "root"),
                                       ("wiki", "compose", "wiki")):
             templar = Templar(loader=DataLoader(), variables={
-                "wikidbuser": given, "orchestrator": orch})
+                "wikidbuser": given, "orchestrator": orch, **TEMPLAR_VARS})
             assert templar.template(trust_as_template(expr)) == expected
 
 

@@ -13,7 +13,7 @@
 - name: Update gitops vars for changed keys (Compose)
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/config/tasks/_update_gitops_vars.yml
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Warn that a K8s gitops config change needs a push to be durable
   ansible.builtin.debug:
@@ -24,4 +24,4 @@
       unchanged. Run 'canasta gitops push' to commit and deploy the change —
       otherwise Argo CD may revert it on the next sync, and it won't reach
       other hosts.
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool

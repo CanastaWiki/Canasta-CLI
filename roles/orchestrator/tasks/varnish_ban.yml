@@ -11,20 +11,20 @@
     state: read
     key: CANASTA_ENABLE_VARNISH
   register: _ban_varnish_flag
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Read values.yaml for the cache ban
   ansible.builtin.slurp:
     src: "{{ instance_path }}/values.yaml"
   register: _ban_values_raw
   failed_when: false
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
 
 - name: Decide whether Varnish is in use
   ansible.builtin.set_fact:
     _ban_varnish_enabled: >-
       {{ (_ban_varnish_flag.value | default('true', true) | lower == 'true')
-         if instance_orchestrator | default('compose') == 'compose'
+         if not (instance_is_k8s | bool)
          else ((_ban_values_raw.content | default('') | b64decode | from_yaml
                 or {}).varnish | default({})).enabled | default(false) | bool }}
 

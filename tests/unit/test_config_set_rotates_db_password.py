@@ -14,6 +14,8 @@ import yaml
 from ansible.parsing.dataloader import DataLoader
 from ansible.template import Templar, trust_as_template
 
+from _orchestrator import TEMPLAR_VARS
+
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 TASKS = os.path.join(REPO_ROOT, "roles", "config", "tasks")
 SET_SINGLE = os.path.join(TASKS, "_set_single.yml")
@@ -41,7 +43,7 @@ def _by_name(tasks, name):
 
 
 def _when(task, **variables):
-    templar = Templar(loader=DataLoader(), variables=variables)
+    templar = Templar(loader=DataLoader(), variables=dict(TEMPLAR_VARS, **variables))
     return all(templar.template(trust_as_template("{{ %s }}" % cond))
                for cond in task["when"])
 

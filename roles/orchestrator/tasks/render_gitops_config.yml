@@ -10,4 +10,4 @@
   ansible.builtin.include_role:
     name: gitops
     tasks_from: render_compose.yml
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)

@@ -23,9 +23,7 @@
 # both are skipped.
 #
 # Detection is gated on the resolved inspect_command (docker vs podman) so
-# we don't probe podman on a Docker instance. The variable used for the
-# orchestrator check is instance_orchestrator (the gitops standard), with
-# a fallback to orchestrator for the create flow.
+# we don't probe podman on a Docker instance.
 
 - name: Detect rootless Podman (only when runtime is podman)
   ansible.builtin.command:
@@ -34,7 +32,7 @@
   changed_when: false
   failed_when: false
   when:
-    - (instance_orchestrator | default(orchestrator | default('compose'))) == 'compose'
+    - not (instance_is_k8s | bool)
     - compose_command | default('docker compose') is search('podman')
 
 # A tree cloned by `gitops join` can lack any of these (git does not track
@@ -45,7 +43,7 @@
   loop: "{{ canasta_rootless_operator_dirs }}"
   register: _rootless_chown_dirs
   when:
-    - (instance_orchestrator | default(orchestrator | default('compose'))) == 'compose'
+    - not (instance_is_k8s | bool)
     - _rootless_chown_rootless.stdout | default('') | trim == 'true'
 
 - name: Fix operator directory ownership for rootless Podman

@@ -40,7 +40,7 @@
   no_log: true  # registers the whole .env, including passwords
   when:
     - compose_command is search('podman')
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
 
 - name: Build compose profile flags
   ansible.builtin.set_fact:
@@ -51,7 +51,7 @@
          | join(' ') }}
   when:
     - compose_command is search('podman')
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
 
 - name: Build exec command (Compose)
   ansible.builtin.set_fact:
@@ -60,13 +60,11 @@
       {{ exec_service | default('web') }}
       {{ _exec_shell }} {{ exec_command | quote }}
     _exec_chdir: "{{ instance_path }}"
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
   no_log: "{{ exec_no_log | default(false) }}"
 
 - name: Resolve K8s pod and build exec command
-  when: >-
-    instance_orchestrator | default('compose')
-    in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
   block:
     - name: Set K8s namespace
       ansible.builtin.set_fact:

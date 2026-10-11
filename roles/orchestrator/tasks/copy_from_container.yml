@@ -24,14 +24,14 @@
   register: _copy_podman_ps
   changed_when: false
   when:
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
     - compose_command is search('podman')
 
 - name: Fail when the service container is not running (Podman)
   ansible.builtin.fail:
     msg: "No running '{{ copy_service }}' container found in {{ instance_path }}."
   when:
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
     - compose_command is search('podman')
     - _copy_podman_ps.stdout | trim | length == 0
 
@@ -43,7 +43,7 @@
     _copy_target: >-
       {{ _copy_podman_ps.stdout_lines[0]
          if compose_command is search('podman') else copy_service }}
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Copy file from container (Compose)
   ansible.builtin.command:
@@ -52,10 +52,10 @@
       {{ copy_dest | quote }}
     chdir: "{{ instance_path }}"
   changed_when: true
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Copy file from pod (Kubernetes)
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
   block:
     - name: Get pod for copy source
       ansible.builtin.include_tasks: k8s_get_pod.yml

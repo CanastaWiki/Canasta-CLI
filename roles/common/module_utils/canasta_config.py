@@ -34,6 +34,20 @@ import tempfile
 
 CONFIG_FILENAME = "conf.json"
 
+# `k8s` is accepted as an alias for `kubernetes`, on the command line and
+# in registry entries written before the CLI normalized it.
+K8S_ORCHESTRATORS = ("kubernetes", "k8s")
+
+
+def is_k8s_orchestrator(orchestrator):
+    """Return True when `orchestrator` names Kubernetes."""
+    return orchestrator in K8S_ORCHESTRATORS
+
+
+def normalize_orchestrator(orchestrator):
+    """Map the `k8s` alias to `kubernetes`; pass anything else through."""
+    return "kubernetes" if is_k8s_orchestrator(orchestrator) else orchestrator
+
 
 def is_root():
     """Return True when running as root."""

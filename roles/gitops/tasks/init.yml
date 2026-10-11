@@ -30,7 +30,7 @@
       --git-crypt-gpg-user is only supported on Compose. Kubernetes gitops
       repos do not use git-crypt; pass --key instead.
   when:
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - instance_is_k8s | bool
     - git_crypt_gpg_user | default('') | length > 0
 
 # --- Non-destructive reinit (#663) ---

@@ -13,7 +13,7 @@
     namespace: "{{ argocd_namespace | default('argocd') }}"
   ignore_errors: true  # OK if Argo CD not installed
   when:
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - instance_is_k8s | bool
     - _k8s_api_reachable | default(true)
 
 # The repository Secret holds the instance's deploy key; on the shared cluster
@@ -27,5 +27,5 @@
     namespace: "{{ argocd_namespace | default('argocd') }}"
   ignore_errors: true  # OK if Argo CD not installed
   when:
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - instance_is_k8s | bool
     - _k8s_api_reachable | default(true)

@@ -14,7 +14,7 @@
     _k8s_chart_changed: false
 
 - name: Write Compose stack files
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
   block:
     - name: Report writing stack files
       ansible.builtin.debug:
@@ -50,7 +50,7 @@
         mode: "0755"
 
 - name: Write Kubernetes stack files
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
   block:
     - name: Report writing stack files
       ansible.builtin.debug:
@@ -82,12 +82,12 @@
     _sync_chart_dest: "{{ instance_path }}/_chart"
     _sync_chart_values: true
   when:
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - instance_is_k8s | bool
     - stack_files_force | default(false) | bool
 
 - name: Record whether the chart changed
   ansible.builtin.set_fact:
     _k8s_chart_changed: "{{ _sync_chart_changed | bool }}"
   when:
-    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - instance_is_k8s | bool
     - stack_files_force | default(false) | bool

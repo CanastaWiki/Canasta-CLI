@@ -27,7 +27,7 @@ def _k8s_block_for(key_substr):
         if "ansible.builtin.fail" not in t:
             continue
         when = " ".join(str(c) for c in (t.get("when") or []))
-        if "kubernetes" in when and key_substr in when:
+        if "instance_is_k8s" in when and key_substr in when:
             return t
     return None
 

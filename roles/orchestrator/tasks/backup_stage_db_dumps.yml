@@ -35,7 +35,7 @@
 
 - name: Find where the database dumps run (Compose)
   ansible.builtin.include_tasks: db_admin.yml
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 # The dumps are written from the host, so the staging directory has to be
 # the host user's. A directory a previous run left from inside the web
@@ -48,14 +48,14 @@
   vars:
     exec_service: web
     exec_command: "rm -rf /mediawiki/config/backup"
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Create backup staging directory (Compose)
   ansible.builtin.file:
     path: "{{ instance_path }}/config/backup"
     state: directory
     mode: "0700"
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Dump each wiki's database group (Compose)
   ansible.builtin.include_tasks: backup_dump_db_group.yml
@@ -92,4 +92,4 @@
     label: >-
       {{ item.wiki }}{{ ' (+ ' ~ (item.databases[1:] | join(', ')) ~ ')'
                          if item.databases | length > 1 else '' }}
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)

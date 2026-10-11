@@ -31,7 +31,7 @@
 # crowdsec ConfigMap, so sync and deploy first. A changed file rolls the caddy
 # pod through its checksum annotation; restart only when that did not happen.
 - name: Apply edited CrowdSec config (Kubernetes)
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
   block:
     - name: List the caddy pods before the deploy
       ansible.builtin.command:
@@ -111,6 +111,6 @@
     msg: >-
       Reloaded the CrowdSec engine for instance '{{ instance_id }}'.
       {{ 'The Caddy bouncer keeps enforcing cached decisions during the restart.'
-      if (instance_orchestrator | default('compose') == 'compose')
+      if (not (instance_is_k8s | bool))
       else 'The caddy pod rolls with it, so expect a brief blip; the bouncer resumes once the engine is back.' }}
       {{ _crowdsec_purge_line | default('') }}

@@ -10,7 +10,7 @@
     msg: >-
       gitops diff for Compose instances does not run under
       CANASTA_FORCE_ANSIBLE; unset it and run the command again.
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Show gitops diff
   ansible.builtin.include_tasks: diff_kubernetes.yml

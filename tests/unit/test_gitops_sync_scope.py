@@ -33,9 +33,8 @@ class TestSyncDispatch:
         tasks = _load(TRIGGER_YML)
         noop = [t for t in tasks
                 if ("ansible.builtin.debug" in t or "debug" in t)
-                and "compose" in _when(t)]
+                and _when(t) == "not (instance_is_k8s | bool)"]
         assert noop, "Compose must be an explicit gated no-op"
-        assert "== 'compose'" in _when(noop[0])
 
     def test_k8s_includes_argocd_sync(self):
         tasks = _load(TRIGGER_YML)
@@ -44,7 +43,7 @@ class TestSyncDispatch:
                .endswith("k8s_argocd_sync.yml")]
         assert inc, "K8s must dispatch to k8s_argocd_sync.yml"
         cond = _when(inc[0])
-        assert "kubernetes" in cond and "k8s" in cond
+        assert cond == "instance_is_k8s | bool"
 
 
 class TestArgocdSyncSemantics:

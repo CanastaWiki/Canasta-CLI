@@ -9,7 +9,7 @@ from ._helpers import register
 @register("start")
 def cmd_start(args):
     inst_id, inst = _helpers._resolve_instance(args)
-    if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
+    if _helpers._is_k8s(inst):
         # K8s start requires chart copy + helm deploy + config sync;
         # these are multi-step controller-to-remote operations that
         # need Ansible.
@@ -66,7 +66,7 @@ def cmd_start(args):
 @register("stop")
 def cmd_stop(args):
     inst_id, inst = _helpers._resolve_instance(args)
-    if inst.get("orchestrator", "compose") in ("kubernetes", "k8s"):
+    if _helpers._is_k8s(inst):
         # K8s stop suspends Argo CD sync and scales the instance's
         # workloads to 0 — kubectl must run on the instance's host
         # (where the cluster kubeconfig lives), not the controller.

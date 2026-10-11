@@ -7,7 +7,7 @@
 
 - name: Render web secret keys to a compose override layer
   ansible.builtin.include_tasks: render_web_env.yml
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 # Kubernetes: configuration changes go into values.yaml and are applied
 # via helm upgrade on next start/restart.

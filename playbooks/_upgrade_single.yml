@@ -40,7 +40,7 @@
 # value recorded" only ever caught the first.
 - name: Confirm the recorded runtime against the instance's host
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/detect_runtime.yml"
-  when: instance_orchestrator == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Run upgrade role (migrations + refresh + restart)
   ansible.builtin.include_role:

@@ -32,12 +32,12 @@
   ansible.builtin.include_tasks: rewrite_caddy.yml
 
 - name: Compose-specific init
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
   block:
     - name: Sync compose profiles
       ansible.builtin.include_tasks: sync_compose_profiles.yml
 
 - name: Kubernetes-specific init
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
   ansible.builtin.debug:
     msg: "Kubernetes configuration managed via Helm values.yaml"

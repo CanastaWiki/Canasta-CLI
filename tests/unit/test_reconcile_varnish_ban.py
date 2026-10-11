@@ -12,6 +12,8 @@ import yaml
 from ansible.parsing.dataloader import DataLoader
 from ansible.template import Templar, trust_as_template
 
+from _orchestrator import TEMPLAR_VARS
+
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 BAN = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
                    "varnish_ban.yml")
@@ -31,7 +33,7 @@ def _by_name(tasks, name):
 def _enabled(orchestrator, flag=None, values=None):
     expr = _by_name(_load(BAN), "Decide whether Varnish is in use")[
         "ansible.builtin.set_fact"]["_ban_varnish_enabled"]
-    variables = {"instance_orchestrator": orchestrator}
+    variables = {"instance_orchestrator": orchestrator, **TEMPLAR_VARS}
     if flag is not None:
         variables["_ban_varnish_flag"] = {"value": flag}
     if values is not None:

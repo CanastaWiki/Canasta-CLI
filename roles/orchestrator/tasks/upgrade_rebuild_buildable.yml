@@ -16,7 +16,7 @@
 # query it directly rather than parsing the override file alone.
 # Covers operator overrides (custom Dockerfile) and devmode xdebug.
 - name: Enumerate buildable services from merged compose config (Compose)
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
   block:
     - name: Check for docker-compose.override.yml
       ansible.builtin.stat:
@@ -88,7 +88,7 @@
 # when pull hasn't already flagged an update.
 - name: Check running container image vs configured (Compose)
   when:
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
     - not (_images_updated | bool)
   block:
     - name: Get running web container image ID
@@ -155,7 +155,7 @@
   changed_when: true
   failed_when: false
   when:
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
     - _images_updated | bool
     - (_buildable_services | default([]) | length) > 0
 

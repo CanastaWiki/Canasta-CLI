@@ -75,17 +75,17 @@
 - name: Ensure the in-cluster image registry (Kubernetes)
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_registry.yml
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
 
 - name: Limit Canasta NFS exports to the cluster's nodes (Kubernetes)
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/k8s_nfs_exports_upgrade.yml
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
 
 - name: Restrict the k3s kubeconfig (Kubernetes)
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/k8s_kubeconfig_mode_upgrade.yml
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
 
 # --- Rebuild custom image if instance was built from source ---
 - name: Check for BuildFrom in registry
@@ -194,7 +194,7 @@
 - name: Backfill gitops wikis.yaml.template if missing
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/backfill_wikis_template.yml
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 # Create my.cnf.template for a gitops instance that lacks it. my.cnf is
 # host-specific (innodb_buffer_pool_size must fit the host's RAM), so a

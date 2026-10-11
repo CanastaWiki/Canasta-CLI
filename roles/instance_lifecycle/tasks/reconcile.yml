@@ -15,7 +15,7 @@
 # running image to its older tag; syncing it here keeps the running image on
 # the next pull. Compose gitops only; a no-op when they already match.
 - name: Reconcile env.template image tag to .env (gitops Compose)
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
   block:
     - name: Check if instance is gitops-managed
       ansible.builtin.stat:
@@ -45,12 +45,12 @@
 - name: Sync wikis.yaml with its gitops template
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/sync_wikis_yaml.yml
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Write .env edits into the gitops sources
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/sync_env.yml
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 # With every edit now in the sources, render .env, wikis.yaml, my.cnf,
 # media-hosts.yaml and the admin password files from them, so an edit made
@@ -71,7 +71,7 @@
     {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
   when:
     - _reconcile_gitops_host.stat.exists
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
 
 # Regenerate rendered config (e.g. the Caddyfile from the current wikis.yaml)
 # so the converge below picks up drift between sources and rendered state.
@@ -112,7 +112,7 @@
 - name: Warn about wiki databases missing on this host
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/warn_missing_wiki_databases.yml
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Report reconciled
   ansible.builtin.debug:

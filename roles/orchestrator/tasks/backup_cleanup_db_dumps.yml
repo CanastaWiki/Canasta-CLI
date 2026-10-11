@@ -15,7 +15,7 @@
 # Input: instance_path, instance_orchestrator
 
 - name: Clean up backup staging directory (Compose)
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
   block:
     - name: Remove the backup staging directory on the host
       ansible.builtin.file:

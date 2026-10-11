@@ -558,12 +558,11 @@ def cmd_gitops_status(args):
     inst_id, inst = _helpers._resolve_instance(args)
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
-    orchestrator = inst.get("orchestrator", "compose")
 
     # A locked git-crypt checkout has hosts/hosts.yaml on disk as ciphertext;
     # the status script cats it, and decoding those bytes would crash. Report
     # the lock clearly instead. (Compose-only: K8s gitops does not git-crypt.)
-    if orchestrator not in ("kubernetes", "k8s") and _gitops_gitcrypt_locked(
+    if not _helpers._is_k8s(inst) and _gitops_gitcrypt_locked(
         path, host, getattr(args, "ssh_key", None)
     ):
         _gc_mode = _gitops_gitcrypt_mode(path, host)
@@ -600,7 +599,7 @@ def cmd_gitops_status(args):
             print("Error: failed to connect to %s" % host, file=sys.stderr)
             return 1
 
-    if orchestrator in ("kubernetes", "k8s"):
+    if _helpers._is_k8s(inst):
         argocd = _gitops_argocd_status(inst_id, host)
         print(_parse_gitops_status_k8s(stdout, inst_id, argocd))
     else:
@@ -705,9 +704,7 @@ def _parse_gitops_diff(stdout):
 @register("gitops_diff")
 def cmd_gitops_diff(args):
     inst_id, inst = _helpers._resolve_instance(args)
-    orchestrator = inst.get("orchestrator", "compose")
-
-    if orchestrator in ("kubernetes", "k8s"):
+    if _helpers._is_k8s(inst):
         return _helpers.FALLBACK
 
     host = inst.get("host") or "localhost"
