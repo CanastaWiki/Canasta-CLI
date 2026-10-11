@@ -41,11 +41,11 @@
     _reconcile_crowdsec_on: "{{ _crowdsec_on }}"
     _reconcile_current_crowdsec_on: "{{ _values.get('crowdsec', {}).get('enabled', false) | bool }}"
     _reconcile_current_image: "{{ _current_image }}"
-    _reconcile_desired_image: "{{ 'ghcr.io/canastawiki/canasta-caddy:2.11.3' if _plugin_needed else 'caddy:2.10.2-alpine' }}"
+    _reconcile_desired_image: "{{ canasta_caddy_plugin_image if _plugin_needed else 'caddy:2.10.2-alpine' }}"
     _reconcile_image_managed: >-
       {{ _current_image == ''
          or _current_image == 'caddy:2.10.2-alpine'
-         or _current_image.startswith('ghcr.io/canastawiki/canasta-caddy:') }}
+         or _current_image.startswith(canasta_caddy_plugin_image | regex_replace(':[^:]*$', ':')) }}
 
 - name: Build reconciled values overlay
   ansible.builtin.set_fact:

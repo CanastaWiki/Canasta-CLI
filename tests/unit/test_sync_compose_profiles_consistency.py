@@ -1,26 +1,29 @@
-"""Enforcement guard: the Compose-profile reconciliation is implemented twice —
-in Python (direct_commands/_helpers.py, used by the start/stop/rebuild fast-path
-and the doctor consistency check) and in Ansible
+"""The Compose-profile reconciliation is implemented twice — in Python
+(direct_commands/_helpers.py, used by the start/stop/rebuild fast path and the
+doctor consistency check) and in Ansible
 (roles/orchestrator/tasks/sync_compose_profiles.yml, used by gitops pull and
-config set). They must derive identical COMPOSE_PROFILES.
-
-This test extracts the managed-profile data from the Ansible file and fails if
-it diverges from the Python constants — the managed-profile list, the
-flag->profile mapping and its defaults, the internal-db (inverse-of-external-DB)
-rule, the profile->services teardown map, the Caddy plugin image, and the
-trusted-proxy modes. So the two implementations cannot silently drift.
+config set). Both read their tables from vars/compose_profiles.yml and
+vars/images.yml, and must derive identical COMPOSE_PROFILES and
+CANASTA_CADDY_IMAGE.
 """
 
 import os
 import re
+import subprocess
+import sys
 
+import pytest
 import yaml
 
-from direct_commands import _helpers
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, REPO_ROOT)
 
-REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
+from direct_commands import _helpers  # noqa: E402
+
 SYNC = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "sync_compose_profiles.yml")
+VARS = os.path.join(REPO_ROOT, "vars")
+COMMON = os.path.join(REPO_ROOT, "roles", "common")
 
 
 def _text():
@@ -28,37 +31,42 @@ def _text():
         return f.read()
 
 
-def _ansible_managed_list():
-    m = re.search(r"reject\('in',\s*\[([^\]]+)\]\)", _text())
-    return {s.strip().strip("'\"") for s in m.group(1).split(",")} if m else set()
-
-
-def _ansible_flag_map():
-    # (profile, flag, default) for each CANASTA_ENABLE_* ternary line.
-    return {
-        (profile, flag, default)
-        for flag, default, profile in re.findall(
-            r"variables\.(\w+)\s*\|\s*default\('(\w+)'(?:\s*,\s*true)?\)"
-            r"\s*\|\s*lower == 'true'\)\s*\|\s*ternary\(\['([^']+)'\]", _text())
-    }
-
-
-def _ansible_profile_services():
-    for t in yaml.safe_load(_text()) or []:
-        v = (t.get("vars") or {}) if isinstance(t, dict) else {}
-        if "_profile_services" in v:
-            return {k: list(val) for k, val in v["_profile_services"].items()}
-    return {}
-
-
-def _ansible_caddy_image():
-    m = re.search(r"_plugin_caddy_image:\s*\"([^\"]+)\"", _text())
-    return m.group(1) if m else None
+def _vars(name):
+    with open(os.path.join(VARS, name)) as f:
+        return yaml.safe_load(f)
 
 
 def _ansible_trusted_proxy_modes():
     m = re.search(r"_tp_mode in \[([^\]]+)\]", _text())
     return {s.strip().strip("'\"") for s in m.group(1).split(",")} if m else set()
+
+
+def _run_sync(tmp_path, env_text):
+    """Run sync_compose_profiles.yml against an .env; return the new .env."""
+    inst = tmp_path / "inst"
+    inst.mkdir()
+    (inst / ".env").write_text(env_text)
+    play = tmp_path / "play.yml"
+    play.write_text(yaml.safe_dump([{
+        "hosts": "localhost",
+        "connection": "local",
+        "gather_facts": False,
+        "vars_files": [os.path.join(VARS, "compose_profiles.yml"),
+                       os.path.join(VARS, "images.yml")],
+        "vars": {"instance_path": str(inst), "canasta_root": REPO_ROOT,
+                 "ansible_python_interpreter": sys.executable},
+        "tasks": [{"ansible.builtin.include_tasks": SYNC}],
+    }]))
+    env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
+               ANSIBLE_LIBRARY=os.path.join(COMMON, "library"),
+               ANSIBLE_MODULE_UTILS=os.path.join(COMMON, "module_utils"))
+    playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
+    proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
+                          capture_output=True, text=True, env=env,
+                          cwd=tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return {k: v for k, v, c in _helpers._parse_env_entries(
+        (inst / ".env").read_text()) if not c and k}
 
 
 class TestEmptyMeansUnset:
@@ -78,6 +86,7 @@ class TestEmptyMeansUnset:
         assert not bare, (
             "single-argument default() only fires on undefined, so an empty "
             "value falls through as-is: %s" % bare)
+        assert "default(item.default, true)" in _text()
 
     def test_python_reader_treats_empty_as_unset(self):
         for flag, default in (("CANASTA_ENABLE_VARNISH", "true"),
@@ -108,44 +117,51 @@ class TestEmptyMeansUnset:
 
 
 class TestSyncComposeProfilesConsistency:
-    def test_flag_to_profile_mapping_matches(self):
-        ansible = _ansible_flag_map()
-        assert ansible, "could not extract the flag->profile mapping from Ansible"
-        assert ansible == set(_helpers._MANAGED_PROFILES), (
-            "the CANASTA_ENABLE_* -> profile mapping (and defaults) has drifted "
-            "between Python _MANAGED_PROFILES and sync_compose_profiles.yml:\n"
-            "  Ansible: %s\n  Python:  %s"
-            % (sorted(ansible), sorted(set(_helpers._MANAGED_PROFILES))))
+    def test_python_tables_come_from_the_vars_files(self):
+        profiles = _vars("compose_profiles.yml")
+        assert _helpers._MANAGED_PROFILES == [
+            (p["profile"], p["flag"], p["default"])
+            for p in profiles["canasta_managed_profiles"]]
+        assert (_helpers._MANAGED_PROFILE_SERVICES
+                == profiles["canasta_managed_profile_services"])
+        assert (_helpers._CADDY_PLUGIN_IMAGE
+                == _vars("images.yml")["canasta_caddy_plugin_image"])
 
-    def test_managed_profile_names_match(self):
-        ansible = _ansible_managed_list()
-        assert ansible, "could not extract the managed-profile list from Ansible"
-        assert ansible == set(_helpers._MANAGED_PROFILE_NAMES), (
-            "the managed-profile list has drifted:\n  Ansible: %s\n  Python:  %s"
-            % (sorted(ansible), sorted(_helpers._MANAGED_PROFILE_NAMES)))
-
-    def test_internal_db_inverse_rule_present_in_both(self):
-        assert re.search(
-            r"variables\.USE_EXTERNAL_DB\s*\|\s*default\('false'(?:\s*,\s*true)?\)"
-            r"\s*\|\s*lower != 'true'\)\s*\|\s*ternary\(\['internal-db'\]",
-            _text(), re.S), (
-            "Ansible must derive internal-db from NOT(USE_EXTERNAL_DB)")
-        assert "internal-db" in _helpers._MANAGED_PROFILE_NAMES
-
-    def test_profile_services_map_matches(self):
-        ansible = _ansible_profile_services()
-        assert ansible, "could not extract _profile_services from Ansible"
-        assert ansible == _helpers._MANAGED_PROFILE_SERVICES, (
-            "the profile->services teardown map has drifted:\n"
-            "  Ansible: %s\n  Python:  %s"
-            % (ansible, _helpers._MANAGED_PROFILE_SERVICES))
-
-    def test_caddy_plugin_image_matches(self):
-        assert _ansible_caddy_image() == _helpers._CADDY_PLUGIN_IMAGE, (
-            "the Caddy plugin image literal has drifted between "
-            "sync_compose_profiles.yml and _helpers.py")
+    def test_ansible_reads_the_tables_instead_of_literals(self):
+        text = _text()
+        assert "canasta_managed_profiles" in text
+        assert "_profile_services: \"{{ canasta_managed_profile_services }}\"" in text
+        assert "canasta_caddy_plugin_image" in text
+        assert "canasta-caddy" not in text
+        assert "ternary(['observable']" not in text
 
     def test_trusted_proxy_modes_match(self):
         assert _ansible_trusted_proxy_modes() == set(
             _helpers._CADDY_PLUGIN_TRUSTED_PROXY_MODES), (
             "the trusted-proxy plugin modes have drifted")
+
+
+@pytest.mark.parametrize("env_text", [
+    "",
+    "COMPOSE_PROFILES=custom\n",
+    "CANASTA_ENABLE_VARNISH=\nCANASTA_ENABLE_ELASTICSEARCH=true\n",
+    "CANASTA_ENABLE_VARNISH=false\nCANASTA_ENABLE_OBSERVABILITY=TRUE\n"
+    "USE_EXTERNAL_DB=true\n",
+    "CADDY_TRUSTED_PROXIES=cloudflare\n",
+    "CANASTA_CADDY_IMAGE=ghcr.io/canastawiki/canasta-caddy:1.0\n",
+    "CADDY_TRUSTED_PROXIES=imperva\nCANASTA_CADDY_IMAGE=example.com/caddy:1\n",
+])
+def test_ansible_and_python_derive_the_same_env(tmp_path, env_text):
+    env_text = "MW_SITE_SERVER=https://example.com\n" + env_text
+    ansible = _run_sync(tmp_path, env_text)
+
+    py_dir = tmp_path / "py"
+    py_dir.mkdir()
+    (py_dir / ".env").write_text(env_text)
+    _helpers._sync_compose_profiles({"path": str(py_dir), "host": "localhost"})
+    python = {k: v for k, v, c in _helpers._parse_env_entries(
+        (py_dir / ".env").read_text()) if not c and k}
+
+    assert ansible.get("COMPOSE_PROFILES") == python.get("COMPOSE_PROFILES")
+    assert (ansible.get("CANASTA_CADDY_IMAGE", "")
+            == python.get("CANASTA_CADDY_IMAGE", ""))

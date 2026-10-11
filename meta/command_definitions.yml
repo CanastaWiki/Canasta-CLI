@@ -1429,7 +1429,7 @@ commands:
       extension is enabled is not shown.
     examples:
       - "canasta extension list"
-    playbook: extension_list.yml
+    direct_only: true
     parameters:
       - name: id
         short: i
@@ -1692,7 +1692,7 @@ commands:
       enabled is not shown.
     examples:
       - "canasta skin list"
-    playbook: skin_list.yml
+    direct_only: true
     parameters:
       - name: id
         short: i

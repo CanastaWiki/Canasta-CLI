@@ -140,10 +140,11 @@ class TestAnsibleTask:
         assert "_rootless_chown_dirs" in chown["loop"]
         assert "stat.exists" in chown["loop"]
 
-    def test_dir_list_matches_fast_path(self):
+    def test_dir_list_is_shared_with_fast_path(self):
         stat = _load_tasks()["Find the operator-managed directories that exist"]
-        ansible_dirs = [
-            (i["path"].replace("{{ instance_path }}/", ""), i["recurse"])
-            for i in stat["loop"]
-        ]
-        assert ansible_dirs == list(_helpers._ROOTLESS_OPERATOR_DIRS)
+        assert stat["loop"] == "{{ canasta_rootless_operator_dirs }}"
+        with open(os.path.join(
+                REPO_ROOT, "vars", "rootless_operator_dirs.yml")) as f:
+            table = yaml.safe_load(f)["canasta_rootless_operator_dirs"]
+        assert list(_helpers._ROOTLESS_OPERATOR_DIRS) == [
+            (d["path"], d["recurse"]) for d in table]

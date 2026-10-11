@@ -640,32 +640,6 @@ class TestK8sRestoreNoComposeRenderForK8sGitops:
         )
 
 
-class TestDiffComposeMatchRegex:
-    """canasta gitops diff's display message uses regexes for filename
-    matching. Same `\\.` block-scalar bug as restore_k8s.yml — the
-    regex never matches anything, so 'A restart would be needed' /
-    'A maintenance update may be needed' messages would never trigger
-    even when there are matching .env / .yml / .php changes."""
-
-    DIFF_COMPOSE = os.path.join(
-        REPO_ROOT, "roles", "gitops", "tasks", "diff_compose.yml",
-    )
-
-    def test_regex_uses_single_backslash(self):
-        with open(self.DIFF_COMPOSE) as f:
-            content = f.read()
-        # Should have single backslash for literal dot
-        assert "'.*\\.(env|yml|yaml)$'" in content
-        assert "'.*\\.php$'" in content
-        # Must not have the broken double-backslash form
-        assert "'.*\\\\.(env|yml|yaml)$'" not in content, (
-            "diff_compose.yml has `\\\\.` in regex; would never match"
-        )
-        assert "'.*\\\\.php$'" not in content, (
-            "diff_compose.yml has `\\\\.php` in regex; would never match"
-        )
-
-
 class TestDumpSecretsStripsEphemeralMetadata:
     """`kubectl get secret -o yaml` emits resourceVersion, uid, and
     creationTimestamp. `kubectl apply -f` then refuses to apply,

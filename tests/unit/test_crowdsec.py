@@ -51,10 +51,6 @@ CADDYFILE_J2 = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "templates", "Caddyfile.j2",
 )
 
-# Must match _CADDY_PLUGIN_IMAGE in direct_commands/_helpers.py and the
-# literal in sync_compose_profiles.yml.
-PLUGIN_CADDY_IMAGE = "ghcr.io/canastawiki/canasta-caddy:2.11.3"
-
 
 def _load_compose():
     with open(COMPOSE_PATH) as f:
@@ -396,7 +392,7 @@ class TestCrowdsecProfileSync:
         assert "CANASTA_ENABLE_CROWDSEC" in content
         # Image reconciliation must be present and target the managed key.
         assert "CANASTA_CADDY_IMAGE" in content
-        assert PLUGIN_CADDY_IMAGE in content
+        assert "canasta_caddy_plugin_image" in content
 
     def test_side_effects_triggers_profile_sync_for_crowdsec(self):
         content = _read(
@@ -1471,7 +1467,7 @@ class TestCrowdsecK8sCaddyImageReconcile:
         assert "CANASTA_ENABLE_CROWDSEC" in content
         assert "CADDY_TRUSTED_PROXIES" in content
         assert "cloudflare" in content and "imperva" in content
-        assert PLUGIN_CADDY_IMAGE in content
+        assert "canasta_caddy_plugin_image" in content
         assert "caddy:2.10.2-alpine" in content
 
     def test_reconcile_sets_crowdsec_enabled_from_flag(self):
@@ -1484,8 +1480,7 @@ class TestCrowdsecK8sCaddyImageReconcile:
         # A custom operator image must be left untouched; managed = empty,
         # stock default, or any managed-prefix tag.
         content = self._reconcile()
-        assert "ghcr.io/canastawiki/canasta-caddy:" in content
-        assert ".startswith(" in content
+        assert ".startswith(canasta_caddy_plugin_image" in content
 
     def test_reconcile_wired_into_start_and_create(self):
         start = _read(os.path.join(
@@ -1587,7 +1582,7 @@ class TestCrowdsecK8sValuesPropagation:
         content = self._content()
         # CrowdSec or a provider trusted-proxy mode swaps caddy.image to the
         # plugin image on K8s.
-        assert PLUGIN_CADDY_IMAGE in content
+        assert "canasta_caddy_plugin_image" in content
         assert "CADDY_TRUSTED_PROXIES" in content
 
 

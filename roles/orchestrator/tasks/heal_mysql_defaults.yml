@@ -20,8 +20,8 @@
 # CANASTA_DB_ROOT_ACCOUNT=true keeps (or puts) MediaWiki on the
 # administrator account.
 #
-# The Compose fast path (direct_commands/_helpers.py, _backfill_db_defaults)
-# sets the same keys; keep them in sync.
+# The keys and values are vars/mysql_defaults.yml, which the Compose fast path
+# (direct_commands/_helpers.py, _backfill_db_defaults) reads too.
 #
 # Input: instance_path
 
@@ -35,65 +35,26 @@
 - name: Backfill bundled DB MySQL defaults
   when: not (_backfill_ext_db.found and _backfill_ext_db.value | lower == 'true')
   block:
-    - name: Read MYSQL_HOST from .env
+    - name: Read the bundled DB MySQL keys from .env
       canasta_env:
         path: "{{ instance_path }}/.env"
         state: read
-        key: MYSQL_HOST
-      register: _backfill_mysql_host
+        key: "{{ item.key }}"
+      loop: "{{ canasta_bundled_db_defaults }}"
+      loop_control:
+        label: "{{ item.key }}"
+      register: _backfill_mysql_keys
 
-    - name: Set MYSQL_HOST default
+    - name: Set the missing bundled DB MySQL defaults
       canasta_env:
         path: "{{ instance_path }}/.env"
         state: set
-        key: MYSQL_HOST
-        value: db
-      when: not _backfill_mysql_host.found or (_backfill_mysql_host.value | default('') | trim) == ''
-
-    - name: Read MYSQL_PORT from .env
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: read
-        key: MYSQL_PORT
-      register: _backfill_mysql_port
-
-    - name: Set MYSQL_PORT default
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: set
-        key: MYSQL_PORT
-        value: "3306"
-      when: not _backfill_mysql_port.found or (_backfill_mysql_port.value | default('') | trim) == ''
-
-    - name: Read MYSQL_USER from .env
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: read
-        key: MYSQL_USER
-      register: _backfill_mysql_user
-
-    - name: Set MYSQL_USER default
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: set
-        key: MYSQL_USER
-        value: root
-      when: not _backfill_mysql_user.found or (_backfill_mysql_user.value | default('') | trim) == ''
-
-    - name: Read MYSQL_SSL from .env
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: read
-        key: MYSQL_SSL
-      register: _backfill_mysql_ssl
-
-    - name: Set MYSQL_SSL default
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: set
-        key: MYSQL_SSL
-        value: "false"
-      when: not _backfill_mysql_ssl.found or (_backfill_mysql_ssl.value | default('') | trim) == ''
+        key: "{{ item.item.key }}"
+        value: "{{ item.item.value }}"
+      loop: "{{ _backfill_mysql_keys.results }}"
+      loop_control:
+        label: "{{ item.item.key }}"
+      when: not item.found or (item.value | default('') | trim) == ''
 
 - name: Read the database account keys from .env
   canasta_env:
