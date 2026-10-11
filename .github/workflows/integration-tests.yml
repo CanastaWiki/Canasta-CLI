@@ -696,7 +696,7 @@ jobs:
         run: ./canasta-native install k8s-cp
       - name: Run K8s gitops test
         run: >-
-          .venv/bin/python tests/integration/run_tests.py
+          .venv/bin/python tests/integration/run_tests.py --no-skip
           k8s-gitops
         timeout-minutes: 30
 
