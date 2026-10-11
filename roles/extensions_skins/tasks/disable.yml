@@ -19,6 +19,12 @@
   vars:
     _settings_action: Disable
 
+- name: "Apply the {{ _item_type }} change to the running instance"
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: apply_config.yml
+  when: _settings_change is changed
+
 - name: "Report {{ _item_type }} disabled"
   ansible.builtin.debug:
     msg: "Disabled {{ _item_type }}: {{ _names }}"
