@@ -57,3 +57,27 @@
   delay: 5
   until: _ns_gone.rc != 0
   when: delete_namespace | default(true) | bool
+
+- name: Fail if the namespace is still terminating
+  ansible.builtin.fail:
+    msg: >-
+      Namespace '{{ _k8s_namespace }}' is still terminating after 10
+      minutes. The instance '{{ instance_id }}' was not deleted. Check what
+      holds it with 'kubectl get namespace {{ _k8s_namespace }} -o yaml'
+      and 'kubectl get all,pvc -n {{ _k8s_namespace }}', then run delete
+      again, or use --force to delete the instance and leave the namespace.
+  when:
+    - delete_namespace | default(true) | bool
+    - _ns_gone.rc | default(1) == 0
+    - not (force | default(false) | bool)
+
+- name: Warn that the namespace remains
+  ansible.builtin.debug:
+    msg: >-
+      Warning: namespace '{{ _k8s_namespace }}' is still terminating and
+      may hold the instance's volumes. Creating an instance with the id
+      '{{ instance_id }}' is refused until it is gone.
+  when:
+    - delete_namespace | default(true) | bool
+    - _ns_gone.rc | default(1) == 0
+    - force | default(false) | bool

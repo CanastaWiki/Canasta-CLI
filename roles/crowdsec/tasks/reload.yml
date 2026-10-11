@@ -27,8 +27,46 @@
 - name: Preflight (resolve, crowdsec running, build cscli prefix)
   ansible.builtin.include_tasks: _preflight.yml
 
+# On K8s the whitelist and acquisition files reach the engine through the
+# crowdsec ConfigMap, so sync and deploy first. A changed file rolls the caddy
+# pod through its checksum annotation; restart only when that did not happen.
+- name: Apply edited CrowdSec config (Kubernetes)
+  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  block:
+    - name: List the caddy pods before the deploy
+      ansible.builtin.command:
+        cmd: >-
+          kubectl get pods -n canasta-{{ instance_id }}
+          -l app.kubernetes.io/component=caddy
+          -o jsonpath={.items[*].metadata.name}
+      register: _crowdsec_pods_before
+      changed_when: false
+
+    - name: Sync config and deploy
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: apply_config.yml
+
+    - name: List the caddy pods after the deploy
+      ansible.builtin.command:
+        cmd: >-
+          kubectl get pods -n canasta-{{ instance_id }}
+          -l app.kubernetes.io/component=caddy
+          -o jsonpath={.items[*].metadata.name}
+      register: _crowdsec_pods_after
+      changed_when: false
+
+- name: Note whether the deploy already rolled the engine
+  ansible.builtin.set_fact:
+    _crowdsec_rolled_by_deploy: >-
+      {{ (_crowdsec_pods_before.stdout | default('') | split
+          | intersect(_crowdsec_pods_after.stdout | default('') | split)
+          | length == 0)
+         and (_crowdsec_pods_before.stdout | default('') | trim | length > 0) }}
+
 - name: Restart the CrowdSec engine
   ansible.builtin.include_tasks: _restart_engine.yml
+  when: not (_crowdsec_rolled_by_deploy | bool)
 
 # --origin lists scopes the delete to console blocklists (never manual bans or
 # the CAPI community list); --scenario narrows it to one list by the name shown

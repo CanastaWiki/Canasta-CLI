@@ -501,8 +501,11 @@ commands:
 
       If the containers and volumes of a Docker Compose instance cannot be
       removed, delete stops and leaves the instance registered and its files
-      in place. Pass --force to delete the instance anyway; any containers
-      and volumes that remain must then be removed by hand.
+      in place. If the namespace of a Kubernetes instance is still
+      terminating after 10 minutes, delete stops and leaves the instance
+      registered, so running delete again finishes the job. Pass --force to
+      delete the instance anyway; any containers, volumes or namespace that
+      remain must then be removed by hand.
     examples:
       - "canasta delete -y"
       - "cd /path/to/instance && canasta delete -y"
@@ -522,7 +525,7 @@ commands:
         short: f
         type: bool
         default: false
-        description: "Delete even if the containers and volumes cannot be removed"
+        description: "Delete even if the containers, volumes or namespace cannot be removed"
 
   - name: start
     description: "Start a Canasta instance"
@@ -2057,7 +2060,9 @@ commands:
       On Compose only the engine container bounces, so the Caddy bouncer
       keeps enforcing its cached decisions throughout; on Kubernetes the
       engine is a sidecar in the Caddy pod, so the pod rolls and Caddy
-      blips briefly. Note that community and console blocklists arrive on
+      blips briefly. On Kubernetes, reload first deploys the instance's
+      current config files, so any other pending config edits are applied
+      too. Note that community and console blocklists arrive on
       CrowdSec's own pull cycle (about every 2 hours), which a restart does
       not force.
 
