@@ -100,6 +100,17 @@ class TestDirectDispatch:
         assert "no Ansible playbook to fall back to" in err
         assert harness.ansible_calls == []
 
+    def test_handoff_runs_the_named_playbook(self, harness, monkeypatch):
+        locks = []
+        monkeypatch.setattr(canasta, "acquire_instance_lock",
+                            lambda name, args: locks.append(name))
+        harness.direct_result = direct_commands.AnsibleHandoff("restart")
+        assert _run(monkeypatch, ["rebuild", "-i", "mysite"]) == "exec"
+        assert [c[0] for c in harness.direct_calls] == ["rebuild"]
+        assert [c[0] for c in harness.ansible_calls] == ["restart"]
+        assert harness.ansible_calls[0][1].id == "mysite"
+        assert locks == ["rebuild", "restart"]
+
     def test_non_direct_command_goes_to_ansible(self, harness, monkeypatch):
         assert _run(monkeypatch, ["restart", "-i", "mysite"]) == "exec"
         assert harness.direct_calls == []
