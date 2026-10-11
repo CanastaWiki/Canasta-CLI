@@ -32,7 +32,7 @@ class TestLoadDefinitions:
         assert "global_flags" in data
         names = [f["name"] for f in data["global_flags"]]
         assert "verbose" in names
-        # --host was demoted to a per-command flag in #325; it lives
+        # --host is a per-command flag; it lives
         # on create/list/version/doctor/install/uninstall now, not
         # in global_flags.
         assert "host" not in names
@@ -386,7 +386,7 @@ class TestBuildAnsibleArgs:
         - ForwardAgent=yes so the operator's local ssh-agent reaches
           the target host (gitops `git push` to a private repo on a
           remote then authenticates against the forge with the
-          operator's keys; see #465).
+          operator's keys).
         - ServerAliveInterval keeps long-running remote commands
           (helm upgrade --wait, gitops init's git push, maintenance
           update) from tripping a NAT or firewall idle drop and
@@ -632,7 +632,7 @@ class TestSplitPassthrough:
 
 class TestRemainderFlagHoisting:
     """Canasta flags trapped inside script_args/exec_args by REMAINDER
-    should be lifted back out (#279)."""
+    should be lifted back out."""
 
     def _parse_and_hoist(self, parser, argv):
         args = parser.parse_args(argv)
@@ -975,7 +975,7 @@ class TestPathKindRemote:
     """With --host, `create --path` is path_kind: remote — default '.'
     becomes the canonical remote default '~/canasta', absolute paths
     pass through, and relative paths are rejected up front instead of
-    being silently abspath'd against the laptop (#384)."""
+    being silently abspath'd against the laptop."""
 
     def _get_vars(self, result):
         import json
@@ -1186,7 +1186,7 @@ import subprocess as _subprocess
 class TestSelfUpdateCli:
     """canasta.self_update_cli runs in canasta.py before exec'ing
     ansible-playbook so the playbook process always sees the post-pull
-    state of ansible.cfg / module_utils / etc. (#489)."""
+    state of ansible.cfg / module_utils / etc."""
 
     @pytest.fixture(autouse=True)
     def _isolate_self_updated_flag(self, monkeypatch):

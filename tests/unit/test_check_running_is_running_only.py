@@ -11,7 +11,7 @@ start path would change two other callers:
 With `-a` a stopped container satisfies the non-empty test, so upgrade
 would start an instance that was deliberately down.
 
-The start path wants the same semantics anyway. #1394 is about running
+The start path wants the same semantics anyway. Its readiness gate is about running
 `canasta start` on an instance that is *already running*; skipping when a
 container merely exists would make `canasta start` a no-op on a stopped
 instance and leave it down.

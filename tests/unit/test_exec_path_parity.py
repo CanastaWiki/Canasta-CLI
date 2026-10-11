@@ -9,9 +9,9 @@ container-exec logic:
   * the Ansible path, roles/orchestrator/tasks/exec.yml +
     k8s_get_pod.yml (used by everything that runs through the playbook).
 
-They are kept as separate implementations on purpose (#773 item 1), but
+They are kept as separate implementations on purpose, but
 the *shared, drift-prone invariants* between them have already diverged
-three times (#770, #771, #777). The most recent: the Python path resolved
+three times. The most recent: the Python path resolved
 a K8s pod with no phase filter while the Ansible path selected only
 Running pods, so interactive exec could target a Pending/Terminating pod.
 
@@ -208,7 +208,7 @@ class TestShellFallbackParity:
 
 class TestRemoteK8sExec:
     """A remote Kubernetes instance must run the pod lookup and the exec on
-    its registered host via ssh (issue #1043) — kubectl on the controller
+    its registered host via ssh — kubectl on the controller
     has no kubeconfig for the instance's cluster, so the previous local
     invocation always failed with 'no running pod found'."""
 

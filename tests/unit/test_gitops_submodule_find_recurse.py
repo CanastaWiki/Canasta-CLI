@@ -6,7 +6,7 @@ the find only examines the immediate directory and matches nothing, so the
 `_convert_submodule.yml` loop is empty: loosely-cloned extensions are committed
 as orphan gitlinks (no ``.gitmodules``) and `git submodule status` fails on the
 source. These finds must use ``recurse: true`` (bounded by ``depth: 2`` to that
-one level and to skip a nested submodule's own ``.git``). See issue #1126.
+one level and to skip a nested submodule's own ``.git``).
 """
 
 import os
@@ -65,7 +65,7 @@ class TestSubmoduleFindRecurses:
 
     def test_recurse_true(self):
         """recurse must be true or the converter never matches
-        <dir>/<Name>/.git and is dead code (#1126)."""
+        <dir>/<Name>/.git and is dead code."""
         for path in FILES:
             for name, find in _submodule_find_tasks(path):
                 assert find.get("recurse") is True, (

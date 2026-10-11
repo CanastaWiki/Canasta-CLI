@@ -84,7 +84,8 @@
 # Deliberately not keyed off the orchestrator, even though the same task
 # sets CADDY_AUTO_HTTPS=off for Kubernetes: there Caddy runs http-only
 # behind an ingress that terminates TLS, so https:// is the correct
-# $wgServer and forcing http:// would recreate #1094.
+# $wgServer and forcing http:// would make MediaWiki emit http:// links
+# on an https site.
 - name: Determine which port (if any) to append to the domain
   ansible.builtin.set_fact:
     _http_only: >-

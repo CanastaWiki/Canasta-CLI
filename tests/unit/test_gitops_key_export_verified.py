@@ -5,7 +5,7 @@ the CLI container, discarded when the command exits, so a --key path
 outside a bind-mounted directory silently vanishes while the CLI reports
 "Key exported to ...". What is lost is the git-crypt key that unlocks the
 encrypted per-host vars — and the loss stays invisible until a join from
-another host or a rebuild, which are the moments it is needed (#1443).
+another host or a rebuild, which are the moments it is needed.
 """
 
 import os

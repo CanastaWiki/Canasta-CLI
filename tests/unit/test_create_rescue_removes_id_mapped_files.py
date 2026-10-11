@@ -8,7 +8,7 @@ no trace instead leaves a directory the operator cannot delete either --
 and a non-empty directory blocks the next create.
 
 `podman unshare` enters the namespace where those ids map back. delete
-already does this (#1267); create's rescue is the counterpart.
+already does this; create's rescue is the counterpart.
 """
 
 import os

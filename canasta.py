@@ -640,7 +640,7 @@ def self_update_cli(dev=False, allow_major=False):
     Used to live as the first task of upgrade.yml itself, but loading
     ansible.cfg at startup means an in-flight cfg change between
     pre- and post-move state would silently make ansible-playbook
-    keep using stale values (#489).
+    keep using stale values.
 
     Docker installs (no .git in the script dir) are no-ops here: the
     canasta-docker wrapper has already pulled the image before this
@@ -1907,7 +1907,7 @@ def _add_param_extra_vars(params, args, host_value, extra_vars):
             # dir on the remote). With --host set, we must NOT
             # rewrite it against the laptop's filesystem — that's how
             # `--path .` ended up as `/Users/<u>/...` on a Linux cp
-            # host (#384).
+            # host.
             #
             # path_kind: local (the default) is for paths that name a
             # file on the laptop the user wants uploaded to the
@@ -2503,7 +2503,7 @@ def main():
     # the pulled code (ansible.cfg, module_utils, modules, playbooks)
     # at startup. Used to be the first task of upgrade.yml itself,
     # but running it inside the playbook means ansible-playbook's
-    # in-memory config goes stale on cfg changes — see #489.
+    # in-memory config goes stale on cfg changes.
     if command_name == "upgrade":
         self_update_cli(
             dev=getattr(args, "dev", False),

@@ -9,7 +9,7 @@ until that was patched in — then composeCommand, inspectCommand and
 buildArgs, which arrived later and nobody went back to add.
 
 Losing composeCommand puts a Podman instance back on the `docker
-compose` default, which is the failure in #1370:
+compose` default, which fails like this:
 
     Error: pull Compose images failed (rc=127): /bin/sh: 1: docker: not found
 

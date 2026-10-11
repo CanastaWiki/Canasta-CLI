@@ -546,8 +546,8 @@ commands:
       components start or stay down based on their current setting:
 
       * `CANASTA_ENABLE_VARNISH` (default `true`) — Varnish cache
-      * `CANASTA_ENABLE_OBSERVABILITY` (default `false`) — Prometheus
-        and Grafana stack
+      * `CANASTA_ENABLE_OBSERVABILITY` (default `false`) — OpenSearch,
+        Logstash and OpenSearch Dashboards log stack
       * `CANASTA_ENABLE_ELASTICSEARCH` (default `false`) — Elasticsearch
 
       If the instance has development mode enabled, Xdebug starts

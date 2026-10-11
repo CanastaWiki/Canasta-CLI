@@ -75,7 +75,7 @@ class TestHelmChart:
         assert "jobrunner" not in values
 
     def test_values_yaml_has_env_config_data(self):
-        """configData.env must exist so configmap-env.yaml renders (#51)."""
+        """configData.env must exist so configmap-env.yaml renders."""
         with open(os.path.join(HELM_CHART, "values.yaml")) as f:
             values = yaml.safe_load(f)
         assert "configData" in values
@@ -86,7 +86,7 @@ class TestHelmChart:
     def test_web_references_env_configmap(self):
         """deployment-web must pull env vars from the canasta-<id>-env
         ConfigMap via envFrom, so that .env changes propagated by
-        k8s_sync_config.yml actually reach the pod (#51)."""
+        k8s_sync_config.yml actually reach the pod."""
         templates = os.path.join(HELM_CHART, "templates")
         for template_name in ("deployment-web.yaml",):
             with open(os.path.join(templates, template_name)) as f:
@@ -101,7 +101,7 @@ class TestHelmChart:
 
     def test_persistence_subkeys_have_access_mode_default(self):
         """Each content PVC must have an accessMode default in values.yaml
-        so the chart renders without requiring users to set it (#55)."""
+        so the chart renders without requiring users to set it."""
         with open(os.path.join(HELM_CHART, "values.yaml")) as f:
             values = yaml.safe_load(f)
         assert "persistence" in values
@@ -121,7 +121,7 @@ class TestHelmChart:
     def test_content_pvcs_use_configurable_access_mode(self):
         """The four content PVC templates must read accessMode from values.yaml
         rather than hardcoding ReadWriteOnce, so multi-node multi-replica
-        web on RWM-capable storage is contractually correct (#55)."""
+        web on RWM-capable storage is contractually correct."""
         templates = os.path.join(HELM_CHART, "templates")
         pvc_subkey_map = {
             "pvc-images.yaml": "images",
@@ -146,7 +146,7 @@ class TestHelmChart:
         """k8s_preflight.yml should read .status.capacity for the memory
         check, not .status.allocatable. Allocatable on a 4 GiB node is
         ~3.5 GiB, so a 4 GiB threshold against allocatable would reject
-        the smallest instance we want to support. See #58."""
+        the smallest instance we want to support."""
         with open(os.path.join(ORCHESTRATOR_TASKS, "k8s_preflight.yml")) as f:
             content = f.read()
         assert ".status.capacity.memory" in content, (
@@ -159,7 +159,7 @@ class TestHelmChart:
 
     def test_k8s_preflight_min_memory_is_3500(self):
         """The K8s preflight memory minimum should match the Compose
-        threshold and accommodate cloud-instance kernel overhead (#65).
+        threshold and accommodate cloud-instance kernel overhead.
         4096 MiB rejects real 4 GiB cloud instances (which report
         ~3826 MiB capacity); 3500 is the working threshold."""
         with open(os.path.join(ORCHESTRATOR_TASKS, "k8s_preflight.yml")) as f:
@@ -293,7 +293,7 @@ class TestExternalDatabase:
 
 
 class TestK8sSyncConfigSecretsStripped:
-    """Guard the #507 regression class: secret-bearing keys must NOT
+    """Secret-bearing keys must NOT
     end up duplicated in the configData.web['.env'] blob — the chart
     pulls MYSQL_PASSWORD / MW_SECRET_KEY from the canonical K8s
     Secrets via secretKeyRef, and any plaintext copy in the
@@ -374,9 +374,8 @@ class TestK8sSyncConfigSecretsStripped:
 
 
 class TestK8sGitopsNoEncryption:
-    """Guard the #507 regression class for the gitops side: K8s init
-    must not register hosts/** for git-crypt filtering. After the
-    fix, rendered-values.yaml carries no secrets so encryption is
+    """The gitops side of the same guard: K8s init must not register
+    hosts/** for git-crypt filtering. rendered-values.yaml carries no secrets so encryption is
     unnecessary; the encryption rule was what broke Argo CD's ability
     to parse the values file."""
 
@@ -399,12 +398,12 @@ class TestK8sGitopsNoEncryption:
         register `hosts/**` (or any pattern) for git-crypt filtering.
         Argo CD reads hosts/<name>/rendered-values.yaml as Helm values
         and has no git-crypt awareness — encrypted bytes break parsing
-        with a 'control characters not allowed' error (#507).
+        with a 'control characters not allowed' error.
 
-        After #509 dropped the entire git-crypt scaffolding from K8s,
-        there's no .gitattributes-writing task at all, which trivially
-        satisfies the 'no encryption rules' invariant. This test
-        accepts either shape."""
+        K8s gitops has no git-crypt scaffolding, so there is no
+        .gitattributes-writing task at all, which trivially satisfies
+        the 'no encryption rules' invariant. This test accepts either
+        shape."""
         with open(self.INIT_K8S) as f:
             tasks = yaml.safe_load(f)
         for task in self._walk_tasks(tasks):
@@ -432,19 +431,18 @@ class TestK8sGitopsNoEncryption:
                 "encryption rule."
             )
             return
-        # No .gitattributes-writing task at all (#509 result) is fine —
+        # No .gitattributes-writing task at all is fine —
         # the absence of a filter rule is the same as an empty rule
         # set as far as Argo CD is concerned.
 
 
 class TestK8sGitopsNoGitcryptScaffolding:
-    """Guard #509: K8s gitops init/join must not invoke any git-crypt
-    operations. After #508 nothing in the K8s repo is encrypted, so
+    """K8s gitops init/join must not invoke any git-crypt
+    operations. Nothing in the K8s repo is encrypted, so
     `git-crypt --version` checks, `git-crypt init`, `git-crypt
     export-key`, `git-crypt unlock`, and the controller-side write of
-    the exported key are all dead scaffolding. They were removed in
-    #509 to simplify the K8s gitops flow and to drop git-crypt as a
-    K8s prerequisite (Compose still uses it)."""
+    the exported key would be dead scaffolding, and would make git-crypt
+    a K8s prerequisite (Compose still uses it)."""
 
     INIT_K8S = os.path.join(GITOPS_TASKS, "init_kubernetes.yml")
     JOIN_K8S = os.path.join(GITOPS_TASKS, "join_kubernetes.yml")
@@ -512,13 +510,12 @@ class TestK8sGitopsNoGitcryptScaffolding:
 
 
 class TestK8sStartReadsValuesFromTarget:
-    """Guard #514: lookup('file', ...) runs on the controller, but
+    """lookup('file', ...) runs on the controller, but
     instance_path is target-side. canasta start broke against any
     remote K8s target because three set_fact tasks tried to read the
     instance's values.yaml via lookup. Ban the anti-pattern here so
-    the same regression can't drift back in (PR #115 had to fix the
-    same shape in init_kubernetes.yml + push_kubernetes.yml; #265 and
-    earlier reintroduced it in start.yml)."""
+    the same regression can't drift back in (it has recurred in
+    init_kubernetes.yml, push_kubernetes.yml and start.yml)."""
 
     START_YML = os.path.join(ORCHESTRATOR_TASKS, "start.yml")
 
@@ -793,7 +790,7 @@ class TestGitopsReinit:
     gated on the reinit flag, and surface --reinit in the
     "already initialized" failure message. Drift is silent: the user
     gets stuck with a partial init and no way out, which is exactly
-    the failure mode #462 reported. Cheap to gate against."""
+    what --reinit exists to prevent. Cheap to gate against."""
 
     INIT_JOIN_FILES = [
         "init_compose.yml",
@@ -818,7 +815,7 @@ class TestGitopsReinit:
         content = flow_source(filename)
         assert "already initialized" in content
         # The error has to point users at the recovery flag, otherwise
-        # the message is the same brick wall #462 was reported about.
+        # the message is a brick wall.
         assert "--reinit" in content, (
             "%s's 'already initialized' message must mention --reinit "
             "so users have a documented recovery path" % filename
@@ -853,7 +850,7 @@ class TestResolvePasswordHelper:
     def _read_create_tasks(self):
         """Combined contents of all create-role task files (excluding
         the helper itself). The three password resolutions used to
-        live in main.yml; after the #428 split they live in
+        live in main.yml; now they live in
         _passwords.yml. The structural assertions don't care which
         file holds them — they just guard against the helper pattern
         being abandoned."""
@@ -971,7 +968,7 @@ class TestPlayLevelDockerHost:
     """canasta.yml's play-level `environment:` exposes DOCKER_HOST so
     every Ansible-routed command's docker / docker compose calls
     inherit it. Operators on rootless podman or rootless Docker
-    set this via `canasta create --docker-host=…` (see #479).
+    set this via `canasta create --docker-host=…`.
 
     Drift here is invisible until someone tries the rootless setup,
     so the structural check is cheap insurance."""
@@ -1010,7 +1007,7 @@ class TestPlayLevelDockerHost:
 
 
 class TestRequirementsCollectionsHelm4Compat:
-    """Guard #525: kubernetes.core must be pinned to a version that
+    """kubernetes.core must be pinned to a version that
     supports Helm 4. Pre-fix `requirements.yml` had `>=3.0.0` which
     let pip install collection 6.3.0 — which rejects Helm 4 with
     'Helm version must be >=3.0.0,<4.0.0'. Helm 4 is now what
@@ -1086,10 +1083,10 @@ class TestK8sStartProgressMessages:
 class TestK8sDeleteWaitsForNamespace:
     """`canasta delete` must wait for the namespace to fully terminate before
     returning — otherwise an immediate re-create races the still-Terminating
-    namespace and fails the stale-namespace guard (#684)."""
+    namespace and fails the stale-namespace guard."""
 
     def test_namespace_deletion_requests_then_polls_until_gone(self):
-        # #762: a single held `kubectl delete --wait` aborts the whole delete
+        # A single held `kubectl delete --wait` aborts the whole delete
         # when termination is slow (NFS on multi-node), leaking the namespace.
         # Issue the delete (--wait=false), then poll until it's gone — still
         # waiting for full termination so delete->re-create doesn't race.
@@ -1107,7 +1104,7 @@ class TestK8sDeleteWaitsForNamespace:
     def test_helm_uninstall_drops_wait(self):
         # The helm uninstall must NOT use --wait: with --wait its async window
         # could time out on slow multi-node NFS teardown and abort the delete
-        # before the namespace was removed (#762). Teardown is handled by the
+        # before the namespace was removed. Teardown is handled by the
         # namespace delete + poll above.
         with open(os.path.join(ORCHESTRATOR_TASKS, "helm_uninstall.yml")) as f:
             tasks = yaml.safe_load(f)
@@ -1118,7 +1115,7 @@ class TestK8sDeleteWaitsForNamespace:
 class TestResilientExec:
     """Long-running remote ops run detached and are polled (resilient_exec)
     so a controller-side SSH reset doesn't abort work still progressing on
-    the target (#750)."""
+    the target."""
 
     PRIMITIVE = os.path.join(ORCHESTRATOR_TASKS, "resilient_exec.yml")
 
@@ -1257,7 +1254,7 @@ class TestK8sTraefikClientIP:
     """The k3s-bundled Traefik LoadBalancer defaults to externalTrafficPolicy:
     Cluster, which SNATs the client IP — breaking CrowdSec (all traffic looks
     private) and access logs. install k8s-cp must drop a HelmChartConfig that
-    flips Traefik to Local so the real client IP is preserved (#687)."""
+    flips Traefik to Local so the real client IP is preserved."""
 
     CONFIG = os.path.join(
         REPO_ROOT, "roles", "orchestrator", "files",
@@ -1302,8 +1299,7 @@ class TestK8sWorkerJoinDualStackIP:
     """A dual-stack control-plane node reports both an IPv4 and an IPv6
     InternalIP. The worker join must build K3S_URL from a single IPv4 address,
     not the raw space-separated pair — k3s rejects the latter with
-    'invalid character " " in host name' and the agent never joins (#687-era
-    multi-node e2e finding)."""
+    'invalid character " " in host name' and the agent never joins."""
 
     WORKER = os.path.join(REPO_ROOT, "roles", "install", "tasks", "k3s_worker.yml")
 

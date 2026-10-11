@@ -164,13 +164,13 @@
         msg: >-
           {{ _item_type | capitalize }} '{{ item.name }}' was
           {{ ("on branch '" ~ _current_branch.stdout | trim ~ "'")
-             if (_current_branch.stdout | default('') | trim != 'HEAD')
-             else ('detached at ' ~ (_pre_switch_sha.stdout | default('') | trim)[:8]) }};
+          if (_current_branch.stdout | default('') | trim != 'HEAD')
+          else ('detached at ' ~ (_pre_switch_sha.stdout | default('') | trim)[:8]) }};
           switched to expected '{{ item.branch }}'
           ({{ (_pre_switch_sha.stdout | default('') | trim)[:8] }} ->
-           {{ (_post_switch_sha.stdout | default('') | trim)[:8] }})
-          {{ ('[gitops: committed; run canasta gitops push to distribute]')
-             if (is_gitops | bool) else '' }}.
+          {{ (_post_switch_sha.stdout | default('') | trim)[:8] }}){{
+          (' [gitops: committed; run canasta gitops push to distribute]')
+          if (is_gitops | bool) else '' }}.
 
 - name: "Warn when the expected branch is unknown (existing checkout)"
   when:
@@ -182,8 +182,8 @@
       Could not resolve an expected branch for {{ _item_type }} '{{ item.name }}';
       it is currently
       {{ ("on branch '" ~ _current_branch.stdout | trim ~ "'")
-         if (_current_branch.stdout | default('') | trim != 'HEAD')
-         else 'detached (HEAD)' }}.
+      if (_current_branch.stdout | default('') | trim != 'HEAD')
+      else 'detached (HEAD)' }}.
       The checkout was not changed — pass --branch or --mw-version to pin the
       right release.
 

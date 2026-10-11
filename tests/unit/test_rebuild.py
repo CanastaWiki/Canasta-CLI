@@ -1,4 +1,4 @@
-"""Tests for `canasta rebuild` (#562)."""
+"""Tests for `canasta rebuild`."""
 
 import json
 import os

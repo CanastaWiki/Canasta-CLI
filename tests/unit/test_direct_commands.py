@@ -3171,7 +3171,7 @@ class TestExecInContainer:
 class TestStreamInContainerStdin:
     """_stream_in_container must leave stdin attached on every
     orchestrator so redirects like `canasta maintenance script eval
-    < probe.php` reach the script (#986)."""
+    < probe.php` reach the script."""
 
     @staticmethod
     def _fake_popen(captured):
@@ -4756,7 +4756,7 @@ class TestScale:
 
 
 # ---------------------------------------------------------------------------
-# DOCKER_HOST propagation (#479 phase 2)
+# DOCKER_HOST propagation
 # ---------------------------------------------------------------------------
 
 class TestDockerHostPropagation:
@@ -4764,7 +4764,7 @@ class TestDockerHostPropagation:
     must export the registered `dockerHost` as DOCKER_HOST so any
     subsequent local subprocess inherits it. Remote SSH calls
     prepend it to the command string (SSH does not pass env vars
-    by default). See #479."""
+    by default)."""
 
     def test_resolve_instance_sets_docker_host_when_registered(
         self, monkeypatch,
@@ -5131,7 +5131,7 @@ class TestLintEnvContent:
 
 
 class TestResolveInstanceByCwd:
-    """#596: status/doctor/version must detect the instance from any
+    """status/doctor/version must detect the instance from any
     subdirectory (walking up parent dirs), honoring CANASTA_HOST_PWD."""
 
     @staticmethod
@@ -5181,7 +5181,7 @@ class TestResolveInstanceByCwd:
 class TestRetryOnSshReset:
     """Idempotent remote ops retry on ssh exit 255 (a connection-level
     reset) so a transient controller-to-target drop doesn't fail a command
-    that was progressing (#750)."""
+    that was progressing."""
 
     def test_retries_on_255_then_succeeds(self):
         calls = []
@@ -5231,7 +5231,7 @@ class TestRetryOnSshReset:
 
 
 class TestMaintenanceStreamRetriesOnSshReset:
-    """#750: maintenance update/script stream over SSH to a remote compose
+    """maintenance update/script stream over SSH to a remote compose
     host with no timeout (long runs are fine) but must retry on a
     connection-level reset (ssh exit 255) — they are idempotent and
     re-runnable. localhost / in-cluster exec must not retry."""
@@ -5293,7 +5293,7 @@ class TestRemoteK8sStreamAndExec:
     """maintenance script/extension/update stream through
     _stream_in_container, and lighter helpers use _exec_in_container; for a
     remote Kubernetes instance both must run the pod lookup and the exec on
-    the instance's host via ssh (issue #1047) — kubectl on the controller
+    the instance's host via ssh — kubectl on the controller
     has no kubeconfig for the cluster."""
 
     INST = {"id": "rsdev", "orchestrator": "k8s",

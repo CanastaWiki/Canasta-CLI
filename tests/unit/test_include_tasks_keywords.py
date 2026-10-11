@@ -5,7 +5,7 @@ Two structural checks over every task file:
 1. `test_no_inert_ignore_errors_on_include_tasks` — `ignore_errors: true` placed
    directly on a dynamic `include_tasks` is inert (it applies to the include
    operation, not the tasks inside), so a non-zero result there aborts the whole
-   play. `canasta remove` actually broke this way (#1058, 10eb627); the correct
+   play. `canasta remove` actually broke this way; the correct
    form puts the flag under the include's `apply:`.
 
 2. `test_include_tasks_use_only_valid_keywords` — no `include_tasks` task may

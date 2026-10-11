@@ -14,7 +14,7 @@ apt's broken 1.3.0 and this whole target would install nothing that
 runs.
 
 These tests pin that shape: the link, the version pin, and the
-no-silent-failure behavior the review of #1437 demanded.
+no-silent-failure behavior.
 """
 
 import os
@@ -89,7 +89,7 @@ class TestTheLinkMakesTheToolResolve:
 
 class TestTheVersionPin:
     def test_podman_compose_is_pinned_above_the_broken_release(self):
-        # doctor (#1436) tells operators the fix is >= 1.3.1; an
+        # doctor tells operators the fix is >= 1.3.1; an
         # unpinned `uv tool install` could hand back the broken 1.3.0
         # from a stale index.
         spec = _named(UV, "Resolve version constraints per tool")

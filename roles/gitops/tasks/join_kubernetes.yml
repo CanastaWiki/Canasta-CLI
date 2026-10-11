@@ -134,7 +134,7 @@
 
 # Mirror the Compose join: a blind `git checkout HEAD -- .` rewrites
 # every tracked path and can fail to unlink pre-existing, differently
-# owned files (#571). Materialize .gitattributes first so git-crypt
+# owned files. Materialize .gitattributes first so git-crypt
 # decrypts hosts/** on checkout, then rewrite only the files that differ
 # and surface a permission failure as an actionable message.
 # Compose gitops repos carry a .gitattributes that drives git-crypt

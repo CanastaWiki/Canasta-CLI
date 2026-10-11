@@ -200,7 +200,7 @@
     msg: >-
       Saved .env changes to
       {{ ((_sync_env_plan.set | default({}) | list)
-          + (_sync_env_plan.unset | default([]))) | sort | join(', ') }}
+      + (_sync_env_plan.unset | default([]))) | sort | join(', ') }}
       in the gitops sources.
   when: >-
     (_sync_env_plan.set | default({}) | length

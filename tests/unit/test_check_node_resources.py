@@ -4,8 +4,9 @@ The script is invoked by k8s_preflight.yml against the output of
 `kubectl get nodes -o jsonpath` reading .status.capacity, and checks
 whether at least one node meets the configured minimums.
 
-See #58 for the rationale behind checking capacity rather than
-allocatable, and the 4 GiB total memory threshold.
+It checks capacity rather than allocatable: allocatable on a 4 GiB node
+is ~3.5 GiB, so a threshold against it would reject the smallest instance
+Canasta supports.
 """
 
 import os
@@ -52,7 +53,7 @@ class TestCheckNodeResources:
 
     def test_real_4gib_cloud_instance_passes(self):
         # AWS c7i-flex.large reports ~3826 MiB capacity (advertised 4 GiB).
-        # The threshold must accommodate this reality. See #65.
+        # The threshold must accommodate this reality.
         node_data = "node-1\t2\t3826Mi\t20Gi"
         rc, out = run_script(node_data)
         assert rc == 0
@@ -106,7 +107,7 @@ class TestCheckNodeResources:
 
     def test_memory_unit_parsing(self):
         # All units that kubectl can emit for capacity.memory.
-        # Threshold is 3500 MiB (#65) so values are picked relative to that.
+        # Threshold is 3500 MiB so values are picked relative to that.
         test_cases = [
             ("4194304Ki", True),  # 4 GiB in Ki, comfortably above threshold
             ("4096Mi", True),  # 4 GiB in Mi
@@ -127,7 +128,7 @@ class TestCheckNodeResources:
 
     def test_default_min_memory_is_3500(self):
         # If MIN_MEMORY_MI is not in the environment at all, the script
-        # should default to 3500 MiB (#65). Test by clearing the var and
+        # should default to 3500 MiB. Test by clearing the var and
         # using a node just below that.
         env = os.environ.copy()
         env["NODE_DATA"] = "node-1\t4\t3499Mi\t30Gi"

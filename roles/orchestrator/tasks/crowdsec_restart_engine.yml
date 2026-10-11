@@ -19,7 +19,7 @@
   no_log: true  # registers the whole .env, including passwords
   when:
     - compose_command is search('podman')
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
 
 - name: Build compose profile flags
   ansible.builtin.set_fact:
@@ -30,17 +30,17 @@
          | join(' ') }}
   when:
     - compose_command is search('podman')
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
 
 - name: Restart the CrowdSec engine (Compose)
   ansible.builtin.command:
     cmd: "{{ compose_command }} {{ _crowdsec_profile_flags | default('') }} restart crowdsec"
     chdir: "{{ instance_path }}"
   changed_when: true
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Restart the CrowdSec engine (Kubernetes)
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
   block:
     - name: Roll the caddy deployment (hosts the crowdsec sidecar)
       ansible.builtin.command:

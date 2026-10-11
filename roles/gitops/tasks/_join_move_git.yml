@@ -4,7 +4,7 @@
 # Under --reinit the instance still holds the previous attempt's gitops
 # files (.git, hosts/, templates, ...). The clone has now succeeded, so
 # wipe them and move the fresh .git into a clean tree. Deferring the
-# cleanup until here keeps the old .git intact if the clone fails (#663).
+# cleanup until here keeps the old .git intact if the clone fails.
 #
 # Input: instance_path, _join_tmpdir. Optional: reinit.
 

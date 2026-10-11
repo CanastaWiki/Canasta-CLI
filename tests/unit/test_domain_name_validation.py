@@ -1,4 +1,4 @@
-"""Tests for --domain-name validation guidance (#667).
+"""Tests for --domain-name validation guidance.
 
 The hostname validator rejects a value that carries a scheme or a port,
 but the bare "not a valid hostname" message left users (following older

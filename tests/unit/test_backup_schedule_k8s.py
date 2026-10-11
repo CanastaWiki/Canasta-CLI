@@ -6,8 +6,7 @@ are parsed and we assert that field-name conventions and K8s-side defaults
 are in place. They guard against regressions that show up only in
 production (slow failure feedback, missing history, etc.).
 
-End-to-end behavior is covered separately on a real cluster (see
-issue #424).
+End-to-end behavior is covered separately on a real cluster.
 """
 
 import os
@@ -87,8 +86,7 @@ class TestK8sSecretBackupRBAC:
     local. Least-privilege RBAC.
 
     Source of truth is roles/backup/tasks/_k8s_backup_rbac.yml — the
-    on-demand backup path (k8s_run_backup.yml) includes this file
-    (#513 refactor)."""
+    on-demand backup path (k8s_run_backup.yml) includes this file."""
 
     SHARED_RBAC_PATH = os.path.join(
         REPO_ROOT, "roles", "backup", "tasks", "_k8s_backup_rbac.yml",
@@ -150,7 +148,7 @@ class TestK8sSecretBackupRBAC:
 class TestK8sRestoreReplaysSecrets:
     """k8s_restore_instance.yml must apply the snapshot's secrets-<id>.yaml
     file when present, so a fresh-cluster restore brings back
-    MYSQL_PASSWORD / MW_SECRET_KEY (#510)."""
+    MYSQL_PASSWORD / MW_SECRET_KEY."""
 
     RESTORE_K8S = os.path.join(
         REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml",
@@ -172,7 +170,7 @@ class TestK8sRestoreReplaysSecrets:
         )
 
     def test_restore_skips_when_secrets_file_missing(self):
-        """Snapshots taken before #510 won't have a secrets-*.yaml
+        """Snapshots taken before Secrets were captured won't have a secrets-*.yaml
         file. Restoring those must skip the secrets task gracefully,
         not fail."""
         with open(self.RESTORE_K8S) as f:
@@ -274,7 +272,7 @@ class TestK8sRestorePreservesCurrentDBPassword:
 
 
 class TestK8sRestoreFailsLoudlyOnResticError:
-    """#748: a restore must NOT report success when restic actually failed
+    """A restore must NOT report success when restic actually failed
     (repo unreachable, wrong password, snapshot missing). The pod captures
     restic's exit code + output, and the controller fails loudly on a fatal
     error while still tolerating the benign xattr exit 1."""
@@ -326,7 +324,7 @@ class TestK8sRestoreFailsLoudlyOnResticError:
 
 
 class TestOnDemandBackupCapturesDB:
-    """Guard #513: on-demand 'canasta backup create' on K8s must
+    """On-demand 'canasta backup create' on K8s must
     capture the wiki database. Pre-fix the dump ran via 'kubectl
     exec' into the live web pod's emptyDir; the restic Job spawned
     separately and mounted the web-config ConfigMap (different
@@ -510,7 +508,7 @@ class TestOnDemandBackupCapturesDB:
 class TestSharedBackupRBAC:
     """The SA + Role + RoleBinding live in roles/backup/tasks/
     _k8s_backup_rbac.yml so the on-demand backup Job (k8s_run_backup.yml)
-    gets least-privilege RBAC (refactored per #513)."""
+    gets least-privilege RBAC."""
 
     SHARED_RBAC = os.path.join(
         REPO_ROOT, "roles", "backup", "tasks", "_k8s_backup_rbac.yml",
@@ -545,7 +543,7 @@ class TestK8sRestoreImportRegexNotDoubleEscaped:
     Jinja parses the literal `\\.` regex which is "literal backslash
     + any char" — never matches `.sql` / `.yaml`. The Import + all
     secrets-restore tasks were silently skipping for every K8s
-    restore. Surfaced during PR #518 validation."""
+    restore."""
 
     RESTORE_K8S = os.path.join(
         REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml",
@@ -676,7 +674,7 @@ class TestDumpSecretsStripsEphemeralMetadata:
 
 
 class TestK8sRestoreCloudBackendDoesNotMountHostPath:
-    """Guard #519: cloud-backend RESTIC_REPOSITORY values (s3:...,
+    """Cloud-backend RESTIC_REPOSITORY values (s3:...,
     b2:..., azure:..., gs:...) are URIs, not filesystem paths.
     Pre-fix, k8s_restore_instance.yml unconditionally mounted RESTIC_REPOSITORY
     as a hostPath; for cloud URIs this failed container init with
@@ -735,7 +733,7 @@ class TestK8sRestoreCloudBackendDoesNotMountHostPath:
         """The Create restore pod task should reference
         `_restore_volume_mounts` and `_restore_volumes`, not inline
         volumes/volumeMounts. Inline values would re-introduce the
-        unconditional hostPath mount that #519 was about."""
+        unconditional hostPath mount that breaks cloud backends."""
         c = self._content()
         # Scope to the Create-restore-pod task (up to the next task) rather
         # than a fixed char window, so additions to the Pod spec don't push
@@ -754,8 +752,8 @@ class TestK8sRestoreCloudBackendDoesNotMountHostPath:
 
     def test_no_unconditional_local_repo_volume(self):
         """The old shape — inline `local-repo` volume with a hardcoded
-        hostPath of `RESTIC_REPOSITORY` — must NOT be present. That
-        was the #519 bug."""
+        hostPath of `RESTIC_REPOSITORY` — must NOT be present: it
+        fails container init for cloud backends."""
         c = self._content()
         # Find the Create restore pod block and assert no inline
         # local-repo volume in it.
@@ -775,7 +773,7 @@ class TestK8sRestoreCloudBackendDoesNotMountHostPath:
 class TestK8sRestoreImportTarget:
     """The dumps name their databases, so a bundled-DB import runs as root
     in the db pod. An external-DB instance has no db pod (an unconditional
-    lookup made restore unusable there, #520), so it imports through the
+    lookup made restore unusable there), so it imports through the
     web pod as the operator's MYSQL_USER."""
 
     RESTORE_K8S = os.path.join(
@@ -813,7 +811,7 @@ class TestK8sRestoreImportTarget:
 
 
 class TestK8sBackupLocalRepoNodeAffinity:
-    """#749: a local-path restic repo is a node-local hostPath, so the
+    """A local-path restic repo is a node-local hostPath, so the
     restore Pod must pin to one node (the control-plane). The backup Job
     additionally hostPath-mounts the cp
     node's config/ and .env (so it captures the full on-disk config, not

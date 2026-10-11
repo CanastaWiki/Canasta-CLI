@@ -289,7 +289,7 @@ class TestCaddyfileRendering:
 
     def test_user_global_block_inlined_and_melded(self):
         """A global options block in Caddyfile.global is inlined and melded
-        with the CLI global block — Caddy permits exactly one (#693)."""
+        with the CLI global block — Caddy permits exactly one."""
         user_global = "{\n    email admin@example.com\n}\n"
         rendered = _render_caddyfile(
             _crowdsec_active=True, _caddyfile_global_content=user_global
@@ -507,7 +507,7 @@ class TestCrowdsecBundledFiles:
 
     def test_xcaddy_dockerfile_builds_combine_ranges_module(self):
         # K8s real-client-IP behind a CDN combines the cluster CIDR with the
-        # CDN ranges via caddy-combine-ip-ranges (issue #604).
+        # CDN ranges via caddy-combine-ip-ranges.
         content = _read(os.path.join(
             REPO_ROOT, "images", "caddy", "Dockerfile",
         ))
@@ -652,7 +652,7 @@ class TestCrowdsecEnrollRole:
         )
 
     def test_preflight_supports_both_orchestrators(self):
-        # CrowdSec now runs on K8s too (issue #604). The shared preflight must
+        # CrowdSec runs on K8s too. The shared preflight must
         # no longer hard-refuse non-Compose, and must branch its engine-running
         # check: `docker compose ps` for Compose, a kubectl readiness probe of
         # the crowdsec sidecar for K8s.
@@ -717,7 +717,7 @@ class TestCrowdsecInspectionRoles:
 
     @pytest.mark.parametrize("name", ["scenarios.yml", "alerts.yml", "metrics.yml"])
     def test_inspection_command_is_orchestrator_agnostic(self, name):
-        # These run on K8s too (issue #604), so they must route cscli through
+        # These run on K8s too, so they must route cscli through
         # the resolved prefix — never the hardcoded Compose invocation, which
         # lives only in crowdsec_cscli_prefix.yml. Without this, the rewritten
         # preflight (which no longer refuses K8s) would let them run
@@ -802,7 +802,7 @@ class TestCrowdsecStatusBouncersDisplay:
     """`crowdsec status` collapses the canasta-caddy bouncer family for
     display: CrowdSec auto-creates an undeletable 'canasta-caddy@<ip>' child
     each time the caddy container reconnects from a new IP, so the raw list
-    accumulates harmless stale 'valid' rows (issue #619). The status filter
+    accumulates harmless stale 'valid' rows. The status filter
     shows the single live registration plus a count of the duplicates rather
     than listing each one."""
 
@@ -1153,7 +1153,7 @@ class TestCrowdsecReloadRole:
 
     def test_purge_routes_through_resolved_prefix(self):
         # The console-blocklist purge runs cscli too, so on K8s it must use the
-        # resolved prefix, not a hardcoded `docker compose exec` (issue #604) —
+        # resolved prefix, not a hardcoded `docker compose exec` —
         # the rewritten preflight no longer refuses K8s, so a hardcoded purge
         # would otherwise run the Compose command on a cluster.
         content = self._reload()
@@ -1169,7 +1169,7 @@ class TestCrowdsecReloadRole:
         # the caddy pod a new name, so the cscli prefix built in preflight then
         # points at a dead pod. The purge must re-resolve the prefix AFTER
         # crowdsec_restart_engine and BEFORE exec-ing cscli, or the delete targets a
-        # pod that no longer exists (issue #604).
+        # pod that no longer exists.
         content = self._reload()
         restart = content.index("crowdsec_restart_engine.yml")
         resolve = content.index("crowdsec_cscli_prefix.yml")
@@ -1344,7 +1344,7 @@ class TestCrowdsecCapiRegistration:
 
 
 # ---------------------------------------------------------------------------
-# Kubernetes orchestrator support (issue #604)
+# Kubernetes orchestrator support
 # ---------------------------------------------------------------------------
 
 HELM_DIR = os.path.join(
@@ -1496,7 +1496,7 @@ class TestCrowdsecK8sCaddyImageReconcile:
 
     def test_side_effects_no_longer_reconciles_k8s_caddy(self):
         # Superseded by the start-path reconcile; leaving a second copy here
-        # would re-introduce the create/config-set divergence #685 closed.
+        # would re-introduce a create/config-set divergence.
         content = _read(os.path.join(
             REPO_ROOT, "roles", "config", "tasks", "_side_effects.yml"))
         assert "Reconcile K8s caddy plugin image" not in content
@@ -1651,7 +1651,7 @@ class TestCrowdsecAutoEnroll:
 
     def test_create_enroll_is_orchestrator_agnostic(self):
         # The create-time enroll must NOT switch on the orchestrator in action
-        # code (#696) — it dispatches unconditionally; the task self-gates.
+        # code — it dispatches unconditionally; the task self-gates.
         create = _read(os.path.join(
             REPO_ROOT, "roles", "create", "tasks", "main.yml"))
         start = create.index("Enroll CrowdSec bouncer")
