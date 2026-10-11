@@ -76,7 +76,7 @@ jobs:
             "rebuild & tools")    tests=(rebuild version doctor host-management) ;;
             *) echo "unknown core leg: $LEG" >&2; exit 1 ;;
           esac
-          .venv/bin/python tests/integration/run_tests.py "${tests[@]}"
+          .venv/bin/python tests/integration/run_tests.py --no-skip "${tests[@]}"
         timeout-minutes: 18
 
   # Podman is a supported container runtime, but every other integration job
@@ -388,7 +388,7 @@ jobs:
             "backup")              tests=(backup-advanced) ;;
             *) echo "unknown podman leg: $LEG" >&2; exit 1 ;;
           esac
-          .venv/bin/python tests/integration/run_tests.py "${tests[@]}"
+          .venv/bin/python tests/integration/run_tests.py --no-skip "${tests[@]}"
         timeout-minutes: 18
 
   integration-features:
@@ -441,7 +441,7 @@ jobs:
             "skin add")              tests=(skin-lifecycle) ;;
             *) echo "unknown feature leg: $LEG" >&2; exit 1 ;;
           esac
-          .venv/bin/python tests/integration/run_tests.py "${tests[@]}"
+          .venv/bin/python tests/integration/run_tests.py --no-skip "${tests[@]}"
         timeout-minutes: 18
 
   integration-gitops:
@@ -502,7 +502,7 @@ jobs:
             "extension lifecycle") tests="extension-lifecycle" ;;
             *) echo "unknown gitops leg: $LEG" >&2; exit 1 ;;
           esac
-          sg www-data -c ".venv/bin/python tests/integration/run_tests.py $tests"
+          sg www-data -c ".venv/bin/python tests/integration/run_tests.py --no-skip $tests"
         timeout-minutes: 18
 
   integration-k8s:
@@ -545,7 +545,7 @@ jobs:
         run: ./canasta-native install k8s-cp
       - name: Run K8s tests
         run: >-
-          .venv/bin/python tests/integration/run_tests.py
+          .venv/bin/python tests/integration/run_tests.py --no-skip
           k8s-lifecycle
         timeout-minutes: 20
       # Reuse the same bootstrapped cluster (k8s-lifecycle deletes its instance
@@ -553,7 +553,7 @@ jobs:
       # adds only the build/push/pull path, not a second k3s bootstrap.
       - name: Run K8s build-from test
         run: >-
-          .venv/bin/python tests/integration/run_tests.py
+          .venv/bin/python tests/integration/run_tests.py --no-skip
           k8s-build-from
         timeout-minutes: 18
 
@@ -600,7 +600,7 @@ jobs:
         run: ./canasta-native install k8s-cp
       - name: Run K8s CrowdSec test
         run: >-
-          .venv/bin/python tests/integration/run_tests.py
+          .venv/bin/python tests/integration/run_tests.py --no-skip
           k8s-crowdsec
         timeout-minutes: 35
 
@@ -647,9 +647,58 @@ jobs:
         run: ./canasta-native install k8s-cp
       - name: Run K8s backup test
         run: >-
-          .venv/bin/python tests/integration/run_tests.py
+          .venv/bin/python tests/integration/run_tests.py --no-skip
           k8s-backup
         timeout-minutes: 20
+
+  # Separate job (own runner) because this is the one K8s test that lets
+  # create install Argo CD, and Argo CD plus the instance need a node of
+  # their own. The gitops remote is an sshd container on the runner's host
+  # network, so Argo CD's repo-server clones it the way it would a
+  # self-hosted forge.
+  integration-k8s-gitops:
+    name: "Integration: Kubernetes GitOps"
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'  # See #67.
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git-crypt
+      - name: Install Python dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          # Retry to ride out transient Ansible Galaxy CDN timeouts.
+          for attempt in 1 2 3 4; do
+            .venv/bin/ansible-galaxy collection install kubernetes.core && break
+            if [ "$attempt" -eq 4 ]; then
+              echo "ansible-galaxy install failed after 4 attempts" >&2
+              exit 1
+            fi
+            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
+            sleep $((attempt * 10))
+          done
+          git config --global user.name "CI"
+          git config --global user.email "ci@canasta.wiki"
+      # Bootstrap the cluster via the product's own install path so CI
+      # exercises 'canasta install k8s-cp' (which installs k3s + helm at the
+      # pinned canasta_k3s_version / canasta_helm_version, writing
+      # ~/.kube/config) instead of a separate, unpinned curl | sh that
+      # depended on update.k3s.io.
+      - name: Bootstrap k3s control plane via canasta
+        run: ./canasta-native install k8s-cp
+      - name: Run K8s gitops test
+        run: >-
+          .venv/bin/python tests/integration/run_tests.py
+          k8s-gitops
+        timeout-minutes: 30
 
   remote-integration:
     name: Remote Host Integration Tests
