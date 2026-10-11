@@ -22,6 +22,14 @@
     _join_repo_recipient: >-
       {{ (_join_sops_yaml.content | b64decode | from_yaml).creation_rules[0].age }}
 
+- name: Check for an existing sops-age Secret
+  kubernetes.core.k8s_info:
+    kind: Secret
+    name: sops-age
+    namespace: "{{ argocd_namespace | default('argocd') }}"
+  register: _js_sops_secret
+  no_log: true
+
 # Controller-side key work uses the save/switch/restore dance (delegate_to does
 # not reliably override the play's host-level connection switch — same reason
 # the SSH deploy-key block uses it).
@@ -78,6 +86,17 @@
       register: _js_key_recipient
       changed_when: false
       no_log: true
+
+    - name: Read the cluster's sops-age recipient
+      ansible.builtin.command:
+        argv:
+          - age-keygen
+          - -y
+        stdin: "{{ _js_sops_secret.resources[0].data['keys.txt'] | b64decode }}"
+      register: _js_cluster_pub
+      changed_when: false
+      when: _js_sops_secret.resources | length > 0
+      no_log: true
   always:
     - name: Restore connection state after SOPS key read
       ansible.builtin.set_fact:
@@ -95,13 +114,19 @@
       own `gitops init --encrypt-secrets`.
   when: (_js_key_recipient.stdout | trim) != (_join_repo_recipient | trim)
 
-- name: Check for an existing sops-age Secret
-  kubernetes.core.k8s_info:
-    kind: Secret
-    name: sops-age
-    namespace: "{{ argocd_namespace | default('argocd') }}"
-  register: _js_sops_secret
-  no_log: true
+# One sops-age Secret serves every instance on the cluster.
+- name: Fail if the cluster already decrypts with a different operator key
+  ansible.builtin.fail:
+    msg: >-
+      This cluster's sops-age Secret holds a different operator age key
+      (recipient {{ _js_cluster_pub.stdout | trim }}) than this repository's
+      SOPS recipient ({{ _join_repo_recipient | trim }}). Argo CD on this
+      cluster decrypts every instance with that one key, so it could not
+      decrypt this repository's Secrets. Join from a cluster whose sops-age
+      Secret holds this repository's key, or one with no sops-age Secret yet.
+  when:
+    - _js_sops_secret.resources | length > 0
+    - (_js_cluster_pub.stdout | trim) != (_join_repo_recipient | trim)
 
 # Reads the controller-side key via lookup at template time, so the private key
 # is pushed straight into the cluster Secret without touching the target FS.

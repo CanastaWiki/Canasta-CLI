@@ -8,6 +8,17 @@
   ansible.builtin.set_fact:
     _kdiff_fmt: "{{ '--stat' if (stat is defined and stat | bool) else '-p' }}"
 
+# Fetch first so the @{upstream} boundaries reflect the real remote; a failed
+# fetch is reported rather than fatal, since the local sections still apply.
+- name: Fetch from the remote
+  ansible.builtin.command:
+    cmd: "git fetch"
+    chdir: "{{ instance_path }}"
+  environment: "{{ gitops_k8s_git_env }}"
+  register: _kdiff_fetch
+  changed_when: false
+  failed_when: false
+
 - name: Get uncommitted file list
   ansible.builtin.command:
     cmd: "git diff --name-only HEAD"
@@ -98,6 +109,10 @@
 - name: Display diff
   ansible.builtin.debug:
     msg: |-
+      {% if _kdiff_fetch.rc != 0 %}
+      Note: could not fetch from the remote — the remote comparison below is against the last-known state.
+
+      {% endif %}
       Uncommitted changes: {{ _kdiff_uncommitted_names.stdout_lines | default([]) | length }} file(s)
       {{ _kdiff_uncommitted.stdout | default('') }}
 
