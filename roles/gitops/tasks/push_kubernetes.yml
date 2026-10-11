@@ -9,6 +9,32 @@
   ansible.builtin.set_fact:
     _k8s_namespace: "canasta-{{ instance_id }}"
 
+# --- Validate role allows push ---
+- name: Read hosts.yaml
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/hosts.yaml"
+  register: _push_hosts_raw
+
+- name: Read .gitops-host
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-host"
+  register: _push_host_raw
+
+- name: Find current host role
+  ansible.builtin.set_fact:
+    _push_hostname: "{{ _push_host_raw.content | b64decode | trim }}"
+    _push_role: >-
+      {{ ((_push_hosts_raw.content | b64decode | from_yaml).hosts | default([])
+          | selectattr('name', 'equalto', _push_host_raw.content | b64decode | trim)
+          | first | default({})).get('role', 'both') }}
+
+- name: Fail if role does not allow push
+  ansible.builtin.fail:
+    msg: >-
+      Host '{{ _push_hostname }}' has role '{{ _push_role }}' which
+      does not allow pushing. Only 'source' and 'both' roles can push.
+  when: _push_role not in ['source', 'both']
+
 - name: Regenerate Caddyfile from current wikis.yaml
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/rewrite_caddy.yml"
 

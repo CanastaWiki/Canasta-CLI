@@ -30,6 +30,17 @@
       user: "{{ ansible_user | default('') }}"
       python: "{{ ansible_python_interpreter | default(ansible_playbook_python) }}"
 
+# One sops-age Secret serves every instance on the cluster, but the controller
+# key is per --host-name, so an instance initialized under a new host name must
+# be checked against the key the cluster already decrypts with.
+- name: Check for an existing sops-age Secret
+  kubernetes.core.k8s_info:
+    kind: Secret
+    name: sops-age
+    namespace: "{{ argocd_namespace | default('argocd') }}"
+  register: _sops_age_secret
+  no_log: true
+
 - block:
     - name: Switch to local for SOPS key generation
       ansible.builtin.set_fact:
@@ -93,7 +104,34 @@
         - not _sops_age_stat.stat.exists
         - key is defined and (key | length > 0)
         - (key ~ '.age') is exists
+      register: _sops_age_import
       no_log: true
+
+    - name: Read the cluster's sops-age recipient
+      ansible.builtin.command:
+        argv:
+          - age-keygen
+          - -y
+        stdin: "{{ _sops_age_secret.resources[0].data['keys.txt'] | b64decode }}"
+      register: _sops_cluster_pub
+      changed_when: false
+      when: _sops_age_secret.resources | length > 0
+      no_log: true
+
+    - name: Fail rather than mint a second operator key for this cluster
+      ansible.builtin.fail:
+        msg: >-
+          This cluster's sops-age Secret already holds an operator age key
+          (recipient {{ _sops_cluster_pub.stdout | trim }}), and every instance
+          on a cluster must encrypt to that one key, but this controller has no
+          key for host name '{{ host_name }}' ({{ _sops_age_key }}). Copy the
+          key that provisioned the cluster (the <host-name>.age file under
+          {{ _sops_age_key | dirname }} for the instance initialized first, or
+          that key's exported --key copy) to {{ _sops_age_key }} and re-run.
+      when:
+        - _sops_age_secret.resources | length > 0
+        - not _sops_age_stat.stat.exists
+        - _sops_age_import is skipped
 
     # argv form (not a shell string) so a config-dir path containing spaces
     # — e.g. macOS "~/Library/Application Support/canasta" — is one argument.
@@ -125,6 +163,21 @@
       register: _sops_age_pub
       changed_when: false
       no_log: true
+
+    - name: Fail if the operator key differs from the cluster's sops-age key
+      ansible.builtin.fail:
+        msg: >-
+          The operator age key {{ _sops_age_key }} (recipient
+          {{ _sops_age_pub.stdout | trim }}) differs from the key in this
+          cluster's sops-age Secret (recipient
+          {{ _sops_cluster_pub.stdout | trim }}). Argo CD could not decrypt
+          Secrets encrypted to it. Every instance on a cluster must share one
+          operator key: replace {{ _sops_age_key }} with the key that
+          provisioned the cluster (the <host-name>.age file under
+          {{ _sops_age_key | dirname }} for the instance initialized first).
+      when:
+        - _sops_age_secret.resources | length > 0
+        - (_sops_cluster_pub.stdout | trim) != (_sops_age_pub.stdout | trim)
   always:
     - name: Restore connection state after SOPS key generation
       ansible.builtin.set_fact:
@@ -181,14 +234,6 @@
           age: "{{ _sops_age_pub.stdout | trim }}"
     dest: "{{ instance_path }}/.sops.yaml"
     mode: "0644"
-
-- name: Check for an existing sops-age Secret
-  kubernetes.core.k8s_info:
-    kind: Secret
-    name: sops-age
-    namespace: "{{ argocd_namespace | default('argocd') }}"
-  register: _sops_age_secret
-  no_log: true
 
 # Reads the controller-side key via lookup at template time, so the private
 # key is pushed straight into the cluster Secret without touching the target FS.

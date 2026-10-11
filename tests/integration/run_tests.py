@@ -3091,8 +3091,21 @@ def test_k8s_gitops(inst):
         inst.run_ok("gitops", "sync", "-i", inst.id)
         _wait_argo_app_synced(app, head)
 
+        repo_secret = "canasta-%s-repo" % inst.id
+        assert subprocess.run(
+            ["kubectl", "get", "secret", repo_secret, "-n", "argocd"],
+            capture_output=True,
+        ).returncode == 0, "gitops init should create Secret %s" % repo_secret
+
         print("Deleting instance...")
         inst.run_ok("delete", "-i", inst.id, "--yes")
+        secret = subprocess.run(
+            ["kubectl", "get", "secret", repo_secret, "-n", "argocd"],
+            capture_output=True, text=True,
+        )
+        assert secret.returncode != 0, (
+            "the Argo CD repository Secret %s survived delete" % repo_secret
+        )
         for _ in range(24):
             gone = subprocess.run(
                 ["kubectl", "get", "application", app, "-n", "argocd"],
