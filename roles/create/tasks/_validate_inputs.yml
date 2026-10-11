@@ -155,7 +155,7 @@
           - volume
           - ls
           - --filter
-          - "name={{ id }}_"
+          - "label=com.docker.compose.project={{ id | lower }}"
           - "-q"
       register: _stale_volumes
       changed_when: false
@@ -171,7 +171,7 @@
           behind. Re-running would generate fresh DB passwords that
           do not match the existing volumes, producing an unrecoverable
           auth mismatch. To recover, list and remove the stale volumes
-          ('{{ inspect_command | default("docker") }} volume ls --filter name={{ id }}_' to list, then
+          ('{{ inspect_command | default("docker") }} volume ls --filter label=com.docker.compose.project={{ id | lower }}' to list, then
           '{{ inspect_command | default("docker") }} volume rm <name>' for each), then re-run.
       when:
         - _stale_volumes.stdout is defined

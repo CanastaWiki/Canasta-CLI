@@ -25,6 +25,10 @@ spec:
         app.kubernetes.io/component: caddy
       annotations:
         checksum/caddy-config: {{ .Values.configData.caddy | default dict | toJson | sha256sum }}
+        {{- if .Values.crowdsec.enabled }}
+        # The seed init container copies the whitelist in only at pod start.
+        checksum/crowdsec-config: {{ .Values.configData.crowdsec | default dict | toJson | sha256sum }}
+        {{- end }}
     spec:
       {{- if .Values.crowdsec.enabled }}
       initContainers:

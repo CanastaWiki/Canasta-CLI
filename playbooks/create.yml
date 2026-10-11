@@ -31,9 +31,35 @@
       ansible.builtin.include_role:
         name: create
   rescue:
+    # podman-compose ignores COMPOSE_PROFILES from .env, so `down -v` needs
+    # explicit --profile flags to remove the profiled services' volumes.
+    - name: Read COMPOSE_PROFILES from .env for cleanup
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read_all
+      register: _env_profiles_rescue
+      no_log: true  # registers the whole .env, including passwords
+      when:
+        - instance_path is defined
+        - not (keep_config | default(false) | bool)
+        - (orchestrator | default('compose')) == 'compose'
+        - compose_command | default('docker compose') is search('podman')
+      ignore_errors: true  # Best-effort cleanup on failure
+
+    - name: Build compose profile flags for cleanup
+      ansible.builtin.set_fact:
+        _rescue_profile_flags: >-
+          {{ (_env_profiles_rescue.variables.COMPOSE_PROFILES | default(''))
+             | split(',') | map('trim') | reject('equalto', '')
+             | map('regex_replace', '^', '--profile ')
+             | join(' ') }}
+      when: _env_profiles_rescue.variables is defined
+
     - name: Clean up on failure (destroy Compose containers)
       ansible.builtin.command:
-        cmd: "{{ compose_command | default('docker compose') }} down -v"
+        cmd: >-
+          {{ compose_command | default('docker compose') }}
+          {{ _rescue_profile_flags | default('') }} down -v
         chdir: "{{ instance_path | default(omit) }}"
       when:
         - instance_path is defined

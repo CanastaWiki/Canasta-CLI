@@ -50,7 +50,13 @@ def _run_play(tmp_path, play_vars, tasks):
         "vars": play_vars,
         "tasks": tasks,
     }]))
-    env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0")
+    env = dict(
+        os.environ,
+        ANSIBLE_NOCOLOR="1",
+        ANSIBLE_LOCALHOST_WARNING="0",
+        ANSIBLE_STDOUT_CALLBACK="canasta_minimal",
+        ANSIBLE_CALLBACK_PLUGINS=os.path.join(REPO_ROOT, "callback_plugins"),
+    )
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
     return subprocess.run(
         [playbook, "-i", "localhost,", str(play)],
@@ -110,6 +116,7 @@ def _stub_root(tmp_path):
         "ansible.builtin.shell": {
             "cmd": "/bin/sh -c {{ exec_command | quote }}"},
         "register": "exec_result",
+        "no_log": "{{ exec_no_log | default(false) }}",
         "environment": {
             "FAKE_DIR": str(tmp_path),
             "PATH": "%s:%s" % (tmp_path / "bin", os.environ["PATH"]),
@@ -175,6 +182,7 @@ class TestRemove:
         assert "WARNING: could not drop database(s) docs, docs-cargo" in proc.stdout
         assert "Access denied for DROP" in proc.stdout
         assert "its database(s) docs, docs-cargo were left in place" in proc.stdout
+        assert "Error:" not in proc.stderr
 
     def test_wiki_database_another_wiki_declares_is_kept(self, tmp_path):
         groups = [{"wiki": "main", "databases": ["main", "docs"]},

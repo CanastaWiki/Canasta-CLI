@@ -88,6 +88,8 @@ def read_config(config_dir):
     if not content:
         return {"Instances": {}}
     data = json.loads(content)
+    if not isinstance(data, dict):
+        raise ValueError("%s: top level is not a JSON object" % path)
     if "Installations" in data and "Instances" not in data:
         data["Instances"] = data.pop("Installations")
     if "Instances" not in data:

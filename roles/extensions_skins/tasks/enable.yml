@@ -7,6 +7,21 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Read wikis
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _enable_wikis
+
+- name: Fail when the named wiki is not in this instance
+  ansible.builtin.fail:
+    msg: >-
+      Wiki '{{ wiki }}' is not in this instance. Present wikis:
+      {{ _enable_wikis.wiki_ids | join(', ') }}.
+  when:
+    - wiki | default('') != ''
+    - wiki not in _enable_wikis.wiki_ids
+
 # Check each item is actually installed in the container. Test each name's
 # directory directly rather than matching a top-level listing, so a sub-module
 # sub-path (e.g. ConfirmEdit/ReCaptchaNoCaptcha, which the settings loader
@@ -51,15 +66,6 @@
 
 # Without --wiki the item is enabled for every wiki, so each one needs
 # its schema updates.
-- name: Read wikis for update.php
-  canasta_wikis_yaml:
-    instance_path: "{{ instance_path }}"
-    state: read
-  register: _enable_wikis
-  when:
-    - not (skip_update | default(false) | bool)
-    - wiki | default('') == ''
-
 - name: Run update.php for each affected wiki
   when: not (skip_update | default(false) | bool)
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"

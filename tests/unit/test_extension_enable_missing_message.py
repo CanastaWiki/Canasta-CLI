@@ -15,7 +15,8 @@ def _fail_msg():
     with open(ENABLE) as f:
         tasks = yaml.safe_load(f)
     return next(t for t in tasks
-                if "ansible.builtin.fail" in t)["ansible.builtin.fail"]["msg"]
+                if "ansible.builtin.fail" in t
+                and "installed" in t["name"])["ansible.builtin.fail"]["msg"]
 
 
 def test_missing_names_joined_with_commas():

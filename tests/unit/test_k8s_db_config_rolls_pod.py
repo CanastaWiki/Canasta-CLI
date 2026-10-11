@@ -20,15 +20,17 @@ CHART = os.path.join(
 STATEFULSET = os.path.join(CHART, "templates", "statefulset-db.yaml")
 
 
-def _pod_annotations(values=None):
+def _pod_annotations(values=None, chart=CHART, set_null=()):
     """Render the db StatefulSet and return its pod template annotations."""
     if not shutil_which("helm"):
         pytest.skip("helm is not installed")
-    cmd = ["helm", "template", "canasta", CHART,
+    cmd = ["helm", "template", "canasta", chart,
            "--set", "db.enabled=true",
            "--show-only", "templates/statefulset-db.yaml"]
     for key, value in (values or {}).items():
         cmd += ["--set-string", "%s=%s" % (key, value)]
+    for key in set_null:
+        cmd += ["--set", "%s=null" % key]
     out = subprocess.run(cmd, capture_output=True, text=True)
     if out.returncode != 0:
         pytest.skip("helm template failed: %s" % out.stderr.strip()[:200])
@@ -58,11 +60,32 @@ class TestDbConfigChecksum:
             "the annotation must vary with configData.db or the pod is "
             "never rolled")
 
-    def test_the_source_mirrors_the_caddy_deployment(self):
-        # The caddy deployment already does this; the two should not drift.
+    def test_the_source_falls_back_to_the_chart_my_cnf(self):
+        # configmap-db.yaml mounts files/my.cnf when configData.db is empty,
+        # so the checksum must cover that file in the same case.
         with open(STATEFULSET) as f:
             text = f.read()
-        assert "{{ .Values.configData.db | default dict | toJson | sha256sum }}" in text
+        assert ('{{ .Values.configData.db | default (dict "my.cnf" '
+                '(.Files.Get "files/my.cnf")) | toJson | sha256sum }}') in text
+
+    def test_the_checksum_follows_the_chart_my_cnf(self, tmp_path):
+        # The CLI never populates configData.db, so a change to the chart's
+        # own my.cnf is the only db config change there is.
+        import shutil
+        chart = tmp_path / "canasta"
+        shutil.copytree(CHART, chart)
+        before = _pod_annotations(chart=str(chart))["checksum/db-config"]
+        with open(chart / "files" / "my.cnf", "a") as f:
+            f.write("\nmax_connections=500\n")
+        after = _pod_annotations(chart=str(chart))["checksum/db-config"]
+        assert before != after
+
+    def test_a_missing_key_hashes_like_the_chart_default(self):
+        # Argo CD renders values without configData.db; the CLI renders the
+        # chart default {}. Both must give the same checksum.
+        default = _pod_annotations()["checksum/db-config"]
+        missing = _pod_annotations(set_null=["configData.db"])["checksum/db-config"]
+        assert default == missing
 
     def test_my_cnf_is_still_mounted_with_subpath(self):
         # The annotation exists *because* of subPath. If the mount ever

@@ -48,7 +48,10 @@ def test_update_runs_for_each_affected_wiki(wiki, expected):
     assert _render(task["loop"].strip(), **context).strip() == expected
 
 
-def test_wikis_are_read_only_without_wiki():
-    read = next(t for t in _tasks() if "canasta_wikis_yaml" in t)
-    assert read["register"] == "_enable_wikis"
-    assert "wiki | default('') == ''" in read["when"]
+def test_wikis_are_read_before_any_change():
+    tasks = _tasks()
+    read = next(i for i, t in enumerate(tasks) if "canasta_wikis_yaml" in t)
+    assert tasks[read]["register"] == "_enable_wikis"
+    assert "when" not in tasks[read]
+    write = next(i for i, t in enumerate(tasks) if "canasta_settings_yaml" in t)
+    assert read < write
