@@ -225,9 +225,11 @@
       ansible.builtin.debug:
         msg: "Cleared default storage class '{{ _uninstall_default_sc.value }}'."
 
+# Not gated on k3s still being installed: if an earlier run removed k3s and
+# then failed, a re-run must still withdraw the exports. The task acts only
+# once the cluster's kubeconfig is gone.
 - name: Withdraw NFS exports that followed this cluster
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/nfs_exports_remove.yml"
-  when: _k3s_uninstall_script | length > 0
 
 # --- Worker only: clean up the Node entry on the control plane ---
 

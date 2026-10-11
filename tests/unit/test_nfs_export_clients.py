@@ -140,7 +140,20 @@ class TestUninstall:
         task = self._include()
         assert task["ansible.builtin.include_tasks"].endswith(
             "/roles/orchestrator/tasks/nfs_exports_remove.yml")
-        assert task["when"] == "_k3s_uninstall_script | length > 0"
+        # A re-run after an interrupted uninstall finds k3s already gone and
+        # must still withdraw the exports.
+        assert "when" not in task
+
+    def test_withdrawal_waits_for_the_cluster_to_be_gone(self):
+        # Ungated in the uninstall, so the removal itself must leave the
+        # exports alone while the cluster's kubeconfig still exists.
+        block = _named(REMOVE_TASKS, "Remove the NFS exports sync when its cluster is gone")
+        acting = [t for t in block["block"]
+                  if t.get("name") in ("Stop the NFS exports sync timer",
+                                       "Remove the NFS exports sync files")]
+        assert len(acting) == 2
+        for t in acting:
+            assert t["when"] == "not _nfs_rm_kubeconfig_stat.stat.exists"
 
     def test_include_runs_after_k3s_is_removed_and_outside_a_block(self):
         top = _load(UNINSTALL_K3S)
