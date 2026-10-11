@@ -105,6 +105,13 @@ def test_a_value_already_recorded_is_left_alone(tmp_path):
     assert (inst / "my.cnf.template").exists()
 
 
+def test_recorded_value_without_shared_vars_still_migrates(tmp_path):
+    inst = _instance(tmp_path, host_vars="innodb_buffer_pool_size: 1G\n")
+    _run(tmp_path)
+    assert not (inst / "hosts" / "_shared" / "vars.yaml").exists()
+    assert "A\tmy.cnf.template" in _staged(inst)
+
+
 def test_not_a_gitops_instance(tmp_path):
     inst = _instance(tmp_path, gitops=False)
     _run(tmp_path)

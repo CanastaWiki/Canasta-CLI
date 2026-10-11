@@ -180,9 +180,13 @@
     - _bmt_tracked.rc == 0
   changed_when: true
 
+# hosts/_shared/vars.yaml is not written when a host's vars already carry
+# the buffer pool size, and git add fails on a path that does not exist.
 - name: Stage the migration
-  ansible.builtin.command:
-    cmd: "git add -- my.cnf.template hosts/_shared/vars.yaml"
+  ansible.builtin.shell:
+    cmd: >-
+      git add -- my.cnf.template
+      $(test -e hosts/_shared/vars.yaml && echo hosts/_shared/vars.yaml)
     chdir: "{{ instance_path }}"
   changed_when: true
   when: _bmt_migrate | bool
