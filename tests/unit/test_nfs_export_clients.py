@@ -401,3 +401,17 @@ class TestSyncKubeconfig:
         assert path() == "/home/u/.kube/config"
         env_file.write_text("KUBECONFIG=/etc/rancher/k3s/k3s.yaml\n")
         assert path() == "/etc/rancher/k3s/k3s.yaml"
+
+    def test_removal_without_an_env_file_falls_back(self, tmp_path):
+        import shutil
+        import subprocess
+        task = _named(REMOVE_TASKS, "Read the kubeconfig the sync uses")
+        cmd = task["ansible.builtin.shell"]["cmd"].replace(
+            "/etc/canasta/nfs-exports.env", str(tmp_path / "missing"))
+        for sh in ("/bin/sh", shutil.which("dash")):
+            if not sh:
+                continue
+            proc = subprocess.run([sh, "-c", cmd], capture_output=True,
+                                  text=True, env={"PATH": os.environ["PATH"]})
+            assert proc.returncode == 0, (sh, proc.stderr)
+            assert proc.stdout.strip() == "/etc/rancher/k3s/k3s.yaml"

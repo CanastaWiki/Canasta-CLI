@@ -20,7 +20,7 @@
     - name: Read the kubeconfig the sync uses
       ansible.builtin.shell:
         cmd: >-
-          . /etc/canasta/nfs-exports.env 2>/dev/null;
+          if [ -f /etc/canasta/nfs-exports.env ]; then . /etc/canasta/nfs-exports.env; fi;
           echo "${CANASTA_KUBECONFIG_SOURCE:-${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}}"
       register: _nfs_rm_kubeconfig
       changed_when: false
