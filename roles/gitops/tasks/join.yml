@@ -458,13 +458,13 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
-# --- Step 11: Clean up temp dir ---
+# --- Step 12: Clean up temp dir ---
 - name: Remove temp clone directory
   ansible.builtin.file:
     path: "{{ _join_tmpdir.path }}"
     state: absent
 
-# --- Step 12: Report ---
+# --- Step 13: Report ---
 - name: Report gitops joined
   ansible.builtin.debug:
     msg: >-

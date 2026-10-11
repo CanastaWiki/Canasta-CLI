@@ -86,7 +86,7 @@
     - _remote_check is defined
     - _remote_check.stdout | default('') | trim | length > 0
 
-# --- Step 6: Initialize git repo ---
+# --- Step 5: Initialize git repo ---
 - name: Initialize git repository
   ansible.builtin.command:
     cmd: "git init -b main"
@@ -101,7 +101,7 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
-# --- Step 7: Write .gitignore and .gitattributes ---
+# --- Step 6: Write .gitignore and .gitattributes ---
 - name: Write .gitignore
   ansible.builtin.copy:
     content: |
@@ -121,7 +121,7 @@
 - name: Install and register the git-crypt merge driver
   ansible.builtin.include_tasks: "_ensure_merge_driver.yml"
 
-# --- Step 8: Initialize git-crypt and export key ---
+# --- Step 7: Initialize git-crypt and export key ---
 - name: Initialize git-crypt
   ansible.builtin.command:
     cmd: "git-crypt init"
@@ -198,7 +198,7 @@
   changed_when: true
   when: git_crypt_gpg_user | default('') | length > 0
 
-# --- Step 9: Create env.template and wikis.yaml.template ---
+# --- Step 8: Create env.template and wikis.yaml.template ---
 # env.template replaces secret + host-specific values with {{placeholder}}
 # syntax; other values stay literal. Classification is the canonical one
 # (canasta_secret_key_regex + canasta_host_specific_nonsecret) so any secret
@@ -255,7 +255,7 @@
   vars:
     reconcile_create: true
 
-# --- Step 10: Create hosts.yaml ---
+# --- Step 9: Create hosts.yaml ---
 - name: Create hosts directory
   ansible.builtin.file:
     path: "{{ instance_path }}/hosts"
@@ -272,7 +272,7 @@
     dest: "{{ instance_path }}/hosts/hosts.yaml"
     mode: "0600"
 
-# --- Step 11: Create vars.yaml with host-specific values + admin passwords ---
+# --- Step 10: Create vars.yaml with host-specific values + admin passwords ---
 - name: Create host vars directory
   ansible.builtin.file:
     path: "{{ instance_path }}/hosts/{{ host_name }}"
@@ -313,18 +313,18 @@
     mode: "0600"
   no_log: true
 
-# --- Step 12: Save local host identity ---
+# --- Step 11: Save local host identity ---
 - name: Save .gitops-host identity
   ansible.builtin.copy:
     content: "{{ host_name }}"
     dest: "{{ instance_path }}/.gitops-host"
     mode: "0644"
 
-# --- Step 13: Convert extensions/skins git repos to submodules ---
+# --- Step 12: Convert extensions/skins git repos to submodules ---
 - name: Convert extensions/skins git repos to submodules
   ansible.builtin.include_tasks: _init_convert_submodules.yml
 
-# --- Step 14: Initial commit and push ---
+# --- Step 13: Initial commit and push ---
 - name: Stage the gitops-managed paths
   ansible.builtin.include_tasks: _stage_tracked_paths.yml
   vars:
