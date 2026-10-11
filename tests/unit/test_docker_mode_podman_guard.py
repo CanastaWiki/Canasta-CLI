@@ -138,7 +138,7 @@ class TestItDoesNotRefuseAnythingElse:
         self._ok(_args(id="doc1"))
 
     def test_docker_compose_against_a_podman_socket_is_allowed(self, registry):
-        # The #1390 mis-recording shape, and also how canasta-docker on a
+        # The runtime mis-recording shape, and also how canasta-docker on a
         # Podman-only host legitimately works: the wrapper mounts the
         # Podman socket at /var/run/docker.sock and `docker compose` --
         # which the container has -- drives it. An explicit composeCommand

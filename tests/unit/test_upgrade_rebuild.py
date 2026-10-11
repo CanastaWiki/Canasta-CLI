@@ -1,8 +1,8 @@
-"""Static guards for the canasta-upgrade rebuild flow (#562).
+"""Static guards for the canasta-upgrade rebuild flow.
 
 The rebuild step must run when any image change is detected and must
 cover every buildable service (operator override or devmode xdebug),
-not just hardcode `web`. Both gates were the original gaps in #562.
+not just hardcode `web`.
 """
 
 import os

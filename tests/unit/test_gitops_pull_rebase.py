@@ -80,7 +80,7 @@ def test_pull_rebases_explicitly():
             "%s: pull must pass --rebase explicitly so a diverged branch is "
             "resolved regardless of the host's ambient git config" % name
         )
-        # Replayed commits must not depend on the user's signing setup (#668).
+        # Replayed commits must not depend on the user's signing setup.
         assert "commit.gpgsign=false" in cmd, name
 
 

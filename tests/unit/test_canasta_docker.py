@@ -178,7 +178,7 @@ class TestBuildFromMount:
 class TestEnvFileMount:
     """--envfile/-e path should be auto-mounted into the container.
 
-    See #47 — without this, files outside $PWD/$HOME are invisible
+    Without this, files outside $PWD/$HOME are invisible
     to ansible inside the container, and even relative paths inside
     $PWD fail because ansible-playbook's cwd isn't $PWD.
     """
@@ -516,8 +516,7 @@ class TestPasswdEntryWinsOverImageAccount:
     65534. When the operator's UID collides with one, our entry has to
     replace it — getpwuid() otherwise returns that account's home, so
     OpenSSH reads the wrong ~/.ssh/config (it resolves ~ from the passwd
-    entry, not $HOME) and ansible_user_id names the image account. See
-    #1235.
+    entry, not $HOME) and ansible_user_id names the image account.
     """
 
     def _passwd_after_run(self, seeded):
@@ -572,7 +571,7 @@ class TestPasswdEntryUsesHostUsername:
     Ansible plays that SSH from the container to a remote host
     without an explicit -u override default to `canasta@<host>`,
     which the remote sshd rejects with "Too many authentication
-    failures" because no `canasta` user exists there. See #478.
+    failures" because no `canasta` user exists there.
     """
 
     def test_passwd_entry_uses_host_username_not_literal_canasta(self):

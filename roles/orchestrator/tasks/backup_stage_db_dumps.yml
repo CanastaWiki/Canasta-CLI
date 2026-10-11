@@ -8,9 +8,8 @@
 #
 # Kubernetes: no-op here. Writing into the live web pod's emptyDir is
 # useless — the separately-spawned restic Job mounts the web-config
-# ConfigMap, not the live pod's emptyDir. Pre-#513 this dance ran on
-# K8s anyway and the dumps silently vanished from on-demand snapshots,
-# leaving wiki content unprotected. The K8s path now does the dump as
+# ConfigMap, not the live pod's emptyDir, so the dumps would silently
+# vanish from on-demand snapshots. The K8s path does the dump as
 # an init container inside the restic Job itself — see k8s_run_backup.yml.
 #
 # One dump per wiki covers the wiki's own database and any extra

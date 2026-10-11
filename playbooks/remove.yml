@@ -98,7 +98,7 @@
           WARNING: could not drop database(s)
           {{ _remove_drop_dbs | join(', ') }} for wiki '{{ wiki }}':
           {{ (ansible_failed_result.stderr | default(ansible_failed_result.msg | default('')))
-             | trim }}.
+          | trim }}.
           Drop {{ 'it' if _remove_drop_dbs | length == 1 else 'them' }}
           yourself once the cause is fixed.
 

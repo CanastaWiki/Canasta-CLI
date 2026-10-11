@@ -1,5 +1,5 @@
 """Guard: canasta's internal gitops commits must not depend on the
-user's commit-signing config (#668).
+user's commit-signing config.
 
 If the environment has `commit.gpgsign = true` but no usable gpg, a bare
 `git commit` aborts with "gpg failed to sign the data", breaking

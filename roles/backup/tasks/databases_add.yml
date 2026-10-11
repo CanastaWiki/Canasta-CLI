@@ -28,6 +28,6 @@
   ansible.builtin.debug:
     msg: >-
       {{ "Added '" ~ database ~ "' to wiki '" ~ _backup_db_wiki ~ "'."
-         if _backup_db_add.changed
-         else "'" ~ database ~ "' is already in wiki '" ~ _backup_db_wiki ~ "'." }}
+      if _backup_db_add.changed
+      else "'" ~ database ~ "' is already in wiki '" ~ _backup_db_wiki ~ "'." }}
       Backups of this wiki now dump: {{ _backup_db_add.databases | join(', ') }}.

@@ -65,7 +65,7 @@
     msg: >-
       Could not deploy the in-cluster image registry.
       {% if 'already allocated' in _registry_apply.stderr
-            or 'Invalid value' in _registry_apply.stderr %}
+      or 'Invalid value' in _registry_apply.stderr %}
       Its fixed ClusterIP 10.43.0.2 is unavailable if the cluster uses a
       non-default Kubernetes service CIDR (not 10.43.0.0/16) or 10.43.0.2 is
       already in use.

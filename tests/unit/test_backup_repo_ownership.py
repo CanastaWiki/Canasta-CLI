@@ -6,7 +6,7 @@ reading the metadata needs sudo. The operator then cannot prune or
 remove their own backups, and a torn-down instance leaves an
 undeletable directory behind.
 
-K8s already reclaims ownership (#1205). This holds the Compose path to
+K8s already reclaims ownership. This holds the Compose path to
 the same contract, and checks it happens in `always` — a repo left
 root-owned after a *failed* run is precisely when someone needs to get
 into it.

@@ -6,7 +6,7 @@ backing, so every subsequent git op aborts with
 ``fatal: not a git repository: <path>/../../.git/modules/<path>``. Both
 `gitops join` (fresh move) and `gitops fix-submodules` (recovery) must drop the
 stale submodule working tree and re-clone before the first git command that
-resolves a gitlink. See issue #1125.
+resolves a gitlink.
 """
 
 import os

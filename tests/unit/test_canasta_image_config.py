@@ -1,4 +1,4 @@
-"""Tests for `canasta config set CANASTA_IMAGE` on Kubernetes (issue #703).
+"""Tests for `canasta config set CANASTA_IMAGE` on Kubernetes.
 
 On Compose, the web service image is `${CANASTA_IMAGE}` read straight
 from .env, so config set + restart redeploys the custom image. On

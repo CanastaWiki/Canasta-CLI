@@ -11,8 +11,6 @@
 # K8s Secrets, not in the gitops repo. The repo is therefore safe
 # to be cleartext, which Argo CD requires anyway (it has no
 # git-crypt support and can't decrypt encrypted values files).
-# See #507 / #508 for the original switch and #509 for the
-# scaffolding cleanup.
 #
 # Input: host_name, role, repo, key, force, pull_requests
 #   key is the SSH deploy key path basename (private at <key>.ssh,
@@ -56,7 +54,7 @@
 # spot inside the target's instance directory for git operations to
 # pick up. Earlier code assumed controller and target were the same
 # host: ssh-keygen ran on the play target against a controller path,
-# which usually did not exist there. See #474.
+# which usually did not exist there.
 - name: Set SSH key paths
   ansible.builtin.set_fact:
     # Controller-local path. The user reads the public side of this
@@ -70,8 +68,8 @@
 # Save/switch/restore the connection state around the controller-side
 # operations. delegate_to: localhost + vars: { ansible_connection:
 # local } does NOT reliably override the host-level set_fact that
-# switch_connection.yml plants — same failure mode 0d392a6 and
-# b7d3ed2 fixed for resolve_instance and delete deregistration. Use
+# switch_connection.yml plants — the same failure mode resolve_instance
+# and delete deregistration hit. Use
 # the proven dance with `block`/`always:` so a failure between
 # switch and restore can't leave the play stuck on the controller.
 - name: Save connection state before controller-side key work
@@ -375,8 +373,8 @@
 # Source the canonical gitignore.default so the security-critical
 # entries (.gitops-deploy-key, admin-password_*, config/wikis.yaml,
 # etc.) cannot drift out of the K8s path. K8s-only additions are
-# appended after — never replace the shared list. See #505 for the
-# regression this guards against.
+# appended after — never replace the shared list, or a dropped entry
+# gets committed to the repo.
 - name: Write .gitignore (canonical base + K8s additions)
   ansible.builtin.copy:
     content: |
@@ -386,14 +384,14 @@
     dest: "{{ instance_path }}/.gitignore"
     mode: "0644"
 
-# K8s gitops repo carries no secrets after #508 — MYSQL_PASSWORD
+# K8s gitops repo carries no secrets — MYSQL_PASSWORD
 # and MW_SECRET_KEY are pulled at deploy time from K8s Secrets
 # (<id>-db-credentials, <id>-mw-secrets) via secretKeyRef, and
 # k8s_sync_config.yml strips them out of the configData.web['.env']
 # blob before rendering. With no secret-bearing files left, no
 # git-crypt filter is needed and the entire git-crypt scaffolding
 # (init, export, key transfer to the controller, target-side
-# cleanup) was removed in #509. Compose's gitops path still uses
+# cleanup) is unnecessary. Compose's gitops path still uses
 # git-crypt — this is a K8s-specific simplification.
 - name: Create hosts.yaml
   ansible.builtin.copy:
@@ -502,7 +500,7 @@
 
 # The keys named in the message below as things to store securely are
 # checked first — the K8s path writes them controller-side the same way
-# the Compose path writes the git-crypt key (#1443).
+# the Compose path writes the git-crypt key.
 # A missing export is not a lost key: init keeps its own copy of each, so
 # the advice is where to copy it from.
 - name: Explain why an exported key can be missing

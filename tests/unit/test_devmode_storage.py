@@ -1,4 +1,4 @@
-"""Structural coverage for two commands that had none (#758):
+"""Structural coverage for two commands that had none:
 `canasta devmode enable/disable` and `canasta storage setup nfs`.
 
 These assert the task structure (guards, generated resources) rather than
@@ -111,7 +111,7 @@ class TestDevmodeRegistryUpdate:
 
 class TestNfsStorageSetup:
     """`canasta storage setup nfs` installs the NFS CSI driver and creates an
-    `nfs` StorageClass pointing at the NFS server (#758)."""
+    `nfs` StorageClass pointing at the NFS server."""
 
     def _tasks(self):
         # playbooks/*.yml are flat task lists included by canasta.yml.

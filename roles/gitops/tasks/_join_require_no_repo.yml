@@ -4,7 +4,7 @@
 # Without --reinit a pre-existing .git means the instance is already
 # connected, so we stop. Under --reinit we leave that .git in place and
 # wipe it only *after* the clone succeeds (_join_move_git.yml), so a failed
-# clone can't strand the instance with no repo (#663).
+# clone can't strand the instance with no repo.
 #
 # Input: instance_path. Optional: reinit.
 

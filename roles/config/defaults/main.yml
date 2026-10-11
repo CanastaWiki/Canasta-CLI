@@ -92,7 +92,7 @@ canasta_known_keys:
 
   - name: CANASTA_ENABLE_CROWDSEC
     group: Features
-    description: Enable CrowdSec behavioral threat detection (Compose only)
+    description: Enable CrowdSec behavioral threat detection
     default: "false"
   - name: CANASTA_ENABLE_ELASTICSEARCH
     group: Features

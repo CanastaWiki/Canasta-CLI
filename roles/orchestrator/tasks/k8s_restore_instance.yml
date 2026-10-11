@@ -30,7 +30,7 @@
 # hostPath fails container init with 'no such file or directory'.
 # Only local-path repos (RESTIC_REPOSITORY beginning with /) need
 # the hostPath bind. Mirrors the same detection in schedule_set.yml
-# and k8s_run_backup.yml for the backup direction. See #519.
+# and k8s_run_backup.yml for the backup direction.
 - name: Detect local restic repository
   ansible.builtin.set_fact:
     _restore_local_repo: >-
@@ -173,7 +173,7 @@
             # canasta-<id>-backup-env carries every cloud-backend
             # credential restic might need (RESTIC_*, AWS_*, B2_*,
             # AZURE_*, GOOGLE_*, OS_*, ST_*) — same Secret the on-
-            # demand and scheduled backup Jobs use (#497).
+            # demand and scheduled backup Jobs use.
             envFrom:
               - secretRef:
                   name: "canasta-{{ instance_id }}-backup-env"
@@ -400,7 +400,7 @@
 # The dumps name their databases (CREATE DATABASE / USE), so the import
 # runs as root in the bundled db pod, which has MYSQL_ROOT_PASSWORD. An
 # external-DB instance has no db pod (looking one up unconditionally made
-# restore unusable there, #520), so it imports through the web pod as the
+# restore unusable there), so it imports through the web pod as the
 # operator's MYSQL_USER, which the chart wires to the external database.
 - name: Look for a bundled database pod
   ansible.builtin.command:
@@ -522,7 +522,7 @@
   no_log: true
 
 # Restore the canasta-managed K8s Secrets if the snapshot includes
-# them (#510). Older snapshots taken before #510 don't have the
+# them. Older snapshots taken before Secrets were captured don't have the
 # secrets file — that's the 'select match secrets-*.yaml' filter,
 # which evaluates to empty for those.
 #

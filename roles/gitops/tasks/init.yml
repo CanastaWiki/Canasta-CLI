@@ -33,7 +33,7 @@
     - instance_is_k8s | bool
     - git_crypt_gpg_user | default('') | length > 0
 
-# --- Non-destructive reinit (#663) ---
+# --- Non-destructive reinit ---
 # init --reinit wipes .git (via _reinit_cleanup) and re-creates the repo
 # in place. If the re-init then fails — e.g. the push is rejected — the
 # original .git, which may hold local gitops commits that were never

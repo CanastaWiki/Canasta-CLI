@@ -2,8 +2,8 @@
 
 A required value that arrives present-but-blank (e.g. --repo="" from a
 failed `$(...)` substitution) must be reported as "given but is empty"
-rather than "missing", so the empty-substitution case is self-explanatory
-(#669). These tests render the task's real `fail.msg` Jinja against a
+rather than "missing", so the empty-substitution case is self-explanatory.
+These tests render the task's real `fail.msg` Jinja against a
 stubbed `lookup('vars', ...)` so a regression in the wording or in the
 empty-vs-missing distinction is caught.
 """

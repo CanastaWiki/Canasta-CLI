@@ -419,7 +419,7 @@ class TestRunModuleUpdateDomain:
 
     def test_update_domain_requires_old_domain(self, sample_wikis_yaml):
         # Without old_domain, the module must refuse — preventing the
-        # multi-domain clobber bug from #445.
+        # multi-domain clobber bug.
         result, failed, msg = run_module_with_params(canasta_wikis_yaml, {
             "instance_path": sample_wikis_yaml, "state": "update_domain",
             "wiki_id": None, "domain": "newsite.com",
@@ -432,7 +432,7 @@ class TestRunModuleUpdateDomain:
 
     def test_update_domain_filters_other_domains(self, tmp_dir):
         # Multi-domain instance: changing the FQDN of one wiki must not
-        # touch wikis on unrelated domains. Regression test for #445.
+        # touch wikis on unrelated domains.
         os.makedirs(os.path.join(tmp_dir, "config"), exist_ok=True)
         canasta_wikis_yaml.write_wikis(tmp_dir, [
             {"id": "main", "url": "a.example.com", "name": "Main"},

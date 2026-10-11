@@ -24,15 +24,10 @@ sys.path.insert(0, REPO_ROOT)
 
 from direct_commands import _helpers  # noqa: E402
 
-# Files that still spell the alias list: the two definitions, and files
-# being moved elsewhere that keep their checks until they are.
+# The two definitions are the only files that spell the alias list.
 ALLOWED = {
     "canasta.yml",
     "roles/common/module_utils/canasta_config.py",
-    "roles/crowdsec/tasks/_resolve_cscli.yml",
-    "roles/crowdsec/tasks/_restart_engine.yml",
-    "roles/backup/tasks/restore_k8s.yml",
-    "roles/orchestrator/tasks/restore_instance.yml",
 }
 
 INLINE_CHECKS = [

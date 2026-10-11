@@ -60,7 +60,7 @@ class TestMycnfIsIgnored:
         """my.cnf is rendered per host, so the repo must not track it.
 
         A tracked my.cnf cannot hold a correct value for hosts of
-        different sizes — the whole point of #1552.
+        different sizes, so it is rendered per host.
         """
         rules = [
             ln.strip()
@@ -85,7 +85,7 @@ class TestBothRenderPathsRenderMycnf:
     pull_compose does not delegate to render_compose, so a change made in
     one silently misses the other. render_compose is also what runs after
     'canasta backup restore', which is how a cross-host restore gets a
-    my.cnf sized for the destination (#1550).
+    my.cnf sized for the destination.
     """
 
     def _includes_mycnf(self, path):
@@ -108,7 +108,7 @@ class TestBothRenderPathsRenderMycnf:
 class TestMissingValueLeavesMycnfAlone:
     def test_install_is_gated_on_nothing_missing(self):
         """Writing my.cnf without the buffer pool would drop MariaDB to
-        128 MB — a silent, severe regression (#1455). The install block
+        128 MB — a silent, severe regression. The install block
         must be conditional on no placeholder being unresolved."""
         src = _read(RENDER_MYCNF)
         assert "_mycnf_missing | length == 0" in src
@@ -140,8 +140,8 @@ class TestMycnfWrittenInPlace:
         """my.cnf is bind-mounted as a single file (./my.cnf:/etc/my.cnf).
 
         An atomic write (temp + rename) replaces the inode and strands the
-        container on the old one — the #1456 failure that cost a day on the
-        Caddyfile. cp truncates the destination and keeps its inode.
+        container on the old one, as once happened to the Caddyfile. cp
+        truncates the destination and keeps its inode.
         """
         installs = [
             _cmd(t) for t in _load_tasks(RENDER_MYCNF) if _cmd(t).strip().startswith("cp ")

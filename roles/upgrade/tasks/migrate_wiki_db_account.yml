@@ -1,6 +1,6 @@
 ---
 # Move a Compose instance's MediaWiki off the database root account and
-# onto its own `mediawiki` account (#1596).
+# onto its own `mediawiki` account.
 #
 # Runs after upgrade's restart, so the instance is up on the refreshed
 # compose file, which takes MediaWiki's credentials from WIKI_DB_USER /

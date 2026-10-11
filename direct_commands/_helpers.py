@@ -83,8 +83,8 @@ def _resolve_instance(args):
     """Resolve instance from --id flag or cwd. Returns (id, inst_dict) or exits.
 
     Side effect: when the resolved instance has a `dockerHost` in the
-    registry (set by `canasta create --docker-host=…` or by phase 2's
-    auto-detect at create time, see #479), exports it as DOCKER_HOST
+    registry (set by `canasta create --docker-host=…` or by the
+    runtime auto-detect at create time), exports it as DOCKER_HOST
     in the process environment so any subsequent local `docker` /
     `docker compose` subprocess inherits it. Remote SSH-wrapped docker
     calls pick up the same value via _ssh_run's prefix logic.
@@ -1084,7 +1084,7 @@ def _stream_in_container(inst_id, inst, command, service="web",
     Used by long-running maintenance commands (update.php, runJobs.php,
     rebuildData.php, ad-hoc maintenance scripts) so the operator can
     distinguish 'still working' from 'stuck' without having to drop
-    down to `docker compose exec` directly. See issue #433.
+    down to `docker compose exec` directly.
 
     retry_on_reset re-streams from the start on an SSH connection reset
     (ssh exit 255). The command already started keeps running in the

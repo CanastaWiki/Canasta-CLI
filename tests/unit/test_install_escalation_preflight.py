@@ -1,4 +1,4 @@
-"""Guards for #1342 — sudo-rs defeats Ansible's become.
+"""Guards for sudo-rs defeats Ansible's become.
 
 Ansible's become drives GNU sudo: it passes its own prompt via -p and
 waits for that exact string before writing the password. sudo-rs, the

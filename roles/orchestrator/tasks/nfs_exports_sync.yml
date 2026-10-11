@@ -90,7 +90,7 @@
       Could not export {{ _nfs_sync_shares | join(', ') }} to the cluster's
       nodes: the export sync
       {{ 'exited ' ~ _nfs_sync_run.rc ~ ' (the Kubernetes API did not list the nodes)'
-         if _nfs_sync_run.rc != 0 else 'did not write them' }}.
+      if _nfs_sync_run.rc != 0 else 'did not write them' }}.
       Check `sudo /usr/local/sbin/canasta-nfs-exports-sync` on this host.
   when:
     - not (_nfs_sync_ok | bool)

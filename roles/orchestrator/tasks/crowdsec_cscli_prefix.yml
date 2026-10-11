@@ -21,7 +21,7 @@
   no_log: true  # registers the whole .env, including passwords
   when:
     - compose_command is search('podman')
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
 
 - name: Build compose profile flags for exec
   ansible.builtin.set_fact:
@@ -36,30 +36,30 @@
          | list }}
   when:
     - compose_command is search('podman')
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
 
 - name: Build cscli prefix (Compose)
   ansible.builtin.set_fact:
     _cscli_prefix: "{{ compose_command }} {{ _cscli_profile_flags | default('') }} exec -T crowdsec"
     _cscli_argv: "{{ compose_command.split() }}"
     _cscli_chdir: "{{ instance_path }}"
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Append profile flags to cscli argv
   ansible.builtin.set_fact:
     _cscli_argv: "{{ _cscli_argv + ['--profile', item] }}"
   loop: "{{ _cscli_profile_list | default([]) }}"
   when:
-    - instance_orchestrator | default('compose') == 'compose'
+    - not (instance_is_k8s | bool)
     - _cscli_profile_list | default([]) | length > 0
 
 - name: Append exec args to cscli argv
   ansible.builtin.set_fact:
     _cscli_argv: "{{ _cscli_argv + ['exec', '-T', 'crowdsec'] }}"
-  when: instance_orchestrator | default('compose') == 'compose'
+  when: not (instance_is_k8s | bool)
 
 - name: Build cscli prefix (Kubernetes)
-  when: instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+  when: instance_is_k8s | bool
   block:
     - name: Set K8s namespace
       ansible.builtin.set_fact:

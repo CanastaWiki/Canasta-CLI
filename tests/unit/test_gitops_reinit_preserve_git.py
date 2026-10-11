@@ -1,4 +1,4 @@
-"""Structure guards for non-destructive gitops --reinit (#663).
+"""Structure guards for non-destructive gitops --reinit.
 
 --reinit exists to recover an instance after a previous init/join died
 mid-run, but the reinit cleanup deletes .git before the operation is

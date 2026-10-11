@@ -232,14 +232,14 @@ fi
 #
 # - macOS Docker Desktop: kubernetes.docker.internal is pre-resolved
 #   inside containers and is in Docker Desktop's K8s API cert SAN list,
-#   so TLS validation works with no extra flags. See #78.
+#   so TLS validation works with no extra flags.
 #
 # - Linux Docker: kubernetes.docker.internal doesn't exist; use
 #   host.docker.internal added via --add-host. Self-signed local
 #   clusters (k3s, kind, etc.) typically don't include any external
 #   hostname in their cert SANs, so we also drop the CA pin and skip
 #   TLS verification — the connection traverses the docker bridge to
-#   the host's loopback rather than untrusted network. See #534.
+#   the host's loopback rather than untrusted network.
 KUBE_CONFIG="$HOME/.kube/config"
 if [[ -f "$KUBE_CONFIG" ]] \
     && grep -qE 'server:.*https://(127\.0\.0\.1|localhost)' "$KUBE_CONFIG" 2>/dev/null; then
@@ -327,7 +327,7 @@ fi
 # default to that name. Otherwise an Ansible play that SSHes to a
 # remote without a -u override tries `canasta@<host>` and the remote
 # sshd rejects after too many auth failures because no `canasta` user
-# exists there. See #478.
+# exists there.
 _CANASTA_DOCKER_USER="$(id -un 2>/dev/null || echo "${USER:-canasta}")"
 # Ours must replace, not defer to, any entry the image already has for
 # this UID. The image ships accounts at 0-10, 13, 33, 34, 38, 39, 42 and

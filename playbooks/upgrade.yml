@@ -3,8 +3,7 @@
 # The CLI self-update (git pull on the install dir) happens in
 # canasta.py before this playbook runs — see canasta.self_update_cli.
 # That keeps the running ansible-playbook process from holding a
-# stale ansible.cfg / module_utils path in memory across a pull
-# (#489).
+# stale ansible.cfg / module_utils path in memory across a pull.
 
 # --- Upgrade instances ---
 - name: Get all instances
