@@ -1,0 +1,89 @@
+---
+# canasta scale - Set the web tier's replica count (Kubernetes).
+# Input: id, replicas, component (default web)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Refuse to scale a Compose instance
+  ansible.builtin.fail:
+    msg: >-
+      `canasta scale` is Kubernetes-only by design. On Compose, raise
+      PHP-FPM worker limits inside the web image rather than running
+      multiple replicas of the same container.
+  when: instance_orchestrator | default('compose') not in ['kubernetes', 'k8s']
+
+- name: Refuse components other than web
+  ansible.builtin.fail:
+    msg: >-
+      Only 'web' supports replica scaling. Component '{{ component }}'
+      is not supported.
+  when: (component | default('web') | lower) != 'web'
+
+- name: Refuse a replica count below one
+  ansible.builtin.fail:
+    msg: "--replicas must be ≥ 1"
+  when: replicas | default(0) | int < 1
+
+- name: Read values.yaml
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values.yaml"
+  register: _scale_values_raw
+
+- name: Parse values.yaml
+  ansible.builtin.set_fact:
+    _scale_values: "{{ _scale_values_raw.content | b64decode | from_yaml | default({}, true) }}"
+
+- name: Refuse a values.yaml whose web section is not a mapping
+  ansible.builtin.fail:
+    msg: >-
+      {{ instance_path }}/values.yaml: {{ 'the file does not parse as a mapping'
+      if _scale_values is not mapping
+      else 'web is not a mapping; refusing to overwrite it with a replicaCount key' }}.
+  when: >-
+    _scale_values is not mapping
+    or (_scale_values.web is defined and _scale_values.web is not none
+        and _scale_values.web is not mapping)
+
+- name: Decide whether the count changes
+  ansible.builtin.set_fact:
+    _scale_replicas: "{{ replicas | int }}"
+    _scale_changed: >-
+      {{ (_scale_values.web | default({}, true)).replicaCount | default(none)
+         != (replicas | int) }}
+
+- name: Report nothing to do
+  ansible.builtin.debug:
+    msg: "web.replicaCount is already {{ _scale_replicas }}; nothing to do."
+  when: not (_scale_changed | bool)
+
+- name: Report scaling
+  ansible.builtin.debug:
+    msg: "Scaling web to {{ _scale_replicas }} replica(s)..."
+  when: _scale_changed | bool
+
+- name: Persist the replica count to values.yaml
+  ansible.builtin.copy:
+    content: >-
+      {{ _scale_values
+         | combine({'web': {'replicaCount': _scale_replicas | int}}, recursive=True)
+         | to_nice_yaml(indent=2) }}
+    dest: "{{ instance_path }}/values.yaml"
+    mode: "0644"
+  when: _scale_changed | bool
+
+- name: Set K8s namespace
+  ansible.builtin.set_fact:
+    _k8s_namespace: "canasta-{{ instance_id }}"
+  when: _scale_changed | bool
+
+- name: Deploy the new replica count
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/helm_deploy.yml"
+  when: _scale_changed | bool
+
+- name: Report scaled
+  ansible.builtin.debug:
+    msg: >-
+      Scaled web to {{ _scale_replicas }} replica(s). Persisted to
+      {{ instance_path }}/values.yaml.
+  when: _scale_changed | bool

@@ -21,8 +21,16 @@ def _block(name):
     return next(t for t in tasks if t.get("name") == name)["block"]
 
 
+def _walk(tasks):
+    for t in tasks:
+        yield t
+        for key in ("block", "rescue", "always"):
+            yield from _walk(t.get(key) or [])
+
+
 def _task(block_name, task_name):
-    return next(t for t in _block(block_name) if t.get("name") == task_name)
+    return next(t for t in _walk(_block(block_name))
+                if t.get("name") == task_name)
 
 
 COMMIT_TASKS = [

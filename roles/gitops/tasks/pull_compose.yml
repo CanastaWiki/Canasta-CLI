@@ -134,6 +134,8 @@
 
 - name: Update submodules
   ansible.builtin.include_tasks: "_update_submodules.yml"
+  vars:
+    submodule_git_env: "{{ gitops_git_env }}"
 
 - name: Remove submodules the pull dropped
   ansible.builtin.include_tasks: "_remove_dropped_submodules.yml"
@@ -379,9 +381,13 @@
     _pull_needs_restart: >-
       {{ (_pull_baseline.env | default('') != _rendered_fingerprint.env)
          or (_pull_baseline.wikis | default('') != _rendered_fingerprint.wikis)
+         or (_pull_baseline.mycnf | default(_rendered_fingerprint.mycnf)
+             != _rendered_fingerprint.mycnf)
+         or (_pull_baseline.media_hosts | default(_rendered_fingerprint.media_hosts)
+             != _rendered_fingerprint.media_hosts)
          or (_pull_changed_files.stdout_lines | default([])
              | select('match',
-               '^(env\.template|config/Caddyfile|config/secret-keys-web$|docker-compose\.override\.yml)')
+               '^(env\.template|config/Caddyfile|config/secret-keys-web$|docker-compose\.override\.yml|my\.cnf$)')
              | list | length > 0)
          or ('config/settings/global/00-canasta-sidecar-env.php'
              in (_pull_changed_files.stdout_lines | default([]))
@@ -440,3 +446,10 @@
       else ('Pulled ' ~ _pull_prev_commit.stdout[:7] ~ '..'
       ~ _pull_new_commit.stdout[:7] ~ '.') }}
       {{ _pull_followup | join(' ') }}
+
+# --- Step 13: Warn about wikis with no database here ---
+# Gitops carries configuration, not databases, so a wiki added on another
+# host arrives here without one.
+- name: Warn about wiki databases missing on this host
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/warn_missing_wiki_databases.yml

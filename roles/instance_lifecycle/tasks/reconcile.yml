@@ -109,6 +109,11 @@
     name: orchestrator
     tasks_from: varnish_ban.yml
 
+- name: Warn about wiki databases missing on this host
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/warn_missing_wiki_databases.yml
+  when: instance_orchestrator | default('compose') == 'compose'
+
 - name: Report reconciled
   ansible.builtin.debug:
     msg: >-

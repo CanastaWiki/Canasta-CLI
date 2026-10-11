@@ -8,9 +8,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install SSH server, Python 3, sudo, cron (for backup schedule tests),
-# and prerequisites for Docker CLI
+# git and git-crypt (for gitops tests), and prerequisites for Docker CLI
 RUN apt-get update && apt-get install -y --no-install-recommends \
         openssh-server \
+        git \
+        git-crypt \
         python3 \
         python3-yaml \
         sudo \

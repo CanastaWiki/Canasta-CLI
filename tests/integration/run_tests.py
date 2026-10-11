@@ -9,6 +9,7 @@ Usage:
     python tests/integration/run_tests.py              # all tests
     python tests/integration/run_tests.py lifecycle     # specific test
     python tests/integration/run_tests.py --list        # list tests
+    python tests/integration/run_tests.py --no-skip     # skips fail the run
 
 Requirements:
     - A container runtime running (Docker or Podman)
@@ -1669,6 +1670,233 @@ def test_extension_skin(inst):
     inst.run_ok("skin", "disable", "-i", inst.id, "Timeless")
 
 
+# A small Gerrit extension that is not bundled with Canasta, carries a
+# REL1_43 branch, and ships a composer.json (so add registers it).
+CLONE_TEST_EXTENSION = "UserPageEditProtection"
+# A small Gerrit skin that is not bundled with Canasta, with a REL1_43 branch.
+CLONE_TEST_SKIN = "Mirage"
+
+
+def _composer_local_includes(inst):
+    """Return the merge-plugin include list of config/composer.local.json."""
+    path = os.path.join(inst.instance_path(), "config", "composer.local.json")
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return []
+    return ((data.get("extra") or {}).get("merge-plugin") or {}).get(
+        "include") or []
+
+
+def _wait_for_loaded(inst, name, present, timeout=120):
+    """Poll until MediaWiki has (not) loaded extension or skin `name`.
+
+    Asks ExtensionRegistry from inside the web container: a new wiki is
+    private, so the anonymous siteinfo API lists nothing.
+    """
+    code = (
+        "echo 'PROBE=' . (ExtensionRegistry::getInstance()->isLoaded(%s)"
+        " ? 'yes' : 'no') . PHP_EOL;" % json.dumps(name)
+    )
+    script = (
+        "echo %s | php /var/www/mediawiki/w/maintenance/run.php eval "
+        "--wiki=main" % shlex.quote(code)
+    )
+    want = "PROBE=%s" % ("yes" if present else "no")
+    deadline = time.time() + timeout
+    output = ""
+    while True:
+        try:
+            output = inst.run_quiet(
+                "maintenance", "exec", "-i", inst.id, "bash", "-c", script,
+            )
+            if want in output:
+                return
+        except AssertionError as e:
+            output = str(e)
+        if time.time() >= deadline:
+            break
+        time.sleep(5)
+    raise AssertionError(
+        "%s %s after %ds; last probe output:\n%s"
+        % (name, "not loaded" if present else "still loaded", timeout,
+           output)
+    )
+
+
+def _git(cwd, *args):
+    """Run git in cwd; return (returncode, stripped stdout)."""
+    result = subprocess.run(
+        ["git"] + list(args), cwd=cwd, capture_output=True, text=True,
+    )
+    return result.returncode, result.stdout.strip()
+
+
+def test_extension_lifecycle(inst):
+    """Add, pin and remove a cloned extension, plain and under gitops.
+
+    Clones a real extension from Wikimedia Gerrit, so it needs network
+    access to gerrit.wikimedia.org.
+    """
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    ext = CLONE_TEST_EXTENSION
+    rel = "extensions/%s" % ext
+    composer_entry = "%s/composer.json" % rel
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+    inst_path = inst.instance_path()
+    ext_path = os.path.join(inst_path, rel)
+
+    # --- Plain (non-gitops) instance ---
+    print("Adding %s with --clone..." % ext)
+    inst.run_ok("extension", "add", "-i", inst.id, ext, "--clone")
+
+    print("Verifying the clone and its composer registration...")
+    assert os.path.isdir(os.path.join(ext_path, ".git")), (
+        "%s is not a git checkout after add" % rel
+    )
+    includes = _composer_local_includes(inst)
+    assert composer_entry in includes, (
+        "%s not registered in composer.local.json: %s"
+        % (composer_entry, includes)
+    )
+
+    print("Verifying %s is loaded..." % ext)
+    _wait_for_loaded(inst, ext, True)
+
+    print("Removing %s..." % ext)
+    inst.run_ok("extension", "remove", "-i", inst.id, ext)
+
+    print("Verifying the directory and composer entry are gone...")
+    assert not os.path.exists(ext_path), "%s still exists after remove" % rel
+    includes = _composer_local_includes(inst)
+    assert composer_entry not in includes, (
+        "%s still in composer.local.json after remove: %s"
+        % (composer_entry, includes)
+    )
+    _wait_for_loaded(inst, ext, False)
+
+    # --- Gitops instance ---
+    print("Initializing gitops...")
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(
+        ["git", "init", "--bare", bare_repo],
+        capture_output=True, check=True,
+    )
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id,
+        "-n", "testhost",
+        "--repo", bare_repo,
+        "--key", os.path.join(inst.work_dir, "gitops-test.key"),
+    )
+
+    print("Adding %s with --clone on the gitops instance..." % ext)
+    inst.run_ok("extension", "add", "-i", inst.id, ext, "--clone")
+
+    print("Verifying %s is a registered, committed submodule..." % rel)
+    gitmodules_path = os.path.join(inst_path, ".gitmodules")
+    assert os.path.isfile(gitmodules_path), ".gitmodules missing after add"
+    with open(gitmodules_path) as f:
+        gitmodules = f.read()
+    assert '[submodule "%s"]' % rel in gitmodules, (
+        "%s has no .gitmodules entry:\n%s" % (rel, gitmodules)
+    )
+    rc, staged = _git(inst_path, "ls-files", "-s", "--", rel)
+    assert rc == 0 and staged.startswith("160000 "), (
+        "%s is not tracked as a gitlink: %r" % (rel, staged)
+    )
+    rc, _ = _git(inst_path, "submodule", "status", "--", rel)
+    assert rc == 0, "git submodule status fails for %s" % rel
+    assert os.path.isfile(os.path.join(ext_path, ".git")), (
+        "%s/.git should be a gitfile pointing into .git/modules" % rel
+    )
+    assert os.path.isdir(os.path.join(inst_path, ".git", "modules", rel)), (
+        ".git/modules/%s missing" % rel
+    )
+    rc, _ = _git(inst_path, "diff", "--cached", "--quiet", "--",
+                 rel, ".gitmodules")
+    assert rc == 0, "the submodule add was left uncommitted"
+
+    print("Pinning %s to its parent commit with set-version..." % ext)
+    rc, target = _git(ext_path, "rev-parse", "HEAD~1")
+    assert rc == 0 and target, "could not resolve HEAD~1 in %s" % rel
+    inst.run_ok(
+        "extension", "set-version", "-i", inst.id, ext, "--ref", target,
+    )
+    _, head = _git(ext_path, "rev-parse", "HEAD")
+    assert head == target, (
+        "%s HEAD is %s after set-version, expected %s" % (rel, head, target)
+    )
+    _, staged = _git(inst_path, "ls-files", "-s", "--", rel)
+    assert staged.split()[1:2] == [target], (
+        "staged gitlink for %s is not %s: %r" % (rel, target, staged)
+    )
+
+    print("Removing %s from the gitops instance..." % ext)
+    inst.run_ok("extension", "remove", "-i", inst.id, ext)
+
+    print("Verifying the submodule is fully unregistered...")
+    assert not os.path.exists(ext_path), "%s still exists after remove" % rel
+    _, tracked = _git(inst_path, "ls-files", "--", rel)
+    assert tracked == "", "%s still tracked after remove: %r" % (rel, tracked)
+    if os.path.isfile(gitmodules_path):
+        with open(gitmodules_path) as f:
+            gitmodules = f.read()
+        assert rel not in gitmodules, (
+            "%s still in .gitmodules after remove:\n%s" % (rel, gitmodules)
+        )
+    assert not os.path.exists(
+        os.path.join(inst_path, ".git", "modules", rel)
+    ), ".git/modules/%s left behind after remove" % rel
+    includes = _composer_local_includes(inst)
+    assert composer_entry not in includes, (
+        "%s still in composer.local.json after remove: %s"
+        % (composer_entry, includes)
+    )
+
+
+def test_skin_lifecycle(inst):
+    """Add a cloned skin, verify it loads, then remove it.
+
+    Clones a real skin from Wikimedia Gerrit, so it needs network access
+    to gerrit.wikimedia.org.
+    """
+    skin = CLONE_TEST_SKIN
+    rel = "skins/%s" % skin
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+    skin_path = os.path.join(inst.instance_path(), rel)
+
+    print("Adding %s with --clone..." % skin)
+    inst.run_ok("skin", "add", "-i", inst.id, skin, "--clone")
+    assert os.path.isdir(os.path.join(skin_path, ".git")), (
+        "%s is not a git checkout after add" % rel
+    )
+
+    print("Verifying %s is loaded..." % skin)
+    _wait_for_loaded(inst, skin, True)
+
+    print("Removing %s..." % skin)
+    inst.run_ok("skin", "remove", "-i", inst.id, skin)
+    assert not os.path.exists(skin_path), "%s still exists after remove" % rel
+    _wait_for_loaded(inst, skin, False)
+
+
 def test_wiki_farm(inst):
     """Add and remove wikis in a farm configuration."""
     print("Creating instance with main wiki...")
@@ -2565,6 +2793,353 @@ def test_k8s_backup(inst):
         # The hostPath repo lives on the node (created by the Job as root);
         # cleanup() removes the instance but not this path.
         subprocess.run(["sudo", "rm", "-rf", repo], capture_output=True)
+
+
+# Argo CD's repo-server runs in a pod, so a K8s gitops remote has to be a
+# network address, not a local bare repo. The CLI speaks SSH with a deploy key
+# to it, and trusts a self-hosted host by keyscanning it into Argo CD's
+# known-hosts, so serve the bare repo over sshd on the host network: the
+# runner pushes to it and pods reach it at the same host IP.
+_K8S_GIT_SERVER_IMAGE = "alpine:3.20"
+_K8S_GIT_SERVER_PORT = "2222"
+_K8S_GIT_REPO_PATH = "/srv/git/config.git"
+
+
+def _host_ip():
+    """An IPv4 address of this host that pods in the cluster can reach."""
+    out = subprocess.run(
+        ["ip", "-4", "route", "get", "1.1.1.1"],
+        capture_output=True, text=True,
+    ).stdout
+    match = re.search(r"\bsrc (\d+\.\d+\.\d+\.\d+)", out)
+    if match:
+        return match.group(1)
+    addrs = subprocess.run(
+        ["hostname", "-I"], capture_output=True, text=True,
+    ).stdout.split()
+    return addrs[0] if addrs else ""
+
+
+def _start_ssh_git_server(name, port, pubkey):
+    """Run sshd with an empty bare repo that accepts `pubkey` as user git."""
+    script = (
+        "set -e; "
+        "apk add --no-cache openssh-server git >/dev/null; "
+        "adduser -D -s /bin/sh git; "
+        # busybox adduser -D locks the account, and sshd built without PAM
+        # refuses every login to a locked account, keys included.
+        "sed -i 's/^git:[^:]*:/git:*:/' /etc/shadow; "
+        "mkdir -p /home/git/.ssh; "
+        'printf "%%s\\n" "$GIT_PUBKEY" > /home/git/.ssh/authorized_keys; '
+        "chmod 700 /home/git/.ssh; chmod 600 /home/git/.ssh/authorized_keys; "
+        "chown -R git:git /home/git/.ssh; "
+        "mkdir -p %(repo)s; "
+        "git init -q --bare --initial-branch=main %(repo)s; "
+        "chown -R git:git /srv/git; "
+        "ssh-keygen -A; "
+        "exec /usr/sbin/sshd -D -e -p %(port)s"
+    ) % {"repo": _K8S_GIT_REPO_PATH, "port": port}
+    subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+    subprocess.run(
+        ["docker", "run", "-d", "--name", name, "--network", "host",
+         "-e", "GIT_PUBKEY=%s" % pubkey,
+         _K8S_GIT_SERVER_IMAGE, "sh", "-c", script],
+        capture_output=True, text=True, check=True,
+    )
+
+
+def _ssh_git_server_repo(name, *git_args):
+    """Run git against the served bare repo, as its owner."""
+    return subprocess.run(
+        ["docker", "exec", "-u", "git", name,
+         "git", "-C", _K8S_GIT_REPO_PATH] + list(git_args),
+        capture_output=True, text=True,
+    )
+
+
+def _wait_ssh_git_server(name, host, port, repo_url, key, timeout=180):
+    """Wait until sshd answers and the deploy key can read the repo."""
+    ssh_cmd = (
+        "ssh -i %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
+        "-o BatchMode=yes" % shlex.quote(key)
+    )
+    env = dict(os.environ, GIT_SSH_COMMAND=ssh_cmd)
+    deadline = time.time() + timeout
+    last = ""
+    while time.time() < deadline:
+        scan = subprocess.run(
+            ["ssh-keyscan", "-T", "5", "-p", port, host],
+            capture_output=True, text=True,
+        )
+        if scan.returncode == 0 and scan.stdout.strip():
+            probe = subprocess.run(
+                ["git", "ls-remote", repo_url],
+                capture_output=True, text=True, env=env,
+            )
+            if probe.returncode == 0:
+                return
+            last = probe.stderr
+        else:
+            last = scan.stderr
+        time.sleep(5)
+    logs = subprocess.run(
+        ["docker", "logs", "--tail", "50", name],
+        capture_output=True, text=True,
+    )
+    raise AssertionError(
+        "SSH git server at %s:%s not usable after %ds: %s\n"
+        "container logs:\n%s%s"
+        % (host, port, timeout, last.strip(), logs.stdout, logs.stderr)
+    )
+
+
+def _argo_app_state(app, argocd_ns="argocd"):
+    """(sync status, health status, synced revision) of an Application."""
+    result = subprocess.run(
+        ["kubectl", "get", "application", app, "-n", argocd_ns, "-o",
+         'jsonpath={.status.sync.status}{"|"}{.status.health.status}'
+         '{"|"}{.status.sync.revision}'],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return ("missing", result.stderr.strip(), "")
+    fields = (result.stdout.split("|") + ["", "", ""])[:3]
+    return tuple(fields)
+
+
+def _wait_argo_app_synced(app, revision, timeout=600):
+    """Wait until the Application is Synced and Healthy at `revision`."""
+    deadline = time.time() + timeout
+    state = None
+    while time.time() < deadline:
+        state = _argo_app_state(app)
+        if (state[0] == "Synced" and state[1] == "Healthy"
+                and state[2] == revision):
+            return
+        time.sleep(10)
+    raise AssertionError(
+        "Argo CD Application %s not Synced/Healthy at %s after %ds; "
+        "last (sync, health, revision): %r" % (app, revision, timeout, state)
+    )
+
+
+def _k8s_gitops_diagnostics(namespace, git_server):
+    """Print what explains an Argo CD sync or gitops failure."""
+    print("--- K8s gitops failure diagnostics ---", flush=True)
+    for cmd in (
+        ["kubectl", "get", "application", "-n", "argocd", "-o", "yaml"],
+        ["kubectl", "logs", "-n", "argocd", "deployment/argocd-repo-server",
+         "--all-containers", "--tail=100"],
+        ["kubectl", "logs", "-n", "argocd",
+         "statefulset/argocd-application-controller", "--tail=100"],
+        ["kubectl", "get", "configmap", "argocd-ssh-known-hosts-cm",
+         "-n", "argocd", "-o", "yaml"],
+        ["kubectl", "get", "all,ingress,pvc", "-n", namespace],
+        ["docker", "logs", "--tail", "50", git_server],
+    ):
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        print("$ %s\n%s%s" % (" ".join(cmd), result.stdout, result.stderr),
+              flush=True)
+
+
+def _assert_gitops_status_clean(output, when):
+    """`gitops status` shows nothing to push, pull or capture."""
+    assert "Ahead of remote:  0" in output and "Behind remote:    0" in output, (
+        "gitops status should be in step with the remote %s:\n%s"
+        % (when, output)
+    )
+    for advisory in ("Staged for push", "Unstaged changes",
+                     "Untracked files", "Uncaptured config/wikis.yaml"):
+        assert advisory not in output, (
+            "gitops status should be clean %s, but shows %r:\n%s"
+            % (when, advisory, output)
+        )
+
+
+def test_k8s_gitops(inst):
+    """K8s gitops through Argo CD: init, add a wiki and push, upgrade,
+    init --reinit, then delete.
+
+    Creates without --skip-argocd-install, so create installs Argo CD and
+    the Application it is handed has to clone the remote from inside the
+    cluster.
+    """
+    result = subprocess.run(["kubectl", "cluster-info"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("kubectl not available or cluster not reachable")
+    result = subprocess.run(["helm", "version", "--short"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("helm not installed")
+    require_docker()
+
+    host_ip = _host_ip()
+    assert host_ip, "could not determine this host's IPv4 address"
+
+    ns = "canasta-%s" % inst.id
+    app = "canasta-%s" % inst.id
+    git_server = "canasta-int-gitserver-%s" % inst.id
+    repo_url = "ssh://git@%s:%s%s" % (
+        host_ip, _K8S_GIT_SERVER_PORT, _K8S_GIT_REPO_PATH)
+    host_name = "testhost"
+    wiki_host = "docs.localhost"
+
+    # init reuses a deploy key already at <key>.ssh, so generating it here
+    # lets the git server trust it before init probes the remote.
+    key_base = os.path.join(inst.work_dir, "gitops-k8s.key")
+    deploy_key = key_base + ".ssh"
+    subprocess.run(
+        ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C",
+         "canasta-%s" % inst.id, "-f", deploy_key],
+        capture_output=True, check=True,
+    )
+    with open(deploy_key + ".pub") as f:
+        pubkey = f.read().strip()
+
+    print("Starting the SSH git server at %s..." % repo_url)
+    _start_ssh_git_server(git_server, _K8S_GIT_SERVER_PORT, pubkey)
+    try:
+        _wait_ssh_git_server(
+            git_server, host_ip, _K8S_GIT_SERVER_PORT, repo_url, deploy_key)
+
+        print("Creating Kubernetes instance with Argo CD...")
+        inst.run_ok(
+            "create", "-i", inst.id, "-w", "main",
+            "-n", "localhost", "-p", inst.work_dir,
+            "--orchestrator", "kubernetes",
+        )
+        argocd = subprocess.run(
+            ["kubectl", "get", "deployment", "argocd-server", "-n", "argocd"],
+            capture_output=True, text=True,
+        )
+        assert argocd.returncode == 0, (
+            "create should install Argo CD: %s" % argocd.stderr
+        )
+
+        print("Initializing gitops...")
+        inst.run_ok(
+            "gitops", "init", "-i", inst.id, "-n", host_name,
+            "--repo", repo_url, "--key", key_base, "--non-interactive",
+        )
+        log = _ssh_git_server_repo(git_server, "log", "--format=%s", "main")
+        assert "Initial gitops configuration" in log.stdout, (
+            "init's commit is not on the remote: %s%s"
+            % (log.stdout, log.stderr)
+        )
+        head = _ssh_git_server_repo(git_server, "rev-parse", "main").stdout.strip()
+
+        print("Waiting for the Argo CD Application to sync %s..." % head[:12])
+        _wait_argo_app_synced(app, head)
+
+        output = inst.run_quiet("gitops", "status", "-i", inst.id)
+        _assert_gitops_status_clean(output, "after init")
+
+        print("Adding wiki %s..." % wiki_host)
+        inst.run_ok("add", "-i", inst.id, "-w", "docs", "-u", wiki_host)
+
+        message = "Add the docs wiki"
+        print("Pushing...")
+        inst.run_ok("gitops", "push", "-i", inst.id, "-m", message)
+        log = _ssh_git_server_repo(git_server, "log", "-1", "--format=%s", "main")
+        assert log.stdout.strip() == message, (
+            "push should commit with the given message; remote head is %r"
+            % log.stdout.strip()
+        )
+        import yaml
+        rendered = _ssh_git_server_repo(
+            git_server, "show",
+            "main:hosts/%s/rendered-values.yaml" % host_name)
+        assert rendered.returncode == 0, (
+            "rendered values missing from the remote: %s" % rendered.stderr
+        )
+        domains = (yaml.safe_load(rendered.stdout) or {}).get("domains") or []
+        assert wiki_host in domains, (
+            "pushed rendered values should route %s; domains: %r"
+            % (wiki_host, domains)
+        )
+        head = _ssh_git_server_repo(git_server, "rev-parse", "main").stdout.strip()
+
+        print("Syncing Argo CD to %s..." % head[:12])
+        inst.run_ok("gitops", "sync", "-i", inst.id)
+        _wait_argo_app_synced(app, head)
+
+        hosts = subprocess.run(
+            ["kubectl", "get", "ingress", "-n", ns, "-o",
+             "jsonpath={.items[*].spec.rules[*].host}"],
+            capture_output=True, text=True,
+        )
+        assert wiki_host in hosts.stdout.split(), (
+            "the Ingress should route %s after the sync; hosts: %r %s"
+            % (wiki_host, hosts.stdout, hosts.stderr)
+        )
+
+        output = inst.run_quiet("gitops", "status", "-i", inst.id)
+        _assert_gitops_status_clean(output, "after push")
+
+        print("Upgrading...")
+        inst.run_ok("upgrade")
+        output = inst.run_quiet("gitops", "status", "-i", inst.id)
+        _assert_gitops_status_clean(output, "after upgrade")
+
+        print("Re-initializing gitops with --reinit...")
+        inst.run_ok(
+            "gitops", "init", "-i", inst.id, "-n", host_name,
+            "--repo", repo_url, "--key", key_base, "--non-interactive",
+            "--reinit", "--force",
+        )
+        log = _ssh_git_server_repo(git_server, "log", "-1", "--format=%s", "main")
+        assert log.stdout.strip() == "Initial gitops configuration", (
+            "--reinit should push a fresh initial commit; remote head is %r"
+            % log.stdout.strip()
+        )
+        head = _ssh_git_server_repo(git_server, "rev-parse", "main").stdout.strip()
+        print("Syncing Argo CD to the re-initialized %s..." % head[:12])
+        inst.run_ok("gitops", "sync", "-i", inst.id)
+        _wait_argo_app_synced(app, head)
+
+        repo_secret = "canasta-%s-repo" % inst.id
+        assert subprocess.run(
+            ["kubectl", "get", "secret", repo_secret, "-n", "argocd"],
+            capture_output=True,
+        ).returncode == 0, "gitops init should create Secret %s" % repo_secret
+
+        print("Deleting instance...")
+        inst.run_ok("delete", "-i", inst.id, "--yes")
+        secret = subprocess.run(
+            ["kubectl", "get", "secret", repo_secret, "-n", "argocd"],
+            capture_output=True, text=True,
+        )
+        assert secret.returncode != 0, (
+            "the Argo CD repository Secret %s survived delete" % repo_secret
+        )
+        for _ in range(24):
+            gone = subprocess.run(
+                ["kubectl", "get", "application", app, "-n", "argocd"],
+                capture_output=True,
+            ).returncode != 0
+            if gone:
+                break
+            time.sleep(5)
+        assert gone, "the Argo CD Application survived delete"
+        for _ in range(36):
+            ns_gone = subprocess.run(
+                ["kubectl", "get", "namespace", ns], capture_output=True,
+            ).returncode != 0
+            if ns_gone:
+                break
+            time.sleep(5)
+        assert ns_gone, "namespace %s survived delete" % ns
+        argocd = subprocess.run(
+            ["kubectl", "get", "deployment", "argocd-server", "-n", "argocd"],
+            capture_output=True, text=True,
+        )
+        assert argocd.returncode == 0, (
+            "delete must leave the shared Argo CD install: %s" % argocd.stderr
+        )
+    except Exception:
+        _k8s_gitops_diagnostics(ns, git_server)
+        raise
+    finally:
+        subprocess.run(["docker", "rm", "-f", git_server], capture_output=True)
 
 
 def test_version(inst):
@@ -3812,6 +4387,462 @@ def test_k8s_build_from(inst):
     )
 
 
+def _k8s_require_cluster():
+    """Skip unless kubectl reaches a cluster and helm is installed."""
+    result = subprocess.run(["kubectl", "cluster-info"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("kubectl not available or cluster not reachable")
+    result = subprocess.run(["helm", "version", "--short"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("helm not installed")
+
+
+def _k8s_kubectl(*args):
+    """Run kubectl and return its stripped stdout; fail on a non-zero exit."""
+    result = subprocess.run(
+        ["kubectl"] + list(args), capture_output=True, text=True,
+    )
+    assert result.returncode == 0, (
+        "kubectl %s failed: %s\n%s"
+        % (" ".join(args), result.stdout, result.stderr)
+    )
+    return result.stdout.strip()
+
+
+def _k8s_wait_web(inst_id, timeout=300):
+    """Wait for the instance's web Deployment to finish rolling out."""
+    result = subprocess.run(
+        ["kubectl", "rollout", "status",
+         "deployment/canasta-%s-web" % inst_id,
+         "-n", "canasta-%s" % inst_id, "--timeout=%ds" % timeout],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, (
+        "web of %s did not roll out: %s\n%s"
+        % (inst_id, result.stdout, result.stderr)
+    )
+
+
+def _k8s_running_pods(inst_id):
+    """Map name -> uid of the instance's Running pods."""
+    out = _k8s_kubectl(
+        "get", "pods", "-n", "canasta-%s" % inst_id,
+        "--field-selector=status.phase=Running",
+        "-o", "jsonpath={range .items[*]}{.metadata.name}={.metadata.uid}"
+        "{\"\\n\"}{end}",
+    )
+    pods = {}
+    for line in out.splitlines():
+        name, _, uid = line.partition("=")
+        if name:
+            pods[name] = uid
+    return pods
+
+
+def _k8s_in_web(inst_id, script):
+    """Run a shell script in a Running web pod of the instance.
+
+    A pod from the previous rollout can still be terminating just after
+    a deploy, so a failed exec is retried against a freshly chosen pod.
+    """
+    ns = "canasta-%s" % inst_id
+    result = None
+    for _ in range(6):
+        _k8s_wait_web(inst_id)
+        pod = subprocess.run(
+            ["kubectl", "get", "pods", "-n", ns,
+             "-l", "app.kubernetes.io/component=web",
+             "--field-selector=status.phase=Running",
+             "-o", "jsonpath={.items[0].metadata.name}"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+        if pod:
+            result = subprocess.run(
+                ["kubectl", "exec", "-n", ns, pod, "-c", "web",
+                 "--", "sh", "-c", script],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                return result.stdout
+        time.sleep(10)
+    raise AssertionError(
+        "web pod command failed in %s: %s\n%s"
+        % (ns, script, result and (result.stdout + result.stderr))
+    )
+
+
+def _k8s_mw_eval(inst_id, wiki, php):
+    """Evaluate PHP in MediaWiki's context for one wiki; return stdout."""
+    return _k8s_in_web(
+        inst_id,
+        "cd /var/www/mediawiki/w && printf '%%s\\n' %s | "
+        "php maintenance/run.php eval --wiki=%s"
+        % (shlex.quote(php), shlex.quote(wiki)),
+    )
+
+
+def _k8s_wiki_answers(inst_id, wiki="main"):
+    """Assert the wiki boots and reads its database from a web pod."""
+    out = _k8s_mw_eval(
+        inst_id, wiki,
+        'echo "WIKI_OK=" . MediaWiki\\MediaWikiServices::getInstance()'
+        '->getDBLoadBalancer()->getConnection(DB_REPLICA)'
+        '->selectField("page", "COUNT(*)", [], "probe");',
+    )
+    assert re.search(r"^WIKI_OK=\d+$", out, re.MULTILINE), (
+        "wiki %s of %s did not answer:\n%s" % (wiki, inst_id, out)
+    )
+
+
+def _k8s_extension_loaded(inst_id, wiki, name):
+    out = _k8s_mw_eval(
+        inst_id, wiki,
+        'echo "EXT_LOADED=" . (ExtensionRegistry::getInstance()'
+        '->isLoaded("%s") ? 1 : 0);' % name,
+    )
+    for line in out.splitlines():
+        if line.strip() in ("EXT_LOADED=1", "EXT_LOADED=0"):
+            return line.strip() == "EXT_LOADED=1"
+    raise AssertionError(
+        "extension probe for %s gave no answer:\n%s" % (name, out)
+    )
+
+
+def _k8s_ingress_hosts(inst_id):
+    out = _k8s_kubectl(
+        "get", "ingress", "canasta-%s" % inst_id,
+        "-n", "canasta-%s" % inst_id,
+        "-o", "jsonpath={.spec.rules[*].host}",
+    )
+    return set(out.split())
+
+
+def _k8s_web_image(inst_id):
+    return _k8s_kubectl(
+        "get", "deployment", "canasta-%s-web" % inst_id,
+        "-n", "canasta-%s" % inst_id,
+        "-o", "jsonpath={.spec.template.spec.containers"
+        "[?(@.name=='web')].image}",
+    )
+
+
+def _k8s_running_web_images(inst_id):
+    out = _k8s_kubectl(
+        "get", "pods", "-n", "canasta-%s" % inst_id,
+        "-l", "app.kubernetes.io/component=web",
+        "--field-selector=status.phase=Running",
+        "-o", "jsonpath={range .items[*]}{.spec.containers"
+        "[?(@.name=='web')].image}{\"\\n\"}{end}",
+    )
+    return set(out.split())
+
+
+def _k8s_wait_namespace_gone(ns):
+    for _ in range(24):
+        result = subprocess.run(
+            ["kubectl", "get", "namespace", ns], capture_output=True,
+        )
+        if result.returncode != 0:
+            return
+        time.sleep(5)
+    raise AssertionError("namespace %s still exists after delete" % ns)
+
+
+def _k8s_values(inst):
+    import yaml as _yaml
+    with open(os.path.join(inst.instance_path(), "values.yaml")) as f:
+        return _yaml.safe_load(f) or {}
+
+
+def test_k8s_multi_instance(inst):
+    """Two instances share one cluster without disturbing each other.
+
+    Each instance has its own namespace, Helm release and Ingress host.
+    Upgrading moves the instance on an older managed image pin to the
+    current one and rolls its pods, while the instance on a custom image
+    keeps it. Stopping and then deleting one instance must leave the
+    other's pods running untouched and the cluster's shared workloads
+    (ingress controller, in-cluster registry, cert-manager when present)
+    in place.
+    """
+    _k8s_require_cluster()
+
+    with open(os.path.join(REPO_ROOT, "CANASTA_VERSION")) as f:
+        current = f.read().strip()
+    # A published release older than the one this CLI targets: the
+    # version-shaped tag a previous CLI would have pinned.
+    pinned = "3.5.25"
+    assert pinned != current, (
+        "the older pin must differ from CANASTA_VERSION (%s)" % current
+    )
+    repo = "ghcr.io/canastawiki/canasta"
+
+    inst_b = TestInstance("inttest-k8s-multi-b")
+    # One controller managing both instances: B shares A's registry.
+    shutil.rmtree(inst_b.config_dir, ignore_errors=True)
+    inst_b.config_dir = inst.config_dir
+    a, b = inst.id, inst_b.id
+    ns_a, ns_b = "canasta-%s" % a, "canasta-%s" % b
+    host_a, host_b = "multi-a.localhost", "multi-b.localhost"
+
+    def other_workloads():
+        out = _k8s_kubectl(
+            "get", "deployments,daemonsets,statefulsets", "-A",
+            "-o", "jsonpath={range .items[*]}{.kind}/{.metadata.namespace}/"
+            "{.metadata.name}{\"\\n\"}{end}",
+        )
+        return {
+            line for line in out.splitlines()
+            if line and line.split("/")[1] not in (ns_a, ns_b)
+        }
+
+    try:
+        print("Creating instance A on an older managed image pin...")
+        inst.run_ok(
+            "create", "-i", a, "-w", "main",
+            "-n", host_a, "-p", inst.work_dir,
+            "--orchestrator", "kubernetes",
+            "--skip-argocd-install", "--skip-tls",
+            "--canasta-image", "%s:%s" % (repo, pinned),
+        )
+        print("Creating instance B on a custom image...")
+        inst_b.run_ok(
+            "create", "-i", b, "-w", "main",
+            "-n", host_b, "-p", inst_b.work_dir,
+            "--orchestrator", "kubernetes",
+            "--skip-argocd-install", "--skip-tls",
+            "--canasta-image", "%s:latest" % repo,
+        )
+
+        output = inst.run_quiet("list")
+        assert a in output and b in output, (
+            "both instances should be listed:\n%s" % output
+        )
+
+        print("Verifying each instance has its own namespace and host...")
+        assert _k8s_ingress_hosts(a) == {host_a}, _k8s_ingress_hosts(a)
+        assert _k8s_ingress_hosts(b) == {host_b}, _k8s_ingress_hosts(b)
+        for inst_id in (a, b):
+            _k8s_wait_web(inst_id)
+            _k8s_wiki_answers(inst_id)
+        shared = other_workloads()
+        print("  Shared workloads: %s" % ", ".join(sorted(shared)))
+
+        print("Upgrading every instance on the controller...")
+        inst.run_ok("upgrade")
+
+        print("Verifying A moved to the current image and rolled...")
+        values_a = _k8s_values(inst)
+        assert values_a.get("image", {}).get("tag") == current, (
+            "A's values.yaml image.tag should be bumped to %s, got %r"
+            % (current, values_a.get("image"))
+        )
+        _k8s_wait_web(a)
+        assert _k8s_web_image(a) == "%s:%s" % (repo, current), (
+            "A's web Deployment is on %s" % _k8s_web_image(a)
+        )
+        assert _k8s_running_web_images(a) == {"%s:%s" % (repo, current)}, (
+            "A's running web pods were not rolled onto the new image: %s"
+            % _k8s_running_web_images(a)
+        )
+        _k8s_wiki_answers(a)
+
+        print("Verifying B kept its custom image...")
+        values_b = _k8s_values(inst_b)
+        assert values_b.get("image", {}).get("tag") == "latest", (
+            "upgrade must not repin a custom image; B's image is %r"
+            % values_b.get("image")
+        )
+        assert _k8s_web_image(b) == "%s:latest" % repo, (
+            "B's web Deployment is on %s" % _k8s_web_image(b)
+        )
+        _k8s_wiki_answers(b)
+
+        before_b = _k8s_running_pods(b)
+        assert before_b, "B has no Running pods"
+
+        print("Stopping A...")
+        inst.run_ok("stop", "-i", a)
+        # stop scales A's workloads to zero; the pods then take a grace
+        # period to terminate.
+        deadline = time.time() + 180
+        while _k8s_running_pods(a) and time.time() < deadline:
+            time.sleep(5)
+        assert not _k8s_running_pods(a), (
+            "A still has Running pods 180s after stop: %s"
+            % _k8s_running_pods(a)
+        )
+        assert _k8s_running_pods(b) == before_b, (
+            "stopping A disturbed B's pods: before %s, after %s"
+            % (before_b, _k8s_running_pods(b))
+        )
+
+        print("Deleting A...")
+        inst.run_ok("delete", "-i", a, "--yes")
+        _k8s_wait_namespace_gone(ns_a)
+        output = inst.run_quiet("list")
+        assert a not in output, "A still listed after delete:\n%s" % output
+        assert b in output, "B dropped from the registry:\n%s" % output
+
+        print("Verifying B and the shared workloads are intact...")
+        assert _k8s_running_pods(b) == before_b, (
+            "deleting A disturbed B's pods: before %s, after %s"
+            % (before_b, _k8s_running_pods(b))
+        )
+        _k8s_wiki_answers(b)
+        missing = shared - other_workloads()
+        assert not missing, (
+            "deleting A removed shared workloads: %s" % sorted(missing)
+        )
+
+        print("Deleting B...")
+        inst_b.run_ok("delete", "-i", b, "--yes")
+        _k8s_wait_namespace_gone(ns_b)
+    finally:
+        # B shares A's config dir, which A's cleanup removes; only B's
+        # instance and work dir are B's to tear down.
+        if inst_b.is_registered():
+            inst_b.run("delete", "-i", b, "--yes")
+        subprocess.run(
+            ["sudo", "rm", "-rf", inst_b.work_dir], capture_output=True,
+        )
+
+
+def test_k8s_farm(inst):
+    """Kubernetes farm, extension and scale paths on one instance.
+
+    Adding a wiki on its own host must add that host to the Ingress.
+    Enabling an extension must reach the running pods without an
+    operator restart. Scaling the web tier must keep the Ingress hosts,
+    which come from the derived domains overlay, not values.yaml.
+    """
+    _k8s_require_cluster()
+    inst_id = inst.id
+
+    print("Creating Kubernetes instance...")
+    inst.run_ok(
+        "create", "-i", inst_id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "--orchestrator", "kubernetes",
+        "--skip-argocd-install",
+    )
+    _k8s_wait_web(inst_id)
+    _k8s_wiki_answers(inst_id)
+    assert _k8s_ingress_hosts(inst_id) == {"localhost"}, (
+        _k8s_ingress_hosts(inst_id)
+    )
+
+    print("Adding a second wiki on its own host...")
+    inst.run_ok(
+        "add", "-i", inst_id, "-w", "second", "-u", "second.localhost",
+    )
+    hosts = _k8s_ingress_hosts(inst_id)
+    assert hosts == {"localhost", "second.localhost"}, (
+        "the Ingress should route both wiki hosts, got %s" % hosts
+    )
+    _k8s_wiki_answers(inst_id, "main")
+    _k8s_wiki_answers(inst_id, "second")
+
+    print("Enabling a bundled extension...")
+    assert not _k8s_extension_loaded(inst_id, "main", "Cite"), (
+        "precondition: Cite should not be loaded on a fresh instance"
+    )
+    inst.run_ok("extension", "enable", "-i", inst_id, "Cite")
+    for wiki in ("main", "second"):
+        assert _k8s_extension_loaded(inst_id, wiki, "Cite"), (
+            "Cite is not loaded on %s after enable; the change did not "
+            "reach the running pods" % wiki
+        )
+
+    print("Scaling the web tier to 2 replicas...")
+    inst.run_ok("scale", "-i", inst_id, "--replicas", "2")
+    ns = "canasta-%s" % inst_id
+    replicas = _k8s_kubectl(
+        "get", "deployment", "canasta-%s-web" % inst_id, "-n", ns,
+        "-o", "jsonpath={.spec.replicas}/{.status.readyReplicas}",
+    )
+    assert replicas == "2/2", (
+        "web should have 2 ready replicas, got spec/ready %s" % replicas
+    )
+    assert _k8s_values(inst).get("web", {}).get("replicaCount") == 2, (
+        "scale should persist web.replicaCount to values.yaml"
+    )
+    assert _k8s_ingress_hosts(inst_id) == hosts, (
+        "scale changed the Ingress hosts: %s -> %s"
+        % (hosts, _k8s_ingress_hosts(inst_id))
+    )
+    _k8s_wiki_answers(inst_id, "second")
+
+
+def test_k8s_uninstall(inst):
+    """`uninstall k8s` removes the cluster and what followed it.
+
+    NFS storage is set up first, so the uninstall has a default storage
+    class and cluster-scoped exports to withdraw. Destroys the local
+    cluster, so it runs only when CANASTA_TEST_ALLOW_K8S_UNINSTALL=1:
+    CI sets it in a job of its own.
+    """
+    if os.environ.get("CANASTA_TEST_ALLOW_K8S_UNINSTALL") != "1":
+        raise SkipTest(
+            "destroys the local cluster; set "
+            "CANASTA_TEST_ALLOW_K8S_UNINSTALL=1 to run"
+        )
+    _k8s_require_cluster()
+    share = "/srv/nfs/canasta-uninstall-test"
+    exports_file = "/etc/exports.d/canasta.exports"
+    conf = os.path.join(inst.config_dir, "conf.json")
+
+    def default_storage_class():
+        try:
+            with open(conf) as f:
+                return (json.load(f).get("Settings") or {}).get(
+                    "defaultStorageClass")
+        except (OSError, ValueError):
+            return None
+
+    def exported():
+        result = subprocess.run(
+            ["sudo", "exportfs", "-v"], capture_output=True, text=True,
+        )
+        return result.stdout
+
+    try:
+        print("Setting up NFS storage with a local server...")
+        inst.run_ok(
+            "storage", "setup", "nfs", "--install-server", "--share", share,
+        )
+        assert default_storage_class() == "nfs", (
+            "precondition: storage setup should record the default "
+            "storage class, got %r" % default_storage_class()
+        )
+        assert share in exported(), (
+            "precondition: the share should be exported:\n%s" % exported()
+        )
+
+        print("Uninstalling Kubernetes...")
+        inst.run_ok("uninstall", "k8s", "-y")
+
+        state = subprocess.run(
+            ["systemctl", "is-active", "k3s"], capture_output=True, text=True,
+        ).stdout.strip()
+        assert state != "active", "the k3s unit is still active"
+        assert not os.path.exists("/usr/local/bin/k3s-uninstall.sh"), (
+            "the k3s uninstall script is still present"
+        )
+        assert not default_storage_class(), (
+            "the default storage class was left in the registry: %r"
+            % default_storage_class()
+        )
+        assert share not in exported(), (
+            "the share is still exported after uninstall:\n%s" % exported()
+        )
+        assert not os.path.exists(exports_file), (
+            "%s was left behind" % exports_file
+        )
+    finally:
+        subprocess.run(["sudo", "rm", "-rf", share], capture_output=True)
+
+
 def test_config_refresh_template(inst):
     """Verify 'config refresh-template' lists drift, previews, and adopts
     the shipped template for a seeded file (and restores a deleted one)."""
@@ -4599,6 +5630,10 @@ ALL_TESTS = {
     "k8s-build-from": test_k8s_build_from,
     "k8s-crowdsec": test_k8s_crowdsec,
     "k8s-backup": test_k8s_backup,
+    "k8s-gitops": test_k8s_gitops,
+    "k8s-multi-instance": test_k8s_multi_instance,
+    "k8s-farm": test_k8s_farm,
+    "k8s-uninstall": test_k8s_uninstall,
     "lifecycle": test_lifecycle,
     "podman-socket-runtime": test_podman_socket_runtime,
     "import": test_import_export,
@@ -4625,6 +5660,8 @@ ALL_TESTS = {
     "gitops-join": test_gitops_join,
     "gitops-pull-diff": test_gitops_pull_diff,
     "extension-skin": test_extension_skin,
+    "extension-lifecycle": test_extension_lifecycle,
+    "skin-lifecycle": test_skin_lifecycle,
     "wiki-farm": test_wiki_farm,
     "config-side-effects": test_config_side_effects,
     "config-refresh-template": test_config_refresh_template,
@@ -4654,6 +5691,10 @@ def main():
             print(name)
         return
 
+    # A skip means a prerequisite is missing, and on a CI runner that
+    # provisions every prerequisite, a missing one is a broken setup.
+    no_skip = "--no-skip" in sys.argv
+
     # Select tests
     requested = [a for a in sys.argv[1:] if not a.startswith("-")]
     tests = {n: ALL_TESTS[n] for n in requested} if requested else ALL_TESTS
@@ -4668,7 +5709,7 @@ def main():
 
     passed = 0
     failed = 0
-    skipped = 0
+    skipped = []
     teardown_failed = []
 
     for name, test_fn in tests.items():
@@ -4680,7 +5721,7 @@ def main():
             passed += 1
         except SkipTest as e:
             print("SKIPPED: %s: %s" % (name, e))
-            skipped += 1
+            skipped.append(name)
         except AssertionError as e:
             print("FAILED: %s: %s" % (name, e))
             failed += 1
@@ -4692,11 +5733,15 @@ def main():
                 teardown_failed.append(name)
 
     print("\n=== Results: %d passed, %d failed, %d skipped ===" % (
-        passed, failed, skipped,
+        passed, failed, len(skipped),
     ))
     if teardown_failed:
         print("=== Teardown failed: %s ===" % ", ".join(teardown_failed))
-    sys.exit(1 if failed or teardown_failed else 0)
+    skip_failed = no_skip and skipped
+    if skip_failed:
+        print("=== Skipped with --no-skip, counted as failures: %s ===" % (
+            ", ".join(skipped)))
+    sys.exit(1 if failed or teardown_failed or skip_failed else 0)
 
 
 if __name__ == "__main__":

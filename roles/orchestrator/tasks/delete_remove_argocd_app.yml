@@ -15,3 +15,17 @@
   when:
     - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
     - _k8s_api_reachable | default(true)
+
+# The repository Secret holds the instance's deploy key; on the shared cluster
+# it would outlive the instance and be inherited by a later one with this ID.
+- name: Remove Argo CD repository Secret if present
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Secret
+    name: "canasta-{{ instance_id }}-repo"
+    namespace: "{{ argocd_namespace | default('argocd') }}"
+  ignore_errors: true  # OK if Argo CD not installed
+  when:
+    - instance_orchestrator | default('compose') in ['kubernetes', 'k8s']
+    - _k8s_api_reachable | default(true)

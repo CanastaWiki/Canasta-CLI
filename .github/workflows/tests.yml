@@ -27,15 +27,19 @@ jobs:
 
       - name: Install dependencies
         run: |
+          # age-keygen: the SOPS key tests skip without it.
+          sudo apt-get update && sudo apt-get install -y age
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
           .venv/bin/pip install pytest-cov
 
       - name: Run unit tests with coverage
         run: |
-          .venv/bin/pytest tests/unit/ -v \
+          .venv/bin/pytest tests/unit/ -v -rs \
             --cov=roles/common/library \
             --cov=roles/extensions_skins/library \
+            --cov=filter_plugins \
+            --cov=callback_plugins \
             --cov=scripts \
             --cov=direct_commands \
             --cov=canasta \
@@ -168,6 +172,8 @@ jobs:
 
       - name: Install dependencies
         run: |
+          # age-keygen: the SOPS key tests skip without it.
+          sudo apt-get update && sudo apt-get install -y age
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
           .venv/bin/pip install yamllint
