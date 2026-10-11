@@ -706,8 +706,9 @@ def hoist_flags_from_remainder(args):
     sees ``showJobs.php`` as the first positional of ``script_args``
     (nargs=REMAINDER), so ``-w main`` gets eaten into the list instead of
     being recognized as the ``--wiki`` flag. Walk the list and lift any
-    recognized flag (``-w``/``--wiki``, ``-i``/``--id``) plus its value out,
-    setting the corresponding attribute on ``args`` if unset.
+    recognized flag (``-w``/``--wiki``, ``-i``/``--id``, or the single-token
+    ``--wiki=X``/``--id=X``) plus its value out, setting the corresponding
+    attribute on ``args`` if unset.
 
     Only applies to REMAINDER positionals (list values). Passthrough args
     supplied after ``--`` arrive as a pre-joined string and are not
@@ -722,6 +723,17 @@ def hoist_flags_from_remainder(args):
         i = 0
         while i < len(val):
             tok = val[i]
+            flag, eq, inline = tok.partition("=")
+            if eq and flag.startswith("--"):
+                dest = _REMAINDER_HOIST_FLAGS.get(flag)
+                if (dest and hasattr(args, dest)
+                        and not getattr(args, dest, None)):
+                    setattr(args, dest, inline)
+                    i += 1
+                    continue
+                new_args.append(tok)
+                i += 1
+                continue
             dest = _REMAINDER_HOIST_FLAGS.get(tok)
             # Hoist only when the canasta flag isn't already set. If the user
             # typed the flag twice, preserve the second occurrence in the
@@ -1803,14 +1815,16 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         value = getattr(args, name, None)
         if value is None:
             continue
-        # Non-positional multi-valued flags (e.g. --public-ip) come
-        # from argparse as a list and must reach Ansible as a list,
+        # Non-positional multi-valued flags (e.g. --public-ip) and
+        # as_list positionals (config set's KEY=VALUE settings, whose
+        # values may contain spaces) come from argparse as a list and
+        # must reach Ansible as a list,
         # so playbook filters like `| join(', ')` operate over
         # elements rather than iterating a joined string char-by-char.
         if (
             isinstance(value, list)
             and param.get("multi")
-            and not param.get("positional")
+            and (param.get("as_list") or not param.get("positional"))
         ):
             if not value:
                 continue

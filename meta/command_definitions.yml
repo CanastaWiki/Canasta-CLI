@@ -15,6 +15,9 @@
 #   sensitive         - Value is a secret (auto-generated if omitted, no_log in Ansible)
 #   mutual_exclusion  - Cannot be combined with the named parameter
 #   positional        - Accepted as positional argument(s), not a flag
+#   as_list           - For positional multi. Reaches Ansible as a list, so a
+#                       value may contain spaces. Without it, the values are
+#                       joined with spaces into one string.
 #   validator         - Name of a regex in canasta.py:_VALIDATORS (e.g. 'hostname')
 #   path_kind         - For type:path. 'remote' = remote target dir (default with
 #                       --host is '~/canasta'; relative paths rejected with --host).
@@ -1286,6 +1289,7 @@ commands:
         type: string
         positional: true
         multi: true
+        as_list: true
         description: "KEY=VALUE pairs to set"
       - name: no_restart
         type: bool

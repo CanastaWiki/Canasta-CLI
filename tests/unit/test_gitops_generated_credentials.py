@@ -101,7 +101,7 @@ def _run(tmp_path, settings, env_lines, template_lines):
 class TestRoundTrip:
     def test_generated_credentials_survive_a_render(self, tmp_path):
         proc, inst = _run(
-            tmp_path, "CANASTA_ENABLE_OBSERVABILITY=true",
+            tmp_path, ["CANASTA_ENABLE_OBSERVABILITY=true"],
             ["MW_SITE_FQDN=h1.example.com",
              "CANASTA_ENABLE_OBSERVABILITY=true",
              "OS_USER=admin", "OS_PASSWORD=s3cr#t-pw",
@@ -133,7 +133,7 @@ class TestRoundTrip:
 
     def test_nothing_added_without_credentials_in_env(self, tmp_path):
         proc, inst = _run(
-            tmp_path, "CANASTA_ENABLE_VARNISH=false",
+            tmp_path, ["CANASTA_ENABLE_VARNISH=false"],
             ["MW_SITE_FQDN=h1.example.com", "CANASTA_ENABLE_VARNISH=false"],
             ["MW_SITE_FQDN={{mw_site_fqdn}}", "CANASTA_ENABLE_VARNISH=false"])
         assert proc.returncode == 0, proc.stdout + proc.stderr
