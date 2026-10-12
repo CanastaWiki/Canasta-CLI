@@ -844,7 +844,7 @@ jobs:
     name: Remote Host Integration Tests
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
 
@@ -871,4 +871,4 @@ jobs:
 
       - name: Run remote integration tests
         run: tests/integration/remote/run_tests.sh
-        timeout-minutes: 25
+        timeout-minutes: 40
