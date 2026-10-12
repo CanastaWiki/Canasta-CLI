@@ -241,3 +241,177 @@ class TestUninstall:
         remove = _named(UNINSTALL_K3S, "Remove kubeconfig")
         assert remove["ansible.builtin.file"]["path"] == (
             "{{ ansible_env.HOME }}/.kube/config")
+
+
+class TestSyncScriptClients:
+    """Run the real sync script against a stub kubectl."""
+
+    NODES = (
+        "Hostname cp\n"
+        "InternalIP 10.0.0.5\n"
+        "ExternalIP 203.0.113.7\n"
+        "InternalIP fd00::5\n"
+        "PodCIDR 10.42.0.0/24\n"
+        "PodCIDR fd00:42::/64\n"
+    )
+
+    def _run(self, tmp_path, nodes, shell="/bin/sh"):
+        import shutil
+        import subprocess
+        etc = tmp_path / "etc"
+        etc.mkdir()
+        (etc / "nfs-shares").write_text("/srv/nfs/canasta\n")
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        (tmp_path / "nodes").write_text(nodes)
+        kubectl = bindir / "kubectl"
+        kubectl.write_text('#!/bin/sh\ncat "%s"\n' % (tmp_path / "nodes"))
+        exportfs = bindir / "exportfs"
+        exportfs.write_text("#!/bin/sh\nexit 0\n")
+        for f in (kubectl, exportfs):
+            f.chmod(0o755)
+        text = open(SCRIPT).read()
+        for const, path in (("/etc/canasta/nfs-exports.env", etc / "env"),
+                            ("/etc/canasta/nfs-shares", etc / "nfs-shares"),
+                            ("/etc/exports.d/canasta.exports", etc / "out"),
+                            ("mkdir -p /etc/exports.d", "true")):
+            assert const in text
+            text = text.replace(const, str(path))
+        script = tmp_path / "sync"
+        script.write_text(text)
+        # Files a glob in the client list would expand to.
+        work = tmp_path / "work"
+        work.mkdir()
+        (work / "evil(rw)").write_text("")
+        (work / "other").write_text("")
+        env = dict(os.environ, PATH="%s:%s" % (bindir, os.environ["PATH"]),
+                   KUBECONFIG=str(tmp_path / "kubeconfig"))
+        if not shutil.which(shell):
+            import pytest
+            pytest.skip(shell + " not available")
+        proc = subprocess.run([shell, str(script)], cwd=work, env=env,
+                              capture_output=True, text=True)
+        out = etc / "out"
+        clients = out.read_text().split()[1:] if out.exists() else None
+        return proc, clients
+
+    def test_node_addresses_and_pod_cidrs_are_exported(self, tmp_path):
+        proc, clients = self._run(tmp_path, self.NODES)
+        assert proc.returncode == 0, proc.stderr
+        opts = "(rw,sync,no_subtree_check,no_root_squash)"
+        assert sorted(clients) == sorted(c + opts for c in (
+            "10.0.0.5", "203.0.113.7", "fd00::5", "10.42.0.0/24",
+            "fd00:42::/64"))
+        assert proc.stderr == ""
+
+    def test_invalid_addresses_are_dropped_and_logged(self, tmp_path):
+        bad = ["*", "0.0.0.0/0", "10.0.0.0/7", "::/0", "fd00::/8",
+               "*.example.com", "host.example.com", "10.0.0.6(rw)",
+               "10.0.0.256", "10.0.0", "10.0.0.7/33", "10.0.0.8/",
+               "10.0.0.0/8/8", "@netgroup"]
+        nodes = self.NODES + "".join("InternalIP %s\n" % b for b in bad)
+        nodes += "ExternalIP 10.0.0.9 *\nPodCIDR\n"
+        proc, clients = self._run(tmp_path, nodes)
+        assert proc.returncode == 0, proc.stderr
+        hosts = {c.split("(")[0] for c in clients}
+        assert hosts == {"10.0.0.5", "203.0.113.7", "fd00::5",
+                         "10.42.0.0/24", "fd00:42::/64"}
+        for b in bad:
+            assert '"%s"' % b in proc.stderr
+        assert '"10.0.0.9 *"' in proc.stderr
+
+    def test_a_star_is_not_glob_expanded(self, tmp_path):
+        proc, clients = self._run(tmp_path, "InternalIP 10.0.0.5\nInternalIP *\n")
+        assert proc.returncode == 0, proc.stderr
+        assert [c.split("(")[0] for c in clients] == ["10.0.0.5"]
+
+    def test_only_invalid_addresses_leave_the_exports_alone(self, tmp_path):
+        proc, clients = self._run(tmp_path, "InternalIP *\nPodCIDR 0.0.0.0/0\n")
+        assert proc.returncode == 1
+        assert clients is None
+
+    def test_runs_under_dash(self, tmp_path):
+        proc, clients = self._run(tmp_path, self.NODES + "InternalIP *\n",
+                                  shell="dash")
+        assert proc.returncode == 0, proc.stderr
+        assert len(clients) == 5
+
+    def test_globbing_is_off_before_the_client_loop(self):
+        text = open(SCRIPT).read()
+        assert re.search(r"^set -f$", text, re.M)
+        assert text.index("set -f") < text.index("for client in $clients")
+
+
+class TestSyncKubeconfig:
+    """The root-run sync must only read a root-owned kubeconfig."""
+
+    def _render(self, k3s_exists, kubeconfig):
+        from ansible.parsing.dataloader import DataLoader
+        from ansible.template import Templar, trust_as_template
+        task = _named(SYNC_TASKS, "Record the kubeconfig the sync uses")
+        variables = {"_nfs_sync_k3s_kubeconfig": {"stat": {"exists": k3s_exists}},
+                     "_nfs_sync_kubeconfig": kubeconfig}
+        templar = Templar(loader=DataLoader(), variables=variables)
+        runs = templar.template(trust_as_template(
+            "{{ %s }}" % task["when"])) is True
+        content = templar.template(trust_as_template(
+            task["ansible.builtin.copy"]["content"]))
+        return runs, content
+
+    def test_k3s_server_uses_the_k3s_kubeconfig(self):
+        runs, content = self._render(True, "/home/u/.kube/config")
+        assert runs
+        assert content == "KUBECONFIG=/etc/rancher/k3s/k3s.yaml\n"
+
+    def test_other_hosts_use_a_root_owned_copy(self):
+        runs, content = self._render(False, "/home/u/.kube/config")
+        assert runs
+        assert content == ("KUBECONFIG=/etc/canasta/nfs-kubeconfig\n"
+                           "CANASTA_KUBECONFIG_SOURCE=/home/u/.kube/config\n")
+        copy = _named(SYNC_TASKS, "Copy the kubeconfig for the sync")
+        mod = copy["ansible.builtin.copy"]
+        assert mod["dest"] == "/etc/canasta/nfs-kubeconfig"
+        assert mod["remote_src"] is True
+        assert (mod["owner"], mod["group"], mod["mode"]) == ("root", "root", "0600")
+        assert copy["become"] is True
+        assert "not _nfs_sync_k3s_kubeconfig.stat.exists" in copy["when"]
+
+    def test_nothing_to_record_without_either(self):
+        runs, _ = self._render(False, "")
+        assert not runs
+
+    def test_upgrade_refreshes_the_kubeconfig_of_an_installed_sync(self):
+        task = _named(UPGRADE_TASKS, "Find the kubeconfig for the export sync")
+        assert "_nfs_upg_sync.stat.exists" in task["when"]
+
+    def test_removal_follows_the_copied_kubeconfig_source(self, tmp_path):
+        import subprocess
+        task = _named(REMOVE_TASKS, "Read the kubeconfig the sync uses")
+        cmd = task["ansible.builtin.shell"]["cmd"]
+        env_file = tmp_path / "env"
+        cmd = cmd.replace("/etc/canasta/nfs-exports.env", str(env_file))
+
+        def path():
+            return subprocess.run(["/bin/sh", "-c", cmd], capture_output=True,
+                                  text=True, env={"PATH": os.environ["PATH"]}
+                                  ).stdout.strip()
+
+        env_file.write_text("KUBECONFIG=/etc/canasta/nfs-kubeconfig\n"
+                            "CANASTA_KUBECONFIG_SOURCE=/home/u/.kube/config\n")
+        assert path() == "/home/u/.kube/config"
+        env_file.write_text("KUBECONFIG=/etc/rancher/k3s/k3s.yaml\n")
+        assert path() == "/etc/rancher/k3s/k3s.yaml"
+
+    def test_removal_without_an_env_file_falls_back(self, tmp_path):
+        import shutil
+        import subprocess
+        task = _named(REMOVE_TASKS, "Read the kubeconfig the sync uses")
+        cmd = task["ansible.builtin.shell"]["cmd"].replace(
+            "/etc/canasta/nfs-exports.env", str(tmp_path / "missing"))
+        for sh in ("/bin/sh", shutil.which("dash")):
+            if not sh:
+                continue
+            proc = subprocess.run([sh, "-c", cmd], capture_output=True,
+                                  text=True, env={"PATH": os.environ["PATH"]})
+            assert proc.returncode == 0, (sh, proc.stderr)
+            assert proc.stdout.strip() == "/etc/rancher/k3s/k3s.yaml"

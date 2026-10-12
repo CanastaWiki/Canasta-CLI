@@ -8,7 +8,8 @@
 #
 # Input: _nfs_sync_shares (list of share paths to add; may be empty to only
 #        refresh the installed files), _nfs_sync_kubeconfig (optional path
-#        the root-run sync should use when the host is not a k3s server),
+#        of the SSH user's kubeconfig, copied for the root-run sync when the
+#        host is not a k3s server),
 #        _nfs_sync_required (default true: fail when a share is not exported).
 # Output: _nfs_sync_ok (bool, every share in _nfs_sync_shares is exported).
 
@@ -28,12 +29,43 @@
   loop: "{{ _nfs_sync_shares | default([]) }}"
   become: true
 
+# kubectl runs a kubeconfig's exec credential plugin, so the root-run sync
+# reads only a root-owned kubeconfig: k3s's own on a k3s server, otherwise a
+# copy of the SSH user's. The user's path is kept so that removing it still
+# withdraws the exports.
+- name: Check for the k3s server kubeconfig
+  ansible.builtin.stat:
+    path: /etc/rancher/k3s/k3s.yaml
+  register: _nfs_sync_k3s_kubeconfig
+  become: true
+
+- name: Copy the kubeconfig for the sync
+  ansible.builtin.copy:
+    src: "{{ _nfs_sync_kubeconfig }}"
+    dest: /etc/canasta/nfs-kubeconfig
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0600"
+  when:
+    - not _nfs_sync_k3s_kubeconfig.stat.exists
+    - _nfs_sync_kubeconfig | default('') | length > 0
+  become: true
+
 - name: Record the kubeconfig the sync uses
   ansible.builtin.copy:
     dest: /etc/canasta/nfs-exports.env
-    content: "KUBECONFIG={{ _nfs_sync_kubeconfig | quote }}\n"
+    content: |
+      {% if _nfs_sync_k3s_kubeconfig.stat.exists %}
+      KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+      {% else %}
+      KUBECONFIG=/etc/canasta/nfs-kubeconfig
+      CANASTA_KUBECONFIG_SOURCE={{ _nfs_sync_kubeconfig | quote }}
+      {% endif %}
     mode: "0644"
-  when: _nfs_sync_kubeconfig | default('') | length > 0
+  when: >-
+    _nfs_sync_k3s_kubeconfig.stat.exists
+    or _nfs_sync_kubeconfig | default('') | length > 0
   become: true
 
 - name: Install the NFS exports sync script
