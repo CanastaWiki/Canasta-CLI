@@ -1,11 +1,11 @@
 """A wiki ID reused after `canasta remove` gets its update.php run.
 
-The image skips update.php at startup for a wiki whose stamp matches, and
-newer images keep the stamps under config/persistent across container
-recreation. remove deletes the removed wiki's stamp, add deletes any stamp
-left under the new wiki's ID before it restarts, and add -d and create -d
-run update.php for the imported wiki once it is running, the way import
-does.
+The image skips update.php at startup for a wiki whose fingerprint matches,
+and newer images keep the fingerprints under config/persistent across
+container recreation. remove deletes the removed wiki's fingerprint, add
+deletes any fingerprint left under the new wiki's ID before it restarts, and
+add -d and create -d run update.php for the imported wiki once it is
+running, the way import does.
 
 The real tasks run against a stub orchestrator (exec logs every command and runs
 rm locally with /mediawiki pointed at a temp directory; start, stop and
@@ -26,8 +26,8 @@ ADD = os.path.join(REPO_ROOT, "playbooks", "add.yml")
 REMOVE = os.path.join(REPO_ROOT, "playbooks", "remove.yml")
 CREATE = os.path.join(REPO_ROOT, "roles", "create", "tasks", "main.yml")
 
-STAMP_TASK = "Remove the wiki's update.php stamp"
-ADD_STAMP_TASK = "Remove any update.php stamp for the wiki ID"
+FINGERPRINT_TASK = "Remove the wiki's update.php fingerprint"
+ADD_FINGERPRINT_TASK = "Remove any update.php fingerprint for the wiki ID"
 UPDATE_TASK = "Run update.php for the imported wiki"
 
 
@@ -107,7 +107,7 @@ def _run(tmp_path, play_vars, tasks):
     return lines
 
 
-def _stamps(mw, names):
+def _fingerprints(mw, names):
     persistent = mw / "config" / "persistent"
     persistent.mkdir(parents=True)
     for n in names:
@@ -117,13 +117,13 @@ def _stamps(mw, names):
 
 
 def _events(lines):
-    """Stamp removals, lifecycle steps and update.php runs, in order."""
+    """Fingerprint removals, lifecycle steps and update.php runs, in order."""
     out = []
     for line in lines:
         if line in ("STOP", "START", "RESTART"):
             out.append(line)
         elif line.startswith("EXEC rm -f /mediawiki/config/persistent/"):
-            out.append("STAMP " + line.split("maintenance_update_")[1]
+            out.append("FINGERPRINT " + line.split("maintenance_update_")[1]
                        .split(".info")[0])
         elif line.startswith("EXEC php maintenance/update.php"):
             out.append("UPDATE " + line.split("--wiki=")[1])
@@ -131,32 +131,33 @@ def _events(lines):
 
 
 class TestRemove:
-    def test_deletes_only_that_wikis_stamps(self, tmp_path):
+    def test_deletes_only_that_wikis_fingerprints(self, tmp_path):
         mw = tmp_path / "mediawiki"
-        persistent = _stamps(mw, [
+        persistent = _fingerprints(mw, [
             "maintenance_update_docs.info", "maintenance_update_main.info",
             "maintenance_update_docs2.info", ".smw.json"])
-        _run(tmp_path, {"wiki": "docs"}, _tasks(REMOVE, [STAMP_TASK]))
+        _run(tmp_path, {"wiki": "docs"}, _tasks(REMOVE, [FINGERPRINT_TASK]))
         for d in (persistent, mw):
             assert not (d / "maintenance_update_docs.info").exists()
             assert (d / "maintenance_update_main.info").exists()
             assert (d / "maintenance_update_docs2.info").exists()
             assert (d / ".smw.json").exists()
 
-    def test_missing_stamp_is_fine(self, tmp_path):
+    def test_missing_fingerprint_is_fine(self, tmp_path):
         (tmp_path / "mediawiki").mkdir()
-        lines = _run(tmp_path, {"wiki": "docs"}, _tasks(REMOVE, [STAMP_TASK]))
-        assert _events(lines) == ["STAMP docs"]
+        lines = _run(tmp_path, {"wiki": "docs"},
+                     _tasks(REMOVE, [FINGERPRINT_TASK]))
+        assert _events(lines) == ["FINGERPRINT docs"]
 
     def test_runs_before_the_restart(self):
         names = _names(REMOVE)
-        assert names.index(STAMP_TASK) < names.index("Restart instance")
+        assert names.index(FINGERPRINT_TASK) < names.index("Restart instance")
 
 
 class TestAdd:
     NAMES = ("Add wiki to wikis.yaml",
              "Declare the imported extra databases for the wiki",
-             ADD_STAMP_TASK, "Restart instance", UPDATE_TASK)
+             ADD_FINGERPRINT_TASK, "Restart instance", UPDATE_TASK)
 
     def _add(self, tmp_path, **extra):
         inst = tmp_path / "inst"
@@ -164,7 +165,7 @@ class TestAdd:
         (inst / "config" / "wikis.yaml").write_text(yaml.safe_dump(
             {"wikis": [{"id": "main", "url": "example.com", "name": "Main"}]}))
         mw = tmp_path / "mediawiki"
-        persistent = _stamps(mw, ["maintenance_update_docs.info",
+        persistent = _fingerprints(mw, ["maintenance_update_docs.info",
                                   "maintenance_update_main.info"])
         lines = _run(tmp_path, dict({
             "instance_path": str(inst), "instance_id": "inst", "wiki": "docs",
@@ -178,13 +179,13 @@ class TestAdd:
     def test_database_runs_update_after_the_restart(self, tmp_path):
         events, wikis = self._add(tmp_path, database="/d/docs.sql",
                                   _add_extra_dbs=["docs_cargo"])
-        assert events == ["STAMP docs", "RESTART", "UPDATE docs"]
+        assert events == ["FINGERPRINT docs", "RESTART", "UPDATE docs"]
         assert wikis[1]["extra_databases"] == ["docs_cargo"]
 
-    def test_installer_path_clears_the_stamp_and_leaves_update_to_start(
+    def test_installer_path_clears_the_fingerprint_and_leaves_update_to_start(
             self, tmp_path):
         events, _ = self._add(tmp_path)
-        assert events == ["STAMP docs", "RESTART"]
+        assert events == ["FINGERPRINT docs", "RESTART"]
 
     def test_update_follows_the_extra_databases_declaration(self):
         names = _names(ADD)
@@ -192,7 +193,8 @@ class TestAdd:
         assert names.index(
             "Declare the imported extra databases for the wiki") < update
         assert names.index("Restart instance") < update
-        assert names.index(ADD_STAMP_TASK) < names.index("Restart instance")
+        assert (names.index(ADD_FINGERPRINT_TASK)
+                < names.index("Restart instance"))
 
 
 class TestCreate:
