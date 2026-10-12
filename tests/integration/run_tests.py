@@ -1212,6 +1212,82 @@ def test_backup_extra_database(inst):
     shutil.rmtree(backup_dir, ignore_errors=True)
 
 
+def test_add_extra_database(inst):
+    """`add -d` brings in the extra databases exported beside the dump.
+
+    `canasta export` writes each extra database a wiki declares beside the
+    main dump. `canasta add -d` imports each one it finds into a database of
+    that name, declares it for the new wiki, and gives MediaWiki's database
+    account access to it. A file whose database name is not valid is
+    reported and skipped.
+    """
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    time.sleep(10)  # Brief wait for containers to stabilize
+
+    def sql(statement, account="root"):
+        """Run a statement in the db container through the CLI itself."""
+        login = (
+            'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mariadb -u root'
+            if account == "root"
+            else 'MYSQL_PWD="$WIKI_DB_PASSWORD" mariadb -u "$WIKI_DB_USER"'
+        )
+        return inst.run_quiet(
+            "maintenance", "exec", "-i", inst.id, "-s", "db",
+            "bash", "-c",
+            "%s -N -B -e %s" % (login, shlex.quote(statement)),
+        )
+
+    print("Giving the wiki an extra database with a row in it...")
+    sql("CREATE DATABASE main_cargo")
+    sql("CREATE TABLE main_cargo.cargo__demo (id INT, page VARCHAR(64))")
+    sql("INSERT INTO main_cargo.cargo__demo VALUES (1, 'Original')")
+    inst.run_ok("backup", "databases", "add", "-i", inst.id, "main_cargo")
+
+    print("Exporting the wiki...")
+    export_file = os.path.join(inst.work_dir, "main_export.sql")
+    inst.run_ok("export", "-i", inst.id, "-w", "main", "-f", export_file)
+    sibling = os.path.join(inst.work_dir, "main_export.main_cargo.sql")
+    assert os.path.exists(sibling), (
+        "export did not write the extra database beside the main dump"
+    )
+    # main_cargo already belongs to wiki main here, so the dump is renamed
+    # the way another instance's docs_cargo would have been exported.
+    os.rename(sibling, os.path.join(inst.work_dir, "main_export.docs_cargo.sql"))
+    shutil.copy(
+        os.path.join(inst.work_dir, "main_export.docs_cargo.sql"),
+        os.path.join(inst.work_dir, "main_export.bad.name.sql"),
+    )
+
+    print("Adding a wiki from the dump...")
+    output = inst.run_ok(
+        "add", "-i", inst.id, "-w", "docs",
+        "-u", "localhost/docs", "-d", export_file,
+    )
+    assert "with extra database(s) docs_cargo imported and declared" in output, (
+        "add did not report the extra database:\n%s" % output
+    )
+    assert "extra database name 'bad.name' is invalid" in output, (
+        "add did not report the dump it skipped:\n%s" % output
+    )
+
+    print("Verifying the extra database is declared...")
+    listed = inst.run_quiet("backup", "databases", "list", "-i", inst.id)
+    assert "docs: docs, docs_cargo" in listed, listed
+
+    print("Verifying MediaWiki's account can read the imported row...")
+    rows = sql("SELECT page FROM docs_cargo.cargo__demo WHERE id = 1",
+               account="wiki")
+    assert "Original" in rows, (
+        "the extra database's row did not come through add -d:\n%s" % rows
+    )
+    wait_for_wiki(inst.http_port, timeout=180)
+
+
 def test_backup_custom_dockerfile(inst):
     """A custom Dockerfile + override are captured by backup and restored.
 
@@ -5654,6 +5730,7 @@ ALL_TESTS = {
     "backup": test_backup,
     "backup-advanced": test_backup_advanced,
     "backup-extra-database": test_backup_extra_database,
+    "add-extra-database": test_add_extra_database,
     "backup-custom-dockerfile": test_backup_custom_dockerfile,
     "backup-missing-dockerfile": test_backup_missing_dockerfile,
     "gitops": test_gitops,

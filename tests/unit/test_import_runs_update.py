@@ -38,7 +38,7 @@ def test_update_runs_after_the_imports_and_settings_copy():
     names = _names()
     update = names.index(UPDATE_TASK)
     assert update > names.index("Import database")
-    assert update > names.index("Import each extra database")
+    assert update > names.index("Import the wiki's extra databases")
     assert update > names.index("Copy per-wiki Settings.php if provided")
 
 

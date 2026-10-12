@@ -402,7 +402,7 @@ jobs:
       matrix:
         leg: ["extensions & config", "farms", "backup", "backup-advanced & ops",
               "backup dockerfiles", "backup data", "reconcile & config",
-              "skin add"]
+              "skin add", "extra databases"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -439,6 +439,7 @@ jobs:
             "backup data")           tests=(backup-extra-database backup-restore-safety) ;;
             "reconcile & config")    tests=(reconcile config-refresh-template crowdsec) ;;
             "skin add")              tests=(skin-lifecycle) ;;
+            "extra databases")       tests=(add-extra-database) ;;
             *) echo "unknown feature leg: $LEG" >&2; exit 1 ;;
           esac
           .venv/bin/python tests/integration/run_tests.py --no-skip "${tests[@]}"

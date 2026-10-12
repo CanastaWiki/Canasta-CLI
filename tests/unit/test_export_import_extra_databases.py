@@ -20,6 +20,8 @@ init_plugin_loader()
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 EXPORT = os.path.join(REPO_ROOT, "playbooks", "export.yml")
 IMPORT = os.path.join(REPO_ROOT, "playbooks", "import.yml")
+EXTRAS = os.path.join(REPO_ROOT, "roles", "mediawiki", "tasks",
+                      "import_extra_databases.yml")
 
 
 def _tasks(path):
@@ -71,21 +73,35 @@ class TestImportFindsTheSiblings:
     def _run(self, tmp_path, files, declared):
         for name in files:
             (tmp_path / name).write_text("-- dump\n")
-        variables = {"database": str(tmp_path / "main.sql"), "wiki": "main",
-                     "_import_wiki": {"databases": ["main"] + declared}}
-        names = _by_name(IMPORT, "Name where the extra databases' dumps would be")
-        for key, expr in names["ansible.builtin.set_fact"].items():
-            variables[key] = _render(expr, variables) if isinstance(expr, str) else expr
-        find = _by_name(IMPORT, "Find the dump for each extra database")
+        variables = {"extra_dbs_dump": str(tmp_path / "main.sql"),
+                     "extra_dbs_wiki": "main", "extra_dbs_declared": declared}
+        for name in ("Name where the extra databases' dumps would be",
+                     "List the dumps beside the main one",
+                     "Choose the extra databases to import",
+                     "Record the extra databases to import"):
+            task = _by_name(EXTRAS, name)
+            for key, expr in task["ansible.builtin.set_fact"].items():
+                variables[key] = _render(expr, variables) if isinstance(expr, str) else expr
+        find = _by_name(EXTRAS, "Find the dump for each extra database")
         for item in variables["_import_extras"]:
             variables["_import_extra_dumps"] = _render(
                 find["ansible.builtin.set_fact"]["_import_extra_dumps"],
                 {**variables, "item": item})
         undeclared = _by_name(
-            IMPORT, "Find dumps beside the main one that this wiki does not declare")
+            EXTRAS, "Find dumps beside the main one that this wiki does not declare")
         variables["_import_undeclared"] = _render(
             undeclared["ansible.builtin.set_fact"]["_import_undeclared"], variables)
         return variables
+
+    def test_import_passes_the_declared_extra_databases(self):
+        task = _by_name(IMPORT, "Import the wiki's extra databases")
+        assert task["ansible.builtin.include_role"]["tasks_from"] == \
+            "import_extra_databases.yml"
+        v = task["vars"]
+        assert "extra_dbs_discover" not in v
+        assert _render(v["extra_dbs_declared"], {
+            "wiki": "main",
+            "_import_wiki": {"databases": ["main", "main_cargo"]}}) == ["main_cargo"]
 
     def test_declared_extra_database_is_paired_with_its_dump(self, tmp_path):
         v = self._run(tmp_path, ["main.sql", "main.main_cargo.sql"], ["main_cargo"])

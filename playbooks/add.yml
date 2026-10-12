@@ -186,6 +186,28 @@
         import_wiki_id: "{{ wiki }}"
         import_database_path: "{{ database }}"
 
+    - name: Read the instance's databases
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: read
+      register: _add_wikis
+
+    - name: Import the extra databases beside the dump
+      ansible.builtin.include_role:
+        name: mediawiki
+        tasks_from: import_extra_databases.yml
+      vars:
+        extra_dbs_wiki: "{{ wiki }}"
+        extra_dbs_dump: "{{ database }}"
+        extra_dbs_discover: true
+        extra_dbs_groups: "{{ _add_wikis.db_groups }}"
+
+    - name: Record the extra databases imported
+      ansible.builtin.set_fact:
+        _add_extra_dbs: >-
+          {{ _import_extra_dumps | dict2items | selectattr('value')
+             | map(attribute='key') | list }}
+
 # --skip-install: the external database already holds this wiki's schema,
 # so register it in the farm without running install.php. Still wait for
 # the database so a farm addition against an unreachable DB fails clearly.
@@ -278,6 +300,16 @@
     wiki_path: "{{ _add_path }}"
     site_name: "{{ site_name | default('') }}"
 
+# Declared before the restart, whose start gives MediaWiki's database
+# account access to them.
+- name: Declare the imported extra databases for the wiki
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: add_database
+    wiki_id: "{{ wiki }}"
+    database: "{{ item }}"
+  loop: "{{ _add_extra_dbs | default([]) }}"
+
 - name: Regenerate Caddyfile
   ansible.builtin.include_role:
     name: orchestrator
@@ -333,4 +365,7 @@
 
 - name: Report wiki added
   ansible.builtin.debug:
-    msg: "Wiki '{{ wiki }}' added to instance '{{ instance_id }}'."
+    msg: >-
+      Wiki '{{ wiki }}' added to instance '{{ instance_id }}'{% if _add_extra_dbs | default([]) %},
+      with extra database(s) {{ _add_extra_dbs | join(', ') }} imported and
+      declared{% endif %}.
