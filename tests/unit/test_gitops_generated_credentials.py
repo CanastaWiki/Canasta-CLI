@@ -131,6 +131,15 @@ class TestRoundTrip:
         assert "env.template" in staged
         assert "hosts/h1/vars.yaml" in staged
 
+    def test_a_value_with_spaces_round_trips(self, tmp_path):
+        proc, inst = _run(
+            tmp_path, ["CUSTOM_TITLE=My Wiki Title"],
+            ["MW_SITE_FQDN=h1.example.com", "CUSTOM_TITLE=My Wiki Title"],
+            ["MW_SITE_FQDN={{mw_site_fqdn}}"])
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "CUSTOM_TITLE=My Wiki Title" in (
+            inst / ".env").read_text().splitlines()
+
     def test_nothing_added_without_credentials_in_env(self, tmp_path):
         proc, inst = _run(
             tmp_path, ["CANASTA_ENABLE_VARNISH=false"],
