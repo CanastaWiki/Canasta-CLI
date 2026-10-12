@@ -144,21 +144,6 @@
       then retry.
   when: _sync_env_plan.conflict | default([]) | length > 0
 
-# config set passes settings as one space-separated string, so a value with
-# whitespace cannot go through it.
-- name: Fail when an edited .env value contains whitespace
-  ansible.builtin.fail:
-    msg: >-
-      The .env value of
-      {{ _sync_env_spaced | join(', ') }} contains whitespace, so it
-      cannot be written into the gitops sources. Set it in env.template
-      or the host's vars.yaml instead, then retry.
-  vars:
-    _sync_env_spaced: >-
-      {{ _sync_env_plan.set | default({}) | dict2items
-         | selectattr('value', 'search', '\s') | map(attribute='key') | list }}
-  when: _sync_env_spaced | length > 0
-
 - name: Write .env edits into the gitops sources
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/config/tasks/_update_gitops_vars.yml
