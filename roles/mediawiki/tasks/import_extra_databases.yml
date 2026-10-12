@@ -1,0 +1,95 @@
+---
+# Import a wiki's extra databases from the dumps beside its main dump.
+#
+# `canasta export` writes each extra database the wiki declares to a sibling
+# of the main dump, named <stem>.<database>.sql (or .sql.gz).
+#
+# Input: extra_dbs_wiki, extra_dbs_dump (the main dump, on the controller),
+#   extra_dbs_discover - false (import): import the dumps of the databases in
+#     extra_dbs_declared, and report declared databases with no dump and
+#     dumps for databases the wiki does not declare.
+#     true (create, add): import every sibling dump whose database name is
+#     usable, and report the files skipped. extra_dbs_groups (the
+#     instance's db_groups) names the databases other wikis already use.
+# Output: _import_extra_dumps - {database: dump path, or '' when none}
+#         _import_extra_skipped - [{file, reason}]
+
+- name: Name where the extra databases' dumps would be
+  ansible.builtin.set_fact:
+    _import_stem: "{{ extra_dbs_dump | regex_replace('(\\.sql)?(\\.gz)?$', '') }}"
+    _import_extra_dumps: {}
+
+- name: List the dumps beside the main one
+  ansible.builtin.set_fact:
+    _import_siblings: >-
+      {{ query('ansible.builtin.fileglob', _import_stem ~ '.*.sql')
+         + query('ansible.builtin.fileglob', _import_stem ~ '.*.sql.gz') }}
+
+- name: Choose the extra databases to import
+  ansible.builtin.set_fact:
+    _import_plan: >-
+      {{ _import_siblings | canasta_extra_dump_plan(_import_stem,
+           extra_dbs_wiki, extra_dbs_groups | default([]))
+         if extra_dbs_discover | default(false) | bool
+         else {'load': extra_dbs_declared, 'skipped': []} }}
+
+- name: Record the extra databases to import
+  ansible.builtin.set_fact:
+    _import_extras: "{{ _import_plan.load }}"
+    _import_extra_skipped: "{{ _import_plan.skipped }}"
+
+- name: Find the dump for each extra database
+  ansible.builtin.set_fact:
+    _import_extra_dumps: >-
+      {{ _import_extra_dumps | combine({item:
+           [_import_stem ~ '.' ~ item ~ '.sql.gz', _import_stem ~ '.' ~ item ~ '.sql']
+           | select('file') | first | default('')}) }}
+  loop: "{{ _import_extras }}"
+
+- name: Report skipped extra-database dumps
+  ansible.builtin.debug:
+    msg: "WARNING: not imported: {{ item.file }}: {{ item.reason }}."
+  loop: "{{ _import_extra_skipped }}"
+  loop_control:
+    label: "{{ item.file }}"
+
+- name: Import each extra database
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: import_database.yml
+  vars:
+    import_wiki_id: "{{ item.key }}"
+    import_database_path: "{{ item.value }}"
+  loop: "{{ _import_extra_dumps | dict2items | selectattr('value') | list }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Find dumps beside the main one that this wiki does not declare
+  ansible.builtin.set_fact:
+    _import_undeclared: >-
+      {{ _import_siblings
+         | map('regex_replace', '^' ~ (_import_stem | regex_escape) ~ '[.]', '')
+         | map('regex_replace', '[.]sql([.]gz)?$', '')
+         | reject('in', _import_extras) | unique | list }}
+  when: not (extra_dbs_discover | default(false) | bool)
+
+- name: Warn about extra databases with no dump
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: no dump found for extra database(s)
+      {{ _import_missing | join(', ') }} of wiki '{{ extra_dbs_wiki }}' (looked for
+      {{ _import_stem }}.<database>.sql or .sql.gz); left as they are.
+  vars:
+    _import_missing: "{{ _import_extra_dumps | dict2items | rejectattr('value') | map(attribute='key') | list }}"
+  when: _import_missing | length > 0
+
+- name: Warn about dumps for databases this wiki does not declare
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: not imported: {{ _import_undeclared | join(', ') }}, which
+      wiki '{{ extra_dbs_wiki }}' does not declare as an extra database in this
+      instance. Add it with 'canasta backup databases add' and import again
+      to bring it in.
+  when:
+    - not (extra_dbs_discover | default(false) | bool)
+    - _import_undeclared | length > 0

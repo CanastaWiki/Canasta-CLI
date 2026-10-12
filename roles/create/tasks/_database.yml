@@ -35,6 +35,46 @@
         import_wiki_id: "{{ wiki }}"
         import_database_path: "{{ database }}"
 
+    - name: Read the instance's databases
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: read
+      register: _create_wikis
+
+    # A wikis.yaml given with -f that lacks the wiki has nowhere to declare
+    # them.
+    - name: Import the extra databases beside the dump
+      when: wiki in _create_wikis.wiki_ids
+      ansible.builtin.include_role:
+        name: mediawiki
+        tasks_from: import_extra_databases.yml
+      vars:
+        extra_dbs_wiki: "{{ wiki }}"
+        extra_dbs_dump: "{{ database }}"
+        extra_dbs_discover: true
+        extra_dbs_groups: "{{ _create_wikis.db_groups }}"
+
+    # On Compose, the start that follows gives MediaWiki's database account
+    # access to the databases wikis.yaml declares.
+    - name: Declare the imported extra databases for the wiki
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: add_database
+        wiki_id: "{{ wiki }}"
+        database: "{{ item }}"
+      loop: >-
+        {{ _import_extra_dumps | default({}) | dict2items | selectattr('value')
+           | map(attribute='key') | list }}
+      register: _create_extra_declared
+
+    - name: Report the extra databases imported
+      ansible.builtin.debug:
+        msg: >-
+          Imported and declared extra database(s)
+          {{ _create_extra_declared.results | map(attribute='item') | join(', ') }}
+          for wiki '{{ wiki }}'.
+      when: _create_extra_declared.results | default([]) | length > 0
+
 - name: Report skipping installer for existing database
   ansible.builtin.debug:
     msg: >-
