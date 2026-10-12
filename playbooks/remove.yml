@@ -52,6 +52,14 @@
     exec_service: web
     exec_command: "rm -rf /mediawiki/public_assets/{{ wiki | quote }}"
 
+# A wiki later added under the same ID must not inherit this one's stamp.
+- name: Remove the wiki's update.php stamp
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: remove_update_stamp.yml
+  vars:
+    update_stamp_wiki: "{{ wiki }}"
+
 - name: Remove wiki from wikis.yaml
   canasta_wikis_yaml:
     instance_path: "{{ instance_path }}"
