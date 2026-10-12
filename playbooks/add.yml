@@ -347,10 +347,29 @@
         name: orchestrator
         tasks_from: k8s_sync_config.yml
 
+# A fingerprint left under this ID by an earlier wiki would make the restart
+# skip update.php for the new one.
+- name: Remove any update.php fingerprint for the wiki ID
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: remove_update_fingerprint.yml
+  vars:
+    update_fingerprint_wiki: "{{ wiki }}"
+
 - name: Restart instance
   ansible.builtin.include_role:
     name: instance_lifecycle
     tasks_from: restart.yml
+
+# After the restart, which loads the new wiki and gives MediaWiki's database
+# account access to its extra databases.
+- name: Run update.php for the imported wiki
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: run_update_php.yml
+  vars:
+    update_php_wikis: ["{{ wiki }}"]
+  when: database is defined and database != ''
 
 # Stage the new wiki's gitops-tracked files (per-wiki settings,
 # public_assets, and the farm template). 'gitops init' captures wikis

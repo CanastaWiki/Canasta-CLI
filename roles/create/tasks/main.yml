@@ -260,6 +260,18 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/_rootless_operator_chown.yml"
   when: not (instance_is_k8s | bool)
 
+# After the final start, which on Compose gives MediaWiki's database account
+# access to the wiki's extra databases.
+- name: Run update.php for the imported wiki
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: run_update_php.yml
+  vars:
+    update_php_wikis: ["{{ wiki }}"]
+  when:
+    - database is defined and database != ''
+    - wiki | default('') in _created_wikis.wiki_ids
+
 - name: SMTP note
   ansible.builtin.debug:
     msg: >-
