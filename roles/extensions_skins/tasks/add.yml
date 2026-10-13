@@ -304,6 +304,7 @@
         cmd: >-
           git -C {{ instance_path | quote }} -c commit.gpgsign=false commit
           -m {{ ('Add composer requirements for ' ~ (_to_add | map(attribute='name') | join(', '))) | quote }}
+          -- config/composer.local.json
         chdir: "{{ instance_path }}"
       changed_when: true
       ignore_errors: true  # nothing to commit if the file content was already committed

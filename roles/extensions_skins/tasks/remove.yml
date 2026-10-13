@@ -124,7 +124,7 @@
 - name: Report absent items skipped
   ansible.builtin.debug:
     msg: >-
-      {{ _item_type | capitalize }}{{ 's' if _remove_absent | length != 1 else '' }}
+      {{ (_item_type[:-1] if _remove_absent | length == 1 else _item_type) | capitalize }}
       not present under {{ _item_dir }}/ (nothing to remove):
       {{ _remove_absent | join(', ') }}
   when: _remove_absent | length > 0
@@ -285,12 +285,33 @@
     _remove_stage.rc != 0
     and 'did not match any files' not in _remove_stage.stderr
 
-- name: Commit removals (gitops)
+# The commit is limited to the staged paths among these, leaving anything
+# else that happens to be staged for its own commit. A pathspec git does not
+# know (no .gitmodules, an untracked orphan) would fail the whole commit.
+- name: List the staged removal paths (gitops)
   when: (_remove_present | length > 0 or _composer_local.changed | default(false) | bool) and (is_gitops | bool)
+  ansible.builtin.command:
+    cmd: >-
+      git -C {{ instance_path | quote }} diff --cached --name-only --
+      {{ (['.gitmodules'] + _remove_settings_files
+          + (['config/composer.local.json']
+             if (_composer_local.changed | default(false) | bool) else [])
+          + (_remove_present | map('regex_replace', '^', _item_dir ~ '/') | list))
+         | map('quote') | join(' ') }}
+    chdir: "{{ instance_path }}"
+  register: _remove_staged_paths
+  changed_when: false
+
+- name: Commit removals (gitops)
+  when:
+    - _remove_present | length > 0 or _composer_local.changed | default(false) | bool
+    - is_gitops | bool
+    - _remove_staged_paths.stdout_lines | default([]) | length > 0
   ansible.builtin.command:
     cmd: >-
       git -C {{ instance_path | quote }} -c commit.gpgsign=false commit
       -m {{ ('Remove ' ~ _item_type ~ ' ' ~ (_remove_present | join(', '))) | quote }}
+      -- {{ _remove_staged_paths.stdout_lines | map('quote') | join(' ') }}
     chdir: "{{ instance_path }}"
   changed_when: true
   ignore_errors: true  # nothing to commit if the removal was a no-op
@@ -306,10 +327,12 @@
       or _remove_enabled | length > 0
       or _composer_local.changed | default(false) | bool
 
+# With nothing present, the absent-items report above already says so.
 - name: "Report {{ _item_type }} removed"
+  when: _remove_present | length > 0
   ansible.builtin.debug:
     msg: >-
-      Removed {{ _item_type }}{{ 's' if _remove_present | length != 1 else '' }}:
-      {{ _remove_present | join(', ') | default('none', true) }}.
+      Removed {{ _item_type[:-1] if _remove_present | length == 1 else _item_type }}:
+      {{ _remove_present | join(', ') }}.
       {{ ('Disabled: ' ~ (_remove_enabled | join(', ')) ~ '. ') if (_remove_enabled | length > 0) else '' }}
       {{ ('[gitops: committed; run canasta gitops push to distribute]') if (is_gitops | bool) else '' }}

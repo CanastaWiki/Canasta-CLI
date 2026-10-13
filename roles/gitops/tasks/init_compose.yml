@@ -66,6 +66,13 @@
   failed_when: false
   when: not (force | default(false) | bool)
 
+- name: Fail early if the git server's host key cannot be verified
+  ansible.builtin.include_tasks: _remote_access_error.yml
+  vars:
+    _remote_result: "{{ _remote_check }}"
+    _remote_fail_kinds: [host_key]
+  when: not (force | default(false) | bool)
+
 - name: Fail early if the remote is unreachable or unauthorized
   ansible.builtin.fail:
     msg: >-
