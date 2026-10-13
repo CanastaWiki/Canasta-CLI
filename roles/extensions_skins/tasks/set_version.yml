@@ -105,13 +105,41 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
+# A branch that exists only on origin counts: checkout creates the local
+# tracking branch for it.
+- name: Verify the requested ref exists
+  ansible.builtin.shell:
+    cmd: >-
+      git -C {{ _ext_path | quote }} rev-parse --verify --quiet
+      {{ (ref ~ '^{commit}') | quote }} >/dev/null
+      || git -C {{ _ext_path | quote }} rev-parse --verify --quiet
+      {{ ('refs/remotes/origin/' ~ ref ~ '^{commit}') | quote }} >/dev/null
+    chdir: "{{ instance_path }}"
+  register: _ext_ref_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail — unknown ref
+  ansible.builtin.fail:
+    msg: >-
+      '{{ ref }}' is not a branch, tag, or commit in the repository of
+      extension '{{ extension_name }}'. Nothing was changed.
+  when: _ext_ref_check.rc != 0
+
 - name: Check out the requested ref
   ansible.builtin.command:
     cmd: "git -C {{ _ext_path | quote }} checkout --end-of-options {{ ref | quote }}"
     chdir: "{{ instance_path }}"
   register: _ext_checkout
   changed_when: true
-  failed_when: _ext_checkout.rc != 0
+  failed_when: false
+
+- name: Fail if the checkout failed
+  ansible.builtin.fail:
+    msg: >-
+      Could not check out '{{ ref }}' in extension '{{ extension_name }}':
+      {{ _ext_checkout.stderr | default('') | trim }}
+  when: _ext_checkout.rc != 0
 
 - name: Stage the updated gitlink
   ansible.builtin.command:

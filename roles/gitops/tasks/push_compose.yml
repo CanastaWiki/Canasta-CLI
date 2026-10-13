@@ -421,7 +421,8 @@
             chdir: "{{ instance_path }}"
             expand_argument_vars: false
           register: _pr_result
-          changed_when: true
+          changed_when: _pr_result.rc == 0
+          failed_when: false
       # A failed push or gh call must not strand later pulls and pushes on
       # a branch with no upstream.
       always:
@@ -433,6 +434,23 @@
 
         - name: Restrict the checked-out hosts/ tree to the operator
           ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_restrict_hosts_dir.yml"
+
+    - name: Fail if the pull request could not be opened
+      ansible.builtin.fail:
+        msg: >-
+          Pushed branch '{{ _push_branch }}' to origin, but gh could not open
+          the pull request.
+          {{ "Run 'gh auth login', then open" if _pr_auth else 'Open' }}
+          it on GitHub or with 'gh pr create --head {{ _push_branch }}' in
+          {{ instance_path }}. gh reported: {{ _pr_error }}
+      vars:
+        _pr_error: >-
+          {{ (_pr_result.stderr | default('')).splitlines() | map('trim')
+             | select | join(' ') | default('gh exited with code ' ~ _pr_result.rc, true) }}
+        _pr_auth: >-
+          {{ 'gh auth login' in (_pr_result.stderr | default(''))
+             or 'not logged' in (_pr_result.stderr | default('')) }}
+      when: _pr_result.rc != 0
 
     - name: Report pull request created
       ansible.builtin.debug:
