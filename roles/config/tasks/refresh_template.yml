@@ -90,11 +90,7 @@
       loop_control:
         loop_var: _refresh_file
 
-    - name: Remind to apply and capture the changes
+    - name: Remind to restart to apply the changes
       ansible.builtin.debug:
-        msg:
-          - "Restart the instance to apply: canasta restart -i {{ instance_id }}"
-          - >-
-            Capture into gitops (if used):
-            canasta gitops add && canasta gitops push
+        msg: "Restart the instance to apply: canasta restart -i {{ instance_id }}"
       when: apply | default(false) | bool

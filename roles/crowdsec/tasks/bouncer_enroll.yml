@@ -27,6 +27,14 @@
   retries: 30
   delay: 2
   changed_when: false
+  failed_when: false
+
+- name: Fail when the CrowdSec LAPI did not come up
+  ansible.builtin.fail:
+    msg: >-
+      The CrowdSec engine's local API did not answer within 60 seconds, so
+      the bouncer could not be enrolled for instance '{{ instance_id }}'.
+  when: _crowdsec_lapi.rc != 0
 
 - name: List registered bouncers
   ansible.builtin.command:

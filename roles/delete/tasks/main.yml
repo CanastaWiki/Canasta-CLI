@@ -247,6 +247,33 @@
     - name: End play for already-removed instance
       ansible.builtin.meta: end_play
 
+# Teardown removes .env and wikis.yaml, and an external database server is
+# not this instance's to clean up, so name what stays there while the files
+# can still be read.
+- name: Read the database settings before teardown
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _delete_env
+  failed_when: false
+  no_log: true  # registers the whole .env, including passwords
+  when: instance_path | default('') | length > 0
+
+- name: Note whether the instance uses an external database
+  ansible.builtin.set_fact:
+    _delete_external_db: >-
+      {{ (_delete_env.variables.USE_EXTERNAL_DB | default('false'))
+         | string | lower == 'true' }}
+    _delete_db_host: "{{ _delete_env.variables.MYSQL_HOST | default('', true) }}"
+
+- name: List the databases the external server holds for this instance
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _delete_wikis
+  failed_when: false
+  when: _delete_external_db | bool
+
 # Kubernetes removes instance content files from inside the web pod while
 # it still runs; Compose does it in destroy.yml once teardown succeeded.
 - name: Clean up container-owned files
@@ -398,3 +425,15 @@
   ansible.builtin.debug:
     msg: "Instance '{{ instance_id }}' deleted."
   when: not (_rmdir is failed)
+
+- name: Report the databases left on the external server
+  ansible.builtin.debug:
+    msg: >-
+      The instance's databases on the external server
+      {{- (' ' ~ _delete_db_host) if _delete_db_host else '' }} were not
+      dropped{{ (': ' ~ _dbs | join(', ')) if _dbs else '' }}.
+  vars:
+    _dbs: >-
+      {{ _delete_wikis.db_groups | default([])
+         | map(attribute='databases') | flatten | unique | list }}
+  when: _delete_external_db | bool

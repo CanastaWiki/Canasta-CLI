@@ -134,6 +134,10 @@
     - _upgrade_build_from != ''
     - not _upgrade_rebuild | bool
 
+- name: Reset the rebuilt image change signal for this instance
+  ansible.builtin.set_fact:
+    _upgrade_rebuilt_image_changed: false
+
 - name: Rebuild image from source
   ansible.builtin.include_role:
     name: imagebuild
@@ -246,9 +250,9 @@
     {{ canasta_root }}/roles/orchestrator/tasks/upgrade_rebuild_buildable.yml
 
 # A compose-only change (e.g. gaining the crowdsec service), or a chart-only
-# change on Kubernetes, must also trigger a recreate, not just an image bump. A build_from instance always
-# rebuilt its image above, so it must restart to redeploy the new build
-# (no registry pull happened, so _images_updated is false for it).
+# change on Kubernetes, must also trigger a recreate, not just an image bump.
+# A build_from instance pulls nothing, so _images_updated stays false for it;
+# it restarts when its rebuilt image differs from the one it runs.
 # An instance whose custom image failed to build keeps its current
 # containers: recreating them could start the stock image in place of the
 # custom one.
@@ -258,7 +262,7 @@
       {{ ((_images_updated | bool)
           or (_compose_stack_copy is defined and _compose_stack_copy is changed)
           or (_k8s_chart_changed | default(false) | bool)
-          or (_upgrade_rebuild | bool))
+          or (_upgrade_rebuilt_image_changed | bool))
          and (_upgrade_build_failed_services | default([]) | length) == 0 }}
 
 - name: Restart containers
