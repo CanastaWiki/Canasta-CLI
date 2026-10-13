@@ -362,7 +362,7 @@
   ansible.builtin.shell:
     cmd: >-
       find {{ instance_path | quote }} -mindepth 1 ! -user "$(id -u)"
-      -prune -print 2>/dev/null | head -n 5
+      -prune -print 2>/dev/null
   register: _delete_foreign
   changed_when: false
   failed_when: false
@@ -377,7 +377,7 @@
       instance directory '{{ instance_path }}' could not be fully removed.
       {% if _delete_foreign.stdout_lines | default([]) | length > 0 %}
       These paths are owned by another user (typically root, written by a
-      container): {{ _delete_foreign.stdout_lines | join(', ') }}.
+      container): {{ _delete_foreign.stdout_lines[:5] | join(', ') }}.
       {% if _delete_unshare %}
       Remove them with 'podman unshare rm -rf {{ instance_path }}'.
       {% else %}
