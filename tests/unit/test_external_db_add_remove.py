@@ -96,10 +96,24 @@ class TestAdd:
                 assert v["copy_service"] == "{{ _db_admin_service }}"
 
 
+# Each call's arguments go on one tab-separated line. A call whose query
+# names $FAKE_FAIL_DB (or any call, when it is empty) fails with $FAKE_FAIL,
+# echoing the query first as the real client does by default.
 FAKE_MARIADB = """#!/bin/sh
-printf '%s\\n' "$@" > "$FAKE_DIR/args"
+printf '%s\\t' "$@" >> "$FAKE_DIR/args"; echo >> "$FAKE_DIR/args"
 echo "$MYSQL_PWD" > "$FAKE_DIR/pwd"
-if [ -n "$FAKE_FAIL" ]; then echo "$FAKE_FAIL" >&2; exit 1; fi
+echo_query=1
+for a; do
+  q="$a"
+  [ "$a" = --skip-print-query-on-error ] && echo_query=0
+done
+[ -n "$FAKE_FAIL" ] || exit 0
+case "$q" in *"\\`$FAKE_FAIL_DB\\`"*) ;; *) [ -z "$FAKE_FAIL_DB" ] || exit 0 ;; esac
+if [ "$echo_query" = 1 ]; then
+  printf -- '--------------\\n%s\\n--------------\\n\\n' "$q" >&2
+fi
+echo "$FAKE_FAIL" >&2
+exit 1
 """
 
 
@@ -125,6 +139,7 @@ def _stub_root(tmp_path):
             "MYSQL_PASSWORD": "opw",
             "MYSQL_USER": "operator",
             "FAKE_FAIL": "{{ fake_fail | default('') }}",
+            "FAKE_FAIL_DB": "{{ fake_fail_db | default('') }}",
         },
     }]))
     bindir = tmp_path / "bin"
@@ -135,7 +150,8 @@ def _stub_root(tmp_path):
     return str(tmp_path / "root")
 
 
-def _run_remove(tmp_path, db_groups, wiki="docs", fake_fail=""):
+def _run_remove(tmp_path, db_groups, wiki="docs", fake_fail="",
+                fake_fail_db=""):
     remove = _load(REMOVE)
     names = ("Choose the databases to drop", "Drop the wiki's databases",
              "Report wiki removed")
@@ -150,12 +166,15 @@ def _run_remove(tmp_path, db_groups, wiki="docs", fake_fail=""):
         "wiki": wiki,
         "instance_id": "inst",
         "fake_fail": fake_fail,
+        "fake_fail_db": fake_fail_db,
         "_remove_wikis": {"db_groups": db_groups},
     }, tasks)
     data = json.loads(out.read_text()) if out.exists() else None
     args_file = tmp_path / "args"
-    args = args_file.read_text().splitlines() if args_file.exists() else None
-    return proc, data, args
+    calls = ([line.rstrip("\t").split("\t")
+              for line in args_file.read_text().splitlines()]
+             if args_file.exists() else None)
+    return proc, data, calls
 
 
 class TestRemove:
@@ -166,12 +185,14 @@ class TestRemove:
     ]
 
     def test_drops_the_wiki_and_its_own_extra_databases(self, tmp_path):
-        proc, data, args = _run_remove(tmp_path, self.GROUPS)
+        proc, data, calls = _run_remove(tmp_path, self.GROUPS)
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert data == {"drop": ["docs", "docs-cargo"], "left": []}
-        assert args == [
-            "-u", "operator", "-e",
-            "DROP DATABASE IF EXISTS `docs`; DROP DATABASE IF EXISTS `docs-cargo`; "]
+        assert calls == [
+            ["-u", "operator", "--skip-print-query-on-error", "-e",
+             "DROP DATABASE IF EXISTS `docs`"],
+            ["-u", "operator", "--skip-print-query-on-error", "-e",
+             "DROP DATABASE IF EXISTS `docs-cargo`"]]
         assert (tmp_path / "pwd").read_text().strip() == "opw"
         assert "removed from instance 'inst'." in proc.stdout
         assert "left in place" not in proc.stdout
@@ -186,13 +207,27 @@ class TestRemove:
         assert "its database(s) docs, docs-cargo were left in place" in proc.stdout
         assert "Error:" not in proc.stderr
 
+    def test_failed_extra_drop_names_only_that_database(self, tmp_path):
+        proc, data, calls = _run_remove(
+            tmp_path, self.GROUPS, fake_fail_db="docs-cargo",
+            fake_fail="ERROR 1044 (42000) at line 1: Access denied")
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert data["left"] == ["docs-cargo"]
+        assert ("WARNING: could not drop database(s) docs-cargo for wiki 'docs': "
+                "ERROR 1044 (42000) at line 1: Access denied.") in proc.stdout
+        assert "Drop it yourself" in proc.stdout
+        assert "its database(s) docs-cargo were left in place" in proc.stdout
+        assert "----" not in proc.stdout
+        assert "Error:" not in proc.stderr
+        assert len(calls) == 2
+
     def test_wiki_database_another_wiki_declares_is_kept(self, tmp_path):
         groups = [{"wiki": "main", "databases": ["main", "docs"]},
                   {"wiki": "docs", "databases": ["docs"]}]
-        proc, data, args = _run_remove(tmp_path, groups)
+        proc, data, calls = _run_remove(tmp_path, groups)
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert data == {"drop": [], "left": []}
-        assert args is None
+        assert calls is None
 
     def test_no_ignore_errors_on_the_drop(self):
         block = _named(_load(REMOVE), "Drop the wiki's databases")
