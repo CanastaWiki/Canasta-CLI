@@ -16,7 +16,15 @@
 - name: Check if database file is gzipped
   ansible.builtin.set_fact:
     _is_gzipped: "{{ import_database_path | regex_search('\\.gz$') is not none }}"
-    _import_container_file: "/tmp/import.sql{{ (import_database_path | regex_search('\\.gz$') is not none) | ternary('.gz', '') }}"
+
+# Unique per run, so overlapping imports into one instance can't load each
+# other's dump.
+- name: Name this import's temp file in the container
+  ansible.builtin.set_fact:
+    _import_container_file: >-
+      /tmp/canasta-import-{{ lookup('ansible.builtin.password',
+      '/dev/null length=16 chars=ascii_lowercase,digits') }}.sql{{
+      _is_gzipped | bool | ternary('.gz', '') }}
 
 - name: Create database if it does not exist
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
@@ -54,7 +62,7 @@
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
       vars:
         exec_service: "{{ _db_admin_service }}"
-        exec_command: "gunzip -c /tmp/import.sql.gz | {{ _db_admin_pwd }} mariadb {{ _db_admin_args }} '{{ import_wiki_id }}'"
+        exec_command: "gunzip -c {{ _import_container_file }} | {{ _db_admin_pwd }} mariadb {{ _db_admin_args }} '{{ import_wiki_id }}'"
         exec_long: true
       when: _is_gzipped | bool
 
@@ -62,7 +70,7 @@
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
       vars:
         exec_service: "{{ _db_admin_service }}"
-        exec_command: "{{ _db_admin_pwd }} mariadb {{ _db_admin_args }} '{{ import_wiki_id }}' < /tmp/import.sql"
+        exec_command: "{{ _db_admin_pwd }} mariadb {{ _db_admin_args }} '{{ import_wiki_id }}' < {{ _import_container_file }}"
         exec_long: true
       when: not (_is_gzipped | bool)
   always:
@@ -75,4 +83,4 @@
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
       vars:
         exec_service: "{{ _db_admin_service }}"
-        exec_command: "rm -f /tmp/import.sql /tmp/import.sql.gz"
+        exec_command: "rm -f {{ _import_container_file }}"
