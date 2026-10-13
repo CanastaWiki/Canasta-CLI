@@ -253,13 +253,6 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/delete_cleanup_files.yml
 
-# Remove backup schedule from crontab
-- name: Remove backup schedule
-  ansible.builtin.cron:
-    name: "canasta-backup-{{ instance_id }}"
-    state: absent
-  ignore_errors: true  # OK if no crontab entry exists
-
 - name: Remove Argo CD Application if present
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/delete_remove_argocd_app.yml
@@ -272,6 +265,13 @@
   # K8s skips only when the cluster API was probed unreachable. destroy.yml
   # itself dispatches Compose vs K8s.
   when: _k8s_api_reachable | default(true)
+
+# Only after teardown, so a failed delete keeps its backup schedule.
+- name: Remove backup schedule
+  ansible.builtin.cron:
+    name: "canasta-backup-{{ instance_id }}"
+    state: absent
+  ignore_errors: true  # OK if no crontab entry exists
 
 # Deregister only after teardown, so a failed teardown leaves the
 # registry entry that lets delete be re-run.
