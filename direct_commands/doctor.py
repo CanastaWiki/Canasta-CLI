@@ -231,8 +231,18 @@ def _reclaimable_line(df_out, k3s):
         amount = "%s images, %s build cache" % (images, build_cache)
     if k8s:
         amount += "; containerd and the in-cluster registry not measured"
-    if amount != "none":
-        amount += " — reclaim with 'canasta image prune'"
+    # `canasta image prune` leaves the build cache alone, and on a cluster
+    # host it also keeps the Docker copies of images built for the registry.
+    advice = []
+    if k8s or not _is_zero_size(images):
+        advice.append("images with 'canasta image prune'")
+        if k8s and not _is_zero_size(images):
+            advice[-1] += (" (it lists, but keeps, the Docker copies of "
+                           "images built for Kubernetes)")
+    if not _is_zero_size(build_cache):
+        advice.append("build cache with 'docker builder prune'")
+    if advice:
+        amount += " — reclaim " + ", ".join(advice)
     return "  Reclaimable:     %s" % amount
 
 
