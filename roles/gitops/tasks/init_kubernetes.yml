@@ -185,6 +185,15 @@
     - _gitops_remote.stdout | trim | length > 0
     - not (force | default(false) | bool)
 
+# --- SOPS+age secret encryption (gated on --encrypt-secrets) ---
+# Provision the operator age key + .sops.yaml + sops-age Secret; the initial
+# commit below carries .sops.yaml. This runs before any chart or git file is
+# written, so refusing over a key that doesn't match the cluster's sops-age
+# Secret leaves nothing behind that would block a re-run.
+- name: Provision the operator age key and .sops.yaml
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_init_sops.yml"
+  when: gitops_sops_secrets | default(false) | bool
+
 # --- Copy Helm chart into instance directory ---
 - name: Copy the Helm chart into instance directory
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_sync_chart.yml"
@@ -401,15 +410,10 @@
     dest: "{{ instance_path }}/argocd/application.yaml"
     mode: "0644"
 
-# --- SOPS+age secret encryption (gated on --encrypt-secrets) ---
-# Provision the operator age key + .sops.yaml + sops-age Secret, then add the
-# helm-sops CMP sidecar to the (already-installed) Argo CD repo-server so it can
-# decrypt at render time. The Argo Application above already points at the
-# plugin source when enabled; the initial commit below carries .sops.yaml.
-- name: Provision the operator age key and .sops.yaml
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_init_sops.yml"
-  when: gitops_sops_secrets | default(false) | bool
-
+# --- helm-sops sidecar (gated on --encrypt-secrets) ---
+# Add the helm-sops CMP sidecar to the (already-installed) Argo CD repo-server
+# so it can decrypt at render time. The Argo Application above already points
+# at the plugin source when enabled.
 - name: Ensure the Argo CD repo-server has the helm-sops sidecar
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_sops_sidecar.yml"
   when: gitops_sops_secrets | default(false) | bool
