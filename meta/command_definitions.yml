@@ -1040,6 +1040,12 @@ commands:
       Upgrade all registered Canasta instances by refreshing configs,
       pulling latest images, running migrations, and restarting containers.
 
+      A Kubernetes instance managed through gitops is not redeployed: Argo CD
+      deploys it from its gitops repo. Upgrade stages the refreshed chart and
+      image tag there, and you deploy them with `canasta gitops push`, then
+      `canasta gitops sync`. An instance built from source still has its
+      image rebuilt, and its web pods restart onto the new build.
+
       By default the CLI itself updates to the latest released version
       within the current major (the highest vX.Y.Z tag whose major matches
       the installed version), so an upgrade never crosses a major boundary
