@@ -801,6 +801,7 @@ _TLS_LOCAL_SUFFIXES = (
 _ORIGIN_TLS_SCRIPT = r"""
 command -v openssl >/dev/null 2>&1 || { echo NO_OPENSSL; exit 0; }
 printf '%%sTLSINTERNAL:%%s\n' '%(delim)s' "$(grep -lE '^[[:space:]]*tls[[:space:]]+internal([[:space:]]|$)' %(cfg)s 2>/dev/null | head -1)"
+[ -f %(values)s ] && { printf '%%sVALUES:\n' '%(delim)s'; cat %(values)s; }
 for n in %(names)s; do
   printf '%%sNAME:%%s\n' '%(delim)s' "$n"
   echo | openssl s_client -connect 127.0.0.1:%(port)s -servername "$n" \
@@ -869,6 +870,25 @@ def _parse_tls_internal(stdout):
     return False
 
 
+def _parse_cert_manager(stdout):
+    """True/False for the instance's ingress.certManager.enabled (the chart
+    defaults it to false), or None when there is no values.yaml to read."""
+    for seg in stdout.split(_helpers._SENTINEL):
+        header, _, body = seg.partition("\n")
+        if header.strip() != "VALUES:":
+            continue
+        try:
+            values = yaml.safe_load(body) or {}
+        except yaml.YAMLError:
+            return None
+        if not isinstance(values, dict):
+            return None
+        ingress = values.get("ingress") or {}
+        cert_manager = ingress.get("certManager") or {}
+        return bool(cert_manager.get("enabled", False))
+    return None
+
+
 def _parse_cert_expiry(text):
     """openssl's 'Sep 10 12:00:00 2026 GMT' -> aware datetime, or None."""
     raw = (text or "").strip()
@@ -890,7 +910,8 @@ def _is_self_signed(issuer, subject):
 
 
 def _origin_tls_lines_from_entries(inst_id, entries, now,
-                                   tls_internal=False, k8s=False):
+                                   tls_internal=False, k8s=False,
+                                   cert_manager=None):
     """doctor lines for the probed certificates."""
     title = ["", "Origin TLS (%s):" % inst_id]
     if entries is None:
@@ -935,6 +956,13 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
             fallback_names.append(name)
             continue
         if _is_self_signed(issuer, subject) and _is_public_hostname(name):
+            if k8s and cert_manager is False:
+                lines.append(
+                    "  %s: no TLS certificate by design (cert-manager is not "
+                    "enabled for this instance, e.g. created with "
+                    "--skip-tls); the ingress controller's default "
+                    "certificate is served (issuer %s)" % (name, issuer))
+                continue
             if k8s:
                 hint = (
                     "The Ingress is not getting a certificate for this host; "
@@ -1182,6 +1210,7 @@ def _origin_tls_lines(inst):
         "cfg": " ".join(
             _helpers._shell_quote(os.path.join(path, "config", f))
             for f in ("Caddyfile", "Caddyfile.site")),
+        "values": _helpers._shell_quote(os.path.join(path, "values.yaml")),
     }
     try:
         if _helpers._is_localhost(host):
@@ -1200,7 +1229,8 @@ def _origin_tls_lines(inst):
     return _origin_tls_lines_from_entries(
         inst.get("id", "?"), _parse_origin_tls(stdout),
         datetime.datetime.now(datetime.timezone.utc),
-        tls_internal=_parse_tls_internal(stdout), k8s=is_k8s)
+        tls_internal=_parse_tls_internal(stdout), k8s=is_k8s,
+        cert_manager=_parse_cert_manager(stdout) if is_k8s else None)
 
 
 # --- Kubernetes config drift ------------------------------------------------

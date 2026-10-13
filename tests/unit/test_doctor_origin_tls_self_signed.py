@@ -20,17 +20,26 @@ TRAEFIK = "CN=TRAEFIK DEFAULT CERT"
 SELF = "CN=wiki.example.org"
 
 
-def _probe(issuer, subject, name="wiki.example.org", tls_internal=""):
+SKIP_TLS_VALUES = "domains:\n- wiki.example.org\nsecrets:\n  dbSecretName: x\n"
+CERT_MANAGER_VALUES = (
+    "domains:\n- wiki.example.org\ningress:\n  tls: true\n"
+    "  certManager:\n    enabled: true\n    issuer: letsencrypt-prod\n")
+
+
+def _probe(issuer, subject, name="wiki.example.org", tls_internal="",
+           values=None):
+    values_seg = "" if values is None else "%sVALUES:\n%s" % (D, values)
     return (
-        "%sTLSINTERNAL:%s\n"
+        "%sTLSINTERNAL:%s\n%s"
         "%sNAME:%s\nsubject=%s\nissuer=%s\nnotAfter=%s\n"
-        % (D, tls_internal, D, name, subject, issuer, LATER))
+        % (D, tls_internal, values_seg, D, name, subject, issuer, LATER))
 
 
 def _report(stdout, k8s=False):
     return "\n".join(doctor._origin_tls_lines_from_entries(
         "site", doctor._parse_origin_tls(stdout), NOW,
-        tls_internal=doctor._parse_tls_internal(stdout), k8s=k8s))
+        tls_internal=doctor._parse_tls_internal(stdout), k8s=k8s,
+        cert_manager=doctor._parse_cert_manager(stdout) if k8s else None))
 
 
 class TestProbe:
@@ -63,6 +72,38 @@ class TestSelfSigned:
     def test_self_signed_on_a_local_name_is_exempt(self):
         out = _report(_probe(TRAEFIK, TRAEFIK, name="wiki.localhost"))
         assert "WARN" not in out
+
+
+class TestSkipTls:
+    def test_probe_reads_values_yaml(self):
+        assert "VALUES:" in doctor._ORIGIN_TLS_SCRIPT
+        assert "%(values)s" in doctor._ORIGIN_TLS_SCRIPT
+
+    def test_parse_cert_manager(self):
+        assert doctor._parse_cert_manager(
+            _probe(TRAEFIK, TRAEFIK, values=SKIP_TLS_VALUES)) is False
+        assert doctor._parse_cert_manager(
+            _probe(TRAEFIK, TRAEFIK, values=CERT_MANAGER_VALUES)) is True
+        assert doctor._parse_cert_manager(_probe(TRAEFIK, TRAEFIK)) is None
+
+    def test_traefik_default_is_informational_without_cert_manager(self):
+        out = _report(
+            _probe(TRAEFIK, TRAEFIK, values=SKIP_TLS_VALUES), k8s=True)
+        assert ("wiki.example.org: no TLS certificate by design" in out)
+        assert "--skip-tls" in out
+        assert "WARN" not in out
+        assert "cert-manager Certificate" not in out
+
+    def test_traefik_default_warns_with_cert_manager(self):
+        out = _report(
+            _probe(TRAEFIK, TRAEFIK, values=CERT_MANAGER_VALUES), k8s=True)
+        assert "WARN — self-signed certificate" in out
+        assert "cert-manager Certificate" in out
+        assert "by design" not in out
+
+    def test_unreadable_values_still_warns(self):
+        out = _report(_probe(TRAEFIK, TRAEFIK, values=": :\n  - ["), k8s=True)
+        assert "WARN — self-signed certificate" in out
 
 
 class TestUnchanged:
