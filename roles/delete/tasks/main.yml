@@ -356,15 +356,39 @@
   ignore_errors: true  # OK if dir is cwd or already gone
   register: _rmdir
 
+# The topmost leftovers the operator does not own; anything beneath them
+# is unreachable to the operator's `rm` as well.
+- name: List leftovers owned by another user
+  ansible.builtin.shell:
+    cmd: >-
+      find {{ instance_path | quote }} -mindepth 1 ! -user "$(id -u)"
+      -prune -print 2>/dev/null
+  register: _delete_foreign
+  changed_when: false
+  failed_when: false
+  when:
+    - instance_path | default('') | length > 0
+    - _rmdir is failed
+
 - name: Warn if directory could not be removed
   ansible.builtin.debug:
     msg: >-
       Instance '{{ instance_id }}' deleted from registry. Note: the
-      instance directory '{{ instance_path }}' could not be fully removed
-      — usually because it is the current working directory, in which case
-      'cd ..' then 'rmdir {{ instance_path }}' clears it. Under rootless
-      Podman the leftovers are owned by a subuid instead, and only
-      'podman unshare rm -rf {{ instance_path }}' can remove them.
+      instance directory '{{ instance_path }}' could not be fully removed.
+      {% if _delete_foreign.stdout_lines | default([]) | length > 0 %}
+      These paths are owned by another user (typically root, written by a
+      container): {{ _delete_foreign.stdout_lines[:5] | join(', ') }}.
+      {% if _delete_unshare %}
+      Remove them with 'podman unshare rm -rf {{ instance_path }}'.
+      {% else %}
+      Remove them with '{{ inspect_command }} run --rm
+      -v {{ instance_path | quote }}:/instance docker.io/library/alpine
+      find /instance -mindepth 1 -delete' then 'rmdir {{ instance_path }}'.
+      {% endif %}
+      {% else %}
+      This is usually because it is the current working directory, in
+      which case 'cd ..' then 'rmdir {{ instance_path }}' clears it.
+      {% endif %}
       Leaving them in place blocks recreating an instance with this id.
   when:
     - instance_path | default('') | length > 0
