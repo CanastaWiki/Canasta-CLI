@@ -18,6 +18,8 @@ The real password is unrecoverable at that point — it lived in the lost
 """
 
 import os
+import subprocess
+import sys
 
 import yaml
 
@@ -124,3 +126,50 @@ class TestThePremiseStillHolds:
         defaults = os.path.join(os.path.dirname(HEAL), "heal_mysql_defaults.yml")
         with open(defaults) as f:
             assert "_backfill_wiki_env.variables.MYSQL_PASSWORD" in f.read()
+
+
+def _run_heal(tmp_path, env_text):
+    common = os.path.join(REPO_ROOT, "roles", "common")
+    inst = tmp_path / "inst"
+    inst.mkdir()
+    (inst / ".env").write_text(env_text)
+    play = tmp_path / "play.yml"
+    play.write_text(yaml.safe_dump([{
+        "hosts": "localhost",
+        "connection": "local",
+        "gather_facts": False,
+        "vars": {
+            "instance_path": str(inst),
+            "canasta_root": REPO_ROOT,
+            # No volume: `false volume inspect ...` exits non-zero.
+            "inspect_command": "false",
+            "ansible_python_interpreter": sys.executable,
+        },
+        "tasks": [{"ansible.builtin.include_tasks": HEAL}],
+    }]))
+    env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
+               ANSIBLE_LIBRARY=os.path.join(common, "library"),
+               ANSIBLE_MODULE_UTILS=os.path.join(common, "module_utils"))
+    playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
+    proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
+                          capture_output=True, text=True, env=env,
+                          cwd=tmp_path)
+    return proc, (inst / ".env").read_text()
+
+
+class TestExternalDatabase:
+    def test_it_refuses_to_generate_for_an_external_db(self, tmp_path):
+        proc, env = _run_heal(
+            tmp_path, "MYSQL_PASSWORD=\nUSE_EXTERNAL_DB=true\n")
+        out = proc.stdout + proc.stderr
+        assert proc.returncode != 0
+        assert "external database" in out
+        assert "will initialise" not in out
+        assert "MYSQL_PASSWORD=\n" in env
+
+    def test_a_bundled_db_still_heals(self, tmp_path):
+        proc, env = _run_heal(
+            tmp_path, "MYSQL_PASSWORD=\nUSE_EXTERNAL_DB=false\n")
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert "will initialise" in proc.stdout
+        assert "MYSQL_PASSWORD=\n" not in env
