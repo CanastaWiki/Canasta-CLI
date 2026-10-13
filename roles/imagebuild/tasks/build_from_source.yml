@@ -32,6 +32,27 @@
          | map('regex_replace', '^(.+)$', '--build-arg \1')
          | join(' ') }}
 
+# BuildKit attaches a provenance attestation that differs on every build, so
+# rebuilding unchanged source would still yield a new image ID and digest, and
+# upgrade would restart the instance for nothing. Only BuildKit knows the flag:
+# the legacy Docker builder and podman reject it.
+- name: Check whether the build runs on BuildKit
+  ansible.builtin.shell:
+    cmd: >-
+      [ "${DOCKER_BUILDKIT:-1}" != 0 ]
+      && {{ inspect_command | default('docker') }} buildx version
+  register: _buildkit_probe
+  changed_when: false
+  failed_when: false
+  when: inspect_command | default('docker') == 'docker'
+
+- name: Drop the provenance attestation on BuildKit
+  ansible.builtin.set_fact:
+    _build_arg_flags: >-
+      {{ ('--provenance=false ' ~ _build_arg_flags) | trim
+         if (_buildkit_probe.rc | default(1)) == 0
+         else _build_arg_flags }}
+
 - name: Check for CanastaBase source
   ansible.builtin.stat:
     path: "{{ build_from }}/CanastaBase/Dockerfile"
