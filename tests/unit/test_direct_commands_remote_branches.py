@@ -188,10 +188,10 @@ class TestReadWikiIds:
 
 
 class TestMaintenanceUpdateRc:
-    def _setup(self, monkeypatch, tmp_path, failing):
+    def _setup(self, monkeypatch, tmp_path, failing, wikis=("a", "b", "c")):
         (tmp_path / "config").mkdir()
         (tmp_path / "config" / "wikis.yaml").write_text(
-            "wikis:\n- id: a\n- id: b\n- id: c\n")
+            "wikis:\n" + "".join("- id: %s\n" % w for w in wikis))
         inst = {"path": str(tmp_path), "host": "localhost"}
         monkeypatch.setattr(_helpers, "_resolve_instance",
                             lambda args: ("mysite", inst))
@@ -208,7 +208,7 @@ class TestMaintenanceUpdateRc:
     def _cmd(self, script, wiki):
         return "php maintenance/%s --wiki='%s'" % (script, wiki)
 
-    def test_update_failure_propagates_and_rest_still_run(
+    def test_update_failure_skips_that_wikis_jobs_and_reports_it(
             self, monkeypatch, tmp_path, capsys):
         streamed = self._setup(monkeypatch, tmp_path,
                                {self._cmd("update.php", "a")})
@@ -219,26 +219,77 @@ class TestMaintenanceUpdateRc:
             self._cmd("update.php", "a"),
             self._cmd("update.php", "b"),
             self._cmd("update.php", "c"),
-            self._cmd("runJobs.php", "a"),
             self._cmd("runJobs.php", "b"),
             self._cmd("runJobs.php", "c"),
         ]
-        assert ("Maintenance update complete for: a, b, c"
-                in capsys.readouterr().out)
+        captured = capsys.readouterr()
+        assert "Maintenance update complete for: b, c" in captured.out
+        assert "Maintenance update failed for: a" in captured.err
 
-    def test_runjobs_failure_propagates(self, monkeypatch, tmp_path):
+    def test_one_of_two_fails(self, monkeypatch, tmp_path, capsys):
+        streamed = self._setup(monkeypatch, tmp_path,
+                               {self._cmd("update.php", "b")},
+                               wikis=("a", "b"))
+        rc = maintenance.cmd_maintenance_update(
+            _args(id="mysite", wiki=None, skip_jobs=False, skip_smw=True))
+        assert rc == 7
+        assert self._cmd("runJobs.php", "b") not in streamed
+        assert self._cmd("runJobs.php", "a") in streamed
+        captured = capsys.readouterr()
+        assert "Maintenance update complete for: a\n" in captured.out
+        assert "Maintenance update failed for: b\n" in captured.err
+
+    def test_all_fail(self, monkeypatch, tmp_path, capsys):
+        streamed = self._setup(monkeypatch, tmp_path,
+                               {self._cmd("update.php", "a"),
+                                self._cmd("update.php", "b")},
+                               wikis=("a", "b"))
+        rc = maintenance.cmd_maintenance_update(
+            _args(id="mysite", wiki=None, skip_jobs=False, skip_smw=True))
+        assert rc == 7
+        assert not any("runJobs.php" in c for c in streamed)
+        captured = capsys.readouterr()
+        assert "complete" not in captured.out
+        assert "Maintenance update failed for: a, b" in captured.err
+
+    def test_update_failure_skips_smw_rebuild_for_that_wiki(
+            self, monkeypatch, tmp_path):
+        streamed = self._setup(monkeypatch, tmp_path,
+                               {self._cmd("update.php", "a")},
+                               wikis=("a", "b"))
+
+        def fake_exec(inst_id, inst, command, service="web"):
+            if command.startswith("test -f"):
+                return 0, "yes\n"
+            return 0, "SMW_LOADED=1\n"
+        monkeypatch.setattr(_helpers, "_exec_in_container", fake_exec)
+        maintenance.cmd_maintenance_update(
+            _args(id="mysite", wiki=None, skip_jobs=True, skip_smw=False))
+        rebuilds = [c for c in streamed if "rebuildData.php" in c]
+        assert rebuilds == [
+            "php extensions/SemanticMediaWiki/maintenance/"
+            "rebuildData.php --wiki='b'"
+        ]
+
+    def test_runjobs_failure_propagates(self, monkeypatch, tmp_path, capsys):
         streamed = self._setup(monkeypatch, tmp_path,
                                {self._cmd("runJobs.php", "b")})
         rc = maintenance.cmd_maintenance_update(
             _args(id="mysite", wiki=None, skip_jobs=False, skip_smw=True))
         assert rc == 7
         assert self._cmd("runJobs.php", "c") in streamed
+        captured = capsys.readouterr()
+        assert "Maintenance update complete for: a, c" in captured.out
+        assert "Maintenance update failed for: b" in captured.err
 
-    def test_all_succeed(self, monkeypatch, tmp_path):
+    def test_all_succeed(self, monkeypatch, tmp_path, capsys):
         self._setup(monkeypatch, tmp_path, set())
         assert maintenance.cmd_maintenance_update(
             _args(id="mysite", wiki=None, skip_jobs=False,
                   skip_smw=True)) == 0
+        captured = capsys.readouterr()
+        assert "Maintenance update complete for: a, b, c" in captured.out
+        assert "failed" not in captured.out + captured.err
 
 
 # --- _helpers remote / K8s branches -----------------------------------------
