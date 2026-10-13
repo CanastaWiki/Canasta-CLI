@@ -5,7 +5,8 @@
 # chart-owned ConfigMap, and a helm upgrade re-renders it from
 # configs.ssh.knownHosts + configs.ssh.extraHosts alone. Every line the chart's
 # knownHosts doesn't already render goes into extraHosts, so the upgrade keeps
-# them and Helm owns them from then on.
+# them and Helm owns them from then on. Comment lines (ssh-keyscan banners)
+# are dropped.
 #
 # Input: argocd_known_hosts_values_file (path to write),
 #        argocd_namespace (default: argocd); helm and kubectl on the target.
@@ -33,7 +34,7 @@
       {{ ((((_argocd_known_hosts_cm.stdout | from_json)
              if _argocd_known_hosts_cm.stdout | trim else {}).data
            | default({})).ssh_known_hosts | default('')).splitlines()
-         | map('trim') | select | list }}
+         | map('trim') | select | reject('match', '#') | list }}
   ansible.builtin.set_fact:
     _argocd_extra_hosts: "{{ _cm_lines | reject('in', _chart_lines) | unique | list }}"
 

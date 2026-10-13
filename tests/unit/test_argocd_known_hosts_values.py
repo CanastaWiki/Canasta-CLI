@@ -101,6 +101,13 @@ def test_duplicate_lines_in_the_configmap_collapse(tmp_path):
     assert _lines(values["configs"]["ssh"]["extraHosts"]) == SELF_HOSTED
 
 
+def test_comment_lines_in_the_configmap_are_dropped(tmp_path):
+    cm = "\n".join(["# git.example.com:22 SSH-2.0-OpenSSH_9.7"] + CHART
+                   + SELF_HOSTED + ["  # [git.example.org]:2222 SSH-2.0-x"])
+    values = _run(tmp_path, cm + "\n")
+    assert _lines(values["configs"]["ssh"]["extraHosts"]) == SELF_HOSTED
+
+
 def test_only_chart_defaults_add_nothing(tmp_path):
     values = _run(tmp_path, "\n".join(CHART) + "\n")
     assert values["configs"]["ssh"]["extraHosts"] == ""
