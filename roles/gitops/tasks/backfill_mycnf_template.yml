@@ -163,6 +163,7 @@
          | to_nice_yaml(indent=2) }}
     dest: "{{ instance_path }}/hosts/_shared/vars.yaml"
     mode: "0600"
+  register: _bmt_shared_write
   when:
     - _bmt_migrate | bool
     - "'innodb_buffer_pool_size' not in _gitops_host.shared_vars"
@@ -196,6 +197,7 @@
     msg: |-
       my.cnf is now a rendered, per-host file.
 
+      {% if _bmt_shared_write is not skipped %}
       Created my.cnf.template, recorded
       innodb_buffer_pool_size: {{ _bmt_current }} as the shared
       default, and untracked my.cnf (it is gitignored now). All
@@ -208,4 +210,23 @@
 
         canasta gitops pull
         # hosts/<host>/vars.yaml: innodb_buffer_pool_size: 2G
+      {% else %}
+      Created my.cnf.template and untracked my.cnf (it is gitignored
+      now). All staged — publish with:
+
+        canasta gitops push
+
+      {% if 'innodb_buffer_pool_size' in _gitops_host.host_vars %}
+      innodb_buffer_pool_size was not recorded as a shared default:
+      this host's vars already set it to
+      {{ _gitops_host.host_vars.innodb_buffer_pool_size }}.
+      {% if 'innodb_buffer_pool_size' not in _gitops_host.shared_vars %}
+      A host without its own value gets none; set one in
+      hosts/_shared/vars.yaml or in each host's vars.yaml.
+      {% endif %}
+      {% else %}
+      The shared vars already set innodb_buffer_pool_size to
+      {{ _gitops_host.shared_vars.innodb_buffer_pool_size }}.
+      {% endif %}
+      {% endif %}
   when: _bmt_migrate | bool

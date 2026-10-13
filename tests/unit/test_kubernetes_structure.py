@@ -1345,18 +1345,25 @@ class TestGitopsInitNonInteractive:
     by failing fast instead of hanging when the key is not yet
     authorized."""
 
-    INIT_K8S = os.path.join(GITOPS_TASKS, "init_kubernetes.yml")
+    INIT_K8S = os.path.join(GITOPS_TASKS, "_init_deploy_key_probe.yml")
 
     def _content(self):
         with open(self.INIT_K8S) as f:
             return f.read()
+
+    def test_init_runs_the_probe_before_the_remote_check(self):
+        with open(os.path.join(GITOPS_TASKS, "init_kubernetes.yml")) as f:
+            c = f.read()
+        i = c.find("_init_deploy_key_probe.yml")
+        j = c.find("Check remote is reachable and empty")
+        assert 0 <= i < j
 
     def test_probes_key_before_pausing(self):
         c = self._content()
         i = c.find("git ls-remote")
         j = c.find("Pause for user to add deploy key")
         assert 0 <= i < j, (
-            "init_kubernetes.yml must probe the deploy key (git ls-remote) "
+            "the deploy key probe must run git ls-remote "
             "before the pause, to decide whether the pause is needed"
         )
         assert "_deploy_key_authorized" in c, (
