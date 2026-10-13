@@ -34,8 +34,9 @@ image:
 domains:
   - {{ domain_name | default('localhost') }}
 
-{% set _enable_tls = domain_name | default('localhost') != 'localhost' and not (skip_tls | default(false) | bool) %}
-{% if (ingress_class is defined and ingress_class != '') or _enable_tls %}
+{% set _skip_tls = skip_tls | default(false) | bool %}
+{% set _enable_tls = domain_name | default('localhost') != 'localhost' and not _skip_tls %}
+{% if (ingress_class is defined and ingress_class != '') or _enable_tls or _skip_tls %}
 ingress:
 {% if ingress_class is defined and ingress_class != '' %}
   className: {{ ingress_class }}
@@ -45,6 +46,9 @@ ingress:
   certManager:
     enabled: true
     issuer: {{ (_staging_certs | default(false)) | ternary('letsencrypt-staging', 'letsencrypt-prod') }}
+{% elif _skip_tls %}
+{# ingress.tls also picks the MW_SITE_SERVER scheme in the chart. #}
+  tls: false
 {% endif %}
 {% endif %}
 

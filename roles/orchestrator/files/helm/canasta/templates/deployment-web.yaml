@@ -81,7 +81,7 @@ spec:
           env:
             {{- if .Values.domains }}
             - name: MW_SITE_SERVER
-              value: "{{ ternary "http" "https" (eq (index .Values.domains 0) "localhost") }}://{{ index .Values.domains 0 }}"
+              value: "{{ ternary "https" "http" (and .Values.ingress.tls (ne (index .Values.domains 0) "localhost")) }}://{{ index .Values.domains 0 }}"
             - name: MW_SITE_FQDN
               value: "{{ index .Values.domains 0 }}"
             {{- end }}
