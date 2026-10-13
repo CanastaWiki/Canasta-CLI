@@ -102,6 +102,13 @@
     name: orchestrator
     tasks_from: reload_caddy.yml
 
+# The converge cannot deliver my.cnf either: it is bind-mounted too, and
+# MariaDB reads it only at startup.
+- name: Recreate the database if my.cnf changed since it started
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: restart_db_for_mycnf.yml
+
 # A configuration change can alter every rendered page, and nothing else
 # tells Varnish that what it cached is stale.
 - name: Clear the Varnish cache
@@ -117,5 +124,11 @@
 - name: Report reconciled
   ansible.builtin.debug:
     msg: >-
+      {% if _mycnf_restart_unknown | default(false) | bool -%}
+      Instance '{{ instance_id }}' reconciled, but whether the database is
+      running the current my.cnf could not be determined. Run 'canasta
+      restart' to make sure it is applied.
+      {%- else -%}
       Instance '{{ instance_id }}' reconciled — config and running containers
       are in sync.
+      {%- endif %}
