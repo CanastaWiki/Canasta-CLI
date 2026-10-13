@@ -137,6 +137,25 @@
       changed_when: true
       ignore_errors: true  # OK if a directory is already gone
 
+    # Dev mode bind-mounts mediawiki-code/ over the container's code, so
+    # whatever the container writes there (composer's vendor/, for one)
+    # is owned by root. The directory outlives `devmode disable`.
+    - name: Check for dev mode code directory
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/mediawiki-code"
+      register: _destroy_dev_code
+
+    - name: Remove dev mode code directory
+      ansible.builtin.command:
+        cmd: >-
+          {{ inspect_command }} run --rm
+          -v {{ instance_path | quote }}:/instance
+          docker.io/library/alpine
+          rm -rf /instance/mediawiki-code
+      changed_when: true
+      ignore_errors: true  # the directory removal below reports what remains
+      when: _destroy_dev_code.stat.exists
+
     - name: Remove backup staging volume
       ansible.builtin.command:
         cmd: "{{ inspect_command }} volume rm canasta-backup-{{ instance_path | basename }}"
