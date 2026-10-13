@@ -1070,8 +1070,7 @@ def _db_tuning_lines(inst):
 
     Reports the value the *server* is running with, not what a file says:
     my.cnf is read only at server start, so an edit that has not been
-    followed by a restart leaves the two disagreeing while `canasta
-    reconcile` reports the instance in sync.
+    followed by a restart leaves the two disagreeing.
     """
     if not inst:
         return []
@@ -1136,14 +1135,13 @@ def _db_tuning_lines(inst):
 
     # my.cnf is the hook operators are told to use, and a value there that
     # the server is not running is the failure the docs warn about: the
-    # file is read at start, so an edit without a restart changes nothing
-    # while reconcile still reports the instance in sync.
+    # file is read at start, so an edit without a restart changes nothing.
     configured = _my_cnf_buffer_pool(path, host, inst)
     if configured is not None and configured != pool:
         lines.append(
             "  WARN — my.cnf sets %s but the server is running %s. my.cnf is "
-            "read at server start: run 'canasta restart' to apply it "
-            "('canasta reconcile' does not recreate the database container)."
+            "read at server start: run 'canasta reconcile', which recreates "
+            "only the database, or 'canasta restart' to apply it."
             % (_human_bytes(configured), _human_bytes(pool)))
     elif pool == 134217728 and data > pool:
         lines.append(

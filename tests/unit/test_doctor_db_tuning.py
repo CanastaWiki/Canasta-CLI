@@ -2,8 +2,7 @@
 my.cnf can be wrong.
 
 my.cnf is read at server start, so an edit without a restart leaves the
-file and the server disagreeing while `canasta reconcile` still reports
-the instance in sync. And a server setting placed under the shipped
+file and the server disagreeing. And a server setting placed under the shipped
 [client] header does not merely fail to apply: the client tools read that
 group, reject the unknown option, and every mariadb / mariadb-dump call
 fails — backups and restores included — while the server keeps serving.
@@ -65,9 +64,9 @@ class TestFileVersusServer:
         out = "\n".join(doctor._db_tuning_lines(INST))
         assert "WARN" in out and "1.0 GB" in out and "128 MB" in out
         assert "canasta restart" in out
-        assert "reconcile" in out, (
-            "reconcile does not recreate the db container, which is the "
-            "trap this warning exists for")
+        assert "canasta reconcile" in out, (
+            "reconcile recreates the database to apply my.cnf without "
+            "restarting the rest of the instance")
 
     def test_agreement_produces_no_warning(self, monkeypatch):
         _patch(monkeypatch, "MariaDB Server\t1073741824\t2097152\n",
