@@ -169,6 +169,7 @@ def cmd_maintenance_update(args):
     skip_jobs = bool(getattr(args, "skip_jobs", False))
     skip_smw = bool(getattr(args, "skip_smw", False))
     overall_rc = 0
+    failed = set()
 
     for w in wikis:
         print("\n=== update.php (%s) ===" % w)
@@ -178,9 +179,13 @@ def cmd_maintenance_update(args):
         )
         if rc != 0:
             overall_rc = rc
+            failed.add(w)
+
+    # Jobs and SMW rebuilds would run against a partially updated schema.
+    updated = [w for w in wikis if w not in failed]
 
     if not skip_jobs:
-        for w in wikis:
+        for w in updated:
             print("\n=== runJobs.php (%s) ===" % w)
             rc = _helpers._stream_in_container(
                 inst_id, inst,
@@ -189,6 +194,7 @@ def cmd_maintenance_update(args):
             )
             if rc != 0:
                 overall_rc = rc
+                failed.add(w)
 
     if not skip_smw:
         rc, out = _helpers._exec_in_container(
@@ -197,7 +203,7 @@ def cmd_maintenance_update(args):
             "&& echo yes || echo no",
         )
         if rc == 0 and out.strip() == "yes":
-            for w in wikis:
+            for w in updated:
                 loaded = _smw_loaded(inst_id, inst, w)
                 if loaded is None:
                     print(
@@ -220,5 +226,13 @@ def cmd_maintenance_update(args):
                     retry_on_reset=True,  # rebuildData.php is idempotent
                 )
 
-    print("\nMaintenance update complete for: %s" % ", ".join(wikis))
+    completed = [w for w in wikis if w not in failed]
+    if completed:
+        print("\nMaintenance update complete for: %s" % ", ".join(completed))
+    if failed:
+        print(
+            "\nMaintenance update failed for: %s"
+            % ", ".join(w for w in wikis if w in failed),
+            file=sys.stderr,
+        )
     return overall_rc
