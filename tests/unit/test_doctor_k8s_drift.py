@@ -90,6 +90,26 @@ class TestDrift:
         cur = doctor._k8s_current_channels({"config/wikis.yaml": "a: 1"})
         assert doctor._k8s_config_drift(base, cur) == []
 
+    def test_extra_databases_change_is_not_drift(self):
+        # backup databases add only edits what the CLI reads from the host
+        # copy; the pods have nothing to pick up.
+        base = {"web": {"wikis.yaml":
+                        "wikis:\n- id: main\n  url: example.com\n"}}
+        cur = doctor._k8s_current_channels({"config/wikis.yaml": (
+            "wikis:\n- id: main\n  url: example.com\n"
+            "  extra_databases:\n  - main_smw\n")})
+        assert doctor._k8s_config_drift(base, cur) == []
+
+    def test_served_wikis_yaml_change_is_drift(self):
+        base = {"web": {"wikis.yaml": (
+            "wikis:\n- id: main\n  url: example.com\n"
+            "  extra_databases:\n  - main_smw\n")}}
+        cur = doctor._k8s_current_channels({"config/wikis.yaml": (
+            "wikis:\n- id: main\n  url: example.org\n"
+            "  extra_databases:\n  - main_smw\n")})
+        assert doctor._k8s_config_drift(base, cur) == [
+            ("config/wikis.yaml", "changed")]
+
     def test_changed_settings_file_flagged(self):
         base = {"web": {"settings--global--Foo.php": "<?php $x = 1;\n"}}
         cur = doctor._k8s_current_channels(

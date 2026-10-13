@@ -1333,6 +1333,23 @@ def _k8s_current_channels(current_files):
     return channels
 
 
+def _k8s_wikis_yaml_as_served(text):
+    """wikis.yaml without what only the CLI reads (each wiki's
+    extra_databases, which feed backups from the host copy), so declaring a
+    backup database is not reported as config the pods are missing. Text
+    that does not parse is returned unchanged."""
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return text
+    if isinstance(data, dict) and isinstance(data.get("wikis"), list):
+        data = dict(data, wikis=[
+            {k: v for k, v in w.items() if k != "extra_databases"}
+            if isinstance(w, dict) else w
+            for w in data["wikis"]])
+    return data
+
+
 def _k8s_config_drift(baseline_channels, current_channels):
     """Return [(display_path, status)] where status is added/changed/removed,
     comparing the deployed snapshot's configData channels against current
@@ -1347,6 +1364,10 @@ def _k8s_config_drift(baseline_channels, current_channels):
                 drift.append((disp, "added"))
             elif key not in cur:
                 drift.append((disp, "removed"))
+            elif channel == "web" and key == "wikis.yaml":
+                if (_k8s_wikis_yaml_as_served(str(base[key]))
+                        != _k8s_wikis_yaml_as_served(str(cur[key]))):
+                    drift.append((disp, "changed"))
             elif str(base[key]).rstrip("\n") != str(cur[key]).rstrip("\n"):
                 drift.append((disp, "changed"))
     return drift
