@@ -30,10 +30,12 @@
         key: "{{ item.split('=', 1)[0] }}"
         value: "{{ item.split('=', 1)[1] }}"
       loop: "{{ (_custom_env.content | b64decode).split('\n') | select('match', '^[A-Z].*=') | list }}"
+      loop_control:
+        label: "{{ item.split('=', 1)[0] }}"
 
-# For external DB, use the password from the env file instead of the
-# generated one. The env file was merged above and may contain
-# MYSQL_PASSWORD from the user's -e file.
+# For external DB, a non-empty MYSQL_PASSWORD from the user's -e file
+# wins over --rootdbpass and the generated one. The template ships the
+# key empty, so an empty value means the -e file did not set it.
 - name: Check if using external DB
   canasta_env:
     path: "{{ instance_path }}/.env"
@@ -61,10 +63,9 @@
 
     - name: Override root DB password with external DB password
       ansible.builtin.set_fact:
-        _rootdbpass: "{{ _ext_db_password.value }}"
-        _wikidbpass: "{{ _ext_db_password.value }}"
+        _rootdbpass: "{{ _ext_db_password.value | default(_rootdbpass, true) }}"
+        _wikidbpass: "{{ _ext_db_password.value | default(_rootdbpass, true) }}"
         _wiki_db_user: "{{ _ext_db_user.value | default('root', true) }}"
-      when: _ext_db_password.found
       no_log: true
 
 - name: Read HTTPS_PORT and CADDY_AUTO_HTTPS from .env
