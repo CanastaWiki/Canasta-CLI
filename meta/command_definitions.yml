@@ -1044,7 +1044,8 @@ commands:
       deploys it from its gitops repo. Upgrade stages the refreshed chart and
       image tag there, and you deploy them with `canasta gitops push`, then
       `canasta gitops sync`. An instance built from source still has its
-      image rebuilt, and its web pods restart onto the new build.
+      image rebuilt, and its web pods restart when the new build differs
+      from the image they run.
 
       By default the CLI itself updates to the latest released version
       within the current major (the highest vX.Y.Z tag whose major matches

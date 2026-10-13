@@ -369,48 +369,17 @@
 
     # A rebuilt image is pushed under the same reference, so the pushed
     # values do not change and Argo CD would not roll the pods onto it.
-    - name: Roll the web pods onto a rebuilt image
+    - name: Restart the web pods onto a rebuilt image
       when:
-        - _upgrade_rebuild | bool
+        - _upgrade_rebuilt_image_changed | bool
         - _was_running | bool
       block:
-        - name: Read the rebuilt image's registry digest
-          ansible.builtin.command:
-            cmd: >-
-              {{ inspect_command | default('docker') }} image inspect
-              localhost:5000/{{ _built_image }}
-              --format '{% raw %}{{json .RepoDigests}}{% endraw %}'
-          register: _upgrade_rebuilt_digests
-          changed_when: false
-          failed_when: false
-
-        - name: Read the image digests the web pods run
-          ansible.builtin.command:
-            cmd: >-
-              kubectl get pods -n canasta-{{ instance_id }}
-              -l app.kubernetes.io/component=web
-              -o jsonpath={.items[*].status.containerStatuses[*].imageID}
-          register: _upgrade_web_digests
-          changed_when: false
-          failed_when: false
-
-        - name: Decide whether the web pods already run the rebuilt image
-          ansible.builtin.set_fact:
-            _upgrade_web_current: >-
-              {{ _upgrade_rebuilt_digest != ''
-                 and _upgrade_rebuilt_digest in (_upgrade_web_digests.stdout | default('')) }}
-          vars:
-            _upgrade_rebuilt_digest: >-
-              {{ (_upgrade_rebuilt_digests.stdout | default(''))
-                 | regex_search('sha256:[0-9a-f]{64}') | default('', true) }}
-
-        - name: Restart the web pods onto the rebuilt image
+        - name: Restart the web pods
           ansible.builtin.command:
             cmd: >-
               kubectl rollout restart deployment/canasta-{{ instance_id }}-web
               -n canasta-{{ instance_id }}
           changed_when: true
-          when: not (_upgrade_web_current | bool)
 
         - name: Wait for the web pods to run the rebuilt image
           ansible.builtin.command:
@@ -418,7 +387,6 @@
               kubectl rollout status deployment/canasta-{{ instance_id }}-web
               -n canasta-{{ instance_id }} --timeout=300s
           changed_when: false
-          when: not (_upgrade_web_current | bool)
 
     - name: Report the upgrade staged for a gitops push
       ansible.builtin.debug:

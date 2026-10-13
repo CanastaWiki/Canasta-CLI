@@ -3,8 +3,8 @@
 Argo CD deploys such an instance from its gitops repo and self-heals back to
 it, so a direct redeploy is reverted until the staged changes are pushed.
 These run the tail of the upgrade role (from the restart decision on) as a
-localhost play, with every included file stubbed out and kubectl / docker
-replaced by fakes that log their arguments.
+localhost play, with every included file stubbed out and kubectl replaced
+by a fake that logs its arguments.
 """
 
 import json
@@ -18,21 +18,9 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 MAIN = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "main.yml")
 PLAYBOOK = os.path.join(REPO_ROOT, "playbooks", "upgrade.yml")
 FIRST = "Decide whether a restart is needed"
-DIGEST = "sha256:" + "a" * 64
-OTHER = "sha256:" + "b" * 64
 
 FAKE_KUBECTL = """#!/bin/sh
 echo "kubectl $*" >> "$FAKE_LOG"
-case "$*" in
-  "get pods"*) printf '%s' "10.43.0.2:5000/canasta@$FAKE_WEB_DIGEST" ;;
-esac
-"""
-
-FAKE_DOCKER = """#!/bin/sh
-echo "docker $*" >> "$FAKE_LOG"
-case "$*" in
-  "image inspect"*) printf '["localhost:5000/canasta@%s"]' "$FAKE_PUSHED_DIGEST" ;;
-esac
 """
 
 
@@ -80,13 +68,12 @@ def _instance(tmp_path, gitops, staged):
 
 
 def _run(tmp_path, *, k8s=True, gitops=True, staged=True, running=True,
-         images_updated=True, rebuild=False, web_digest=OTHER):
+         images_updated=True, image_changed=False):
     inst = _instance(tmp_path, gitops, staged)
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    for name, body in (("kubectl", FAKE_KUBECTL), ("docker", FAKE_DOCKER)):
-        (bindir / name).write_text(body)
-        (bindir / name).chmod(0o755)
+    (bindir / "kubectl").write_text(FAKE_KUBECTL)
+    (bindir / "kubectl").chmod(0o755)
     log = tmp_path / "fake.log"
     log.write_text("")
     result = tmp_path / "result.json"
@@ -100,14 +87,12 @@ def _run(tmp_path, *, k8s=True, gitops=True, staged=True, running=True,
             "instance_path": str(inst),
             "instance_id": "inst",
             "instance_is_k8s": k8s,
-            "inspect_command": "docker",
             "_test_calls": [],
             "_was_running": running,
             "_images_updated": images_updated,
             "_k8s_chart_changed": False,
-            "_upgrade_rebuild": rebuild,
+            "_upgrade_rebuilt_image_changed": image_changed,
             "_upgrade_build_failed_services": [],
-            "_built_image": "canasta:local",
             "_upgrade_instances": {"instances": {"inst": {}}},
         },
         "tasks": _tail() + [_summary_task(), {
@@ -122,8 +107,7 @@ def _run(tmp_path, *, k8s=True, gitops=True, staged=True, running=True,
     playfile.write_text(yaml.safe_dump(play, sort_keys=False))
     env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
                PATH=f"{bindir}{os.pathsep}{os.environ['PATH']}",
-               FAKE_LOG=str(log), FAKE_WEB_DIGEST=web_digest,
-               FAKE_PUSHED_DIGEST=DIGEST,
+               FAKE_LOG=str(log),
                ANSIBLE_FILTER_PLUGINS=os.path.join(REPO_ROOT, "filter_plugins"))
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
     proc = subprocess.run([playbook, "-i", "localhost,", str(playfile)],
@@ -165,17 +149,20 @@ class TestGitopsKubernetes:
         assert "gitops push -i" not in out
         assert "are staged" not in out
 
-    def test_rebuilt_image_restarts_the_web_pods(self, tmp_path):
-        out, calls, fake = _run(tmp_path, staged=False, images_updated=False,
-                                rebuild=True, web_digest=OTHER)
-        assert "start.yml" not in calls
+    def test_changed_rebuilt_image_restarts_the_web_pods(self, tmp_path):
+        _, calls, fake = _run(tmp_path, staged=False, images_updated=False,
+                              image_changed=True)
+        assert "stop.yml" not in calls and "start.yml" not in calls
         assert "kubectl rollout restart deployment/canasta-inst-web -n canasta-inst" in fake
         assert "kubectl rollout status deployment/canasta-inst-web" in fake
 
     def test_unchanged_rebuild_leaves_the_web_pods(self, tmp_path):
         _, _, fake = _run(tmp_path, staged=False, images_updated=False,
-                          rebuild=True, web_digest=DIGEST)
-        assert "get pods" in fake
+                          image_changed=False)
+        assert "rollout restart" not in fake
+
+    def test_stopped_instance_is_not_restarted_onto_a_rebuild(self, tmp_path):
+        _, _, fake = _run(tmp_path, running=False, image_changed=True)
         assert "rollout restart" not in fake
 
 
