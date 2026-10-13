@@ -1278,7 +1278,7 @@ def _ssh_args():
     # to a remote should expose the same agent so any forge auth
     # (gitops one-shots, future scripts) works the same way.
     # ServerAliveInterval keeps long-running commands (e.g.
-    # `helm upgrade --wait --timeout 10m` from `canasta scale`) from
+    # `helm upgrade --wait --timeout 15m` from `canasta scale`) from
     # tripping a NAT / firewall idle drop and reporting a bogus
     # "Broken pipe" while the remote is still working.
     extra = os.environ.get(

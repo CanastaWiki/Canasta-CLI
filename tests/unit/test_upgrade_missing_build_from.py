@@ -78,12 +78,18 @@ def test_a_missing_source_warns_rather_than_failing():
 
 
 def test_a_skipped_rebuild_does_not_force_a_restart():
-    # The forced restart exists only to deploy a freshly built image; with no
-    # rebuild there is nothing new to deploy.
+    # The rebuilt-image signal is reset before the gated rebuild, so a skipped
+    # rebuild leaves nothing new to deploy.
     tasks = _tasks(UPGRADE_MAIN)
+    names = _names(tasks)
+    reset = "Reset the rebuilt image change signal for this instance"
+    assert "when" not in _by_name(tasks, reset)
+    assert _by_name(tasks, reset)["ansible.builtin.set_fact"] == {
+        "_upgrade_rebuilt_image_changed": False}
+    assert names.index(reset) < names.index(REBUILD) < names.index(PUBLISH)
     expr = _by_name(tasks, "Decide whether a restart is needed")[
         "ansible.builtin.set_fact"]["_restart_needed"]
-    assert "_upgrade_rebuild | bool" in expr
+    assert "_upgrade_rebuilt_image_changed | bool" in expr
     assert "buildFrom" not in expr
 
 
