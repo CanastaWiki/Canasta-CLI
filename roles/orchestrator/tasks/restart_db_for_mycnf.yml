@@ -1,0 +1,178 @@
+---
+# Recreate the bundled database when my.cnf changed after it started.
+#
+# Compose bind-mounts my.cnf as a single file, so `docker compose up -d` sees
+# no change to the service definition and never recreates the container, and
+# MariaDB reads the file only at startup. A my.cnf modified later than the
+# running container's start has not been read. my.cnf is written only when
+# its content changes, so its mtime marks the last real change.
+#
+# Compose only: on Kubernetes the db StatefulSet carries a checksum of its
+# ConfigMap, so a my.cnf change rolls the pod.
+#
+# Input: instance_path, instance_is_k8s, inspect_command, compose_command,
+#   instance_devmode (optional)
+# Output: _mycnf_restart_unknown (bool) - true when a running database's
+#   start time could not be compared with my.cnf
+
+- name: Initialize the my.cnf comparison result
+  ansible.builtin.set_fact:
+    _mycnf_restart_unknown: false
+    _mycnf_restart_db: false
+
+- name: Compare my.cnf with the running database
+  when: not (instance_is_k8s | bool)
+  block:
+    - name: Stat my.cnf
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/my.cnf"
+        get_checksum: false
+      register: _mycnf_stat
+
+    - name: Find the running database container
+      ansible.builtin.command:
+        argv:
+          - "{{ inspect_command | default('docker') }}"
+          - ps
+          - --filter
+          - "label=com.docker.compose.project={{ instance_path | basename | lower }}"
+          - --filter
+          - label=com.docker.compose.service=db
+          - --format
+          - "{% raw %}{{.ID}}{% endraw %}"
+        chdir: "{{ instance_path }}"
+      register: _mycnf_db_cid
+      changed_when: false
+      failed_when: false
+      when: _mycnf_stat.stat.exists | default(false)
+
+    - name: Read when the database container started
+      ansible.builtin.command:
+        argv:
+          - "{{ inspect_command | default('docker') }}"
+          - inspect
+          - "-f"
+          - "{% raw %}{{.State.StartedAt}}{% endraw %}"
+          - "{{ _mycnf_db_cid.stdout | trim }}"
+      register: _mycnf_db_started
+      changed_when: false
+      failed_when: false
+      when:
+        - _mycnf_stat.stat.exists | default(false)
+        - _mycnf_db_cid.stdout | default('') | trim != ''
+
+    - name: Decide whether the database has read the current my.cnf
+      ansible.builtin.set_fact:
+        _mycnf_restart_db: >-
+          {{ _mycnf_started_epoch is not none
+             and (_mycnf_stat.stat.mtime | float) > _mycnf_started_epoch }}
+        _mycnf_restart_unknown: "{{ _mycnf_started_epoch is none }}"
+      vars:
+        _mycnf_started_epoch: >-
+          {{ (_mycnf_db_started.stdout | container_started_epoch)
+             if _mycnf_db_started.rc == 0 else none }}
+      when: _mycnf_db_started is not skipped
+
+    - name: Report the database restart
+      ansible.builtin.debug:
+        msg: >-
+          my.cnf changed after the database started; recreating the database
+          container to apply it.
+      when: _mycnf_restart_db | bool
+
+    # A restart would keep the container's bind mount, which holds the inode
+    # my.cnf had when the container was created; an editor that saves by
+    # replacing the file leaves that inode with the old content. Recreating
+    # binds the current file. The compose files and profiles are the ones
+    # start.yml uses, so the recreated service has the same definition.
+    - name: Recreate the database
+      when: _mycnf_restart_db | bool
+      block:
+        - name: Check for the compose layers start.yml applies
+          ansible.builtin.stat:
+            path: "{{ instance_path }}/{{ item }}"
+          loop:
+            - docker-compose.sidecars.yml
+            - docker-compose.web-env.yml
+            - docker-compose.override.yml
+          register: _mycnf_layers
+
+        - name: Read COMPOSE_PROFILES from .env
+          canasta_env:
+            path: "{{ instance_path }}/.env"
+            state: read_all
+          register: _mycnf_env
+          no_log: true  # registers the whole .env, including passwords
+          when: compose_command is search('podman')
+
+        # podman-compose ignores COMPOSE_PROFILES from .env, so it is given
+        # --profile flags; Docker Compose reads .env itself.
+        - name: Build the compose arguments
+          ansible.builtin.set_fact:
+            _mycnf_compose_args: >-
+              {{ (['-f docker-compose.yml']
+                  + (_mycnf_layers.results | selectattr('stat.exists')
+                     | map(attribute='item') | map('regex_replace', '^', '-f ')
+                     | list)
+                  + ((instance_devmode | default(false) | bool)
+                     | ternary(['-f docker-compose.dev.yml'], []))
+                  + ((_mycnf_env.variables.COMPOSE_PROFILES | default(''))
+                     | split(',') | map('trim') | reject('equalto', '')
+                     | map('regex_replace', '^', '--profile ') | list))
+                 | join(' ') }}
+
+        - name: Recreate the database container
+          ansible.builtin.command:
+            cmd: >-
+              {{ compose_command }} {{ _mycnf_compose_args }}
+              up -d --force-recreate --no-deps db
+            chdir: "{{ instance_path }}"
+          changed_when: true
+
+        - name: Find the recreated database container
+          ansible.builtin.command:
+            argv:
+              - "{{ inspect_command | default('docker') }}"
+              - ps
+              - "-a"
+              - --filter
+              - "label=com.docker.compose.project={{ instance_path | basename | lower }}"
+              - --filter
+              - label=com.docker.compose.service=db
+              - --format
+              - "{% raw %}{{.ID}}{% endraw %}"
+            chdir: "{{ instance_path }}"
+          register: _mycnf_new_cid
+          changed_when: false
+
+        # Whatever runs next may query the database, so wait for it to accept
+        # connections again. An image with no healthcheck is not waited on.
+        - name: Wait for the database to report healthy
+          ansible.builtin.command:
+            argv:
+              - "{{ inspect_command | default('docker') }}"
+              - inspect
+              - "-f"
+              - "{% raw %}{{if .State.Health}}{{.State.Health.Status}}{{end}}{% endraw %}"
+              - "{{ _mycnf_new_cid.stdout | trim }}"
+          register: _mycnf_db_health
+          changed_when: false
+          failed_when: false
+          retries: 60
+          delay: 5
+          until: >-
+            _mycnf_db_health.rc == 0
+            and (_mycnf_db_health.stdout | trim) in ['healthy', '']
+
+        - name: Fail when the database did not come back healthy
+          ansible.builtin.fail:
+            msg: >-
+              Recreated the database to apply my.cnf, but it did not report
+              healthy (last status: '{{ _mycnf_db_health.stdout | default('') | trim }}').
+              A setting in my.cnf can stop MariaDB from starting — an
+              innodb_buffer_pool_size larger than the host can allocate, for
+              one. Check the db container's logs, fix my.cnf, and run the
+              command again.
+          when: >-
+            _mycnf_db_health.rc != 0
+            or (_mycnf_db_health.stdout | trim) not in ['healthy', '']
