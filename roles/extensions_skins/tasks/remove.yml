@@ -124,7 +124,7 @@
 - name: Report absent items skipped
   ansible.builtin.debug:
     msg: >-
-      {{ _item_type | capitalize }}{{ 's' if _remove_absent | length != 1 else '' }}
+      {{ (_item_type[:-1] if _remove_absent | length == 1 else _item_type) | capitalize }}
       not present under {{ _item_dir }}/ (nothing to remove):
       {{ _remove_absent | join(', ') }}
   when: _remove_absent | length > 0
@@ -306,10 +306,12 @@
       or _remove_enabled | length > 0
       or _composer_local.changed | default(false) | bool
 
+# With nothing present, the absent-items report above already says so.
 - name: "Report {{ _item_type }} removed"
+  when: _remove_present | length > 0
   ansible.builtin.debug:
     msg: >-
-      Removed {{ _item_type }}{{ 's' if _remove_present | length != 1 else '' }}:
-      {{ _remove_present | join(', ') | default('none', true) }}.
+      Removed {{ _item_type[:-1] if _remove_present | length == 1 else _item_type }}:
+      {{ _remove_present | join(', ') }}.
       {{ ('Disabled: ' ~ (_remove_enabled | join(', ')) ~ '. ') if (_remove_enabled | length > 0) else '' }}
       {{ ('[gitops: committed; run canasta gitops push to distribute]') if (is_gitops | bool) else '' }}
