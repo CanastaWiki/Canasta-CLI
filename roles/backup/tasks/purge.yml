@@ -51,10 +51,21 @@
       {{ _purge_list + ['--keep-within', keep_within] }}
   when: keep_within is defined and keep_within != ''
 
+# Snapshots carry the tag in the form `backup create` stores, which names
+# the host that took them.
+- name: Get hostname for keep-tag
+  ansible.builtin.command:
+    cmd: hostname
+  register: _purge_hostname
+  changed_when: false
+  when: keep_tag is defined and keep_tag != ''
+
 - name: Add keep-tag
   ansible.builtin.set_fact:
     _purge_list: >-
-      {{ _purge_list + ['--keep-tag', keep_tag] }}
+      {{ _purge_list
+         + ['--keep-tag',
+            keep_tag | backup_tag_match(_purge_hostname.stdout | trim)] }}
   when: keep_tag is defined and keep_tag != ''
 
 # restic reports what forget/prune would remove and exits without

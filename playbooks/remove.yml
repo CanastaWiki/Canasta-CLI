@@ -86,6 +86,8 @@
       ansible.builtin.include_tasks: >-
         {{ canasta_root }}/roles/orchestrator/tasks/db_admin.yml
 
+    # One client call per database, so a failure names only the databases
+    # it left behind; the names of those that fail go to stdout.
     - name: Drop wiki databases
       ansible.builtin.include_tasks: >-
         {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
@@ -93,21 +95,32 @@
         exec_service: "{{ _db_admin_service }}"
         exec_no_log: true
         exec_command: >-
-          {{ _db_admin_pwd }} mariadb {{ _db_admin_args }}
-          -e '{% for db in _remove_drop_dbs %}DROP DATABASE IF EXISTS `{{ db }}`; {% endfor %}'
+          rc=0;
+          {% for db in _remove_drop_dbs %}
+          {{ _db_admin_pwd }} mariadb {{ _db_admin_args }} --skip-print-query-on-error
+          -e 'DROP DATABASE IF EXISTS `{{ db }}`' || { echo '{{ db }}'; rc=1; };
+          {% endfor %}
+          exit $rc
   rescue:
     - name: Record the databases left in place
       ansible.builtin.set_fact:
-        _remove_dbs_left: "{{ _remove_drop_dbs }}"
+        _remove_dbs_left: >-
+          {{ _remove_drop_dbs
+             | select('in', ansible_failed_result.stdout_lines | default([]))
+             | list
+             or _remove_drop_dbs }}
+        _remove_drop_error: >-
+          {{ (ansible_failed_result.stderr_lines | default([]) | map('trim')
+              | reject('equalto', '') | join('; '))
+             or (ansible_failed_result.msg | default('') | trim) }}
 
     - name: Warn that the wiki's databases were left in place
       ansible.builtin.debug:
         msg: >-
           WARNING: could not drop database(s)
-          {{ _remove_drop_dbs | join(', ') }} for wiki '{{ wiki }}':
-          {{ (ansible_failed_result.stderr | default(ansible_failed_result.msg | default('')))
-          | trim }}.
-          Drop {{ 'it' if _remove_drop_dbs | length == 1 else 'them' }}
+          {{ _remove_dbs_left | join(', ') }} for wiki '{{ wiki }}':
+          {{ _remove_drop_error }}.
+          Drop {{ 'it' if _remove_dbs_left | length == 1 else 'them' }}
           yourself once the cause is fixed.
 
 - name: Remove per-wiki settings directory
