@@ -47,6 +47,10 @@
       {{ 'canasta-caddy' in
          ((_crowdsec_bouncer_list or []) | map(attribute='name') | list) }}
     _crowdsec_have_key: "{{ _crowdsec_key.value | default('') | length > 0 }}"
+    _crowdsec_stale_children: >-
+      {{ (_crowdsec_bouncer_list or [])
+         | selectattr('name', 'match', 'canasta-caddy@')
+         | map(attribute='name') | list }}
 
 - name: Report already enrolled (idempotent no-op)
   ansible.builtin.debug:
@@ -59,6 +63,7 @@
     - _crowdsec_have_key | bool
     - not (force | default(false) | bool)
     - not (bouncer_enroll_auto | default(false) | bool)
+    - _crowdsec_stale_children | length == 0
 
 # Enroll when forced, when no bouncer is registered yet, or when one is
 # registered but we have no stored key (cscli can't reveal an existing
@@ -134,6 +139,38 @@
     msg: >-
       CrowdSec bouncer 'canasta-caddy' is enrolled and active for
       instance '{{ instance_id }}'.
+
+# When the caddy container reconnects from a new IP, CrowdSec auto-creates a
+# `canasta-caddy@<ip>` child sharing the key, and the old registrations stay
+# behind. cscli refuses to delete a child on its own; deleting the parent
+# removes the whole family. So re-create the parent with the stored key: the
+# key stays the same, no restart is needed, and the bouncer's next pull
+# claims the fresh parent instead of adding another child.
+- name: Reset the bouncer registration to a single entry
+  when:
+    - not (_crowdsec_enroll_stack | last | bool)
+    - _crowdsec_have_key | bool
+    - _crowdsec_existing | bool
+    - _crowdsec_stale_children | length > 0
+  block:
+    - name: Remove the bouncer and its auto-created registrations
+      ansible.builtin.command:
+        cmd: "{{ _cscli_prefix }} cscli bouncers delete canasta-caddy"
+        chdir: "{{ _cscli_chdir | default(omit) }}"
+      changed_when: true
+
+    - name: Re-register the bouncer with its stored key
+      ansible.builtin.command:
+        argv: "{{ _cscli_argv + ['cscli', 'bouncers', 'add', 'canasta-caddy', '--key', _crowdsec_key.value] }}"
+        chdir: "{{ _cscli_chdir | default(omit) }}"
+      changed_when: true
+      no_log: true
+
+    - name: Report removed registrations
+      ansible.builtin.debug:
+        msg: >-
+          Removed {{ _crowdsec_stale_children | length }} stale CrowdSec
+          bouncer registration(s) for instance '{{ instance_id }}'.
 
 - name: Drop this run's enrollment decision
   ansible.builtin.set_fact:
