@@ -786,6 +786,10 @@ _TLS_INTERNAL_ISSUER_MARKERS = ("caddy local authority",)
 # the same visible outcome as the internal-CA case above.
 _TLS_STAGING_ISSUER_MARKERS = ("(staging)",)
 
+# Traefik serves this self-signed certificate for any Ingress host that has
+# no certificate of its own.
+_TLS_TRAEFIK_DEFAULT_MARKERS = ("traefik default cert",)
+
 # Names Caddy serves from its internal CA by design.
 _TLS_LOCAL_NAMES = ("localhost",)
 _TLS_LOCAL_SUFFIXES = (
@@ -800,7 +804,7 @@ printf '%%sTLSINTERNAL:%%s\n' '%(delim)s' "$(grep -lE '^[[:space:]]*tls[[:space:
 for n in %(names)s; do
   printf '%%sNAME:%%s\n' '%(delim)s' "$n"
   echo | openssl s_client -connect 127.0.0.1:%(port)s -servername "$n" \
-      2>/dev/null | openssl x509 -noout -issuer -enddate 2>/dev/null
+      2>/dev/null | openssl x509 -noout -subject -issuer -enddate 2>/dev/null
 done
 """
 
@@ -819,8 +823,9 @@ def _is_public_hostname(name):
 
 
 def _parse_origin_tls(stdout):
-    """[(name, issuer, not_after)] from the probe output, or None when the host
-    has no openssl. issuer/not_after are empty when nothing answered."""
+    """[(name, issuer, not_after, subject)] from the probe output, or None
+    when the host has no openssl. The fields are empty when nothing
+    answered."""
     segments = stdout.split(_helpers._SENTINEL)
     if "NO_OPENSSL" in segments[0]:
         return None
@@ -831,14 +836,17 @@ def _parse_origin_tls(stdout):
             continue
         if not header.startswith("NAME:"):
             continue
-        issuer = not_after = ""
+        issuer = not_after = subject = ""
         for line in body.splitlines():
             line = line.strip()
-            if line.startswith("issuer="):
+            if line.startswith("subject="):
+                subject = line[len("subject="):].strip()
+            elif line.startswith("issuer="):
                 issuer = line[len("issuer="):].strip()
             elif line.startswith("notAfter="):
                 not_after = line[len("notAfter="):].strip()
-        entries.append((header[len("NAME:"):].strip(), issuer, not_after))
+        entries.append(
+            (header[len("NAME:"):].strip(), issuer, not_after, subject))
     return entries
 
 
@@ -873,8 +881,16 @@ def _parse_cert_expiry(text):
         return None
 
 
+def _is_self_signed(issuer, subject):
+    """True for a self-signed leaf (issuer == subject) or Traefik's built-in
+    default certificate."""
+    if issuer and issuer == subject:
+        return True
+    return any(m in issuer.lower() for m in _TLS_TRAEFIK_DEFAULT_MARKERS)
+
+
 def _origin_tls_lines_from_entries(inst_id, entries, now,
-                                   tls_internal=False):
+                                   tls_internal=False, k8s=False):
     """doctor lines for the probed certificates."""
     title = ["", "Origin TLS (%s):" % inst_id]
     if entries is None:
@@ -889,7 +905,9 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
     # for every name, and repeating the paragraph per domain buries the
     # rest of the report.
     fallback_names = []
-    for name, issuer, not_after in entries:
+    for entry in entries:
+        name, issuer, not_after = entry[:3]
+        subject = entry[3] if len(entry) > 3 else ""
         if not issuer and not not_after:
             lines.append(
                 "  %s: no certificate served on this host — skipped (nothing "
@@ -915,6 +933,20 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
             continue
         if internal:
             fallback_names.append(name)
+            continue
+        if _is_self_signed(issuer, subject) and _is_public_hostname(name):
+            if k8s:
+                hint = (
+                    "The Ingress is not getting a certificate for this host; "
+                    "check the cert-manager Certificate and the Ingress TLS "
+                    "secret in namespace %s."
+                    % _helpers._k8s_namespace(inst_id))
+            else:
+                hint = "Check the tls directive in config/Caddyfile.site."
+            lines.append(
+                "  %s: WARN — self-signed certificate (issuer %s), not "
+                "publicly trusted, so browsers reject it. %s"
+                % (name, issuer, hint))
             continue
         expiry = _parse_cert_expiry(not_after)
         if expiry is None:
@@ -1168,7 +1200,7 @@ def _origin_tls_lines(inst):
     return _origin_tls_lines_from_entries(
         inst.get("id", "?"), _parse_origin_tls(stdout),
         datetime.datetime.now(datetime.timezone.utc),
-        tls_internal=_parse_tls_internal(stdout))
+        tls_internal=_parse_tls_internal(stdout), k8s=is_k8s)
 
 
 # --- Kubernetes config drift ------------------------------------------------
