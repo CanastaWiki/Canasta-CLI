@@ -187,13 +187,16 @@ case "$*" in
   "cscli capi status") [ -f "$d/capi_ok" ] ;;
   "rm /etc/crowdsec/online_api_credentials.yaml.restored")
     rm "$d/restored" 2>/dev/null ;;
+  "grep -qs ^login: /etc/crowdsec/online_api_credentials.yaml")
+    [ -f "$d/creds" ] ;;
+  "sh -c "*) exit 0 ;;
   *) exit 1 ;;
 esac
 """
 
 
 def _run_ensure_capi(tmp_path, refused=False, capi_ok=False, restored=False,
-                     runs=1):
+                     creds=True, runs=1):
     roles = tmp_path / "roles"
     cs = roles / "crowdsec" / "tasks"
     cs.mkdir(parents=True)
@@ -214,6 +217,8 @@ def _run_ensure_capi(tmp_path, refused=False, capi_ok=False, restored=False,
         (tmp_path / "capi_ok").touch()
     if restored:
         (tmp_path / "restored").touch()
+    if creds:
+        (tmp_path / "creds").touch()
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
         "hosts": "localhost",
@@ -265,6 +270,33 @@ class TestEnsureCapi:
         assert proc.returncode == 0, out
         assert out.count("community blocklist is restored") == 1, out
         assert not (tmp_path / "restored").exists()
+
+    def test_restored_credentials_are_not_checked_again(self, tmp_path):
+        proc, calls = _run_ensure_capi(tmp_path, restored=True)
+        out = proc.stdout + proc.stderr
+        assert proc.returncode == 0, out
+        assert "cscli capi status" not in calls, calls
+        assert not any(c.startswith("sh -c") for c in calls), calls
+        assert "community blocklist is restored" in out
+        assert "next start checks it again" not in out
+
+    def test_unanswered_registered_engine_keeps_its_registration(
+            self, tmp_path):
+        proc, calls = _run_ensure_capi(tmp_path)
+        out = proc.stdout + proc.stderr
+        assert proc.returncode == 0, out
+        assert "cscli capi status" in calls, calls
+        assert not any(c.startswith("sh -c") for c in calls), calls
+        assert out.count("next start checks it again") == 1, out
+        assert "online_api_credentials.yaml.refused" in out
+
+    def test_unregistered_engine_registers(self, tmp_path):
+        proc, calls = _run_ensure_capi(tmp_path, creds=False)
+        out = proc.stdout + proc.stderr
+        assert proc.returncode == 0, out
+        assert any(c.startswith("sh -c cscli capi register") for c in calls), calls
+        assert "engine restarted" in out
+        assert "next start checks it again" not in out
 
     def test_registered_engine_is_left_alone(self, tmp_path):
         proc, calls = _run_ensure_capi(tmp_path, capi_ok=True)
