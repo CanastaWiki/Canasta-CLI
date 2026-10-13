@@ -63,8 +63,56 @@
       changed_when: true
       failed_when: false
 
-    # `down -v` skips a volume another container still has mounted and
-    # exits 0 anyway.
+    # `down` only acts on the active profiles, so a service whose profile
+    # was disabled (e.g. crowdsec) keeps its container and volumes. Remove
+    # whatever of the project is left by its compose labels.
+    - name: Find containers the teardown left behind
+      ansible.builtin.command:
+        argv:
+          - "{{ inspect_command }}"
+          - ps
+          - -aq
+          - --filter
+          - "label=com.docker.compose.project={{ instance_path | basename | lower }}"
+      register: _destroy_leftover_ctrs
+      changed_when: false
+      failed_when: false
+      when: _destroy_down.rc | default(1) == 0
+
+    - name: Remove containers the teardown left behind
+      ansible.builtin.command:
+        argv: "{{ [inspect_command, 'rm', '-f'] + _destroy_leftover_ctrs.stdout_lines }}"
+      changed_when: true
+      failed_when: false
+      when:
+        - _destroy_down.rc | default(1) == 0
+        - _destroy_leftover_ctrs.stdout_lines | default([]) | length > 0
+
+    - name: Find volumes of inactive profiles
+      ansible.builtin.command:
+        argv:
+          - "{{ inspect_command }}"
+          - volume
+          - ls
+          - -q
+          - --filter
+          - "label=com.docker.compose.project={{ instance_path | basename | lower }}"
+      register: _destroy_inactive_volumes
+      changed_when: false
+      failed_when: false
+      when: _destroy_down.rc | default(1) == 0
+
+    - name: Remove volumes of inactive profiles
+      ansible.builtin.command:
+        argv: "{{ [inspect_command, 'volume', 'rm'] + _destroy_inactive_volumes.stdout_lines }}"
+      changed_when: true
+      failed_when: false
+      when:
+        - _destroy_down.rc | default(1) == 0
+        - _destroy_inactive_volumes.stdout_lines | default([]) | length > 0
+
+    # A volume another container still has mounted survives both `down -v`
+    # and `volume rm`.
     - name: List volumes the teardown left behind
       ansible.builtin.command:
         cmd: >-
@@ -136,6 +184,25 @@
           -mindepth 1 -delete
       changed_when: true
       ignore_errors: true  # OK if a directory is already gone
+
+    # Dev mode bind-mounts mediawiki-code/ over the container's code, so
+    # whatever the container writes there (composer's vendor/, for one)
+    # is owned by root. The directory outlives `devmode disable`.
+    - name: Check for dev mode code directory
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/mediawiki-code"
+      register: _destroy_dev_code
+
+    - name: Remove dev mode code directory
+      ansible.builtin.command:
+        cmd: >-
+          {{ inspect_command }} run --rm
+          -v {{ instance_path | quote }}:/instance
+          docker.io/library/alpine
+          rm -rf /instance/mediawiki-code
+      changed_when: true
+      ignore_errors: true  # the directory removal below reports what remains
+      when: _destroy_dev_code.stat.exists
 
     - name: Remove backup staging volume
       ansible.builtin.command:
