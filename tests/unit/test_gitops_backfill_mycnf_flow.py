@@ -151,3 +151,27 @@ def test_an_interrupted_migration_converges(tmp_path):
     assert (inst / "my.cnf.template").read_text() == "custom\n"
     assert _shared(inst) == {"innodb_buffer_pool_size": "4G"}
     assert "D\tmy.cnf" in _staged(inst)
+
+
+def test_report_names_the_shared_default_it_recorded(tmp_path):
+    _instance(tmp_path)
+    out = _run(tmp_path)
+    assert "innodb_buffer_pool_size: 4G as the shared" in out
+    assert "Every host inherits 4G" in out
+
+
+def test_report_does_not_claim_a_shared_default_host_vars_already_set(
+        tmp_path):
+    _instance(tmp_path, host_vars="innodb_buffer_pool_size: 1G\n")
+    out = _run(tmp_path)
+    assert "4G as the shared" not in out
+    assert "Every host inherits" not in out
+    assert "this host's vars already set it to" in out
+    assert "A host without its own value gets none" in out
+
+
+def test_report_does_not_claim_a_shared_default_already_there(tmp_path):
+    _instance(tmp_path, shared_vars="innodb_buffer_pool_size: 2G\n")
+    out = _run(tmp_path)
+    assert "4G as the shared" not in out
+    assert "The shared vars already set innodb_buffer_pool_size" in out

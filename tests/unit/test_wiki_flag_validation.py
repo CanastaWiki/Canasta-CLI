@@ -1,4 +1,4 @@
-"""extension/skin enable|disable and sitemap remove refuse an unknown --wiki.
+"""extension/skin enable|disable and sitemap generate|remove refuse an unknown --wiki.
 
 Each runs the real task file against a temporary instance, with the
 instance resolution and container exec stubbed out, and checks that a
@@ -93,6 +93,7 @@ ITEM_VARS = {"_item_type": "extensions", "_item_dir": "extensions",
     ("extensions_skins/tasks/enable.yml", ITEM_VARS),
     ("extensions_skins/tasks/disable.yml", ITEM_VARS),
     ("sitemap/tasks/remove.yml", {}),
+    ("sitemap/tasks/generate.yml", {}),
 ])
 def test_unknown_wiki_fails_before_any_change(tmp_path, task_file, extra):
     proc, inst = _run(tmp_path, task_file, dict(extra, wiki="mian"))
@@ -109,7 +110,16 @@ def test_unknown_wiki_fails_before_any_change(tmp_path, task_file, extra):
     ("extensions_skins/tasks/enable.yml", ITEM_VARS),
     ("extensions_skins/tasks/disable.yml", ITEM_VARS),
     ("sitemap/tasks/remove.yml", {}),
+    ("sitemap/tasks/generate.yml", {}),
 ])
 def test_known_wiki_proceeds(tmp_path, task_file, extra):
     proc, _ = _run(tmp_path, task_file, dict(extra, wiki="main"))
     assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_sitemap_generate_without_wiki_covers_all_wikis(tmp_path):
+    proc, inst = _run(tmp_path, "sitemap/tasks/generate.yml", {})
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    log = (inst / "exec.log").read_text()
+    assert "mkdir -p /mediawiki/public_assets/main/sitemap" in log
+    assert "--wiki=main" in log

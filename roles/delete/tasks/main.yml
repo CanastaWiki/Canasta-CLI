@@ -247,18 +247,38 @@
     - name: End play for already-removed instance
       ansible.builtin.meta: end_play
 
+# Teardown removes .env and wikis.yaml, and an external database server is
+# not this instance's to clean up, so name what stays there while the files
+# can still be read.
+- name: Read the database settings before teardown
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _delete_env
+  failed_when: false
+  no_log: true  # registers the whole .env, including passwords
+  when: instance_path | default('') | length > 0
+
+- name: Note whether the instance uses an external database
+  ansible.builtin.set_fact:
+    _delete_external_db: >-
+      {{ (_delete_env.variables.USE_EXTERNAL_DB | default('false'))
+         | string | lower == 'true' }}
+    _delete_db_host: "{{ _delete_env.variables.MYSQL_HOST | default('', true) }}"
+
+- name: List the databases the external server holds for this instance
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _delete_wikis
+  failed_when: false
+  when: _delete_external_db | bool
+
 # Kubernetes removes instance content files from inside the web pod while
 # it still runs; Compose does it in destroy.yml once teardown succeeded.
 - name: Clean up container-owned files
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/delete_cleanup_files.yml
-
-# Remove backup schedule from crontab
-- name: Remove backup schedule
-  ansible.builtin.cron:
-    name: "canasta-backup-{{ instance_id }}"
-    state: absent
-  ignore_errors: true  # OK if no crontab entry exists
 
 - name: Remove Argo CD Application if present
   ansible.builtin.include_tasks: >-
@@ -272,6 +292,13 @@
   # K8s skips only when the cluster API was probed unreachable. destroy.yml
   # itself dispatches Compose vs K8s.
   when: _k8s_api_reachable | default(true)
+
+# Only after teardown, so a failed delete keeps its backup schedule.
+- name: Remove backup schedule
+  ansible.builtin.cron:
+    name: "canasta-backup-{{ instance_id }}"
+    state: absent
+  ignore_errors: true  # OK if no crontab entry exists
 
 # Deregister only after teardown, so a failed teardown leaves the
 # registry entry that lets delete be re-run.
@@ -356,15 +383,39 @@
   ignore_errors: true  # OK if dir is cwd or already gone
   register: _rmdir
 
+# The topmost leftovers the operator does not own; anything beneath them
+# is unreachable to the operator's `rm` as well.
+- name: List leftovers owned by another user
+  ansible.builtin.shell:
+    cmd: >-
+      find {{ instance_path | quote }} -mindepth 1 ! -user "$(id -u)"
+      -prune -print 2>/dev/null
+  register: _delete_foreign
+  changed_when: false
+  failed_when: false
+  when:
+    - instance_path | default('') | length > 0
+    - _rmdir is failed
+
 - name: Warn if directory could not be removed
   ansible.builtin.debug:
     msg: >-
       Instance '{{ instance_id }}' deleted from registry. Note: the
-      instance directory '{{ instance_path }}' could not be fully removed
-      — usually because it is the current working directory, in which case
-      'cd ..' then 'rmdir {{ instance_path }}' clears it. Under rootless
-      Podman the leftovers are owned by a subuid instead, and only
-      'podman unshare rm -rf {{ instance_path }}' can remove them.
+      instance directory '{{ instance_path }}' could not be fully removed.
+      {% if _delete_foreign.stdout_lines | default([]) | length > 0 %}
+      These paths are owned by another user (typically root, written by a
+      container): {{ _delete_foreign.stdout_lines[:5] | join(', ') }}.
+      {% if _delete_unshare %}
+      Remove them with 'podman unshare rm -rf {{ instance_path }}'.
+      {% else %}
+      Remove them with '{{ inspect_command }} run --rm
+      -v {{ instance_path | quote }}:/instance docker.io/library/alpine
+      find /instance -mindepth 1 -delete' then 'rmdir {{ instance_path }}'.
+      {% endif %}
+      {% else %}
+      This is usually because it is the current working directory, in
+      which case 'cd ..' then 'rmdir {{ instance_path }}' clears it.
+      {% endif %}
       Leaving them in place blocks recreating an instance with this id.
   when:
     - instance_path | default('') | length > 0
@@ -374,3 +425,15 @@
   ansible.builtin.debug:
     msg: "Instance '{{ instance_id }}' deleted."
   when: not (_rmdir is failed)
+
+- name: Report the databases left on the external server
+  ansible.builtin.debug:
+    msg: >-
+      The instance's databases on the external server
+      {{- (' ' ~ _delete_db_host) if _delete_db_host else '' }} were not
+      dropped{{ (': ' ~ _dbs | join(', ')) if _dbs else '' }}.
+  vars:
+    _dbs: >-
+      {{ _delete_wikis.db_groups | default([])
+         | map(attribute='databases') | flatten | unique | list }}
+  when: _delete_external_db | bool
