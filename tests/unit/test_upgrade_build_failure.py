@@ -83,7 +83,8 @@ class TestTheInstanceIsNotReportedUpgraded:
     def test_a_failed_build_blocks_the_restart(self):
         expr = _task(UPGRADE_MAIN, "Decide whether a restart is needed")[
             "ansible.builtin.set_fact"]["_restart_needed"]
-        base = {"_images_updated": True, "_upgrade_rebuild": False}
+        base = {"_images_updated": True,
+                "_upgrade_rebuilt_image_changed": False}
         assert _template(expr, {
             **base, "_upgrade_build_failed_services": ["web"]}) is False
         assert _template(expr, {

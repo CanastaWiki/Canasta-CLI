@@ -2,9 +2,17 @@
 # Publish a rebuilt-from-source custom image for the orchestrator.
 # Kubernetes: push to the in-cluster registry via the control plane's loopback
 # hostPort (localhost:5000, auto-insecure) so the deployment can pull it via
-# the registry's ClusterIP. Compose: no-op — the locally built image is used
-# directly.
-# Input: instance_orchestrator, _built_image
+# the registry's ClusterIP. Compose: the locally built image is used directly.
+#
+# Sets _upgrade_rebuilt_image_changed: whether the running web containers run
+# something other than the rebuilt image. A rebuild of unchanged source yields
+# the same image, and restarting for it is a needless outage. The comparison is
+# against what runs, not against the image before the build, because every
+# build_from instance on a host shares the one output tag: an earlier instance
+# in the same upgrade run may already have moved it.
+# When nothing can be compared (no running web container, or no image
+# reference read back), the image counts as changed.
+# Input: instance_orchestrator, instance_id, instance_path, _built_image
 
 - name: Tag rebuilt image for the in-cluster registry (Kubernetes)
   ansible.builtin.command:
@@ -15,5 +23,70 @@
 - name: Push rebuilt image to the in-cluster registry (Kubernetes)
   ansible.builtin.command:
     cmd: "{{ inspect_command | default('docker') }} push localhost:5000/{{ _built_image }}"
+  register: _upgrade_push
   changed_when: true
   when: instance_is_k8s | bool
+
+# The pods pull by tag, so the kubelet records the registry's manifest digest,
+# which is the digest the push reports.
+- name: Read the image digests the web pods run (Kubernetes)
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - get
+      - pods
+      - -n
+      - "canasta-{{ instance_id }}"
+      - -l
+      - app.kubernetes.io/component=web
+      - -o
+      - 'jsonpath={.items[*].status.containerStatuses[?(@.name=="web")].imageID}'
+  register: _upgrade_running_k8s
+  changed_when: false
+  failed_when: false
+  when: instance_is_k8s | bool
+
+- name: Read the image IDs the web containers run (Compose)
+  ansible.builtin.shell:
+    cmd: >-
+      ids=$({{ inspect_command | default('docker') }} ps -q
+      --filter label=com.docker.compose.project={{ instance_path | basename | lower }}
+      --filter label=com.docker.compose.service=web);
+      [ -z "$ids" ] || {{ inspect_command | default('docker') }}
+      inspect --format {% raw %}'{{.Image}}'{% endraw %} $ids
+  register: _upgrade_running_compose
+  changed_when: false
+  failed_when: false
+  when: not (instance_is_k8s | bool)
+
+- name: Read the rebuilt image ID (Compose)
+  ansible.builtin.command:
+    cmd: >-
+      {{ inspect_command | default('docker') }} image inspect
+      --format {% raw %}'{{.Id}}'{% endraw %} {{ _built_image }}
+  register: _upgrade_built_id
+  changed_when: false
+  failed_when: false
+  when: not (instance_is_k8s | bool)
+
+# Kubernetes reports each image as <repository>@<digest>; Compose reports the
+# bare image ID, so both reduce to comparing the text after any '@'.
+- name: Collect the rebuilt and running image references
+  ansible.builtin.set_fact:
+    _upgrade_rebuilt_ref: >-
+      {{ ((_upgrade_push.stdout | default('')
+           | regex_findall('digest: (sha256:[0-9a-f]{64})')) + [''])[0]
+         if (instance_is_k8s | bool)
+         else (_upgrade_built_id.stdout | default('') | trim) }}
+    _upgrade_running_refs: >-
+      {{ ((_upgrade_running_k8s if (instance_is_k8s | bool)
+           else _upgrade_running_compose).stdout | default('')).split()
+         | map('regex_replace', '^.*@', '') | list }}
+
+- name: Decide whether the rebuilt image differs from the running one
+  ansible.builtin.set_fact:
+    _upgrade_rebuilt_image_changed: >-
+      {{ _upgrade_rebuilt_ref == ''
+         or (_upgrade_running_refs | length) == 0
+         or (_upgrade_running_refs | reject('equalto', _upgrade_rebuilt_ref)
+             | list | length) > 0 }}

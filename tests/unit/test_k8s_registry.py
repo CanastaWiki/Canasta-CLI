@@ -189,10 +189,9 @@ def test_upgrade_keeps_the_registry_ref_for_build_from():
 
 def test_upgrade_restarts_rebuilt_build_from_instances():
     # No registry pull happens for build_from, so only a restart deploys the
-    # rebuilt image. Gated on the rebuild having actually run — a build_from
-    # instance whose source went missing was not rebuilt (see
-    # test_upgrade_missing_build_from.py).
-    assert "_upgrade_rebuild | bool" in _text(UPGRADE_MAIN)
+    # rebuilt image, and only when it differs from what runs (see
+    # test_upgrade_restart_on_rebuilt_image.py).
+    assert "_upgrade_rebuilt_image_changed | bool" in _text(UPGRADE_MAIN)
 
 
 def test_build_from_forces_a_repull():
