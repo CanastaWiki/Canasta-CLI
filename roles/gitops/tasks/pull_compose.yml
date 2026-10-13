@@ -280,8 +280,11 @@
           wiki_url_<id> var is not defined in this host's vars.yaml or
           hosts/_shared/vars.yaml. A wiki added on another host needs its url
           set for this host too — add e.g.
-          'wiki_url_{{ _pull_empty_url_wikis[0] }}' to the host vars (a blank
-          url makes MediaWiki fatal on every request).
+          'wiki_url_{{ _pull_empty_url_wikis[0] }}' to
+          hosts/{{ _pull_hostname }}/vars.yaml (a blank url makes MediaWiki
+          fatal on every request), share it with 'canasta gitops add
+          hosts/{{ _pull_hostname }}/vars.yaml' then 'canasta gitops push',
+          and run 'canasta gitops pull' again.
       vars:
         _pull_empty_url_wikis: >-
           {{ (_pull_wikis_content | from_yaml).wikis | default([])

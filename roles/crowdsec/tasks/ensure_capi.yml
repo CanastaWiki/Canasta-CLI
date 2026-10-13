@@ -2,13 +2,76 @@
 # Register the CrowdSec engine with the Central API (CAPI), which enables the
 # community blocklist and is a prerequisite for console-enroll. With a
 # persistent /etc/crowdsec volume the image does not self-register, so we do.
-# Idempotent: skips once `cscli capi status` succeeds.
+# Registers only an engine that has never registered; an engine whose
+# credentials CAPI does not accept or answer keeps them.
 # Input: instance_path (the crowdsec engine must already be running)
 
 # Called directly from start.yml (not via _preflight), so build the cscli
 # prefix here. Idempotent — safe to include on every start.
 - name: Build the cscli command prefix for this orchestrator
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/crowdsec_cscli_prefix.yml"
+
+# The engine's start wrapper decides whether it runs with or without CAPI
+# before the local API answers, so wait for that decision.
+- name: Wait for the CrowdSec local API
+  ansible.builtin.command:
+    cmd: "{{ _cscli_prefix }} cscli lapi status"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
+  register: _crowdsec_capi_lapi
+  until: _crowdsec_capi_lapi.rc == 0
+  retries: 30
+  delay: 2
+  changed_when: false
+  failed_when: false
+
+# The wrapper keeps credentials CAPI refused as a .refused copy and retests
+# them on each engine start. Registering anew would replace the engine's
+# CAPI identity, so leave CAPI alone while the copy exists.
+- name: Check for credentials the Central API refused
+  ansible.builtin.command:
+    cmd: "{{ _cscli_prefix }} test -e /etc/crowdsec/online_api_credentials.yaml.refused"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
+  register: _crowdsec_capi_refused
+  changed_when: false
+  failed_when: false
+
+# A restart inside this command (bouncer enrollment stores its key and
+# restarts) comes back through here, so warn once per instance.
+- name: Warn that the engine runs without the Central API
+  ansible.builtin.debug:
+    msg: >-
+      CrowdSec's Central API refuses this engine's credentials, so the
+      engine runs with its local API only and the community blocklist is
+      unavailable. The engine retries the credentials each time it starts.
+  when:
+    - _crowdsec_capi_refused.rc == 0
+    - instance_path not in (_crowdsec_capi_warned | default([]))
+
+- name: Remember the warning for this instance
+  ansible.builtin.set_fact:
+    _crowdsec_capi_warned: "{{ (_crowdsec_capi_warned | default([])) + [instance_path] }}"
+  when:
+    - _crowdsec_capi_refused.rc == 0
+    - instance_path not in (_crowdsec_capi_warned | default([]))
+
+# The wrapper leaves this marker when it puts the kept credentials back;
+# rm succeeds only when the marker exists, so it is reported once.
+- name: Clear the marker for restored credentials
+  ansible.builtin.command:
+    cmd: "{{ _cscli_prefix }} rm /etc/crowdsec/online_api_credentials.yaml.restored"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
+  register: _crowdsec_capi_restored
+  changed_when: _crowdsec_capi_restored.rc == 0
+  failed_when: false
+
+- name: Report that the Central API accepts the credentials again
+  ansible.builtin.debug:
+    msg: >-
+      CrowdSec's Central API accepts this engine's credentials again; the
+      community blocklist is restored.
+  when:
+    - _crowdsec_capi_restored.rc == 0
+    - _crowdsec_capi_refused.rc != 0
 
 - name: Check whether CrowdSec is registered with the Central API
   ansible.builtin.command:
@@ -17,9 +80,45 @@
   register: _crowdsec_capi_status
   changed_when: false
   failed_when: false
+  when:
+    - _crowdsec_capi_refused.rc != 0
+    - _crowdsec_capi_restored.rc != 0
+
+# grep -q so the credentials never reach the output.
+- name: Check whether the engine has Central API credentials
+  ansible.builtin.command:
+    cmd: "{{ _cscli_prefix }} grep -qs '^login:' /etc/crowdsec/online_api_credentials.yaml"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
+  register: _crowdsec_capi_creds
+  changed_when: false
+  failed_when: false
+  when:
+    - _crowdsec_capi_refused.rc != 0
+    - _crowdsec_capi_restored.rc != 0
+    - _crowdsec_capi_status.rc != 0
+
+- name: Report that the existing registration is kept
+  ansible.builtin.debug:
+    msg: >-
+      CrowdSec's Central API did not accept or answer this engine's
+      credentials this time. The existing registration is kept and the next
+      start checks it again. If the credentials were revoked, empty
+      /etc/crowdsec/online_api_credentials.yaml and delete any
+      /etc/crowdsec/online_api_credentials.yaml.refused in the crowdsec
+      container (on Kubernetes, the crowdsec sidecar in the caddy pod), then
+      run 'canasta restart' to register anew.
+  when:
+    - _crowdsec_capi_refused.rc != 0
+    - _crowdsec_capi_restored.rc != 0
+    - _crowdsec_capi_status.rc != 0
+    - _crowdsec_capi_creds.rc == 0
 
 - name: Register the engine with the Central API
-  when: _crowdsec_capi_status.rc != 0
+  when:
+    - _crowdsec_capi_refused.rc != 0
+    - _crowdsec_capi_restored.rc != 0
+    - _crowdsec_capi_status.rc != 0
+    - _crowdsec_capi_creds.rc != 0
   block:
     - name: Announce CAPI registration
       ansible.builtin.debug:
@@ -32,7 +131,7 @@
     # still fails, fall through to the rescue rather than aborting the
     # whole create. CAPI registration only enables the community
     # blocklist — the instance is fully functional without it, and this
-    # task is idempotent (guarded by `cscli capi status`), so the next
+    # task is idempotent (guarded by the credentials check), so the next
     # start/restart re-attempts it.
     - name: Register CAPI (retry, tolerating a sustained outage)
       block:
