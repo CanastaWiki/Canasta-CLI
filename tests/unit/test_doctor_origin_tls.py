@@ -53,14 +53,14 @@ class TestParseProbeOutput:
             "%sNAME:b.example.org\nissuer=%s\nnotAfter=Aug  1 00:00:00 2026 GMT\n"
             % (d, LE, d, CADDY_LOCAL))
         assert doctor._parse_origin_tls(out) == [
-            ("a.example.org", LE, "Sep 10 12:00:00 2026 GMT"),
-            ("b.example.org", CADDY_LOCAL, "Aug  1 00:00:00 2026 GMT"),
+            ("a.example.org", LE, "Sep 10 12:00:00 2026 GMT", ""),
+            ("b.example.org", CADDY_LOCAL, "Aug  1 00:00:00 2026 GMT", ""),
         ]
 
     def test_name_with_no_handshake_yields_empty_fields(self):
         d = doctor._helpers._SENTINEL
         assert doctor._parse_origin_tls("%sNAME:a.example.org\n" % d) == [
-            ("a.example.org", "", ""),
+            ("a.example.org", "", "", ""),
         ]
 
 

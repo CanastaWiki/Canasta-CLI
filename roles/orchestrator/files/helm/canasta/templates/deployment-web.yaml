@@ -11,6 +11,10 @@ metadata:
     app.kubernetes.io/component: web
 spec:
   replicas: {{ .Values.web.replicaCount }}
+  # Past the default 600s, a rollout still inside its startup budget
+  # would be reported as failed. The extra 300s covers the image pull
+  # and the probe's initial delay.
+  progressDeadlineSeconds: {{ add 300 (mul .Values.web.startupProbe.periodSeconds .Values.web.startupProbe.failureThreshold) }}
   selector:
     matchLabels:
       {{- include "canasta.selectorLabels" . | nindent 6 }}
@@ -81,7 +85,7 @@ spec:
           env:
             {{- if .Values.domains }}
             - name: MW_SITE_SERVER
-              value: "{{ ternary "http" "https" (eq (index .Values.domains 0) "localhost") }}://{{ index .Values.domains 0 }}"
+              value: "{{ ternary "https" "http" (and .Values.ingress.tls (ne (index .Values.domains 0) "localhost")) }}://{{ index .Values.domains 0 }}"
             - name: MW_SITE_FQDN
               value: "{{ index .Values.domains 0 }}"
             {{- end }}
@@ -133,9 +137,9 @@ spec:
             tcpSocket:
               port: http
             initialDelaySeconds: 5
-            periodSeconds: 3
+            periodSeconds: {{ .Values.web.startupProbe.periodSeconds }}
             timeoutSeconds: 5
-            failureThreshold: 30
+            failureThreshold: {{ .Values.web.startupProbe.failureThreshold }}
           readinessProbe:
             tcpSocket:
               port: http
