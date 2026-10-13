@@ -11,6 +11,7 @@ copy_into_container.yml that log what they would do.
 """
 
 import os
+import re
 import subprocess
 import sys
 
@@ -191,7 +192,8 @@ class TestAdd:
             ("docs_cargo", "-- dump docs.docs_cargo.sql"),
             ("smw-store", "-- dump docs.smw-store.sql.gz"),
         ]
-        assert any("gunzip -c /tmp/import.sql.gz" in ln and "'smw-store'" in ln
+        assert any(re.search(r"gunzip -c /tmp/canasta-import-[a-z0-9]{16}\.sql\.gz ", ln)
+                   and "'smw-store'" in ln
                    for ln in lines)
         assert any("CREATE DATABASE IF NOT EXISTS `docs_cargo`" in ln
                    for ln in lines)
