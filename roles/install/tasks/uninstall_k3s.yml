@@ -315,7 +315,9 @@
 
     - name: Report default storage class cleared
       ansible.builtin.debug:
-        msg: "Cleared default storage class '{{ _uninstall_default_sc.value }}'."
+        msg: >-
+          Cleared the Canasta default StorageClass for new instances
+          ('{{ _uninstall_default_sc.value }}'); that class was on this cluster.
 
 # Not gated on k3s still being installed: if an earlier run removed k3s and
 # then failed, a re-run must still withdraw the exports. The task acts only
