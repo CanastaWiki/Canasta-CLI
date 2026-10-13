@@ -1,0 +1,44 @@
+---
+# Stage Helm values that carry the extra SSH host keys in
+# argocd-ssh-known-hosts-cm into an upgrade of the argocd release.
+# _apply_argo_repo_secret.yml merges self-hosted repo host keys into that
+# chart-owned ConfigMap, and a helm upgrade re-renders it from
+# configs.ssh.knownHosts + configs.ssh.extraHosts alone. Every line the chart's
+# knownHosts doesn't already render goes into extraHosts, so the upgrade keeps
+# them and Helm owns them from then on.
+#
+# Input: argocd_known_hosts_values_file (path to write),
+#        argocd_namespace (default: argocd); helm and kubectl on the target.
+
+- name: Read the Argo CD release values
+  ansible.builtin.command:
+    cmd: "helm -n {{ argocd_namespace | default('argocd') }} get values argocd --all -o json"
+  register: _argocd_all_values
+  changed_when: false
+
+- name: Read the current Argo CD known-hosts ConfigMap
+  ansible.builtin.command:
+    cmd: >-
+      kubectl get configmap argocd-ssh-known-hosts-cm
+      -n {{ argocd_namespace | default('argocd') }} -o json --ignore-not-found
+  register: _argocd_known_hosts_cm
+  changed_when: false
+
+- name: Collect the known-hosts lines the chart defaults don't cover
+  vars:
+    _chart_lines: >-
+      {{ ((_argocd_all_values.stdout | from_json).configs.ssh.knownHosts
+          | default('')).splitlines() | map('trim') | select | list }}
+    _cm_lines: >-
+      {{ ((((_argocd_known_hosts_cm.stdout | from_json)
+             if _argocd_known_hosts_cm.stdout | trim else {}).data
+           | default({})).ssh_known_hosts | default('')).splitlines()
+         | map('trim') | select | list }}
+  ansible.builtin.set_fact:
+    _argocd_extra_hosts: "{{ _cm_lines | reject('in', _chart_lines) | unique | list }}"
+
+- name: Stage the Argo CD known-hosts Helm values
+  ansible.builtin.copy:
+    dest: "{{ argocd_known_hosts_values_file }}"
+    mode: "0600"
+    content: "{{ {'configs': {'ssh': {'extraHosts': _argocd_extra_hosts | join('\n')}}} | to_nice_json }}"
