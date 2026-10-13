@@ -84,6 +84,10 @@ def _run_wrapper(tmp_path, creds=None, refused=None):
             kept.read_text() if kept.exists() else None)
 
 
+def _restored(tmp_path):
+    return (tmp_path / "online_api_credentials.yaml.restored").exists()
+
+
 class TestStartWrapper:
     def test_refused_credentials_are_kept_and_the_engine_runs_local_only(
             self, tmp_path):
@@ -113,6 +117,7 @@ class TestStartWrapper:
         assert kept is None
         assert calls == ["cscli:capi status", "run:login: good"]
         assert "community blocklist is restored" in proc.stderr
+        assert _restored(tmp_path)
 
     def test_still_refused_credentials_stay_aside(self, tmp_path):
         proc, calls, creds, kept = _run_wrapper(tmp_path, creds="",
@@ -123,6 +128,7 @@ class TestStartWrapper:
         assert calls == ["cscli:capi status", "run:"]
         assert not any("register" in c for c in calls)
         assert "community blocklist is unavailable" in proc.stderr
+        assert not _restored(tmp_path)
 
     def test_unreachable_capi_is_not_a_refusal(self, tmp_path):
         proc, calls, creds, kept = _run_wrapper(tmp_path, creds="login: flaky\n")
@@ -179,12 +185,15 @@ case "$*" in
   "test -e /etc/crowdsec/online_api_credentials.yaml.refused")
     [ -f "$d/refused" ] ;;
   "cscli capi status") [ -f "$d/capi_ok" ] ;;
+  "rm /etc/crowdsec/online_api_credentials.yaml.restored")
+    rm "$d/restored" 2>/dev/null ;;
   *) exit 1 ;;
 esac
 """
 
 
-def _run_ensure_capi(tmp_path, refused=False, capi_ok=False):
+def _run_ensure_capi(tmp_path, refused=False, capi_ok=False, restored=False,
+                     runs=1):
     roles = tmp_path / "roles"
     cs = roles / "crowdsec" / "tasks"
     cs.mkdir(parents=True)
@@ -203,15 +212,18 @@ def _run_ensure_capi(tmp_path, refused=False, capi_ok=False):
         (tmp_path / "refused").touch()
     if capi_ok:
         (tmp_path / "capi_ok").touch()
+    if restored:
+        (tmp_path / "restored").touch()
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
         "vars": {"canasta_root": str(tmp_path),
+                 "instance_path": str(tmp_path / "instance"),
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_role": {
-            "name": "crowdsec", "tasks_from": "ensure_capi.yml"}}],
+            "name": "crowdsec", "tasks_from": "ensure_capi.yml"}}] * runs,
     }]))
     env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
                ANSIBLE_ROLES_PATH=str(roles))
@@ -232,6 +244,28 @@ class TestEnsureCapi:
         assert "unavailable" in out
         assert "API error" not in out
 
+    def test_restart_within_one_command_warns_once(self, tmp_path):
+        # Bouncer enrollment restarts the instance, which runs this file again.
+        proc, _ = _run_ensure_capi(tmp_path, refused=True, runs=2)
+        out = proc.stdout + proc.stderr
+        assert proc.returncode == 0, out
+        assert out.count("runs with its local API only") == 1, out
+
+    def test_each_command_warns(self, tmp_path):
+        first, _ = _run_ensure_capi(tmp_path, refused=True)
+        shutil.rmtree(tmp_path / "roles")
+        second, _ = _run_ensure_capi(tmp_path, refused=True)
+        assert "runs with its local API only" in first.stdout
+        assert "runs with its local API only" in second.stdout
+
+    def test_restored_credentials_are_reported_once(self, tmp_path):
+        proc, calls = _run_ensure_capi(tmp_path, capi_ok=True, restored=True,
+                                       runs=2)
+        out = proc.stdout + proc.stderr
+        assert proc.returncode == 0, out
+        assert out.count("community blocklist is restored") == 1, out
+        assert not (tmp_path / "restored").exists()
+
     def test_registered_engine_is_left_alone(self, tmp_path):
         proc, calls = _run_ensure_capi(tmp_path, capi_ok=True)
         out = proc.stdout + proc.stderr
@@ -239,6 +273,7 @@ class TestEnsureCapi:
         assert calls[-1] == "cscli capi status"
         assert not any(c.startswith("sh -c") for c in calls), calls
         assert "local API only" not in out
+        assert "community blocklist is restored" not in out
 
 
 def test_bouncer_enroll_reports_a_dead_lapi_without_raw_cscli_output():

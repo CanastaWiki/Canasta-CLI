@@ -6,7 +6,8 @@
 # When a start fails that way, the credentials are kept as a .refused copy
 # and replaced by an empty file (a missing one is fatal), so the engine runs
 # with the local API only. Each later start tests the kept copy once and
-# puts it back when CAPI accepts it, so the engine keeps its CAPI identity.
+# puts it back when CAPI accepts it, so the engine keeps its CAPI identity,
+# and leaves a .restored marker for the CLI to report.
 #
 # A start that fails within 5 minutes for any other reason is held for 10
 # minutes before the container exits, keeping restarts under the Central
@@ -14,6 +15,7 @@
 
 creds=/etc/crowdsec/online_api_credentials.yaml
 refused="$creds.refused"
+restored="$creds.restored"
 stopping=0
 pid=
 trap 'stopping=1; [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null' TERM INT
@@ -48,6 +50,7 @@ if [ -s "$refused" ]; then
     cp "$refused" "$creds"
     if cscli capi status >/dev/null 2>&1; then
         rm -f "$refused"
+        : > "$restored"
         echo "CrowdSec's Central API accepts this engine's credentials again; the community blocklist is restored." >&2
     else
         : > "$creds"
