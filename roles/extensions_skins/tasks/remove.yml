@@ -230,11 +230,24 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: web
+    # An image with /update-composer-deps.sh keeps the bundled include list
+    # itself and treats config/composer.local.json as the operator's additions
+    # only; the script merges the two and records a failure in
+    # composer-update.failed.
     exec_command: >-
+      if [ -x /update-composer-deps.sh ]; then
+      /update-composer-deps.sh; rc=$?;
+      if [ -f /mediawiki/config/persistent/composer-update.failed ]; then
+      echo "composer-update.failed: $(head -n 1 /mediawiki/config/persistent/composer-update.failed)" >&2;
+      [ $rc -ne 0 ] || rc=1;
+      fi;
+      exit $rc;
+      else
       if [ -f /mediawiki/config/composer.local.json ]; then
       cp /mediawiki/config/composer.local.json /var/www/mediawiki/w/composer.local.json; fi;
       cd /var/www/mediawiki/w &&
-      composer update --no-dev --no-interaction
+      composer update --no-dev --no-interaction;
+      fi
     exec_long: true
     # Best-effort: a composer dependency conflict must not abort the whole
     # command. rx_fail only applies while exec_long is true (the command then
@@ -246,11 +259,19 @@
   when:
     - _composer_paths | length > 0
     - exec_result.rc | default(1) != 0
+  vars:
+    _composer_failed_reason: >-
+      {{ ((exec_result.stderr | default('')).splitlines()
+          | select('match', 'composer-update.failed: ')
+          | map('replace', 'composer-update.failed: ',
+                '; config/persistent/composer-update.failed: ')
+          | map('regex_replace', '[.]$', '')
+          | first) | default('') }}
   ansible.builtin.debug:
     msg: >-
       Composer refresh after removal failed (composer exited
-      {{ exec_result.rc | default('?') }}). The {{ _item_type }} code and its
-      composer.local.json registration were removed, but vendor/ may still
+      {{ exec_result.rc | default('?') }}){{ _composer_failed_reason }}. The
+      {{ _item_type }} code and its composer.local.json registration were removed, but vendor/ may still
       contain the now-unused packages until the next successful
       'composer update'. Resolve any dependency conflict and re-run or run
       composer update manually.
