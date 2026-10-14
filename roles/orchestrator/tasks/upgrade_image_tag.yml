@@ -121,13 +121,16 @@
           changed_when: true
           when: _upgrade_k8s_gitops_stat.stat.exists | default(false)
 
+        # A stage-only upgrade reports the pending push itself.
         - name: Report the pending gitops push
           ansible.builtin.debug:
             msg: >-
               Staged the new image tag in hosts/{{ _upgrade_k8s_host.content
               | b64decode | trim }}/vars.yaml. Run 'canasta gitops push' to share
               it with the other hosts.
-          when: _upgrade_k8s_gitops_stat.stat.exists | default(false)
+          when:
+            - _upgrade_k8s_gitops_stat.stat.exists | default(false)
+            - not (_upgrade_stage_only | default(false) | bool)
 
 # --- Update Compose CANASTA_IMAGE tag ---
 # Move an instance off the version tag a previous CLI pinned, and leave

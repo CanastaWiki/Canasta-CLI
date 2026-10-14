@@ -1,7 +1,8 @@
 ---
 # Upgrade a single Canasta instance.
 # Runs all migrations, handles MySQL-to-MariaDB, rebuilds custom images,
-# refreshes stack files, pulls images, restarts.
+# refreshes stack files, pulls images, restarts. A gitops-managed Kubernetes
+# instance is staged in its gitops repo instead of being redeployed.
 # Input: instance_path, instance_id, instance_orchestrator, instance_devmode
 
 # --- Check instance directory exists ---
@@ -218,6 +219,19 @@
     _pull_changed: false
     _k8s_image_tag_changed: false
 
+# Argo CD deploys a gitops-managed Kubernetes instance from its repo and
+# self-heals back to it, so a direct deploy would be reverted until the
+# staged changes are pushed. Such an instance is staged only.
+- name: Check whether the instance is gitops-managed
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _upgrade_gitops_marker
+
+- name: Decide whether the upgrade only stages the instance for a gitops push
+  ansible.builtin.set_fact:
+    _upgrade_stage_only: >-
+      {{ (instance_is_k8s | bool) and _upgrade_gitops_marker.stat.exists }}
+
 # --- Bump configured image tag (orchestrator-specific) ---
 # K8s updates values.yaml image.tag and CANASTA_IMAGE in .env; Compose
 # updates CANASTA_IMAGE in .env.
@@ -271,6 +285,7 @@
   when:
     - _restart_needed | bool
     - _was_running | bool
+    - not (_upgrade_stage_only | bool)
   block:
     - name: Report restarting
       ansible.builtin.debug:
@@ -328,6 +343,7 @@
   when:
     - _restart_needed | bool
     - not (_was_running | bool)
+    - not (_upgrade_stage_only | bool)
 
 - name: Report already up to date
   ansible.builtin.debug:
@@ -335,6 +351,78 @@
   when:
     - not (_restart_needed | bool)
     - (_upgrade_build_failed_services | default([]) | length) == 0
+    - not (_upgrade_stage_only | bool)
+
+- name: Leave the deploy of a gitops-managed instance to Argo CD
+  when: _upgrade_stage_only | bool
+  block:
+    - name: Check for changes staged in the gitops repo
+      ansible.builtin.command:
+        cmd: "git diff --cached --quiet"
+        chdir: "{{ instance_path }}"
+      register: _upgrade_gitops_diff
+      changed_when: false
+      failed_when: _upgrade_gitops_diff.rc > 1
+
+    - name: Decide whether the instance awaits a gitops push
+      ansible.builtin.set_fact:
+        _upgrade_gitops_pending: >-
+          {{ _upgrade_gitops_diff.rc == 1 or (_images_updated | bool) }}
+
+    # A rebuilt image is pushed under the same reference, so the pushed
+    # values do not change and Argo CD would not roll the pods onto it.
+    - name: Restart the web pods onto a rebuilt image
+      when:
+        - _upgrade_rebuilt_image_changed | bool
+        - _was_running | bool
+      block:
+        - name: Restart the web pods
+          ansible.builtin.command:
+            cmd: >-
+              kubectl rollout restart deployment/canasta-{{ instance_id }}-web
+              -n canasta-{{ instance_id }}
+          changed_when: true
+
+        - name: Wait for the web pods to run the rebuilt image
+          ansible.builtin.command:
+            cmd: >-
+              kubectl rollout status deployment/canasta-{{ instance_id }}-web
+              -n canasta-{{ instance_id }} --timeout=300s
+          changed_when: false
+
+        - name: Report the web pods restarted
+          ansible.builtin.debug:
+            msg: >-
+              Restarted the web pods of '{{ instance_id }}' onto the rebuilt
+              image.
+
+    - name: Report the upgrade staged for a gitops push
+      ansible.builtin.debug:
+        msg: >-
+          {% if _was_running | bool -%}
+          Upgrade of '{{ instance_id }}' is staged in its gitops repo but not
+          deployed. Run 'canasta gitops push -i {{ instance_id }}', then
+          'canasta gitops sync -i {{ instance_id }}', to deploy it.
+          {%- else -%}
+          Upgrade of '{{ instance_id }}' is staged in its gitops repo but not
+          deployed. The instance was stopped, so it was left stopped. Run
+          'canasta gitops push -i {{ instance_id }}'; the changes deploy the
+          next time it starts.
+          {%- endif %}
+      when: _upgrade_gitops_pending | bool
+
+    - name: Record the instance awaiting a gitops push
+      ansible.builtin.set_fact:
+        _upgrade_gitops_staged: "{{ (_upgrade_gitops_staged | default([])) + [instance_id] }}"
+      when: _upgrade_gitops_pending | bool
+
+    - name: Report nothing staged
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'Nothing staged for a gitops push.'
+             if (_upgrade_rebuilt_image_changed | bool and _was_running | bool)
+             else 'Already up to date — nothing staged for a gitops push.' }}
+      when: not (_upgrade_gitops_pending | bool)
 
 # Recorded rather than failed here so the remaining instances still upgrade;
 # the playbook fails once the loop is done.

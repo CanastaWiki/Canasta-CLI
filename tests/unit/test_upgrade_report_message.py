@@ -31,5 +31,7 @@ def test_upgrade_complete_message_is_one_line():
     with open(UPGRADE) as f:
         task = _find(yaml.safe_load(f), "Report upgrade complete")
     msg = task["ansible.builtin.debug"]["msg"]
-    text = re.sub(r"\{\{.*?\}\}", "N", msg, flags=re.S)
+    assert "\n" not in msg, repr(msg)
+    text = re.sub(r"\{%.*?%\}.*?\{%\s*endif\s*%\}", "", msg, flags=re.S)
+    text = re.sub(r"\{\{.*?\}\}", "N", text, flags=re.S)
     assert text == "Upgraded N instance(s).", repr(msg)
