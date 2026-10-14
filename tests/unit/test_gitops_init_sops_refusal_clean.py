@@ -18,6 +18,7 @@ COMMON = os.path.join(ROLES, "common")
 
 CONTROLLER_RECIPIENT = "age1controllerkeyrecipient"
 CLUSTER_RECIPIENT = "age1clusterkeyrecipient"
+SSH_REPO = "git@example.com:org/gitops.git"
 
 # Shadows kubernetes.core so the cluster read returns a sops-age Secret that
 # holds a key other than the controller's.
@@ -105,8 +106,10 @@ def _run_init(tmp_path):
     _fake_collection(collections)
 
     gitconfig = tmp_path / "gitconfig"
+    # Kubernetes init takes only SSH URLs; rewrite one to the local remote.
     gitconfig.write_text("[user]\n\tname = t\n\temail = t@example.com\n"
-                         "[init]\n\tdefaultBranch = main\n")
+                         "[init]\n\tdefaultBranch = main\n"
+                         f'[url "{remote}"]\n\tinsteadOf = {SSH_REPO}\n')
 
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
@@ -120,7 +123,7 @@ def _run_init(tmp_path):
             "instance_path": str(inst),
             "instance_id": "t1",
             "host_name": "h1",
-            "repo": str(remote),
+            "repo": SSH_REPO,
             "key": str(tmp_path / "keys" / "deploy"),
             "encrypt_secrets": True,
             "non_interactive": True,

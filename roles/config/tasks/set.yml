@@ -107,8 +107,13 @@
 
 # The restart is a side effect here, not what the operator asked for, so
 # say it is coming before the instance goes down.
+# A caller that announces the restart and its result itself (bouncer
+# enrollment storing its key) passes config_set_caller_reports so the
+# operator doesn't see a second, generic pair of lines.
 - name: Report restarting to apply changes
-  when: not (no_restart | default(false) | bool)
+  when:
+    - not (no_restart | default(false) | bool)
+    - not (config_set_caller_reports | default(false) | bool)
   ansible.builtin.debug:
     msg: "Restarting instance to apply changes..."
 
@@ -119,6 +124,7 @@
     tasks_from: restart.yml
 
 - name: Report settings applied
+  when: not (config_set_caller_reports | default(false) | bool)
   ansible.builtin.debug:
     msg: >-
       Settings updated.{{ (no_restart | default(false) | bool

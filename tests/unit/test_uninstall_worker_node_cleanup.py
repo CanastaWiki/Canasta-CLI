@@ -60,6 +60,8 @@ def _run(tmp_path, ssh_ok, force, worker, cp_host="cp"):
         "hosts": "localhost",
         "gather_facts": False,
         "vars": {"canasta_root": REPO_ROOT, "cp_host": cp_host, "force": force,
+                 "k3s_leftover_paths": [str(tmp_path / "rancher-node"),
+                                        str(tmp_path / "rancher-cache")],
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_tasks": UNINSTALL}],
     }]))
@@ -107,6 +109,16 @@ class TestRerunAfterK3sIsGone:
         assert "admin@10.0.0.1" in calls
         assert "delete node worker1 --ignore-not-found" in calls
         assert "Removed Node 'worker1' from control plane." in out
+
+    def test_node_leftovers_are_removed(self, tmp_path):
+        leftover = tmp_path / "rancher-node"
+        leftover.mkdir()
+        (leftover / "password").write_text("pw\n")
+        proc, _ = _run(tmp_path, ssh_ok=True, force=False, worker=False)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert not leftover.exists()
+        assert "/etc/rancher" not in proc.stdout
+        assert "/var/lib/rancher" not in proc.stdout
 
     def test_without_cp_host_nothing_is_attempted(self, tmp_path):
         proc, calls = _run(tmp_path, ssh_ok=True, force=False, worker=False,

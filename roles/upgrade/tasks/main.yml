@@ -204,10 +204,12 @@
 # host-specific (innodb_buffer_pool_size must fit the host's RAM), so a
 # repo spanning hosts of different sizes cannot share one. Create-only,
 # and stages nothing — the operator finishes the migration. No-ops on
-# non-gitops instances and when the template already exists.
+# non-gitops instances and when the template already exists. Compose only:
+# Kubernetes serves the chart's files/my.cnf, not the instance's my.cnf.
 - name: Backfill gitops my.cnf.template if missing
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/backfill_mycnf_template.yml
+  when: not (instance_is_k8s | bool)
 
 # Facts persist across the instances of one upgrade run, so clear the image
 # change signals before this instance sets its own.

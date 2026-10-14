@@ -70,6 +70,18 @@
       changed_when: false
       run_once: true
 
+    # ansible-playbook read canasta.py's vars file at startup, and it can
+    # hold secrets passed to config set, so it goes now rather than waiting
+    # for a later invocation's stale-file sweep.
+    - name: Remove the vars file canasta.py wrote
+      ansible.builtin.file:
+        path: "{{ canasta_vars_file }}"
+        state: absent
+      delegate_to: canasta_controller
+      changed_when: false
+      run_once: true
+      when: canasta_vars_file is defined
+
     - name: Validate command parameter
       ansible.builtin.assert:
         that: command is defined and command != ''

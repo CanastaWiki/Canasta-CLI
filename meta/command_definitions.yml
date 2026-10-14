@@ -2862,7 +2862,10 @@ commands:
       - name: repo
         type: string
         required: true
-        description: "Git repository URL"
+        description: >-
+          Git repository URL. On Kubernetes it must be an SSH URL
+          (user@host:path or ssh://user@host/path), since Argo CD clones it
+          over SSH from inside the cluster.
       - name: key
         type: path
         required_unless: git_crypt_gpg_user
@@ -2984,7 +2987,10 @@ commands:
       - name: repo
         type: string
         required: true
-        description: "Git repository URL"
+        description: >-
+          Git repository URL. On Kubernetes it must be an SSH URL
+          (user@host:path or ssh://user@host/path), since Argo CD clones it
+          over SSH from inside the cluster.
       - name: key
         type: path
         description: >-
