@@ -41,6 +41,7 @@ def cmd_start(args):
         missing = _helpers._missing_profile_services(inst, compose_cmd)
         if not missing:
             print("Instance '%s' is already running." % inst_id)
+            _helpers._warn_composer_failure(inst_id, inst)
             return 0
         print("Starting %s..." % ", ".join(missing))
     # Before 'up', not after a failure: MariaDB ignores the root-password
@@ -60,6 +61,8 @@ def cmd_start(args):
     rc = _helpers._wait_web_ready(inst_id, inst)
     if rc == 0:
         _helpers._rootless_operator_chown(inst)
+        # Startup composer has finished once web is ready.
+        _helpers._warn_composer_failure(inst_id, inst)
     return rc
 
 

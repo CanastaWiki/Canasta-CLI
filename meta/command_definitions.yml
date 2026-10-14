@@ -571,6 +571,9 @@ commands:
       The command returns once the web container reports healthy, so a
       command run immediately afterward does not race the image's
       startup. An image that declares no healthcheck is not waited on.
+      If the web container's startup `composer update` failed, so the
+      packages in `config/composer.local.json` are not installed, a
+      warning names the failure and how to read its details.
     examples:
       - "canasta start"
     playbook: start.yml
@@ -603,7 +606,7 @@ commands:
       applied during the restart. Use `canasta devmode enable` or
       `canasta devmode disable` to change the development mode
       setting. The command returns once the web container reports
-      healthy.
+      healthy, and warns if its startup `composer update` failed.
     examples:
       - "canasta restart"
     playbook: restart.yml
@@ -792,8 +795,9 @@ commands:
       directory), also checks that instance: config and runtime
       agreement, whether local config edits have been applied, whether
       CrowdSec is enabled with no CADDY_TRUSTED_PROXIES set,
-      and the certificate the origin is actually serving (expired, or
-      silently reissued by Caddy's internal CA after ACME failed).
+      the certificate the origin is actually serving (expired, or
+      silently reissued by Caddy's internal CA after ACME failed), and
+      whether the web container's startup `composer update` failed.
     examples:
       - "canasta doctor"
       - "canasta doctor --host prod1.example.com"
@@ -1041,6 +1045,8 @@ commands:
     long_description: |
       Upgrade all registered Canasta instances by refreshing configs,
       pulling latest images, running migrations, and restarting containers.
+      A restarted instance whose startup `composer update` failed is
+      reported with a warning.
 
       A Kubernetes instance managed through gitops is not redeployed: Argo CD
       deploys it from its gitops repo. Upgrade stages the refreshed chart and
