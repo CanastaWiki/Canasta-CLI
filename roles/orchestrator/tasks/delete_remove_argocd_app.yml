@@ -29,3 +29,16 @@
   when:
     - instance_is_k8s | bool
     - _k8s_api_reachable | default(true)
+
+# After the Application, which names it as its project.
+- name: Remove Argo CD AppProject if present
+  kubernetes.core.k8s:
+    state: absent
+    api_version: argoproj.io/v1alpha1
+    kind: AppProject
+    name: "canasta-{{ instance_id }}"
+    namespace: "{{ argocd_namespace | default('argocd') }}"
+  ignore_errors: true  # OK if Argo CD not installed
+  when:
+    - instance_is_k8s | bool
+    - _k8s_api_reachable | default(true)

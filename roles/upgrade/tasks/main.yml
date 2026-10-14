@@ -232,6 +232,11 @@
     _upgrade_stage_only: >-
       {{ (instance_is_k8s | bool) and _upgrade_gitops_marker.stat.exists }}
 
+- name: Move the Argo CD Application into the instance's own project
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/migrate_argo_project.yml
+  when: _upgrade_stage_only | bool
+
 # --- Bump configured image tag (orchestrator-specific) ---
 # K8s updates values.yaml image.tag and CANASTA_IMAGE in .env; Compose
 # updates CANASTA_IMAGE in .env.
