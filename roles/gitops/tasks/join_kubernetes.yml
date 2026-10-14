@@ -234,7 +234,7 @@
         name: canasta-{{ instance_id }}
         namespace: {{ argocd_namespace | default('argocd') }}
       spec:
-        project: default
+        project: canasta-{{ instance_id }}
         source:
           repoURL: {{ repo }}
           targetRevision: HEAD

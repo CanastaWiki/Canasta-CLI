@@ -1,11 +1,12 @@
-"""A Central API (CAPI) refusal must not take CrowdSec's local API down.
+"""An unavailable Central API (CAPI) must not take CrowdSec's local API down.
 
-The engine will not start while CAPI refuses its credentials. The start
-wrapper the crowdsec container (Compose) and sidecar (K8s) both run keeps
-the refused credentials aside, runs the engine with the local API only,
-and puts the credentials back once CAPI accepts them. The wrapper is run
-here under /bin/sh with stub `crowdsec` entrypoint and `cscli` executables,
-and ensure_capi.yml is run against a stub cscli.
+The engine will not start while CAPI refuses its credentials, or cannot be
+reached and the engine has no cached CAPI token. The start wrapper the
+crowdsec container (Compose) and sidecar (K8s) both run keeps those
+credentials aside, runs the engine with the local API only, and puts them
+back once CAPI accepts them. The wrapper is run here under /bin/sh with
+stub `crowdsec` entrypoint and `cscli` executables, and ensure_capi.yml is
+run against a stub cscli.
 """
 
 import os
@@ -27,12 +28,13 @@ START = "/bin/bash /docker_start.sh"
 
 # Stands in for the image's entrypoint: a missing credentials file is a
 # first start whose CAPI registration failed, and credentials CAPI refuses
-# (or cannot be reached for) stop the engine. Otherwise it runs and exits 0.
+# (or cannot be reached for) stop the engine, as does a fault unrelated to
+# CAPI ("broken", "nocfg"). Otherwise it runs and exits 0.
 FAKE_ENGINE = """#!/bin/sh
 creds="$1"
 echo "run:$(cat "$creds" 2>/dev/null)" >> "$(dirname "$0")/calls.log"
 if [ ! -e "$creds" ]; then : > "$creds"; exit 1; fi
-grep -qE 'login: (refused|flaky)' "$creds" && exit 1
+grep -qE 'login: (refused|flaky|busy|broken|nocfg)' "$creds" && exit 1
 exit 0
 """
 
@@ -40,11 +42,19 @@ FAKE_CSCLI = """#!/bin/sh
 echo "cscli:$*" >> "$(dirname "$0")/calls.log"
 [ "$*" = "capi status" ] || exit 1
 creds="$(cat "$(dirname "$0")/creds_path")"
-if grep -q 'login: good' "$creds"; then
+if grep -qE 'login: (good|broken)' "$creds"; then
   echo "You can successfully interact with Central API (CAPI)"; exit 0
 fi
 if grep -q 'login: flaky' "$creds"; then
   echo "Error: failed to authenticate to Central API (CAPI): could not get jwt token: dial tcp: i/o timeout"
+  exit 1
+fi
+if grep -q 'login: busy' "$creds"; then
+  echo "Error: failed to authenticate to Central API (CAPI): API error: http code 503"
+  exit 1
+fi
+if grep -q 'login: nocfg' "$creds"; then
+  echo "Error: no configuration for Central API (CAPI) in '/etc/crowdsec/config.yaml'"
   exit 1
 fi
 echo "Error: failed to authenticate to Central API (CAPI): API error: Forbidden"
@@ -130,12 +140,49 @@ class TestStartWrapper:
         assert "community blocklist is unavailable" in proc.stderr
         assert not _restored(tmp_path)
 
-    def test_unreachable_capi_is_not_a_refusal(self, tmp_path):
-        proc, calls, creds, kept = _run_wrapper(tmp_path, creds="login: flaky\n")
+    def test_unreachable_capi_runs_the_engine_local_only(self, tmp_path):
+        proc, calls, creds, kept = _run_wrapper(tmp_path,
+                                                creds="login: flaky\n")
+        assert proc.returncode == 0, proc.stderr
+        assert kept == "login: flaky\n"
+        assert creds == ""
+        assert calls == ["run:login: flaky", "cscli:capi status", "run:"]
+        assert "community blocklist is unavailable" in proc.stderr
+        assert "waiting 10 minutes" not in proc.stderr
+
+    def test_capi_server_error_runs_the_engine_local_only(self, tmp_path):
+        proc, calls, creds, kept = _run_wrapper(tmp_path,
+                                                creds="login: busy\n")
+        assert proc.returncode == 0, proc.stderr
+        assert kept == "login: busy\n"
+        assert creds == ""
+        assert calls == ["run:login: busy", "cscli:capi status", "run:"]
+
+    def test_still_unreachable_capi_keeps_credentials_aside(self, tmp_path):
+        proc, calls, creds, kept = _run_wrapper(tmp_path, creds="",
+                                                refused="login: flaky\n")
+        assert proc.returncode == 0, proc.stderr
+        assert creds == ""
+        assert kept == "login: flaky\n"
+        assert calls == ["cscli:capi status", "run:"]
+        assert not _restored(tmp_path)
+
+    def test_failure_with_capi_reachable_is_held(self, tmp_path):
+        proc, calls, creds, kept = _run_wrapper(tmp_path,
+                                                creds="login: broken\n")
         assert proc.returncode == 1
-        assert creds == "login: flaky\n"
+        assert creds == "login: broken\n"
         assert kept is None
-        assert calls == ["run:login: flaky", "cscli:capi status"]
+        assert calls == ["run:login: broken", "cscli:capi status"]
+        assert "waiting 10 minutes" in proc.stderr
+
+    def test_cscli_failure_unrelated_to_capi_login_is_held(self, tmp_path):
+        proc, calls, creds, kept = _run_wrapper(tmp_path,
+                                                creds="login: nocfg\n")
+        assert proc.returncode == 1
+        assert creds == "login: nocfg\n"
+        assert kept is None
+        assert calls == ["run:login: nocfg", "cscli:capi status"]
         assert "waiting 10 minutes" in proc.stderr
 
     def test_an_existing_kept_copy_is_not_overwritten(self, tmp_path):
