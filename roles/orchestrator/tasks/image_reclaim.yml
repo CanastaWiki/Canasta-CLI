@@ -70,6 +70,29 @@
          | reject('equalto', '')
          | list | unique }}
 
+# The images Compose instances need on the Docker side. A Kubernetes
+# instance's pin names an image its pods pull from the in-cluster registry,
+# so it does not make the Docker copy of that image needed.
+- name: Collect the image references Compose instances are pinned to
+  ansible.builtin.set_fact:
+    _reclaim_compose_pinned: >-
+      {{ _reclaim_pin_reads.results | default([])
+         | selectattr('variables', 'defined')
+         | rejectattr('_reclaim_inst.key', 'in', _reclaim_k8s_ids)
+         | map(attribute='variables')
+         | map('dict2items')
+         | flatten
+         | selectattr('key', 'in', _reclaim_image_keys)
+         | map(attribute='value')
+         | reject('equalto', '')
+         | list | unique }}
+  vars:
+    _reclaim_k8s_ids: >-
+      {{ _reclaim_instances.instances | default({}) | dict2items
+         | selectattr('value.orchestrator', 'defined')
+         | selectattr('value.orchestrator', 'equalto', 'kubernetes')
+         | map(attribute='key') | list }}
+
 # --- Docker / Compose reclaim ---
 - name: Probe for a working Docker daemon
   ansible.builtin.command:
@@ -136,15 +159,29 @@
         label: "{{ _reclaim_dir.key }}"
       register: _reclaim_dirs
 
+    # Only a Compose instance has a compose project to read; reading a
+    # Kubernetes instance's directory fails and would keep every built image.
     - name: Note the instance directories present here
       ansible.builtin.set_fact:
         _reclaim_local_paths: >-
+          {{ _reclaim_present
+             | map(attribute='_reclaim_dir.value.path')
+             | unique | list
+             | difference(_reclaim_present_k8s
+                          | map(attribute='_reclaim_dir.value.path') | list) }}
+        _reclaim_local_k8s: "{{ _reclaim_present_k8s | length > 0 }}"
+      vars:
+        _reclaim_present: >-
           {{ _reclaim_dirs.results | default([])
              | selectattr('stat', 'defined')
              | selectattr('stat.isdir', 'defined')
              | selectattr('stat.isdir')
-             | map(attribute='_reclaim_dir.value.path')
-             | unique | list }}
+             | list }}
+        _reclaim_present_k8s: >-
+          {{ _reclaim_present
+             | selectattr('_reclaim_dir.value.orchestrator', 'defined')
+             | selectattr('_reclaim_dir.value.orchestrator', 'equalto', 'kubernetes')
+             | list }}
 
     # Every profile, so a built image for a disabled profile still counts as
     # referenced.
@@ -248,6 +285,64 @@
           | select('search', 'Total reclaimed space')
           | list) or ['no dangling layers']) | first }}
       when: not (reclaim_dry_run | default(false) | bool)
+
+    # Builds for a Kubernetes instance (--build-from, `build:` sidecars,
+    # `image push`) leave a Docker copy behind besides the one pushed to the
+    # in-cluster registry. Pods run from the registry's copy, so the Docker
+    # one only speeds up the next build; it is reported, not removed.
+    - name: List the Docker copies of images built for the in-cluster registry
+      ansible.builtin.command:
+        cmd: >-
+          docker images
+          --format {% raw %}'{{.Repository}}:{{.Tag}}'{% endraw %}
+      register: _reclaim_all_images
+      changed_when: false
+      failed_when: false
+      when: _reclaim_local_k8s | bool
+
+    - name: Select the Kubernetes build copies no Compose instance needs
+      ansible.builtin.set_fact:
+        _reclaim_k8s_copies: >-
+          {{ _reclaim_all_images.stdout_lines | default([])
+             | select('match', '^(localhost:5000/|canasta:local$|canasta-base:local$)')
+             | reject('search', ':<none>')
+             | unique | list
+             | difference(_reclaim_compose_pinned) | sort }}
+
+    - name: Report the Kubernetes build copies kept
+      ansible.builtin.debug:
+        msg: >-
+          Docker: kept {{ _reclaim_k8s_copies | length }} image(s) built for
+          the in-cluster registry; pods run from the registry, so these only
+          speed up the next build. Remove them by hand with
+          'docker image rm {{ _reclaim_k8s_copies | join(' ') }}'.
+      when: _reclaim_k8s_copies | length > 0
+
+    # The build cache is what makes a rebuild fast, and nothing here can tell
+    # whether another build is coming, so it is reported, not pruned.
+    - name: Measure the Docker build cache
+      ansible.builtin.command:
+        cmd: >-
+          docker system df
+          --format {% raw %}'{{.Type}}|{{.Reclaimable}}'{% endraw %}
+      register: _reclaim_system_df
+      changed_when: false
+      failed_when: false
+
+    - name: Note the reclaimable build cache
+      ansible.builtin.set_fact:
+        _reclaim_build_cache: >-
+          {{ _reclaim_system_df.stdout_lines | default([])
+             | select('search', '^Build Cache')
+             | first | default('|0B')
+             | split('|') | last | trim | split(' ') | first }}
+
+    - name: Report the build cache kept
+      ansible.builtin.debug:
+        msg: >-
+          Docker build cache: {{ _reclaim_build_cache }} reclaimable, kept to
+          speed up rebuilds; reclaim it with 'docker builder prune'.
+      when: (_reclaim_build_cache | regex_replace('[^0-9.]', '') | float(0)) > 0
 
 # --- Kubernetes reclaim ---
 - name: Probe for a Kubernetes cluster on the host
