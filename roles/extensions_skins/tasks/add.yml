@@ -271,15 +271,27 @@
   vars:
     exec_service: web
     # The merge plugin silently skips an include that is not there yet, so
-    # wait briefly for the monitor to link each new item.
+    # wait briefly for the monitor to link each new item. An image with
+    # /update-composer-deps.sh keeps the bundled include list itself and
+    # treats config/composer.local.json as the operator's additions only; the
+    # script merges the two and records a failure in composer-update.failed.
     exec_command: >-
-      cp /mediawiki/config/composer.local.json /var/www/mediawiki/w/composer.local.json &&
       cd /var/www/mediawiki/w &&
       for f in {{ _composer_paths | map('quote') | join(' ') }}; do
       i=0; while [ ! -e "$f" ] && [ $i -lt 30 ]; do sleep 1; i=$((i+1)); done;
       [ -e "$f" ] || { echo "$f is not visible in the container" >&2; exit 1; };
       done &&
-      composer update --no-dev --no-interaction
+      if [ -x /update-composer-deps.sh ]; then
+      /update-composer-deps.sh; rc=$?;
+      if [ -f /mediawiki/config/persistent/composer-update.failed ]; then
+      echo "composer-update.failed: $(head -n 1 /mediawiki/config/persistent/composer-update.failed)" >&2;
+      [ $rc -ne 0 ] || rc=1;
+      fi;
+      exit $rc;
+      else
+      cp /mediawiki/config/composer.local.json /var/www/mediawiki/w/composer.local.json &&
+      composer update --no-dev --no-interaction;
+      fi
     exec_long: true
     # Best-effort: a composer dependency conflict must not abort the whole
     # command. rx_fail only applies while exec_long is true (the command then
@@ -309,23 +321,18 @@
       changed_when: true
       ignore_errors: true  # nothing to commit if the file content was already committed
 
+# The rebuild below overwrites exec_result, and a block's when is
+# re-evaluated for every task in it.
+- name: "Record the composer install result"
+  when: _composer_paths | length > 0
+  ansible.builtin.set_fact:
+    _composer_install_result: "{{ exec_result }}"
+
 - name: "Revert composer registration when install failed"
   when:
     - _composer_paths | length > 0
-    - exec_result.rc | default(1) != 0
+    - _composer_install_result.rc | default(1) != 0
   block:
-    - name: "Warn that the composer install failed"
-      ansible.builtin.debug:
-        msg: >-
-          Composer could not install the requirements for
-          {{ _to_add | map(attribute='name') | join(', ') }}
-          (composer exited {{ exec_result.rc | default('?') }}). The
-          {{ _item_type }} code was added, but its PHP dependencies are NOT
-          installed and were left out of config/composer.local.json to keep the
-          instance's composer config valid. Resolve the conflict — usually a
-          version pin that is incompatible with the instance's existing
-          packages — then re-run the add or register the requirements manually.
-
     # Only what this run added: items that were already registered were
     # working before and must stay.
     - name: "Unregister composer requirements to keep config clean"
@@ -334,6 +341,56 @@
         instance_path: "{{ instance_path }}"
         include: "{{ _composer_local.added }}"
         state: absent
+
+    # Rebuild vendor/ from the restored list, which also clears
+    # composer-update.failed on success. A no-op on images without the
+    # script.
+    - name: "Rebuild composer state from the restored list"
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: web
+        exec_command: >-
+          if [ -x /update-composer-deps.sh ]; then
+          /update-composer-deps.sh; rc=$?;
+          if [ -f /mediawiki/config/persistent/composer-update.failed ]; then
+          echo "composer-update.failed: $(head -n 1 /mediawiki/config/persistent/composer-update.failed)" >&2;
+          [ $rc -ne 0 ] || rc=1;
+          fi;
+          exit $rc;
+          fi
+        exec_long: true
+        rx_fail: false
+
+    - name: "Warn that the composer install failed"
+      vars:
+        _composer_failed_reason: >-
+          {{ ((_composer_install_result.stderr | default('')).splitlines()
+              | select('match', 'composer-update.failed: ')
+              | map('replace', 'composer-update.failed: ',
+                    '; config/persistent/composer-update.failed: ')
+              | map('regex_replace', '[.]$', '')
+              | first) | default('') }}
+        _composer_rebuild_failure: >-
+          {% if (exec_result.rc | default(1)) != 0 %} Rebuilding composer
+          state from the restored list also failed (exit
+          {{ exec_result.rc | default('?') }}){{ _composer_rebuild_reason }}.{% endif %}
+        _composer_rebuild_reason: >-
+          {{ ((exec_result.stderr | default('')).splitlines()
+              | select('match', 'composer-update.failed: ')
+              | map('replace', 'composer-update.failed: ',
+                    '; config/persistent/composer-update.failed: ')
+              | map('regex_replace', '[.]$', '')
+              | first) | default('') }}
+      ansible.builtin.debug:
+        msg: >-
+          Composer could not install the requirements for
+          {{ _to_add | map(attribute='name') | join(', ') }}
+          (composer exited {{ _composer_install_result.rc | default('?') }}){{ _composer_failed_reason }}. The
+          {{ _item_type }} code was added, but its PHP dependencies are NOT
+          installed and were left out of config/composer.local.json to keep the
+          instance's composer config valid. Resolve the conflict — usually a
+          version pin that is incompatible with the instance's existing
+          packages — then re-run the add or register the requirements manually.{{ _composer_rebuild_failure }}
 
 - name: "Enable added {{ _item_type }} (with containers up so the monitor has linked them)"
   when: not (skip_enable | default(false) | bool)

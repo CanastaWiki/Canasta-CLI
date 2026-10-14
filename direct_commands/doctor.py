@@ -1474,6 +1474,22 @@ def _k8s_config_consistency_lines(inst):
         inst.get("id", "?"), is_gitops, baseline_text, current_files)
 
 
+def _composer_failure_lines(inst):
+    """doctor lines for a failed startup composer update, or [] when there
+    is none or the web container cannot be read."""
+    inst_id = inst.get("id", "?")
+    summary = _helpers._composer_failure_summary(inst_id, inst)
+    if not summary:
+        return []
+    return [
+        "", "Composer dependencies (%s):" % inst_id,
+        "  WARN — %s The packages in config/composer.local.json are not "
+        "installed; the wiki runs on the image's bundled vendor/. Fix the "
+        "cause, then run 'canasta restart' to retry." % summary,
+        "  %s" % _helpers._composer_failure_details_hint(inst_id),
+    ]
+
+
 @register("doctor")
 def cmd_doctor(args):
     host = getattr(args, "host", None)
@@ -1538,6 +1554,9 @@ def cmd_doctor(args):
             print(line)
 
         for line in _origin_tls_lines(inst):
+            print(line)
+
+        for line in _composer_failure_lines(inst):
             print(line)
 
     parts = stdout.split(_helpers._SENTINEL + "\n")

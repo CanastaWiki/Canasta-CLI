@@ -13,6 +13,7 @@
 # gitops marker is absent.
 #
 # Input: instance_path, canasta_root, new_wiki_id.
+# Optional: new_wiki_report (bool, default true) - report the pending push.
 
 - name: Check for gitops instance
   ansible.builtin.stat:
@@ -83,3 +84,4 @@
         msg: >-
           Staged new wiki '{{ new_wiki_id }}' for gitops. Review with
           'canasta gitops status' and publish with 'canasta gitops push'.
+      when: new_wiki_report | default(true) | bool

@@ -1075,6 +1075,36 @@ def _exec_in_container(inst_id, inst, command, service="web"):
     return rc, stdout
 
 
+# Written by the image's startup composer update when it fails and removed
+# when a later one succeeds; older images never write it.
+COMPOSER_FAILED_PATH = "/mediawiki/config/persistent/composer-update.failed"
+
+
+def _composer_failure_summary(inst_id, inst):
+    """First line of the web container's composer failure record, or None
+    when there is none or the container cannot be read."""
+    rc, out = _exec_in_container(
+        inst_id, inst,
+        "if [ -f %s ]; then head -n 1 %s; fi"
+        % (COMPOSER_FAILED_PATH, COMPOSER_FAILED_PATH))
+    if rc != 0:
+        return None
+    return out.strip() or None
+
+
+def _composer_failure_details_hint(inst_id):
+    return "Details: canasta maintenance exec -i %s -- cat %s" % (
+        inst_id, COMPOSER_FAILED_PATH)
+
+
+def _warn_composer_failure(inst_id, inst):
+    """Print one warning when the last startup composer update failed."""
+    summary = _composer_failure_summary(inst_id, inst)
+    if summary:
+        print("Warning: %s %s" % (summary, _composer_failure_details_hint(inst_id)),
+              file=sys.stderr)
+
+
 def _stream_in_container(inst_id, inst, command, service="web",
                          retry_on_reset=False):
     """Run a command inside a container/pod, streaming combined
