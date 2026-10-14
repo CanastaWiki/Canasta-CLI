@@ -159,7 +159,8 @@ def _b64(s):
      {"_rc_template": {"content": _b64("FOO_PASSWORD=x\nBAR_SECRET=y\n")},
       "canasta_secret_key_regex": ".*"},
      ["FOO_PASSWORD=x", "BAR_SECRET=y"]),
-    ("roles/orchestrator/tasks/k8s_capture_rollout_failure.yml", "msg",
+    ("roles/orchestrator/tasks/k8s_capture_rollout_failure.yml",
+     "Report cluster state for the failed rollout::msg",
      {"_rollout_state": {"stdout": "l1\nl2"}},
      ["The rollout did not finish. What the cluster reports:", "",
       "l1", "l2"]),
@@ -170,7 +171,11 @@ def _b64(s):
 ])
 def test_expression_splits_into_lines(path, key, variables, expected):
     with open(os.path.join(REPO_ROOT, path)) as f:
-        expr = _find(yaml.safe_load(f), key)
+        doc = yaml.safe_load(f)
+    if "::" in key:
+        name, key = key.split("::")
+        doc = next(t for t in doc if t.get("name") == name)
+    expr = _find(doc, key)
     rendered = Templar(loader=DataLoader(), variables=variables).template(
         trust_as_template(expr))
     assert rendered == expected

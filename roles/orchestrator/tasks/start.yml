@@ -389,32 +389,69 @@
         - _start_web_has_health.stdout | default('') | trim != ''
         - (_start_web_health.stdout | default('') | trim) != 'healthy'
       block:
-        - name: Capture the database error log for the health-gate failure
-          ansible.builtin.include_tasks: _capture_db_error_log.yml
-
         - name: Capture web's logs for the health-gate failure
           ansible.builtin.command:
             cmd: >-
               {{ _compose_cmd }} {{ _compose_files | join(' ') }}
               {{ _compose_profile_flags | default('') }}
-              logs --tail=60 --no-color web
+              logs --tail=200 --no-color web
             chdir: "{{ instance_path }}"
           register: _start_web_logs
           changed_when: false
           failed_when: false
 
-        - name: Report that web never reported healthy
-          ansible.builtin.fail:
-            msg: |-
+        # Through the ./config bind mount, so a container that is
+        # restarting does not have to answer an exec.
+        - name: Read the startup composer failure record for the health-gate failure
+          ansible.builtin.command:
+            argv:
+              - head
+              - "-n"
+              - "1"
+              - "{{ instance_path }}/config/persistent/composer-update.failed"
+          register: _start_composer_failed
+          changed_when: false
+          failed_when: false
+
+        - name: Find the startup error web logged
+          ansible.builtin.set_fact:
+            _start_web_cause: >-
+              {{ (_start_web_logs.stdout | default(''))
+                 | web_startup_cause(instance_id,
+                                     _start_composer_failed.stdout | default('')) }}
+            _start_web_timeout: >-
               The 'web' container for instance '{{ instance_id }}' did not
               report healthy within 10 minutes; its last status was
               '{{ _start_web_health.stdout | default('') | trim | default('(none)', true) }}'.
+            _start_web_log_lines: "{{ (_start_web_logs.stdout | default('')).splitlines() }}"
+
+        - name: Report the startup error web logged
+          ansible.builtin.fail:
+            msg: |-
+              {{ _start_web_cause.cause }}
+              {{ _start_web_cause.hint }}
+              {{ _start_web_timeout }}
+              --- web logs (last 20) ---
+              {% for line in _start_web_log_lines[-20:] %}
+              {{ line }}
+              {% endfor %}
+          when: _start_web_cause.cause | default('') | length > 0
+
+        - name: Capture the database error log for the health-gate failure
+          ansible.builtin.include_tasks: _capture_db_error_log.yml
+
+        - name: Report that web never reported healthy
+          ansible.builtin.fail:
+            msg: |-
+              {{ _start_web_timeout }}
               The image's healthcheck probes /server-status, which answers only
               once composer and apache have both finished — so this usually
               means composer is still running or failed, or the database web
               waits on never came up.
               --- web logs (last 60) ---
-              {{ _start_web_logs.stdout | default('(not captured)') }}
+              {% for line in _start_web_log_lines[-60:] %}
+              {{ line }}
+              {% endfor %}
               --- database error log (last 100) ---
               {{ _start_db_log_text | default('(not captured)') }}
 
@@ -624,11 +661,23 @@
       when: _db_enabled | bool
 
     - name: Wait for web readiness
-      ansible.builtin.command:
-        cmd: >-
-          kubectl rollout status deployment/canasta-{{ instance_id }}-web
-          -n {{ _k8s_namespace }} --timeout=900s
-      changed_when: false
+      block:
+        - name: Wait for the web deployment to become ready
+          ansible.builtin.command:
+            cmd: >-
+              kubectl rollout status deployment/canasta-{{ instance_id }}-web
+              -n {{ _k8s_namespace }} --timeout=900s
+          changed_when: false
+      rescue:
+        - name: Report why the rollout did not finish
+          ansible.builtin.include_tasks: k8s_capture_rollout_failure.yml
+
+        - name: Fail with the original rollout error
+          ansible.builtin.fail:
+            msg: >-
+              The web deployment for '{{ instance_id }}' did not become
+              ready. The output above explains why.
+              {{ ansible_failed_result.msg | default('') }}
 
     # Register CAPI + auto-enroll the bouncer when CrowdSec is on but no
     # key is stored yet. Shared with the Compose start path and create.
