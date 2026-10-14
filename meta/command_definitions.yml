@@ -3673,6 +3673,11 @@ commands:
       restarts the registry so its in-memory blob cache matches the pruned
       store. A host running both is reclaimed on both paths.
 
+      The Docker build cache, and on a Kubernetes host the Docker copies of
+      images built for the in-cluster registry, are kept because they speed
+      up the next build; their size or names are reported with the command
+      that removes them (`docker builder prune`, `docker image rm`).
+
       Volumes are never touched, and an image an instance on the host is
       pinned to is kept whether or not that instance is running.
 
