@@ -42,6 +42,13 @@ def _render(expr, **variables):
     return templar.template(trust_as_template(expr))
 
 
+def _render_with_task_vars(name, expr, **variables):
+    """Render expr after the task's own vars, in their order."""
+    for key, value in (_task(name).get("vars") or {}).items():
+        variables[key] = _render(value, **variables)
+    return _render(expr, **variables)
+
+
 def _results(*rows):
     """Registered loop results: (rc, stdout_lines) per instance."""
     return {"results": [{"rc": rc, "stdout_lines": lines}
@@ -138,11 +145,13 @@ class TestWiring:
             else {"exists": False},
             "_reclaim_dir": {"key": path, "value": {"path": path}},
         }
-        paths = _render(fact, _reclaim_dirs={"results": [
-            stat_result("/home/a/site", True),
-            stat_result("/home/b/gone", False),
-            stat_result("/home/a/site", True),
-        ]})
+        paths = _render_with_task_vars(
+            "Note the instance directories present here", fact,
+            _reclaim_dirs={"results": [
+                stat_result("/home/a/site", True),
+                stat_result("/home/b/gone", False),
+                stat_result("/home/a/site", True),
+            ]})
         assert list(paths) == ["/home/a/site"]
 
     def test_removal_is_gated_on_dry_run_and_never_forced(self):

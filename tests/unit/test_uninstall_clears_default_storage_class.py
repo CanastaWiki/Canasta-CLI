@@ -88,3 +88,11 @@ class TestClearTheDefault:
                       if t.get("name") == "Report default storage class cleared")
         assert "_uninstall_default_sc.value" in (
             report["ansible.builtin.debug"]["msg"])
+
+    def test_it_names_the_canasta_default_not_the_cluster_default(self):
+        # The cluster's own default class (local-path on k3s) is a
+        # different thing; the report must not read as if it were cleared.
+        report = next(t for t in _task(CLEAR)["block"]
+                      if t.get("name") == "Report default storage class cleared")
+        assert "Canasta default StorageClass" in (
+            report["ansible.builtin.debug"]["msg"])
