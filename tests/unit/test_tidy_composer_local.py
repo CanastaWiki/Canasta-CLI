@@ -68,7 +68,7 @@ def _mediawiki(root, new_image=True):
     os.makedirs(os.path.join(mw, "maintenance"))
     shutil.copy(FIXTURE, os.path.join(mw, "maintenance", "composer-local.php"))
     if new_image:
-        with open(os.path.join(mw, "composer.bundled.json"), "w") as f:
+        with open(os.path.join(mw, "composer.canasta.json"), "w") as f:
             json.dump({"extra": {"merge-plugin": {"include": [
                 BUNDLED, BUNDLED_SKIN, OVERRIDDEN]}}}, f)
     outside = os.path.join(root, "outside", "pkg")

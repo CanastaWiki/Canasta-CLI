@@ -1,7 +1,7 @@
 ---
 # Remove from config/composer.local.json the merge-plugin includes the image
 # ignores: ones that resolve to extensions and skins bundled with the image,
-# and ones that match nothing. An image that ships composer.bundled.json keeps
+# and ones that match nothing. An image that ships composer.canasta.json keeps
 # the bundled list itself and reads this file as the operator's additions
 # only; on an older image the file is still the whole list and is left alone.
 #

@@ -7,7 +7,7 @@
  *   php -- <base64 of a JSON list of include patterns>
  *
  * Prints one JSON object. {"supported": false} when the image does not keep
- * its own bundled list (no composer.bundled.json), so the file is still the
+ * its own bundled list (no composer.canasta.json), so the file is still the
  * whole list. Otherwise {"supported": true, "drop": [...]}, the patterns that
  * match no operator file, or {"supported": true, "error": "..."}.
  *
@@ -18,7 +18,7 @@
 
 $mwHome = rtrim(getenv('MW_HOME') ?: '/var/www/mediawiki/w', '/');
 $script = "$mwHome/maintenance/composer-local.php";
-if (!is_file("$mwHome/composer.bundled.json") || !is_file($script)) {
+if (!is_file("$mwHome/composer.canasta.json") || !is_file($script)) {
     echo json_encode(['supported' => false]), "\n";
     exit(0);
 }
