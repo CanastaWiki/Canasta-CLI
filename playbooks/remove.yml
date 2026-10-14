@@ -30,6 +30,42 @@
     msg: "Removing wiki '{{ wiki }}' from instance '{{ instance_id }}'. Use --yes to confirm."
   when: not (yes | default(false) | bool)
 
+# The wiki's own database and the extra databases it declares, except any
+# another wiki also declares and MariaDB's system schemas.
+- name: Choose the databases to drop
+  ansible.builtin.set_fact:
+    _remove_drop_dbs: >-
+      {{ _remove_wikis.db_groups | selectattr('wiki', 'equalto', wiki)
+         | map(attribute='databases') | flatten
+         | reject('in', _remove_wikis.db_groups | rejectattr('wiki', 'equalto', wiki)
+                        | map(attribute='databases') | flatten | list)
+         | reject('in', ['mysql', 'information_schema', 'performance_schema', 'sys'])
+         | list }}
+    _remove_dbs_left: []
+
+# The databases are dropped from inside the instance, so a stopped instance
+# would lose the wiki but keep its databases. Refuse before changing anything.
+- name: Require the instance to be running to drop the wiki's databases
+  when: _remove_drop_dbs | length > 0
+  block:
+    - name: Find where database administration runs
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/db_admin.yml
+
+    - name: List the instance's running services
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/list_running_services.yml
+
+    - name: Refuse when database administration has nowhere to run
+      ansible.builtin.fail:
+        msg: >-
+          Cannot remove wiki '{{ wiki }}': instance '{{ instance_id }}' is not
+          running, so its
+          {{ 'databases' if _remove_drop_dbs | length > 1 else 'database' }}
+          can't be dropped. Start the instance with
+          'canasta start -i {{ instance_id }}', then run remove again.
+      when: _db_admin_service not in _running_services.split()
+
 # Clean up wiki images inside container (owned by www-data on Linux)
 - name: Remove wiki images inside container
   ansible.builtin.include_tasks:
@@ -66,19 +102,6 @@
     instance_path: "{{ instance_path }}"
     state: remove
     wiki_id: "{{ wiki }}"
-
-# The wiki's own database and the extra databases it declares, except any
-# another wiki also declares and MariaDB's system schemas.
-- name: Choose the databases to drop
-  ansible.builtin.set_fact:
-    _remove_drop_dbs: >-
-      {{ _remove_wikis.db_groups | selectattr('wiki', 'equalto', wiki)
-         | map(attribute='databases') | flatten
-         | reject('in', _remove_wikis.db_groups | rejectattr('wiki', 'equalto', wiki)
-                        | map(attribute='databases') | flatten | list)
-         | reject('in', ['mysql', 'information_schema', 'performance_schema', 'sys'])
-         | list }}
-    _remove_dbs_left: []
 
 - name: Drop the wiki's databases
   when: _remove_drop_dbs | length > 0
