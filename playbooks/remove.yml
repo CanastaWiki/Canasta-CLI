@@ -129,6 +129,13 @@
     path: "{{ instance_path }}/config/settings/wikis/{{ wiki }}"
     state: absent
 
+# On Kubernetes the container's public_assets is a volume, not this
+# directory, and starting the instance mirrors this directory back into it.
+- name: Remove per-wiki public_assets directory
+  ansible.builtin.file:
+    path: "{{ instance_path }}/public_assets/{{ wiki }}"
+    state: absent
+
 - name: Remove admin password file
   ansible.builtin.file:
     path: "{{ instance_path }}/admin-password_{{ wiki }}"
