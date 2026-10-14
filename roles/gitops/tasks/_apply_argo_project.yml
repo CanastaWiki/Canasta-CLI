@@ -1,0 +1,27 @@
+---
+# Apply this instance's Argo CD AppProject. It admits only the instance's own
+# gitops repo as a source and only the instance's namespace as a destination,
+# and permits no cluster-scoped resources, so write access to one instance's
+# repo cannot deploy outside that instance.
+#
+# Input: instance_id, _argo_project_repo, argocd_namespace
+
+- name: Apply the instance's Argo CD AppProject
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: argoproj.io/v1alpha1
+      kind: AppProject
+      metadata:
+        name: "canasta-{{ instance_id }}"
+        namespace: "{{ argocd_namespace | default('argocd') }}"
+        labels:
+          app.kubernetes.io/managed-by: canasta-cli
+          app.kubernetes.io/instance: "{{ instance_id }}"
+      spec:
+        description: "Canasta instance {{ instance_id }}"
+        sourceRepos:
+          - "{{ _argo_project_repo }}"
+        destinations:
+          - server: https://kubernetes.default.svc
+            namespace: "canasta-{{ instance_id }}"

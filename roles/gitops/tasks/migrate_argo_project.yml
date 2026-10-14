@@ -1,0 +1,99 @@
+---
+# Move a gitops-managed Kubernetes instance's Argo CD Application out of the
+# shared 'default' project into its own AppProject.
+#
+# Applied to the cluster directly, not staged for 'gitops push': the
+# Application and its project are applied by the CLI, never rendered from the
+# repo. Argo CD tracks an Application's resources by the Application's name,
+# not its project, and a project change alters neither the source nor the
+# revision, so the move prunes, recreates and redeploys nothing. The project
+# is created first so the Application never names one that doesn't admit it.
+#
+# The repo's copy of the Application manifest is updated to match and staged.
+#
+# An Application an operator moved to some other project is left alone.
+#
+# Input: instance_id, instance_path, argocd_namespace
+
+- name: Look up the instance's Argo CD Application
+  kubernetes.core.k8s_info:
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    name: "canasta-{{ instance_id }}"
+    namespace: "{{ argocd_namespace | default('argocd') }}"
+  register: _map_app
+
+- name: Read the Application's project, source and destination
+  ansible.builtin.set_fact:
+    _map_spec: >-
+      {{ _map_app.resources[0].spec
+         if (_map_app.resources | default([]) | length > 0) else {} }}
+
+- name: Decide whether the Application moves to its own project
+  ansible.builtin.set_fact:
+    _map_on_default: "{{ (_map_spec.project | default('')) == 'default' }}"
+    _map_move: >-
+      {{ (_map_spec.project | default('')) == 'default'
+         and (_map_spec.source.repoURL | default('') | length > 0)
+         and (_map_spec.destination.namespace | default('')) == 'canasta-' ~ instance_id
+         and (_map_spec.destination.server | default(''))
+             == 'https://kubernetes.default.svc' }}
+
+- name: Warn that the Application cannot move to its own project
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: Argo CD Application 'canasta-{{ instance_id }}' is in the
+      'default' project but does not deploy from a single repo to namespace
+      'canasta-{{ instance_id }}', so it was left there.
+  when:
+    - _map_on_default | bool
+    - not (_map_move | bool)
+
+- name: Apply the instance's Argo CD AppProject
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_apply_argo_project.yml"
+  vars:
+    _argo_project_repo: "{{ _map_spec.source.repoURL }}"
+  when: _map_move | bool
+
+- name: Move the Application into its own project
+  kubernetes.core.k8s:
+    state: patched
+    merge_type: merge
+    api_version: argoproj.io/v1alpha1
+    kind: Application
+    name: "canasta-{{ instance_id }}"
+    namespace: "{{ argocd_namespace | default('argocd') }}"
+    definition:
+      spec:
+        project: "canasta-{{ instance_id }}"
+  when: _map_move | bool
+
+- name: Stat the repo's Argo CD Application manifest
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/argocd/application.yaml"
+  register: _map_manifest
+  when: _map_move | bool
+
+- name: Point the repo's Application manifest at the instance's project
+  ansible.builtin.replace:
+    path: "{{ instance_path }}/argocd/application.yaml"
+    regexp: '^(\s*)project: default\s*$'
+    replace: '\1project: canasta-{{ instance_id }}'
+  register: _map_manifest_write
+  when:
+    - _map_move | bool
+    - _map_manifest.stat.exists | default(false)
+
+- name: Stage the updated Application manifest
+  ansible.builtin.command:
+    cmd: "git add -- argocd/application.yaml"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when: _map_manifest_write is changed
+
+- name: Report the Application moved to its own project
+  ansible.builtin.debug:
+    msg: >-
+      Moved Argo CD Application 'canasta-{{ instance_id }}' into its own
+      project 'canasta-{{ instance_id }}'.
+  when: _map_move | bool
