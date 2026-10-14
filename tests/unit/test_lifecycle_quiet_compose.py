@@ -118,6 +118,43 @@ class TestStartStopOutput:
         assert "started" not in capsys.readouterr().out
 
 
+BUNDLED_DB_ROOT_ENV = {"MYSQL_PASSWORD": "pw", "WIKI_DB_USER": "root"}
+BUNDLED_DB_OWN_ACCOUNT_ENV = {"MYSQL_PASSWORD": "pw",
+                              "WIKI_DB_USER": "mediawiki"}
+
+
+class TestBundledDatabase:
+    """Stop takes the fast path for every bundled-database instance; start
+    does too while MediaWiki is on the root account."""
+
+    @pytest.mark.parametrize("env", [BUNDLED_DB_ROOT_ENV,
+                                     BUNDLED_DB_OWN_ACCOUNT_ENV])
+    def test_stop_is_quiet_and_reports_stopped(
+            self, external_db_instance, monkeypatch, capsys, env):
+        monkeypatch.setattr(_helpers, "_sync_compose_profiles",
+                            lambda inst: dict(env))
+        assert direct_commands.cmd_stop(ARGS) == 0
+        out, err = capsys.readouterr()
+        assert "Container" not in out + err
+        assert out.strip() == "Instance 'test' stopped."
+
+    def test_start_on_root_account_is_quiet_and_reports_started(
+            self, external_db_instance, monkeypatch, capsys):
+        monkeypatch.setattr(_helpers, "_sync_compose_profiles",
+                            lambda inst: dict(BUNDLED_DB_ROOT_ENV))
+        assert direct_commands.cmd_start(ARGS) == 0
+        out, err = capsys.readouterr()
+        assert "Container" not in out + err
+        assert out.strip().splitlines()[-1] == "Instance 'test' started."
+
+    def test_start_on_own_account_still_hands_over_to_ansible(
+            self, external_db_instance, monkeypatch):
+        monkeypatch.setattr(_helpers, "_sync_compose_profiles",
+                            lambda inst: dict(BUNDLED_DB_OWN_ACCOUNT_ENV))
+        assert direct_commands.cmd_start(ARGS) == _helpers.FALLBACK
+        assert external_db_instance["run"] == []
+
+
 class TestRunComposeQuiet:
     @pytest.mark.parametrize("host", ["localhost", "admin@remote"])
     def test_quiet_captures_output(self, fake_subprocess, host, capsys):
