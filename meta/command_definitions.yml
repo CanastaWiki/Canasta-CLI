@@ -1109,6 +1109,12 @@ commands:
       whose database name is not valid, is a MariaDB system database, or
       is a database another wiki in the instance uses is reported and
       skipped.
+
+      A Kubernetes instance managed through gitops is not redeployed: Argo CD
+      deploys it from its gitops repo. Add creates the new wiki's database
+      and stages its configuration there, and you deploy it with `canasta
+      gitops push`, then `canasta gitops sync`. The web pods run update.php
+      for the new wiki when the sync restarts them.
     examples:
       - "canasta add -w docs -u localhost/docs"
     playbook: add.yml
@@ -1178,6 +1184,11 @@ commands:
     long_description: |
       Remove a wiki from a Canasta instance. Drops the wiki database
       and removes per-wiki configuration.
+
+      A Kubernetes instance managed through gitops is not redeployed: Argo CD
+      deploys it from its gitops repo. Remove drops the wiki's database and
+      stages the configuration change there, and you deploy it with `canasta
+      gitops push`, then `canasta gitops sync`.
     examples:
       - "canasta remove -w docs -y"
     playbook: remove.yml
