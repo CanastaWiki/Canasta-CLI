@@ -326,6 +326,11 @@
 - name: Move MediaWiki to its own database account
   ansible.builtin.include_tasks: migrate_wiki_db_account.yml
 
+# After the restart too, so the running web container's image decides which
+# includes it ignores.
+- name: Tidy composer.local.json
+  ansible.builtin.include_tasks: tidy_composer_local.yml
+
 - name: Re-render generated compose layers
   ansible.builtin.include_role:
     name: orchestrator

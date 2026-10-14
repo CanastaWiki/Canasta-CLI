@@ -1,0 +1,108 @@
+---
+# Remove from config/composer.local.json the merge-plugin includes the image
+# ignores: ones that resolve to extensions and skins bundled with the image,
+# and ones that match nothing. An image that ships composer.bundled.json keeps
+# the bundled list itself and reads this file as the operator's additions
+# only; on an older image the file is still the whole list and is left alone.
+#
+# Runs after upgrade's restart, in the running web container, so the image's
+# own composer-local.php decides against the instance's actual extension and
+# skin directories. Every other key is kept; a file left with nothing in it is
+# deleted. A gitops instance has the change staged for 'gitops push'. Nothing
+# here fails the upgrade: the image ignores these entries anyway.
+#
+# Input: instance_id, instance_path, instance_orchestrator, _was_running
+
+- name: Tidy config/composer.local.json
+  when: _was_running | default(false) | bool
+  block:
+    - name: Read the composer.local.json includes
+      canasta_composer_local:
+        instance_path: "{{ instance_path }}"
+        state: query
+      register: _tidy_composer
+
+    - name: Warn that composer.local.json cannot be parsed
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: {{ _tidy_composer.error }} Left config/composer.local.json
+          of '{{ instance_id }}' unchanged.
+      when: _tidy_composer.error is not none
+
+    - name: Classify the includes in the web container
+      when:
+        - _tidy_composer.error is none
+        - _tidy_composer.include | length > 0
+      block:
+        # exec.yml's failures are ignored below, so clear what a failed step
+        # would otherwise leave from an earlier exec.
+        - name: Clear the previous exec
+          ansible.builtin.set_fact:
+            _exec_full_cmd: ""
+            exec_result: {}
+
+        - name: Run the classifier in the web container
+          ansible.builtin.include_tasks:
+            file: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+            apply:
+              ignore_errors: true
+          vars:
+            exec_service: web
+            exec_command: "php -- {{ _tidy_composer.include | to_json | b64encode | quote }}"
+            exec_stdin: "{{ canasta_root }}/roles/upgrade/files/classify_composer_includes.php"
+
+        - name: Read the classification
+          ansible.builtin.set_fact:
+            _tidy_classified: >-
+              {{ (exec_result.stdout_lines | last | from_json)
+                 if (exec_result.rc | default(1)) == 0
+                    and (exec_result.stdout_lines | default([]) | last | default('')) is match('{')
+                 else {'supported': true,
+                       'error': 'the classifier did not run: '
+                                ~ (exec_result.stderr | default(exec_result.msg | default('')) | trim)} }}
+
+        - name: Warn that the includes could not be classified
+          ansible.builtin.debug:
+            msg: >-
+              WARNING: could not tidy config/composer.local.json of
+              '{{ instance_id }}': {{ _tidy_classified.error }}
+          when: _tidy_classified.error | default('') | length > 0
+
+        - name: Remove the includes the image ignores
+          canasta_composer_local:
+            instance_path: "{{ instance_path }}"
+            include: "{{ _tidy_classified.drop }}"
+            state: prune
+          register: _tidy_pruned
+          when:
+            - _tidy_classified.supported | default(false) | bool
+            - _tidy_classified.drop | default([]) | length > 0
+
+        - name: Report and stage the tidied file
+          when:
+            - _tidy_classified.drop | default([]) | length > 0
+            - _tidy_pruned.changed | default(false) | bool
+          block:
+            - name: Check whether the instance is gitops-managed
+              ansible.builtin.stat:
+                path: "{{ instance_path }}/.gitops-host"
+              register: _tidy_gitops
+
+            - name: Stage composer.local.json for a gitops push
+              ansible.builtin.include_tasks: >-
+                {{ canasta_root }}/roles/gitops/tasks/_stage_tracked_paths.yml
+              vars:
+                _stage_paths:
+                  - config/composer.local.json
+              when: _tidy_gitops.stat.exists
+
+            - name: Report the removed includes
+              ansible.builtin.debug:
+                msg: >-
+                  Removed from config/composer.local.json of
+                  '{{ instance_id }}' the includes the image provides itself or
+                  that match nothing: {{ _tidy_pruned.removed | join(', ') }}.
+                  {%- if _tidy_pruned.deleted %} Nothing else was left, so the
+                  file was deleted.{% endif %}
+                  {%- if _tidy_gitops.stat.exists %} The change is staged;
+                  publish it with 'canasta gitops push'.{% endif %}
