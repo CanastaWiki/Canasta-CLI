@@ -82,6 +82,7 @@ class TestWhoIsMoved:
                       "Decide whether to move MediaWiki to its own database account")
         assert "when" not in task
         assert task["ansible.builtin.set_fact"]["_mig_db_staged"] is False
+        assert task["ansible.builtin.set_fact"]["_mig_db_redeployed"] is False
 
 
 class TestRefusals:

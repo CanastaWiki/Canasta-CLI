@@ -14,7 +14,7 @@
 #
 # Input: instance_id, instance_path, instance_orchestrator, _was_running,
 #        _upgrade_stage_only
-# Output: _mig_db_staged
+# Output: _mig_db_staged, _mig_db_redeployed
 
 - name: Read the database account settings
   canasta_env:
@@ -27,6 +27,7 @@
 - name: Decide whether to move MediaWiki to its own database account
   ansible.builtin.set_fact:
     _mig_db_staged: false
+    _mig_db_redeployed: false
     _mig_db_account: >-
       {{ (_was_running | default(false) | bool)
          and (_mig_db_env.variables.USE_EXTERNAL_DB | default('false') | string | lower) != 'true'

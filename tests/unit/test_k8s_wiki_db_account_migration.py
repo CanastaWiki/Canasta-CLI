@@ -110,7 +110,8 @@ def _switch(tmp_path, stage_only, fail_at=None):
     }, [_stub(k8s, fail_at), {"ansible.builtin.copy": {
         "content": "{{ {'calls': _test_calls,"
                    " 'secret': _test_secret | default(none),"
-                   " 'staged': _mig_db_staged | default(none)} | to_json }}",
+                   " 'staged': _mig_db_staged | default(none),"
+                   " 'redeployed': _mig_db_redeployed | default(false)} | to_json }}",
         "dest": str(out)}}])
     assert proc.returncode == 0, proc.stdout + proc.stderr
     env = dict(line.split("=", 1) for line in
@@ -130,6 +131,7 @@ class TestDirectInstance:
         assert env["WIKI_DB_USER"] == "mediawiki"
         assert env["WIKI_DB_PASSWORD"] == "genpw"
         assert result["staged"] is False
+        assert result["redeployed"] is True
         assert "MediaWiki now connects as 'mediawiki'" in out
 
     def test_a_failed_check_rolls_back_to_root_and_redeploys(self, tmp_path):
@@ -140,6 +142,7 @@ class TestDirectInstance:
                                    "exec.yml", "start.yml"]
         assert env["WIKI_DB_USER"] == "root"
         assert result["staged"] is False
+        assert result["redeployed"] is True
         assert "Rolling back to the root account" in out
 
 
@@ -153,6 +156,7 @@ class TestGitopsInstance:
         assert env["WIKI_DB_USER"] == "mediawiki"
         assert env["WIKI_DB_PASSWORD"] == "genpw"
         assert result["staged"] is True
+        assert result["redeployed"] is False
         assert "is staged" in out
 
     def test_a_failed_stage_puts_the_vars_back_on_root(self, tmp_path):
@@ -163,6 +167,7 @@ class TestGitopsInstance:
         assert result["calls"].count("sync_wiki_db_user_var.yml") == 2
         assert env["WIKI_DB_USER"] == "root"
         assert result["staged"] is False
+        assert result["redeployed"] is False
 
 
 class TestSecretsStayOutOfLogs:
@@ -329,3 +334,15 @@ class TestRestoreKeepsThisHostsAccount:
             patch["kubernetes.core.k8s"]["definition"]["stringData"]))
         assert data == expected
         assert patch["no_log"] is True
+
+
+class TestComposeRestartIsRecorded:
+    def test_every_compose_restart_is_followed_by_the_record(self):
+        compose = next(t for t in _load(SWITCH)
+                       if t.get("name") == "Switch (Docker Compose)")
+        for tasks, restart in ((compose["block"], "Restart onto the new account"),
+                               (compose["rescue"], "Restart on the root account")):
+            names = [t.get("name") for t in tasks]
+            record = tasks[names.index(restart) + 1]
+            assert record["ansible.builtin.set_fact"] == {"_mig_db_redeployed": True}
+            assert "when" not in record

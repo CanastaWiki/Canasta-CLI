@@ -17,7 +17,9 @@
 #
 # Input: instance_id, instance_path, _mig_db_wikis (canasta_wikis_yaml
 #        read), _upgrade_stage_only
-# Output: _mig_db_staged (true when the move is staged for a gitops push)
+# Output: _mig_db_staged (true when the move is staged for a gitops push),
+#         _mig_db_redeployed (true once the move restarted or redeployed the
+#         instance, onto the new account or back onto root)
 
 - name: Switch (Docker Compose)
   when: not (instance_is_k8s | bool)
@@ -43,6 +45,10 @@
       ansible.builtin.include_role:
         name: instance_lifecycle
         tasks_from: restart.yml
+
+    - name: Record that the move restarted the instance
+      ansible.builtin.set_fact:
+        _mig_db_redeployed: true
 
     - name: Check that each wiki reaches its database as the new account
       ansible.builtin.include_tasks: >-
@@ -95,6 +101,10 @@
         name: instance_lifecycle
         tasks_from: restart.yml
 
+    - name: Record that the move restarted the instance
+      ansible.builtin.set_fact:
+        _mig_db_redeployed: true
+
 - name: Switch (Kubernetes)
   when: instance_is_k8s | bool
   block:
@@ -132,6 +142,11 @@
       ansible.builtin.include_role:
         name: orchestrator
         tasks_from: start.yml
+      when: not (_upgrade_stage_only | bool)
+
+    - name: Record that the move restarted the instance
+      ansible.builtin.set_fact:
+        _mig_db_redeployed: true
       when: not (_upgrade_stage_only | bool)
 
     - name: Check that each wiki reaches its database as the new account
@@ -187,6 +202,11 @@
       ansible.builtin.include_role:
         name: orchestrator
         tasks_from: start.yml
+      when: not (_upgrade_stage_only | bool)
+
+    - name: Record that the move restarted the instance
+      ansible.builtin.set_fact:
+        _mig_db_redeployed: true
       when: not (_upgrade_stage_only | bool)
 
     - name: Put this host's gitops vars back on the root account

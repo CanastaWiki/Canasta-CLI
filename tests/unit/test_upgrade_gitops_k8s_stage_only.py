@@ -215,6 +215,27 @@ class TestOtherInstancesStillDeploy:
         assert "staged in its gitops repo" not in out
 
 
+class TestAccountMoveRestart:
+    """The account move restarts the instance, so it is not "up to date"."""
+
+    UP_TO_DATE = "Already up to date — no restart needed."
+
+    def test_kubernetes_redeployed_by_the_move(self, tmp_path):
+        out, _, _ = _run(tmp_path, gitops=False, staged=False,
+                         images_updated=False, _mig_db_redeployed=True)
+        assert self.UP_TO_DATE not in out
+
+    def test_compose_restarted_by_the_move(self, tmp_path):
+        out, _, _ = _run(tmp_path, k8s=False, gitops=False, staged=False,
+                         images_updated=False, _mig_db_redeployed=True)
+        assert self.UP_TO_DATE not in out
+
+    def test_untouched_instance_is_up_to_date(self, tmp_path):
+        out, _, _ = _run(tmp_path, gitops=False, staged=False,
+                         images_updated=False, _mig_db_redeployed=False)
+        assert self.UP_TO_DATE in out
+
+
 class TestImageTagReport:
     """The image tag step's own push hint stays out of a stage-only upgrade."""
 

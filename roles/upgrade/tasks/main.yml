@@ -345,11 +345,13 @@
     - not (_was_running | bool)
     - not (_upgrade_stage_only | bool)
 
+# The database account move restarts or redeploys the instance itself.
 - name: Report already up to date
   ansible.builtin.debug:
     msg: "Already up to date — no restart needed."
   when:
     - not (_restart_needed | bool)
+    - not (_mig_db_redeployed | default(false) | bool)
     - (_upgrade_build_failed_services | default([]) | length) == 0
     - not (_upgrade_stage_only | bool)
 
