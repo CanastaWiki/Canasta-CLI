@@ -63,11 +63,19 @@
   changed_when: false
   when: _prune_reg.rc == 0
 
+# The collector prints one line per deleted blob and manifest; report
+# the counts instead.
 - name: Report the prune result
   ansible.builtin.debug:
     msg: >-
-      {{ (_prune_gc.stdout_lines | default([])
-          | select('search', 'eligible for deletion|blobs marked')
-          | list)
-         or ['Garbage collection completed.'] }}
+      Registry: removed {{ _gc_blobs }} unused blobs and
+      {{ _gc_manifests }} manifests.
+  vars:
+    _gc_lines: "{{ _prune_gc.stdout_lines | default([]) }}"
+    _gc_blobs: >-
+      {{ _gc_lines | select('match', 'blob eligible for deletion')
+         | list | length }}
+    _gc_manifests: >-
+      {{ _gc_lines | select('match', 'manifest eligible for deletion')
+         | list | length }}
   when: _prune_reg.rc == 0

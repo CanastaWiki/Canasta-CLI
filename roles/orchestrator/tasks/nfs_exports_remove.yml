@@ -76,6 +76,10 @@
           Their contents were left on disk.
       when: not _nfs_rm_kubeconfig_stat.stat.exists
 
+    - name: Stop the NFS server when nothing else uses it
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/nfs_server_release.yml"
+      when: not _nfs_rm_kubeconfig_stat.stat.exists
+
     - name: Report NFS exports kept for another cluster
       ansible.builtin.debug:
         msg: >-
