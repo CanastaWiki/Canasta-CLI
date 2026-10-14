@@ -35,12 +35,17 @@ options:
     description: Paths to add or remove, relative to MediaWiki's core directory.
     type: list
     elements: str
-    required: true
+    default: []
   state:
-    description: Whether the given paths should be registered (C(present)) or
-      unregistered (C(absent)).
+    description:
+      - Whether the given paths should be registered (C(present)) or
+        unregistered (C(absent)).
+      - C(prune) unregisters them like C(absent), drops an emptied include
+        list, and deletes the file when nothing else in it has content.
+      - C(query) changes nothing and reports the string entries of the
+        include list, or why the file cannot be read, without failing.
     type: str
-    choices: [present, absent]
+    choices: [present, absent, prune, query]
     default: present
 returns:
   changed:
@@ -60,9 +65,22 @@ returns:
     returned: When I(state=present)
     type: list
   removed:
-    description: Entries that were removed (state=C(absent) only).
-    returned: When I(state=absent)
+    description: Entries that were removed.
+    returned: When I(state=absent) or I(state=prune)
     type: list
+  removed_names:
+    description: The removed entries named by extension or skin, e.g.
+      C(OAuth) or C(Vector (skin)); an entry of any other shape keeps its path.
+    returned: When I(state=prune)
+    type: list
+  deleted:
+    description: Whether the file was deleted.
+    returned: When I(state=prune)
+    type: bool
+  error:
+    description: Why the file cannot be read, or null.
+    returned: When I(state=query)
+    type: str
 """
 
 import json
@@ -126,6 +144,42 @@ def removed_includes(data, include):
     return remaining, removed
 
 
+def prune_empty(value):
+    """Return value without empty lists and objects, recursively.
+
+    Mirrors the image's composer-local.php, which drops them before deciding
+    whether the operator's file carries anything.
+    """
+    if isinstance(value, dict):
+        pruned = {k: prune_empty(v) for k, v in value.items()}
+        return {k: v for k, v in pruned.items() if v not in ({}, [])}
+    if isinstance(value, list):
+        pruned = [prune_empty(v) for v in value]
+        return [v for v in pruned if v not in ({}, [])]
+    return value
+
+
+def include_name(path):
+    """Name an include by its extension or skin, else return the path."""
+    match = re.match(r"^(extensions|skins)/([^/*?\[]+)/composer\.json$", path)
+    if not match:
+        return path
+    return match.group(2) + (" (skin)" if match.group(1) == "skins" else "")
+
+
+def drop_empty_include(data):
+    """Remove an emptied include list, and the objects it leaves empty."""
+    extra = data.get("extra")
+    merge = extra.get("merge-plugin") if isinstance(extra, dict) else None
+    if not isinstance(merge, dict) or merge.get("include") != []:
+        return
+    del merge["include"]
+    if not merge:
+        del extra["merge-plugin"]
+        if not extra:
+            del data["extra"]
+
+
 # The image writes this file with PHP's JSON_PRETTY_PRINT: four-space
 # indentation and unescaped slashes.
 DEFAULT_INDENT = 4
@@ -174,9 +228,9 @@ def run_module():
         argument_spec={
             "instance_path": {"type": "str", "required": True},
             "include": {"type": "list", "elements": "str",
-                        "required": True},
+                        "default": []},
             "state": {"type": "str", "default": "present",
-                      "choices": ["present", "absent"]},
+                      "choices": ["present", "absent", "prune", "query"]},
         },
         supports_check_mode=True,
     )
@@ -184,11 +238,22 @@ def run_module():
     path = os.path.join(params["instance_path"], "config",
                         "composer.local.json")
 
+    state = params.get("state", "present")
     data, error = load_composer_local(path)
+    if state == "query":
+        includes = []
+        if not error:
+            extra = data.get("extra")
+            merge = extra.get("merge-plugin") if isinstance(extra, dict) else None
+            current = merge.get("include") if isinstance(merge, dict) else None
+            if isinstance(current, list):
+                includes = [p for p in current if isinstance(p, str)]
+        module.exit_json(changed=False, include=includes, path=path,
+                         exists=os.path.exists(path), error=error)
     if error:
         module.fail_json(msg=error)
 
-    if params.get("state", "present") == "absent":
+    if state in ("absent", "prune"):
         new_list, touched = removed_includes(data, params["include"])
     else:
         new_list, touched = merged_includes(data, params["include"])
@@ -198,12 +263,24 @@ def run_module():
                  "to overwrite it." % path))
 
     changed = bool(touched)
+    if state == "prune":
+        if changed:
+            drop_empty_include(data)
+        deleted = changed and not prune_empty(data)
+        if deleted and not module.check_mode:
+            os.unlink(path)
+        elif changed and not module.check_mode:
+            write_json_atomic(path, data, existing_indent(path))
+        module.exit_json(changed=changed, include=new_list, path=path,
+                         removed=touched, deleted=deleted,
+                         removed_names=[include_name(p) for p in touched])
+
     if changed and not module.check_mode:
         write_json_atomic(path, data, existing_indent(path))
 
     module.exit_json(changed=changed, include=new_list, path=path,
                      **({"removed": touched}
-                        if params.get("state", "present") == "absent"
+                        if state == "absent"
                         else {"added": touched}))
 
 
