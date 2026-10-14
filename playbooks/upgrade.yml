@@ -61,8 +61,13 @@
           {{ _upgrade_instances.instances | length - (_upgrade_failures | default([]) | length) }}
           instance(s).{% if _upgrade_gitops_staged | default([]) | length > 0 %}
           {{ _upgrade_gitops_staged | length }} of them
-          ({{ _upgrade_gitops_staged | join(', ') }}) are staged in their
-          gitops repo and deploy only after 'canasta gitops push'.{% endif %}
+          ({{ _upgrade_gitops_staged | join(', ') }}) {{ _upgrade_staged_phrase }}
+          only after 'canasta gitops push'.{% endif %}
+      vars:
+        _upgrade_staged_phrase: >-
+          {{ 'is staged in its gitops repo and deploys'
+             if (_upgrade_gitops_staged | default([]) | length) == 1
+             else 'are staged in their gitops repos and deploy' }}
 
     # --- Purge superseded images (--purge) ---
     # Runs once per distinct host after all its instances have upgraded, so

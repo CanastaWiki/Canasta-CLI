@@ -219,6 +219,19 @@
     _pull_changed: false
     _k8s_image_tag_changed: false
 
+# Argo CD deploys a gitops-managed Kubernetes instance from its repo and
+# self-heals back to it, so a direct deploy would be reverted until the
+# staged changes are pushed. Such an instance is staged only.
+- name: Check whether the instance is gitops-managed
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _upgrade_gitops_marker
+
+- name: Decide whether the upgrade only stages the instance for a gitops push
+  ansible.builtin.set_fact:
+    _upgrade_stage_only: >-
+      {{ (instance_is_k8s | bool) and _upgrade_gitops_marker.stat.exists }}
+
 # --- Bump configured image tag (orchestrator-specific) ---
 # K8s updates values.yaml image.tag and CANASTA_IMAGE in .env; Compose
 # updates CANASTA_IMAGE in .env.
@@ -267,19 +280,6 @@
           or (_k8s_chart_changed | default(false) | bool)
           or (_upgrade_rebuilt_image_changed | bool))
          and (_upgrade_build_failed_services | default([]) | length) == 0 }}
-
-# Argo CD deploys a gitops-managed Kubernetes instance from its repo and
-# self-heals back to it, so a direct deploy would be reverted until the
-# staged changes are pushed. Such an instance is staged only.
-- name: Check whether the instance is gitops-managed
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/.gitops-host"
-  register: _upgrade_gitops_marker
-
-- name: Decide whether the upgrade only stages the instance for a gitops push
-  ansible.builtin.set_fact:
-    _upgrade_stage_only: >-
-      {{ (instance_is_k8s | bool) and _upgrade_gitops_marker.stat.exists }}
 
 - name: Restart containers
   when:
@@ -390,6 +390,12 @@
               -n canasta-{{ instance_id }} --timeout=300s
           changed_when: false
 
+        - name: Report the web pods restarted
+          ansible.builtin.debug:
+            msg: >-
+              Restarted the web pods of '{{ instance_id }}' onto the rebuilt
+              image.
+
     - name: Report the upgrade staged for a gitops push
       ansible.builtin.debug:
         msg: >-
@@ -412,7 +418,10 @@
 
     - name: Report nothing staged
       ansible.builtin.debug:
-        msg: "Already up to date — nothing staged for a gitops push."
+        msg: >-
+          {{ 'Nothing staged for a gitops push.'
+             if (_upgrade_rebuilt_image_changed | bool and _was_running | bool)
+             else 'Already up to date — nothing staged for a gitops push.' }}
       when: not (_upgrade_gitops_pending | bool)
 
 # Recorded rather than failed here so the remaining instances still upgrade;
