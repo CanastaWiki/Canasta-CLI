@@ -671,6 +671,19 @@
           propagationPolicy: Background
       ignore_errors: true  # OK if job already cleaned up by TTL
 
+# The container runtime creates the dumps mountpoint inside the config
+# hostPath, as root, and nothing removes it. rmdir leaves a directory that
+# holds anything.
+- name: Remove the empty dumps mountpoint from the host config dir
+  ansible.builtin.command:
+    argv:
+      - rmdir
+      - "{{ instance_path }}/config/backup"
+  register: _backup_mountpoint_rmdir
+  changed_when: _backup_mountpoint_rmdir.rc == 0
+  failed_when: false
+  when: _is_backup_op | bool
+
 - name: Fail when the Job did not finish
   ansible.builtin.fail:
     msg: >-

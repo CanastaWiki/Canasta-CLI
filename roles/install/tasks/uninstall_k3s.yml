@@ -382,3 +382,32 @@
       when:
         - _node_delete.rc != 0
         - force | default(false) | bool
+
+# --- Node leftovers the k3s uninstall scripts keep ---
+# The scripts leave /etc/rancher/node (the node password) and
+# /var/lib/rancher/cache. Removed once neither script remains, so a re-run
+# after an interrupted uninstall still clears them.
+- name: Check for a k3s install still on this host
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /usr/local/bin/k3s-uninstall.sh
+    - /usr/local/bin/k3s-agent-uninstall.sh
+  register: _k3s_scripts_left
+
+- name: Check for k3s node leftovers
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ k3s_leftover_paths | default(['/etc/rancher/node', '/var/lib/rancher/cache']) }}"
+  register: _k3s_node_leftovers
+  when: _k3s_scripts_left.results | selectattr('stat.exists') | list | length == 0
+
+- name: Remove k3s node leftovers
+  ansible.builtin.file:
+    path: "{{ item.item }}"
+    state: absent
+  loop: "{{ _k3s_node_leftovers.results | default([]) | selectattr('stat', 'defined')
+            | selectattr('stat.exists') | list }}"
+  loop_control:
+    label: "{{ item.item }}"
+  become: true

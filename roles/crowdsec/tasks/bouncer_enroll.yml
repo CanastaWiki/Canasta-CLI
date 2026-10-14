@@ -140,6 +140,7 @@
     tasks_from: set.yml
   vars:
     config_settings_override: "CROWDSEC_BOUNCER_API_KEY={{ _crowdsec_add.stdout | trim }}"
+    config_set_caller_reports: true
 
 - name: Report success
   when: _crowdsec_enroll_stack | last | bool
