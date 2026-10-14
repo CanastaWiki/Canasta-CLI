@@ -67,16 +67,18 @@
 - name: Verify crowdsec sidecar is running (Kubernetes)
   when: instance_is_k8s | bool
   block:
-    # Space-separated `name=ready` pairs for every container in the caddy pod,
-    # e.g. "caddy=true crowdsec=true ". kubectl jsonpath has no filter
-    # expressions, so emit them all and substring-match below.
+    # Space-separated `name=ready` pairs for every container in each Running
+    # caddy pod, e.g. "caddy=true crowdsec=true |", one `|`-terminated group
+    # per pod. kubectl jsonpath has no filter expressions, so emit them all
+    # and substring-match the first pod's group below. items[*] rather than
+    # items[0], so no Running pod prints nothing instead of failing kubectl.
     - name: Read container readiness from the caddy pod
       ansible.builtin.command:
         cmd: >-
           kubectl get pods -n canasta-{{ instance_id }}
           -l app.kubernetes.io/component=caddy
           --field-selector=status.phase=Running
-          -o "jsonpath={range .items[0].status.containerStatuses[*]}{.name}={.ready} {end}"
+          -o "jsonpath={range .items[*]}{range .status.containerStatuses[*]}{.name}={.ready} {end}|{end}"
       register: _crowdsec_k8s_ready
       changed_when: false
 
@@ -95,7 +97,7 @@
           '{{ instance_id }}'. Enable it first with
           'canasta config set CANASTA_ENABLE_CROWDSEC=true', then retry.
           {%- endif %}
-      when: "'crowdsec=true' not in (_crowdsec_k8s_ready.stdout | default(''))"
+      when: "'crowdsec=true' not in (_crowdsec_k8s_ready.stdout | default('')).split('|') | first"
 
 - name: Build the cscli command prefix for this orchestrator
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/crowdsec_cscli_prefix.yml"

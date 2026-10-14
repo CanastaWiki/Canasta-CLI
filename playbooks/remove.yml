@@ -42,36 +42,28 @@
          | list }}
     _remove_dbs_left: []
 
-# A stopped Kubernetes instance has no pod to drop the databases in, so
-# refuse before changing anything rather than leave them behind.
-- name: Require a running database pod on Kubernetes
-  when:
-    - instance_is_k8s | bool
-    - _remove_drop_dbs | length > 0
+# The databases are dropped from inside the instance, so a stopped instance
+# would lose the wiki but keep its databases. Refuse before changing anything.
+- name: Require the instance to be running to drop the wiki's databases
+  when: _remove_drop_dbs | length > 0
   block:
     - name: Find where database administration runs
       ansible.builtin.include_tasks: >-
         {{ canasta_root }}/roles/orchestrator/tasks/db_admin.yml
 
-    - name: Look for a running database administration pod
-      ansible.builtin.command:
-        cmd: >-
-          kubectl get pods -n canasta-{{ instance_id }}
-          -l app.kubernetes.io/component={{ _db_admin_service }}
-          --field-selector=status.phase=Running
-          -o jsonpath={.items[*].metadata.name}
-      register: _remove_db_pod
-      changed_when: false
+    - name: List the instance's running services
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/list_running_services.yml
 
-    - name: Refuse when no database administration pod is running
+    - name: Refuse when database administration has nowhere to run
       ansible.builtin.fail:
         msg: >-
-          Cannot remove wiki '{{ wiki }}': instance '{{ instance_id }}' has
-          no running {{ _db_admin_service }} pod to drop its
-          database{{ 's' if _remove_drop_dbs | length > 1 else '' }} in.
-          Start the instance with 'canasta start -i {{ instance_id }}', then
-          run remove again.
-      when: _remove_db_pod.stdout | trim | length == 0
+          Cannot remove wiki '{{ wiki }}': instance '{{ instance_id }}' is not
+          running, so its
+          {{ 'databases' if _remove_drop_dbs | length > 1 else 'database' }}
+          can't be dropped. Start the instance with
+          'canasta start -i {{ instance_id }}', then run remove again.
+      when: _db_admin_service not in _running_services.split()
 
 # Clean up wiki images inside container (owned by www-data on Linux)
 - name: Remove wiki images inside container
