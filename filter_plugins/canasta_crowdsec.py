@@ -17,11 +17,11 @@ def canasta_crowdsec_status_bouncers(bouncers, family_name="canasta-caddy"):
     CrowdSec auto-creates a ``canasta-caddy@<ip>`` child registration, so the
     raw ``cscli bouncers list`` accumulates stale rows that all report
     ``valid`` even though only the newest one pulls. These children are
-    undeletable in CrowdSec (deleting the parent cascades and revokes the
-    shared key), so the status command instead collapses the family for
-    display: show the single live registration (most-recent ``last_pull``)
-    plus a count of the harmless duplicates. Any non-caddy bouncers are listed
-    verbatim.
+    undeletable in CrowdSec on their own (bouncer-enroll resets the family
+    by re-creating the parent with the same key), so the status command
+    collapses the family for display: show the single live registration
+    (most-recent ``last_pull``) plus a count of the harmless duplicates. Any
+    non-caddy bouncers are listed verbatim.
 
     Returns a pre-formatted, indented block of lines (or ``(none)``) so the
     status playbook can drop it straight into its message.
@@ -47,9 +47,8 @@ def canasta_crowdsec_status_bouncers(bouncers, family_name="canasta-caddy"):
             lines.append(
                 "  + %d stale auto-created duplicate registration(s) from past "
                 "container restarts (harmless — only the active bouncer above "
-                "pulls decisions). CrowdSec cannot delete these individually; "
-                "run 'canasta crowdsec bouncer-enroll --force' to reset to a "
-                "single registration." % stale
+                "pulls decisions). Run 'canasta crowdsec bouncer-enroll' to "
+                "reset to a single registration." % stale
             )
 
     for b in others:
