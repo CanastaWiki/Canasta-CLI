@@ -339,6 +339,18 @@
     - (_app_secrets_dict.variables | default({})) | length > 0
   no_log: true
 
+# The Secrets applied above, by name, with the data built from the instance's
+# files. A SOPS gitops push encrypts these rather than reading them back from
+# the cluster, where Argo CD self-heal can restore the committed values first.
+- name: Record the Secret data built from the instance's files
+  ansible.builtin.set_fact:
+    _k8s_local_secrets: >-
+      {{ {'canasta-' ~ instance_id ~ '-backup-env': _backup_env_data,
+          'canasta-' ~ instance_id ~ '-crowdsec': _crowdsec_key_data,
+          instance_id ~ '-app-secrets': _app_secrets_dict.variables | default({})}
+         | dict2items | selectattr('value') | items2dict }}
+  no_log: true
+
 # Web secrets: config/secrets-web lists the app-secret keys (names only) that
 # should reach the web pods, set with `config set --secret --web`. They render
 # as secretKeyRef env on those pods (deployment-web.yaml) via
