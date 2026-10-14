@@ -45,10 +45,25 @@
     - _pull_template_check.stat.exists
     - _git_pull.changed
 
+# Rendering can leave rendered-values.yaml as it was, and then there is
+# nothing to push.
+- name: Check whether the render changed this host's values
+  ansible.builtin.command:
+    argv:
+      - git
+      - status
+      - --porcelain
+      - --
+      - "hosts/{{ _render_hostname }}/rendered-values.yaml"
+    chdir: "{{ instance_path }}"
+  register: _pull_render_status
+  changed_when: false
+  failed_when: false
+  when:
+    - _pull_template_check.stat.exists
+    - _git_pull.changed
+
 - name: Display result
   ansible.builtin.debug:
-    msg: >-
-      {{ _git_pull.stdout }}
-      {{ (_git_pull.changed) | ternary(
-         'Run "canasta gitops push" to commit rendered values.',
-         '') }}
+    msg: "{{ [_git_pull.stdout] + (['Run \"canasta gitops push\" to commit rendered values.']
+             if (_pull_render_status.stdout | default('') | trim) else []) }}"

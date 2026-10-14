@@ -33,6 +33,23 @@
     - { kind: ConfigMap, name: "canasta-{{ instance_id }}-db-config" }
   ignore_errors: true  # OK if resources already deleted
 
+# A namespace already Terminating before this delete asked for it is stuck
+# (typically an earlier delete that timed out), so with --force it is left
+# at once instead of after another full wait.
+- name: Check whether the namespace is already terminating
+  ansible.builtin.command:
+    cmd: "kubectl get namespace {{ _k8s_namespace }} -o jsonpath={.status.phase}"
+  register: _ns_phase_before
+  changed_when: false
+  failed_when: false
+  when: delete_namespace | default(true) | bool
+
+- name: Decide whether to wait for the namespace
+  ansible.builtin.set_fact:
+    _ns_skip_wait: >-
+      {{ (force | default(false) | bool)
+         and (_ns_phase_before.stdout | default('') | trim) == 'Terminating' }}
+
 # Request deletion without a held --wait, then poll until the namespace is
 # fully gone with short `kubectl get` calls. A single held `kubectl delete
 # --wait` (or wrapping one in an async window) aborts the whole delete when
@@ -56,7 +73,9 @@
   retries: 120
   delay: 5
   until: _ns_gone.rc != 0
-  when: delete_namespace | default(true) | bool
+  when:
+    - delete_namespace | default(true) | bool
+    - not (_ns_skip_wait | default(false) | bool)
 
 - name: Fail if the namespace is still terminating
   ansible.builtin.fail:
@@ -79,5 +98,5 @@
       '{{ instance_id }}' is refused until it is gone.
   when:
     - delete_namespace | default(true) | bool
-    - _ns_gone.rc | default(1) == 0
+    - (_ns_gone.rc | default(1) == 0) or (_ns_skip_wait | default(false) | bool)
     - force | default(false) | bool

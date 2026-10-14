@@ -337,7 +337,7 @@
 
     - name: Update values.yaml with new domains list
       ansible.builtin.copy:
-        content: "{{ _add_current_values | combine({'domains': _add_new_domains}) | to_nice_yaml }}"
+        content: "{{ _add_current_values | combine({'domains': _add_new_domains}) | to_nice_yaml(indent=2) }}"
         dest: "{{ instance_path }}/values.yaml"
         mode: "0644"
       when: _add_new_domains | length > (_add_current_values.domains | default([]) | length)

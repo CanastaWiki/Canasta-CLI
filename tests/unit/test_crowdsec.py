@@ -831,7 +831,7 @@ class TestCrowdsecStatusBouncersDisplay:
         assert "172.18.0.3" in out
         # The two stale duplicates are summarized, not listed individually.
         assert "2 stale auto-created duplicate" in out
-        assert "enroll --force" in out
+        assert "crowdsec bouncer-enroll'" in out
         assert "canasta-caddy@172.18.0.5" not in out
         # Exactly one active line (the note also contains the word "active").
         assert out.count("— active") == 1

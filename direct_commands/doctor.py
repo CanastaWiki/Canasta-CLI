@@ -231,8 +231,18 @@ def _reclaimable_line(df_out, k3s):
         amount = "%s images, %s build cache" % (images, build_cache)
     if k8s:
         amount += "; containerd and the in-cluster registry not measured"
-    if amount != "none":
-        amount += " — reclaim with 'canasta image prune'"
+    # `canasta image prune` leaves the build cache alone, and on a cluster
+    # host it also keeps the Docker copies of images built for the registry.
+    advice = []
+    if k8s or not _is_zero_size(images):
+        advice.append("images with 'canasta image prune'")
+        if k8s and not _is_zero_size(images):
+            advice[-1] += (" (it lists, but keeps, the Docker copies of "
+                           "images built for Kubernetes)")
+    if not _is_zero_size(build_cache):
+        advice.append("build cache with 'docker builder prune'")
+    if advice:
+        amount += " — reclaim " + ", ".join(advice)
     return "  Reclaimable:     %s" % amount
 
 
@@ -476,6 +486,15 @@ def _doctor_backup_lines(probes):
     crontab = probes["crontab"]
     host_canasta = probes["host_canasta"]
     lines.append("")
+    if probes.get("docker_mode"):
+        # The crontab check is skipped with the other host checks (see
+        # _doctor_system_lines). The wrapper running this command is the
+        # host's canasta, and scheduled backups call it by this path.
+        lines.append("Scheduled backups (optional):")
+        cli_bin = os.environ.get("CANASTA_CLI_BIN")
+        if cli_bin:
+            lines.append("  canasta on host: OK (%s)" % cli_bin)
+        return lines
     # Backup scheduling writes a host crontab entry on the host where the
     # instance runs — the local/remote host for Compose, the control-plane
     # node for Kubernetes — so crontab is needed there for both orchestrators.
@@ -516,6 +535,13 @@ def _doctor_system_lines(probes):
     reclaimable = _reclaimable_line(system_df, k3s)
     if reclaimable:
         lines.append(reclaimable)
+    if probes.get("docker_mode"):
+        lines.append(
+            "  Host checks:     SKIPPED in docker mode — group membership, "
+            "crontab and sudo are host settings the CLI container cannot "
+            "see, so they are not checked"
+        )
+        return lines
     # On macOS, Docker Desktop handles UID remapping transparently — there
     # is no www-data user/group on the host and membership is irrelevant.
     # Only report membership on Linux, where host-side file permissions
@@ -579,8 +605,9 @@ def _doctor_system_lines(probes):
     return lines
 
 
-def _parse_doctor(stdout, hostname):
+def _parse_doctor(stdout, hostname, docker_mode=False):
     probes = _doctor_probes(stdout)
+    probes["docker_mode"] = docker_mode
     lines = [
         "Canasta Dependency Check (%s)" % hostname,
         "=" * 52,
@@ -1333,6 +1360,23 @@ def _k8s_current_channels(current_files):
     return channels
 
 
+def _k8s_wikis_yaml_as_served(text):
+    """wikis.yaml without what only the CLI reads (each wiki's
+    extra_databases, which feed backups from the host copy), so declaring a
+    backup database is not reported as config the pods are missing. Text
+    that does not parse is returned unchanged."""
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return text
+    if isinstance(data, dict) and isinstance(data.get("wikis"), list):
+        data = dict(data, wikis=[
+            {k: v for k, v in w.items() if k != "extra_databases"}
+            if isinstance(w, dict) else w
+            for w in data["wikis"]])
+    return data
+
+
 def _k8s_config_drift(baseline_channels, current_channels):
     """Return [(display_path, status)] where status is added/changed/removed,
     comparing the deployed snapshot's configData channels against current
@@ -1347,6 +1391,10 @@ def _k8s_config_drift(baseline_channels, current_channels):
                 drift.append((disp, "added"))
             elif key not in cur:
                 drift.append((disp, "removed"))
+            elif channel == "web" and key == "wikis.yaml":
+                if (_k8s_wikis_yaml_as_served(str(base[key]))
+                        != _k8s_wikis_yaml_as_served(str(cur[key]))):
+                    drift.append((disp, "changed"))
             elif str(base[key]).rstrip("\n") != str(cur[key]).rstrip("\n"):
                 drift.append((disp, "changed"))
     return drift
@@ -1455,8 +1503,12 @@ def cmd_doctor(args):
         host = inst.get("host") or "localhost"
     script = _DOCTOR_SCRIPT % {"delim": _helpers._SENTINEL}
 
+    # Under canasta-docker a local probe runs inside the CLI container,
+    # not on the host.
+    docker_mode = False
     if not host or host == "localhost":
         hostname = "localhost"
+        docker_mode = os.environ.get("CANASTA_RUN_MODE") == "docker"
         try:
             result = subprocess.run(
                 ["bash", "-c", script],
@@ -1473,7 +1525,7 @@ def cmd_doctor(args):
             print("Error: failed to connect to %s" % host, file=sys.stderr)
             return 1
 
-    print(_parse_doctor(stdout, hostname))
+    print(_parse_doctor(stdout, hostname, docker_mode))
 
     for line in _collection_integrity_lines():
         print(line)

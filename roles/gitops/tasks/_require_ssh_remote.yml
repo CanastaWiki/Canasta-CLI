@@ -1,0 +1,17 @@
+---
+# Refuse a gitops repo URL that Argo CD can't clone. Argo CD clones from
+# inside the cluster with the SSH deploy key, so a local path or an https
+# URL fails late (and after init has created files) otherwise.
+#
+# Input: repo
+
+- name: Refuse a repository URL that isn't an SSH remote
+  ansible.builtin.fail:
+    msg: >-
+      '{{ repo }}' is not an SSH repository URL. On Kubernetes, Argo CD
+      clones the gitops repository over SSH from inside the cluster, using
+      the deploy key, so --repo must be an SSH remote such as
+      git@github.com:org/repo.git, git@gitlab.com:org/repo.git or
+      ssh://git@host/path.git. Local paths and https:// URLs are not
+      supported on Kubernetes.
+  when: repo | default('', true) | canasta_git_remote_known_hosts_name | length == 0

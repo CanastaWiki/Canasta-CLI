@@ -1,0 +1,30 @@
+---
+# The host name `backup create` stores in a snapshot's tag and
+# `backup purge --keep-tag` maps a tag to.
+#
+# Under canasta-docker a local target's `hostname` runs inside the CLI
+# container, whose name is a random id, so the host name canasta-docker
+# passes in is used instead.
+#
+# Output: _backup_tag_host
+
+- name: Use the docker-mode host name for a local target
+  ansible.builtin.set_fact:
+    _backup_tag_host_env: >-
+      {{ lookup('ansible.builtin.env', 'CANASTA_HOST_NAME')
+         if lookup('ansible.builtin.env', 'CANASTA_RUN_MODE') == 'docker'
+            and (ansible_connection | default('local')) == 'local'
+         else '' }}
+
+- name: Get the target's hostname
+  ansible.builtin.command:
+    cmd: hostname
+  register: _backup_tag_hostname_cmd
+  changed_when: false
+  when: _backup_tag_host_env == ''
+
+- name: Set the host name for backup tags
+  ansible.builtin.set_fact:
+    _backup_tag_host: >-
+      {{ _backup_tag_host_env if _backup_tag_host_env != ''
+         else _backup_tag_hostname_cmd.stdout | trim }}

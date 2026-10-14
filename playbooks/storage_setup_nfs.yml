@@ -16,6 +16,16 @@
       ansible.builtin.setup:
         gather_subset: ["!all", "!min", "distribution"]
 
+    # Recorded so that uninstalling k8s stops the server only when this
+    # command is what started it.
+    - name: Check whether the NFS server is already running
+      ansible.builtin.command:
+        argv: [systemctl, is-active, nfs-server]
+      register: _nfs_server_was_active
+      changed_when: false
+      failed_when: false
+      become: true
+
     - name: Install NFS server packages
       ansible.builtin.package:
         name: "{{ 'nfs-utils' if ansible_os_family == 'RedHat' else 'nfs-kernel-server' }}"
@@ -73,6 +83,16 @@
     _nfs_sync_shares: ["{{ share }}"]
     _nfs_sync_kubeconfig: "{{ _nfs_kubeconfig.stdout | default('') | trim }}"
   when: install_server | default(false) | bool
+
+- name: Record that storage setup started the NFS server
+  ansible.builtin.copy:
+    dest: "{{ _nfs_server_marker | default('/etc/canasta/nfs-server-started') }}"
+    content: "nfs-server was started by canasta storage setup nfs.\n"
+    mode: "0644"
+  become: true
+  when:
+    - install_server | default(false) | bool
+    - (_nfs_server_was_active.stdout | default('') | trim) != 'active'
 
 - name: Remove an any-host export of the share from /etc/exports
   ansible.builtin.lineinfile:

@@ -32,15 +32,12 @@
         {{ canasta_root }}/roles/orchestrator/tasks/backup_stage_db_dumps.yml
 
     - name: Get hostname for tag
-      ansible.builtin.command:
-        cmd: hostname
-      register: _hostname
-      changed_when: false
+      ansible.builtin.include_tasks: _tag_hostname.yml
 
     - name: Build tag with hostname
       ansible.builtin.set_fact:
         _backup_tag: >-
-          {{ tag | backup_stored_tag(_hostname.stdout | trim) }}
+          {{ tag | backup_stored_tag(_backup_tag_host) }}
 
     # A snapshot missing databases carries INCOMPLETE plus one missing-db:<name>
     # tag per absent database, which `backup list` and `backup restore` read.
