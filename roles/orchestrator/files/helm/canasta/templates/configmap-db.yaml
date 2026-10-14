@@ -7,6 +7,8 @@ metadata:
   labels:
     {{- include "canasta.labels" . | nindent 4 }}
     app.kubernetes.io/component: db
+  annotations:
+    {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
 data:
   {{- if .Values.configData.db }}
   {{- range $key, $value := .Values.configData.db }}
