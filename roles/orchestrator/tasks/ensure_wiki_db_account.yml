@@ -1,5 +1,6 @@
 ---
 # Make MediaWiki's database account match .env (Compose, bundled database).
+# On Kubernetes, only say when the account picks up the change.
 #
 # Account state lives only in the database server: no backup captures it,
 # and a restore onto a fresh host, a gitops join or a rebuilt db volume
@@ -31,6 +32,33 @@
          and (_ensure_env.variables.USE_EXTERNAL_DB | default('false')
               | string | lower) != 'true'
          and (_ensure_env.variables.WIKI_DB_USER | default('root', true)) != 'root' }}
+
+# On Kubernetes the web pod's ensure-db-account init container does this at
+# every pod start, from the wikis.yaml the pod was deployed with, so a change
+# to the database set reaches the account with the next deploy.
+- name: Report when the account follows a database set change (Kubernetes)
+  when: instance_is_k8s | bool
+  block:
+    - name: Read MediaWiki's database account
+      ansible.builtin.include_tasks: k8s_wiki_db_user.yml
+
+    - name: Check whether the instance is gitops-managed
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/.gitops-host"
+      register: _ensure_k8s_gitops
+
+    - name: Report when MediaWiki's account gets the new database set
+      ansible.builtin.debug:
+        msg: >-
+          MediaWiki's database account '{{ _k8s_wiki_db_user }}' gets the
+          new database set when
+          {%- if _ensure_k8s_gitops.stat.exists %}
+          this change is pushed and synced ('canasta gitops push -i
+          {{ instance_id }}', then 'canasta gitops sync -i {{ instance_id }}').
+          {%- else %}
+          the instance next restarts ('canasta restart -i {{ instance_id }}').
+          {%- endif %}
+      when: _k8s_wiki_db_user != 'root'
 
 - name: Ensure the wiki database account
   when: _ensure_needed | bool

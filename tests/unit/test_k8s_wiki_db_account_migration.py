@@ -256,3 +256,76 @@ class TestConfigSetOptOut:
         results = [templar.template(trust_as_template("{{ %s }}" % w))
                    for w in task["when"]]
         assert all(results) is synced
+
+
+ENSURE = os.path.join(TASKS, "ensure_wiki_db_account.yml")
+
+
+class TestDatabaseSetChange:
+    """backup databases add/remove on Kubernetes reach the account at the
+    next deploy, and say so."""
+
+    def _run(self, tmp_path, env_text, gitops):
+        inst = tmp_path / "inst"
+        inst.mkdir()
+        (inst / ".env").write_text(env_text)
+        if gitops:
+            (inst / ".gitops-host").write_text("h1\n")
+        proc = _play(tmp_path, {"instance_path": str(inst), "instance_id": "inst",
+                                "instance_orchestrator": "kubernetes"},
+                     [{"ansible.builtin.include_tasks": ENSURE}])
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        return " ".join(proc.stdout.split())
+
+    def test_direct_instance_applies_at_the_next_restart(self, tmp_path):
+        out = self._run(tmp_path, "WIKI_DB_USER=mediawiki\n", gitops=False)
+        assert ("MediaWiki's database account 'mediawiki' gets the new database "
+                "set when the instance next restarts ('canasta restart -i inst')") in out
+
+    def test_gitops_instance_applies_at_push_and_sync(self, tmp_path):
+        out = self._run(tmp_path, "WIKI_DB_USER=mediawiki\n", gitops=True)
+        assert ("when this change is pushed and synced ('canasta gitops push -i "
+                "inst', then 'canasta gitops sync -i inst')") in out
+
+    @pytest.mark.parametrize("env_text", [
+        "WIKI_DB_USER=root\n",
+        "WIKI_DB_USER=mediawiki\nUSE_EXTERNAL_DB=true\n",
+    ])
+    def test_root_says_nothing(self, tmp_path, env_text):
+        assert "database set when" not in self._run(
+            tmp_path, env_text, gitops=False)
+
+
+class TestRestoreKeepsThisHostsAccount:
+    def test_kubernetes_restore_puts_back_the_env_account(self):
+        tasks = _load(os.path.join(TASKS, "restore_instance.yml"))
+        k8s = next(t for t in tasks if t.get("name") == "Restore (Kubernetes)")
+        names = [t.get("name") for t in k8s["block"]]
+        keep = k8s["block"][names.index(
+            "Preserve MediaWiki's database account in restored .env")]
+        assert keep["loop"] == ["WIKI_DB_USER", "WIKI_DB_PASSWORD"]
+        assert "wiki is not defined" in keep["when"]
+        assert keep["no_log"] is True
+        assert names.index("Restore (Kubernetes pod-based restore + DB/Secret handling)") \
+            < names.index("Preserve MediaWiki's database account in restored .env")
+
+    @pytest.mark.parametrize("wiki_pw, expected", [
+        ("wikipw", {"MYSQL_PASSWORD": "rootpw", "MYSQL_ROOT_PASSWORD": "rootpw",
+                    "WIKI_DB_PASSWORD": "wikipw"}),
+        ("", {"MYSQL_PASSWORD": "rootpw", "MYSQL_ROOT_PASSWORD": "rootpw"}),
+    ])
+    def test_kubernetes_restore_puts_back_the_secret_key(self, wiki_pw, expected):
+        tasks = _load(os.path.join(TASKS, "k8s_restore_instance.yml"))
+        by_name = {t.get("name"): t for t in tasks}
+        capture = by_name["Capture current DB password values"]
+        assert "_restore_current_wiki_db_pwd" in capture["ansible.builtin.set_fact"]
+        assert capture["no_log"] is True
+        patch = by_name["Preserve current DB password in restored Secret"]
+        templar = Templar(loader=DataLoader(), variables={
+            "_restore_current_mysql_pwd": "rootpw",
+            "_restore_current_mysql_root_pwd": "rootpw",
+            "_restore_current_wiki_db_pwd": wiki_pw})
+        data = templar.template(trust_as_template(
+            patch["kubernetes.core.k8s"]["definition"]["stringData"]))
+        assert data == expected
+        assert patch["no_log"] is True

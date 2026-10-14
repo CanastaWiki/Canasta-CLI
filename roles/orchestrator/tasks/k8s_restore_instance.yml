@@ -569,6 +569,9 @@
     _restore_current_mysql_root_pwd: >-
       {{ ((_restore_current_db_secret.resources | default([]) | first | default({}))
           .data.MYSQL_ROOT_PASSWORD | default('')) | b64decode }}
+    _restore_current_wiki_db_pwd: >-
+      {{ ((_restore_current_db_secret.resources | default([]) | first | default({}))
+          .data.WIKI_DB_PASSWORD | default('')) | b64decode }}
   when: _restore_secrets_filename != ''
   no_log: true
 
@@ -613,12 +616,12 @@
     - _restore_secrets_apply.rc | default(0) != 0
 
 # Preserve the running cluster's DB credentials over the snapshot's
-# values. The strategic-merge patch updates only MYSQL_PASSWORD and
-# MYSQL_ROOT_PASSWORD; everything else from the snapshot's Secret
-# (notably no other keys exist in db-credentials by design) is
-# unchanged. We re-set BOTH because the wiki user account in
-# mysql.user was hashed against the current root password during
-# pod init.
+# values. The strategic-merge patch updates only MYSQL_PASSWORD,
+# MYSQL_ROOT_PASSWORD and, when this host has one, WIKI_DB_PASSWORD;
+# everything else from the snapshot's Secret is unchanged. All of them
+# belong to accounts in this host's database server, which the restore
+# does not touch, so a snapshot taken before MediaWiki got its own account,
+# or on another host, must not replace them.
 - name: Preserve current DB password in restored Secret
   kubernetes.core.k8s:
     state: patched
@@ -627,9 +630,11 @@
     name: "{{ instance_id }}-db-credentials"
     namespace: "{{ _k8s_namespace }}"
     definition:
-      stringData:
-        MYSQL_PASSWORD: "{{ _restore_current_mysql_pwd }}"
-        MYSQL_ROOT_PASSWORD: "{{ _restore_current_mysql_root_pwd }}"
+      stringData: >-
+        {{ {'MYSQL_PASSWORD': _restore_current_mysql_pwd,
+            'MYSQL_ROOT_PASSWORD': _restore_current_mysql_root_pwd}
+           | combine({'WIKI_DB_PASSWORD': _restore_current_wiki_db_pwd}
+                     if _restore_current_wiki_db_pwd != '' else {}) }}
   when: _restore_secrets_filename != ''
         and _restore_current_mysql_pwd != ''
   no_log: true

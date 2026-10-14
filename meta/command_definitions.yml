@@ -2777,6 +2777,11 @@ commands:
       on a farm and optional on a single-wiki instance. The declaration is
       stored in `config/wikis.yaml` and takes effect on the next backup —
       no restart.
+
+      MediaWiki's own database account gets access to the database at once
+      on Compose. On Kubernetes it gets it when the instance next restarts,
+      or, on a gitops-managed instance, when the change is pushed and
+      synced.
     examples:
       - "canasta backup databases add mywiki_cargo"
       - "canasta backup databases add -w mywiki mywiki_cargo"
@@ -2805,6 +2810,10 @@ commands:
       Takes effect on the next backup. Snapshots already taken keep the
       database they captured, so a restore from one of them still brings
       it back.
+
+      MediaWiki's own database account loses access to the database at once
+      on Compose, and on Kubernetes when the instance next restarts or, on
+      a gitops-managed instance, when the change is pushed and synced.
     examples:
       - "canasta backup databases remove mywiki_cargo"
     playbook: backup_databases_remove.yml
