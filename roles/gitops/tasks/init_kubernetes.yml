@@ -27,6 +27,9 @@
     gitops_sops_secrets: "{{ encrypt_secrets | default(false) | bool }}"
 
 # --- Validate prerequisites ---
+- name: Require an SSH repository URL
+  ansible.builtin.include_tasks: _require_ssh_remote.yml
+
 - name: Check git is installed
   ansible.builtin.command:
     cmd: git --version
