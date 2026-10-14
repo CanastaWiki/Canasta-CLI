@@ -1383,7 +1383,8 @@ commands:
       argument it lists the seed files whose instance copy differs from
       the current template. With one or more files it shows the diff but
       changes nothing; add --apply to overwrite, so review the diff first
-      (your local edits to that file are replaced). Rendered files (.env,
+      (your local edits to that file are replaced). --apply requires at
+      least one file name. Rendered files (.env,
       wikis.yaml, Caddyfile) belong to 'canasta reconcile' and per-wiki
       Settings.php is user-owned; neither is touched here. --yes is
       accepted as a deprecated spelling of --apply.
