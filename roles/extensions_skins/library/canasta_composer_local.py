@@ -67,6 +67,7 @@ returns:
 
 import json
 import os
+import re
 import stat
 import tempfile
 
@@ -125,7 +126,26 @@ def removed_includes(data, include):
     return remaining, removed
 
 
-def write_json_atomic(path, data):
+# The image writes this file with PHP's JSON_PRETTY_PRINT: four-space
+# indentation and unescaped slashes.
+DEFAULT_INDENT = 4
+
+
+def existing_indent(path):
+    """Return the indentation of the file at path, so a rewrite only
+    changes the lines it has to."""
+    try:
+        with open(path) as handle:
+            for line in handle:
+                match = re.match(r"^([ \t]+)\S", line)
+                if match:
+                    return match.group(1)
+    except OSError:
+        pass
+    return DEFAULT_INDENT
+
+
+def write_json_atomic(path, data, indent=DEFAULT_INDENT):
     directory = os.path.dirname(path)
     os.makedirs(directory, exist_ok=True)
     # Preserve the existing file's mode (e.g. the 0644 the image's start-up
@@ -138,7 +158,7 @@ def write_json_atomic(path, data):
     fd, tmp = tempfile.mkstemp(dir=directory, suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as handle:
-            handle.write(json.dumps(data, indent=2) + "\n")
+            handle.write(json.dumps(data, indent=indent) + "\n")
         os.chmod(tmp, mode)
         os.replace(tmp, path)
     except BaseException:
@@ -179,7 +199,7 @@ def run_module():
 
     changed = bool(touched)
     if changed and not module.check_mode:
-        write_json_atomic(path, data)
+        write_json_atomic(path, data, existing_indent(path))
 
     module.exit_json(changed=changed, include=new_list, path=path,
                      **({"removed": touched}
