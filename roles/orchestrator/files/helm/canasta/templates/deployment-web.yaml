@@ -9,6 +9,8 @@ metadata:
   labels:
     {{- include "canasta.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
+  annotations:
+    {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
 spec:
   replicas: {{ .Values.web.replicaCount }}
   # Past the default 600s, a rollout still inside its startup budget

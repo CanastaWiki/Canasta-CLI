@@ -14,6 +14,8 @@ START = os.path.join(ROOT, "roles", "orchestrator", "tasks", "start.yml")
 STOP = os.path.join(ROOT, "roles", "orchestrator", "tasks", "stop.yml")
 DESTROY = os.path.join(ROOT, "roles", "orchestrator", "tasks", "destroy.yml")
 HELM = os.path.join(ROOT, "roles", "orchestrator", "tasks", "helm_deploy.yml")
+SCALE_UP = os.path.join(
+    ROOT, "roles", "orchestrator", "tasks", "k8s_scale_up_after_stop.yml")
 CHART = os.path.join(ROOT, "roles", "orchestrator", "files", "helm", "canasta")
 TPL = os.path.join(CHART, "templates", "sidecars.yaml")
 VALUES = os.path.join(CHART, "values.yaml")
@@ -59,7 +61,7 @@ def test_destroy_removes_sidecar_orphans_and_volumes():
 
 
 def test_scale_up_is_generalized_to_all():
-    body = _text(START)
+    body = _text(SCALE_UP)
     # The post-stop restore must scale `deployment --all` (covering sidecars),
     # not a fixed core-only list, then restore the web count.
     assert "kubectl scale deployment --all --replicas=1" in body

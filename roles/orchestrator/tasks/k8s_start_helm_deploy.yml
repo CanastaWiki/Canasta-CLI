@@ -1,0 +1,39 @@
+---
+# Deploy the Helm release for a start, then scale the instance back up if
+# stop had scaled it to zero.
+#
+# stop scales every workload to zero and suspends Argo CD auto-sync, so a
+# deploy that fails would leave the instance down. On failure, bring it back
+# up on whatever the cluster still runs and resume auto-sync before
+# reporting the deploy error.
+#
+# Input: instance_id, instance_path, _k8s_namespace, _start_values,
+#        _current_replicas (the web Deployment's replicas before the deploy)
+
+- name: Note whether the instance was scaled to zero
+  ansible.builtin.set_fact:
+    _start_was_stopped: "{{ (_current_replicas.stdout | default('0')) == '0' }}"
+
+- name: Deploy the Helm release
+  block:
+    - name: Apply values and upgrade Helm release
+      ansible.builtin.include_tasks: helm_deploy.yml
+  rescue:
+    - name: Keep the deploy error
+      ansible.builtin.set_fact:
+        _start_deploy_error: "{{ ansible_failed_result.msg | default('see the error above') }}"
+
+    - name: Bring the instance back up after the failed deploy
+      ansible.builtin.include_tasks: k8s_scale_up_after_stop.yml
+      when: _start_was_stopped | bool
+
+    - name: Resume Argo CD auto-sync after the failed deploy
+      ansible.builtin.include_tasks: k8s_resume_argocd_sync.yml
+
+    - name: Fail with the deploy error
+      ansible.builtin.fail:
+        msg: "{{ _start_deploy_error }}"
+
+- name: Restore replica counts after stop
+  ansible.builtin.include_tasks: k8s_scale_up_after_stop.yml
+  when: _start_was_stopped | bool
