@@ -144,6 +144,52 @@
   ansible.builtin.include_tasks: render_kubernetes.yml
   when: _push_template_check.stat.exists
 
+# Values that select MediaWiki's own database account make the web pods read
+# its password from the db Secret's WIKI_DB_PASSWORD key, which upgrade adds
+# to the live Secret when it stages the move. Without the key, Argo CD would
+# roll out pods that cannot start, so do not publish such values.
+- name: Find the database account the pushed values select
+  ansible.builtin.set_fact:
+    _push_db_values: >-
+      {{ ((_rendered_values if _push_template_check.stat.exists
+           else _push_merged_values).db | default({})) }}
+    _push_db_secret_name: >-
+      {{ (_rendered_values if _push_template_check.stat.exists
+          else _push_merged_values).secrets.dbSecretName
+         | default(instance_id ~ '-db-credentials', true) }}
+
+- name: Decide whether the pushed values need the account's password
+  ansible.builtin.set_fact:
+    _push_wiki_db_user: >-
+      {{ (_push_db_values.wikiUser | default('root', true))
+         if (_push_db_values.enabled | default(true) | bool) else 'root' }}
+
+- name: Read the db Secret
+  kubernetes.core.k8s_info:
+    kind: Secret
+    name: "{{ _push_db_secret_name }}"
+    namespace: "{{ _k8s_namespace }}"
+  register: _push_db_secret
+  no_log: true
+  when: _push_wiki_db_user != 'root'
+
+- name: Refuse values whose account has no password in the db Secret
+  ansible.builtin.fail:
+    msg: >-
+      Not pushing: this host's values make MediaWiki connect as
+      '{{ _push_wiki_db_user }}', but the {{ _push_db_secret_name }} Secret
+      has no WIKI_DB_PASSWORD key, so the web pods Argo CD rolls out could
+      not start. 'canasta upgrade' adds the key when it moves the instance
+      to its own account. To push without it, put this host back on root
+      with 'canasta config set CANASTA_DB_ROOT_ACCOUNT=true -i
+      {{ instance_id }}'.
+  when:
+    - _push_wiki_db_user != 'root'
+    - >-
+      'WIKI_DB_PASSWORD' not in
+      ((_push_db_secret.resources | default([]) | first | default({})).data
+       | default({}, true))
+
 - name: Stage changes to the gitops-managed paths
   ansible.builtin.include_tasks: _stage_tracked_paths.yml
   vars:
