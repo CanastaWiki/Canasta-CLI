@@ -574,8 +574,27 @@ class TestPasswdEntryUsesHostUsername:
     failures" because no `canasta` user exists there.
     """
 
-    def test_passwd_entry_uses_host_username_not_literal_canasta(self):
-        argv, _ = run_dry(["version"])
+    HOST_USERNAME = "hostoperator"
+
+    def test_passwd_entry_uses_host_username_not_literal_canasta(
+        self, short_tmp
+    ):
+        real_id = shutil.which("id")
+        fake_id = os.path.join(short_tmp, "id")
+        with open(fake_id, "w") as f:
+            f.write(
+                '#!/bin/sh\n'
+                'if [ "$1" = "-un" ]; then echo %s; exit 0; fi\n'
+                'exec %s "$@"\n' % (self.HOST_USERNAME, real_id)
+            )
+        os.chmod(fake_id, 0o755)
+        argv, _ = run_dry(
+            ["version"],
+            env={
+                "PATH": "%s:%s" % (short_tmp, os.environ.get("PATH", "")),
+                "USER": self.HOST_USERNAME,
+            },
+        )
         config_dir = next(
             a.split("=", 1)[1]
             for a in argv
@@ -591,7 +610,7 @@ class TestPasswdEntryUsesHostUsername:
                 if line.strip() and not line.startswith("#")
             ]
         my_uid = str(os.getuid())
-        host_username = os.environ.get("USER") or os.getlogin()
+        host_username = self.HOST_USERNAME
         my_entry = next(
             (e for e in entries if e.split(":")[2] == my_uid),
             None,

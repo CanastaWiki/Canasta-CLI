@@ -267,10 +267,12 @@ class TestMycnfMigrationComposeOnly:
 class TestUninstallNodeLeftovers:
     """uninstall k8s removes what the k3s uninstall scripts keep."""
 
-    def test_node_password_and_cache_are_removed(self, tmp_path):
+    def test_defaults_name_the_node_password_and_cache(self):
         tasks = _load("roles", "install", "tasks", "uninstall_k3s.yml")
         check = _named(tasks, "Check for k3s node leftovers")
-        assert check["loop"] == ["/etc/rancher/node", "/var/lib/rancher/cache"]
+        assert check["loop"] == ("{{ k3s_leftover_paths | default("
+                                 "['/etc/rancher/node', '/var/lib/rancher/cache'"
+                                 "]) }}")
         names = [t.get("name") for t in tasks]
         # Last in the flow, after the worker's Node cleanup.
         assert names[-1] == "Remove k3s node leftovers"
@@ -283,8 +285,6 @@ class TestUninstallNodeLeftovers:
         script = tmp_path / "k3s-uninstall.sh"
         for t in tasks:
             t.pop("become", None)
-            if t.get("loop") == ["/etc/rancher/node", "/var/lib/rancher/cache"]:
-                t["loop"] = [str(node), str(cache)]
             if t.get("loop") == ["/usr/local/bin/k3s-uninstall.sh",
                                  "/usr/local/bin/k3s-agent-uninstall.sh"]:
                 t["loop"] = [str(script)]
@@ -292,12 +292,15 @@ class TestUninstallNodeLeftovers:
         (node / "password").write_text("pw\n")
         cache.mkdir()
         script.write_text("")
+        paths = {"k3s_leftover_paths": [str(node), str(cache)]}
 
-        proc = _run(tmp_path, tasks)
+        proc = _run(tmp_path, tasks, play_vars=paths)
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert node.exists() and cache.exists()
 
         script.unlink()
-        proc = _run(tmp_path, tasks)
+        proc = _run(tmp_path, tasks, play_vars=paths)
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert not node.exists() and not cache.exists()
+        assert "/etc/rancher" not in proc.stdout
+        assert "/var/lib/rancher" not in proc.stdout

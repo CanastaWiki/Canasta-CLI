@@ -612,6 +612,8 @@ def _self_update_reexec():
     # the CANASTA_SELF_UPDATED guard at the top of self_update_cli stops
     # the re-exec'd process from looping back through the update.
     os.environ["CANASTA_SELF_UPDATED"] = "1"
+    sys.stdout.flush()
+    sys.stderr.flush()
     os.execv(
         sys.executable,
         [sys.executable, os.path.abspath(__file__)] + sys.argv[1:],
@@ -2512,6 +2514,8 @@ def main():
             allow_major=getattr(args, "allow_major", False),
         )
 
+    sys.stdout.flush()
+    sys.stderr.flush()
     os.execvp(ansible_args[0], ansible_args)
 
 

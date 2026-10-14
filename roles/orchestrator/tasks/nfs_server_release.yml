@@ -1,0 +1,72 @@
+---
+# Stop the NFS server after its Canasta exports are withdrawn, when
+# `canasta storage setup nfs --install-server` is what started it and the
+# host exports nothing else. Otherwise it is left running, and that is
+# reported.
+#
+# Input: _nfs_server_marker (optional; the file storage setup writes when it
+#        started the server).
+
+- name: Check whether storage setup started the NFS server
+  ansible.builtin.stat:
+    path: "{{ _nfs_server_marker | default('/etc/canasta/nfs-server-started') }}"
+  register: _nfs_srv_marker
+  become: true
+
+- name: List the exports that remain
+  ansible.builtin.command:
+    cmd: exportfs
+  register: _nfs_srv_exports
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Check whether the NFS server is running
+  ansible.builtin.command:
+    argv: [systemctl, is-active, nfs-server]
+  register: _nfs_srv_active
+  changed_when: false
+  failed_when: false
+  become: true
+
+- name: Decide whether to stop the NFS server
+  ansible.builtin.set_fact:
+    _nfs_srv_remaining: "{{ _nfs_srv_exports.stdout | default('') | regex_findall('(?m)^(/\\S*)') }}"
+    _nfs_srv_stop: >-
+      {{ _nfs_srv_marker.stat.exists
+         and _nfs_srv_exports.rc == 0
+         and (_nfs_srv_exports.stdout | default('') | trim) == '' }}
+
+- name: Stop and disable the NFS server
+  ansible.builtin.command:
+    argv: [systemctl, disable, --now, nfs-server]
+  changed_when: true
+  become: true
+  when: _nfs_srv_stop | bool
+
+- name: Forget that storage setup started the NFS server
+  ansible.builtin.file:
+    path: "{{ _nfs_server_marker | default('/etc/canasta/nfs-server-started') }}"
+    state: absent
+  become: true
+  when: _nfs_srv_stop | bool
+
+- name: Report the NFS server stopped
+  ansible.builtin.debug:
+    msg: >-
+      Stopped and disabled nfs-server, which canasta storage setup nfs
+      started; it has no exports left.
+  when: _nfs_srv_stop | bool
+
+- name: Report the NFS server left running
+  ansible.builtin.debug:
+    msg: >-
+      Left nfs-server running:
+      {{ ('it still exports ' ~ (_nfs_srv_remaining | join(', ')))
+         if _nfs_srv_remaining | length > 0
+         else ('could not list its remaining exports'
+               if _nfs_srv_exports.rc != 0
+               else 'it was running before canasta storage setup nfs') }}.
+  when:
+    - not (_nfs_srv_stop | bool)
+    - (_nfs_srv_active.stdout | default('') | trim) == 'active'
