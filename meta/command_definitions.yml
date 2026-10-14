@@ -985,7 +985,8 @@ commands:
       Uninstall dependencies from the target host. Supported packages:
       k8s (removes k3s, kubectl, helm, and cleans up iptables rules;
       NFS exports that `canasta storage setup nfs --install-server`
-      scoped to the cluster are withdrawn, their contents left on disk).
+      scoped to the cluster are withdrawn, their contents left on disk;
+      the NFS server it started is stopped once nothing else is exported).
 
       When uninstalling k8s from a worker, pass `--cp-host <name>` to
       also delete the worker's Node entry from the control plane.
@@ -1020,14 +1021,15 @@ commands:
           For k8s worker uninstalls, name of the registered control-plane
           host. Canasta SSHs there after stopping the agent and runs
           'kubectl delete node <hostname>' so the Node entry is cleaned
-          up. Ignored on control-plane uninstalls.
+          up. On a host whose k3s is already gone, only that Node removal
+          runs. Ignored on control-plane uninstalls.
       - name: force
         short: f
         type: bool
         description: >-
           Proceed even when the target node holds PersistentVolumes whose
           data the uninstall would destroy, or when the control plane
-          cannot be reached to check.
+          cannot be reached to check them or to remove the worker's Node.
       - name: "yes"
         short: "y"
         type: bool
