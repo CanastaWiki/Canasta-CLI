@@ -162,6 +162,16 @@ class TestPruneModule:
         assert not failed and not result["deleted"]
         assert _read(inst) == {"require": {"foo/bar": "^1"}}
 
+    def test_names_removed_entries(self, tmp_path):
+        odd = "vendor-extra/composer.json"
+        glob = "extensions/*/composer.json"
+        inst = _instance(str(tmp_path), {"extra": {"merge-plugin": {
+            "include": [BUNDLED, BUNDLED_SKIN, odd, glob, USER]}}})
+        result, failed, _ = self._prune(inst, [BUNDLED, BUNDLED_SKIN, odd, glob])
+        assert not failed
+        assert result["removed_names"] == [
+            "SemanticMediaWiki", "Chameleon (skin)", odd, glob]
+
     def test_deletes_file_with_nothing_left(self, tmp_path):
         inst = _instance(str(tmp_path), {
             "require": {}, "repositories": [],
@@ -262,19 +272,19 @@ class TestUpgradeTidy:
         out = _run_tidy(tmp_path, inst, mw)
         assert _read(inst) == {"extra": {"merge-plugin": {"include": [
             OVERRIDDEN, USER]}}}
-        assert ("Removed from config/composer.local.json of 'demo' the "
-                "includes the image provides itself or that match nothing: "
-                f"{BUNDLED}, {BUNDLED_SKIN}, {MISSING}.") in out
+        assert ("Removed 3 entries from config/composer.local.json of 'demo' "
+                "that the image already provides or that match nothing: "
+                "SemanticMediaWiki, Chameleon (skin), Gone.") in out
         # A second upgrade finds nothing to do and says nothing.
         again = _run_tidy(tmp_path, inst, mw)
-        assert "Removed from" not in again
+        assert "Removed " not in again
 
     def test_old_image_leaves_file(self, tmp_path):
         mw, _ = _mediawiki(str(tmp_path), new_image=False)
         inst = _instance(str(tmp_path), OLD_COPY)
         out = _run_tidy(tmp_path, inst, mw)
         assert _read(inst) == OLD_COPY
-        assert "Removed from" not in out
+        assert "Removed " not in out
 
     def test_stopped_instance_is_skipped(self, tmp_path):
         mw, _ = _mediawiki(str(tmp_path))

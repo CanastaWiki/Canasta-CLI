@@ -68,6 +68,11 @@ returns:
     description: Entries that were removed.
     returned: When I(state=absent) or I(state=prune)
     type: list
+  removed_names:
+    description: The removed entries named by extension or skin, e.g.
+      C(OAuth) or C(Vector (skin)); an entry of any other shape keeps its path.
+    returned: When I(state=prune)
+    type: list
   deleted:
     description: Whether the file was deleted.
     returned: When I(state=prune)
@@ -152,6 +157,14 @@ def prune_empty(value):
         pruned = [prune_empty(v) for v in value]
         return [v for v in pruned if v not in ({}, [])]
     return value
+
+
+def include_name(path):
+    """Name an include by its extension or skin, else return the path."""
+    match = re.match(r"^(extensions|skins)/([^/*?\[]+)/composer\.json$", path)
+    if not match:
+        return path
+    return match.group(2) + (" (skin)" if match.group(1) == "skins" else "")
 
 
 def drop_empty_include(data):
@@ -259,7 +272,8 @@ def run_module():
         elif changed and not module.check_mode:
             write_json_atomic(path, data, existing_indent(path))
         module.exit_json(changed=changed, include=new_list, path=path,
-                         removed=touched, deleted=deleted)
+                         removed=touched, deleted=deleted,
+                         removed_names=[include_name(p) for p in touched])
 
     if changed and not module.check_mode:
         write_json_atomic(path, data, existing_indent(path))

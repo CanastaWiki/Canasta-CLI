@@ -99,9 +99,11 @@
             - name: Report the removed includes
               ansible.builtin.debug:
                 msg: >-
-                  Removed from config/composer.local.json of
-                  '{{ instance_id }}' the includes the image provides itself or
-                  that match nothing: {{ _tidy_pruned.removed | join(', ') }}.
+                  Removed {{ _tidy_pruned.removed | length }}
+                  {{ 'entry' if _tidy_pruned.removed | length == 1 else 'entries' }}
+                  from config/composer.local.json of '{{ instance_id }}' that
+                  the image already provides or that match nothing:
+                  {{ _tidy_pruned.removed_names | join(', ') }}.
                   {%- if _tidy_pruned.deleted %} Nothing else was left, so the
                   file was deleted.{% endif %}
                   {%- if _tidy_gitops.stat.exists %} The change is staged;
