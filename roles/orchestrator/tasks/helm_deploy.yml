@@ -97,6 +97,7 @@
       ansible.builtin.copy:
         content: >-
           {{ {'secretChecksums': _hd_secrets.resources | default([])
+              | canasta_overlay_local_secrets(_k8s_local_secrets | default({}))
               | canasta_secret_checksums(_hd_merged, instance_id)}
              | to_nice_yaml(indent=2) }}
         dest: "{{ instance_path }}/values-checksums.yaml"

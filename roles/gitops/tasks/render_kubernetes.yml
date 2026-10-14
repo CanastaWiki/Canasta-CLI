@@ -138,6 +138,7 @@
   vars:
     _render_checksums: >-
       {{ (_render_secrets.resources | default([]))
+         | canasta_overlay_local_secrets(_k8s_local_secrets | default({}))
          | canasta_secret_checksums(_rendered_values, instance_id)
          if (render_secret_checksums | default(false) | bool)
          else ((_render_previous.content | default('') | b64decode | from_yaml)
