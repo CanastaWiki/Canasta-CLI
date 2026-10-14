@@ -231,3 +231,42 @@ def test_a_direct_deploy_of_a_gitops_instance_carries_the_hashes():
     assert "canasta_secret_checksums" in yaml.safe_dump(block)
     assert all(t.get("no_log") for t in block["block"][1:])
     assert "values-checksums.yaml', '')" in text
+
+
+# --- Ignored in the gitops repo --------------------------------------------
+
+def _git(repo, *args):
+    return subprocess.run(["git", *args], cwd=repo, capture_output=True,
+                          text=True, check=True).stdout
+
+
+def test_an_upgraded_repo_ignores_the_checksums_override(tmp_path):
+    from _orchestrator import INSTANCE_IS_K8S_VARS
+    inst = tmp_path / "inst"
+    inst.mkdir()
+    (inst / ".gitops-host").write_text("host1\n")
+    # A repo whose .gitignore predates the rule.
+    (inst / ".gitignore").write_text(".gitops-host\nvalues-domains.yaml\n")
+    _git(inst, "init", "-q")
+    _git(inst, "add", ".gitignore")
+    _git(inst, "-c", "user.name=t", "-c", "user.email=t@example.com",
+         "-c", "commit.gpgsign=false", "commit", "-q", "-m", "init")
+    (inst / "values-checksums.yaml").write_text("secretChecksums: {}\n")
+    assert "values-checksums.yaml" in _git(inst, "status", "--porcelain")
+    play = tmp_path / "play.yml"
+    play.write_text(yaml.safe_dump([{
+        "hosts": "localhost", "connection": "local", "gather_facts": False,
+        "vars": dict(INSTANCE_IS_K8S_VARS, instance_path=str(inst),
+                     canasta_root=REPO_ROOT, instance_orchestrator="kubernetes",
+                     ansible_python_interpreter=sys.executable),
+        "tasks": [{"ansible.builtin.include_tasks": os.path.join(
+            GITOPS, "refresh_gitignore.yml")}],
+    }]))
+    env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
+               ANSIBLE_CONFIG=os.path.join(REPO_ROOT, "ansible.cfg"))
+    playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
+    proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
+                          capture_output=True, text=True, env=env, cwd=REPO_ROOT)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "values-checksums.yaml" in (inst / ".gitignore").read_text().split()
+    assert "values-checksums.yaml" not in _git(inst, "status", "--porcelain")
