@@ -18,7 +18,6 @@ hands it back.
 """
 
 import os
-import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(
@@ -33,8 +32,9 @@ def _args():
 
 
 def _common(monkeypatch, calls, env):
-    monkeypatch.setattr(subprocess, "call",
-                        lambda cmd, **kw: calls.append(cmd) or 0)
+    monkeypatch.setattr(direct_commands._helpers, "_run_compose",
+                        lambda i, inst, action, **kw: calls.append(action)
+                        or 0)
     monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
                         lambda args: ("test", {"path": "/srv/test",
                                                "orchestrator": "compose"}))
