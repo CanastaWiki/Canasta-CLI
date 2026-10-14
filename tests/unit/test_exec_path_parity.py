@@ -96,7 +96,7 @@ class TestK8sPodResolutionParity:
         "kubectl get pods",
         "app.kubernetes.io/component=",
         "--field-selector=status.phase=Running",
-        "jsonpath={.items[0].metadata.name}",
+        ".metadata.name}",
     ]
 
     def test_python_and_ansible_share_pod_selectors(self, monkeypatch):
