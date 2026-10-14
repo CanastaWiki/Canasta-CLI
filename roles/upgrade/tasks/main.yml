@@ -320,6 +320,9 @@
       ansible.builtin.debug:
         msg: "Canasta upgraded successfully!"
 
+    - name: Report a failed startup composer update
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/mediawiki/tasks/report_composer_failure.yml"
+
 # After the restart: the instance must be running on the refreshed compose
 # file, which takes MediaWiki's credentials from WIKI_DB_USER /
 # WIKI_DB_PASSWORD.
@@ -405,6 +408,9 @@
             msg: >-
               Restarted the web pods of '{{ instance_id }}' onto the rebuilt
               image.
+
+        - name: Report a failed startup composer update
+          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/mediawiki/tasks/report_composer_failure.yml"
 
     - name: Report the upgrade staged for a gitops push
       ansible.builtin.debug:
