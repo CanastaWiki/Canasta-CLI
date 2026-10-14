@@ -23,13 +23,14 @@ from direct_commands import _helpers  # noqa: E402
 
 from _orchestrator import TEMPLAR_VARS
 
-SCRIPT = os.path.join(REPO_ROOT, "roles", "orchestrator", "files",
-                      "ensure_wiki_db_account.sh")
+SCRIPT = os.path.join(REPO_ROOT, "roles", "orchestrator", "files", "helm",
+                      "canasta", "files", "ensure_wiki_db_account.sh")
 TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 COMPOSE = os.path.join(REPO_ROOT, "roles", "orchestrator", "files",
                        "compose", "docker-compose.yml")
 
 FAKE_MARIADB = r"""#!/bin/sh
+echo "$1 $2" >> "$FAKE_DIR/calls"
 for a in "$@"; do
   case "$a" in
     *"SELECT Db FROM mysql.db"*) cat "$FAKE_DIR/granted"; exit 0 ;;
@@ -53,13 +54,17 @@ def db(tmp_path):
         "information_schema\nmain\nmain_cargo\nmysql\nstray\n")
     (tmp_path / "sql").write_text("")
 
-    def run(*dbs, user="mediawiki", password="pw", granted=""):
+    def run(*dbs, user="mediawiki", password="pw", granted="", db_host=None):
         (tmp_path / "granted").write_text(granted)
         (tmp_path / "sql").write_text("")
+        (tmp_path / "calls").write_text("")
         env = dict(os.environ, FAKE_DIR=str(tmp_path),
                    PATH="%s:%s" % (bindir, os.environ["PATH"]),
                    WIKI_DB_USER=user, WIKI_DB_PASSWORD=password,
                    MYSQL_ROOT_PASSWORD="rootpw")
+        env.pop("DB_HOST", None)
+        if db_host is not None:
+            env["DB_HOST"] = db_host
         with open(SCRIPT) as f:
             result = subprocess.run(["sh", "-s", "--", *dbs], stdin=f,
                                     capture_output=True, text=True, env=env)
@@ -107,6 +112,20 @@ class TestTheScript:
         result, sql = db("main", password="")
         assert result.returncode == 2
         assert sql == ""
+
+    def test_db_host_sends_every_login_over_tcp(self, db, tmp_path):
+        # The Kubernetes init container runs beside the database, not in it.
+        result, _ = db("main", "main_cargo", db_host="db")
+        assert result.returncode == 0, result.stderr
+        calls = (tmp_path / "calls").read_text().splitlines()
+        assert calls and all(c == "-h db" for c in calls), calls
+        assert "pw" in (tmp_path / "logins").read_text().split()
+
+    def test_without_db_host_logins_use_the_socket(self, db, tmp_path):
+        result, _ = db("main")
+        assert result.returncode == 0, result.stderr
+        calls = (tmp_path / "calls").read_text().splitlines()
+        assert calls and not any("-h" in c for c in calls), calls
 
 
 class TestWiring:

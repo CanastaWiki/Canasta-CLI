@@ -85,7 +85,9 @@
           {{ _ensure_wikis.db_groups | map(attribute='databases') | flatten
              | unique | map('quote') | join(' ') }}
         chdir: "{{ instance_path }}"
-        stdin: "{{ lookup('ansible.builtin.file', canasta_root ~ '/roles/orchestrator/files/ensure_wiki_db_account.sh') }}"
+        stdin: >-
+          {{ lookup('ansible.builtin.file', canasta_root
+                    ~ '/roles/orchestrator/files/helm/canasta/files/ensure_wiki_db_account.sh') }}
       register: _ensure_result
       changed_when: "'ENSURED ' in _ensure_result.stdout"
 

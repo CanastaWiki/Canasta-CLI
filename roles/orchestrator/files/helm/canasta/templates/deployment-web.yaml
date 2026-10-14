@@ -1,6 +1,14 @@
 {{- if not .Values.domains }}
   {{- fail "At least one domain must be configured in values.yaml (domains: [example.com])" }}
 {{- end }}
+{{- $wikiAccount := include "canasta.wikiDbAccount" . }}
+{{- $wikiDatabases := list }}
+{{- if $wikiAccount }}
+{{- $wikiDatabases = include "canasta.wikiDatabases" . | fromJsonArray }}
+{{- if not $wikiDatabases }}
+  {{- fail (printf "db.wikiUser is %s, but configData.web holds no wikis.yaml with wikis, so there are no databases to grant it" $wikiAccount) }}
+{{- end }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -27,6 +35,9 @@ spec:
       annotations:
         checksum/web-config: {{ .Values.configData.web | default dict | toJson | sha256sum }}
         checksum/env-config: {{ .Values.configData.env | default dict | toJson | sha256sum }}
+        {{- if $wikiAccount }}
+        checksum/db-account: {{ .Files.Get "files/ensure_wiki_db_account.sh" | sha256sum }}
+        {{- end }}
     spec:
       initContainers:
         - name: assemble-config
@@ -64,6 +75,41 @@ spec:
               until ip=$(nslookup db 2>/dev/null | awk '/^Address:/{ a=$2 } END{ print a }') && [ -n "$ip" ] && nc -z "$ip" 3306; do
                 sleep 2
               done
+        {{- if $wikiAccount }}
+        # Creates MediaWiki's account and grants it exactly the wiki
+        # databases before MediaWiki starts. The account lives only in the
+        # database server, so this runs on every pod start and puts it back
+        # after a db volume rebuild. The root password reaches only this
+        # container, never web.
+        - name: ensure-db-account
+          image: {{ .Values.db.image }}
+          command:
+            - sh
+            - /scripts/ensure_wiki_db_account.sh
+          args:
+            {{- range $wikiDatabases }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: DB_HOST
+              value: "db"
+            - name: WIKI_DB_USER
+              value: {{ $wikiAccount | quote }}
+            - name: WIKI_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "canasta.dbSecretName" . }}
+                  key: WIKI_DB_PASSWORD
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "canasta.dbSecretName" . }}
+                  key: MYSQL_ROOT_PASSWORD
+          volumeMounts:
+            - name: db-account-script
+              mountPath: /scripts
+              readOnly: true
+        {{- end }}
       containers:
         - name: web
           image: {{ include "canasta.image" . }}
@@ -94,7 +140,7 @@ spec:
             - name: MYSQL_PORT
               value: {{ if .Values.db.enabled }}"3306"{{ else }}"{{ .Values.externalDatabase.port }}"{{ end }}
             - name: MYSQL_USER
-              value: {{ if .Values.db.enabled }}"root"{{ else }}"{{ .Values.externalDatabase.user }}"{{ end }}
+              value: {{ if .Values.db.enabled }}{{ $wikiAccount | default "root" | quote }}{{ else }}"{{ .Values.externalDatabase.user }}"{{ end }}
             - name: MYSQL_SSL
               value: {{ if .Values.db.enabled }}"false"{{ else }}"{{ .Values.externalDatabase.ssl }}"{{ end }}
             - name: USE_EXTERNAL_DB
@@ -103,7 +149,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ include "canasta.dbSecretName" . }}
-                  key: MYSQL_PASSWORD
+                  key: {{ if $wikiAccount }}WIKI_DB_PASSWORD{{ else }}MYSQL_PASSWORD{{ end }}
             - name: MW_SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -157,6 +203,11 @@ spec:
           configMap:
             name: {{ include "canasta.fullname" . }}-web-config
             optional: true
+        {{- if $wikiAccount }}
+        - name: db-account-script
+          configMap:
+            name: {{ include "canasta.fullname" . }}-db-account
+        {{- end }}
         - name: config
           emptyDir: {}
         - name: images

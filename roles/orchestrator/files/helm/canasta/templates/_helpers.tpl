@@ -50,6 +50,42 @@ DB secret name.
 {{- end }}
 
 {{/*
+MediaWiki's own database account on the bundled database, or "" while it
+connects as root (or the database is external).
+*/}}
+{{- define "canasta.wikiDbAccount" -}}
+{{- $user := toString (.Values.db.wikiUser | default "root") }}
+{{- if and .Values.db.enabled (ne $user "root") }}
+{{- $user }}
+{{- end }}
+{{- end }}
+
+{{/*
+The wiki database set from configData.web's wikis.yaml, as a JSON list:
+each wiki's own database followed by its declared extra_databases (a bare
+name or a mapping with a name).
+*/}}
+{{- define "canasta.wikiDatabases" -}}
+{{- $web := .Values.configData.web | default dict }}
+{{- $farm := fromYaml (index $web "wikis.yaml" | default "") | default dict }}
+{{- $dbs := list }}
+{{- range ($farm.wikis | default list) }}
+{{- $id := toString .id }}
+{{- $dbs = append $dbs $id }}
+{{- range (.extra_databases | default list) }}
+{{- $name := . }}
+{{- if kindIs "map" . }}
+{{- $name = .name }}
+{{- end }}
+{{- if ne (toString $name) $id }}
+{{- $dbs = append $dbs (toString $name) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- toJson (uniq $dbs) }}
+{{- end }}
+
+{{/*
 MW secret name.
 */}}
 {{- define "canasta.mwSecretName" -}}
