@@ -1,6 +1,8 @@
 ---
 # canasta add - Add a wiki to an existing Canasta instance.
-# wikis.yaml is updated AFTER successful install.
+# wikis.yaml is updated AFTER successful install. A gitops-managed
+# Kubernetes instance is staged in its gitops repo instead of being
+# redeployed.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: >-
@@ -356,10 +358,26 @@
   vars:
     update_fingerprint_wiki: "{{ wiki }}"
 
+# Argo CD deploys a gitops-managed Kubernetes instance from its repo and
+# self-heals back to it, so a direct deploy would be reverted until the
+# staged changes are pushed. The new wiki's database is already in place;
+# its configuration is staged only, and the web pods' startup runs
+# update.php for it once the sync rolls them.
+- name: Check whether the instance is gitops-managed
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _add_gitops_marker
+
+- name: Decide whether add only stages the wiki for a gitops push
+  ansible.builtin.set_fact:
+    _add_stage_only: >-
+      {{ (instance_is_k8s | bool) and _add_gitops_marker.stat.exists }}
+
 - name: Restart instance
   ansible.builtin.include_role:
     name: instance_lifecycle
     tasks_from: restart.yml
+  when: not (_add_stage_only | default(false) | bool)
 
 # After the restart, which loads the new wiki and gives MediaWiki's database
 # account access to its extra databases.
@@ -369,7 +387,9 @@
     tasks_from: run_update_php.yml
   vars:
     update_php_wikis: ["{{ wiki }}"]
-  when: database is defined and database != ''
+  when:
+    - database is defined and database != ''
+    - not (_add_stage_only | default(false) | bool)
 
 # Stage the new wiki's gitops-tracked files (per-wiki settings,
 # public_assets, and the farm template). 'gitops init' captures wikis
@@ -381,6 +401,7 @@
     {{ canasta_root }}/roles/gitops/tasks/stage_new_wiki.yml
   vars:
     new_wiki_id: "{{ wiki }}"
+    new_wiki_report: "{{ not (_add_stage_only | default(false) | bool) }}"
 
 - name: Report wiki added
   ansible.builtin.debug:
@@ -388,3 +409,14 @@
       Wiki '{{ wiki }}' added to instance '{{ instance_id }}'{% if _add_extra_dbs | default([]) %},
       with extra database(s) {{ _add_extra_dbs | join(', ') }} imported and
       declared{% endif %}.
+  when: not (_add_stage_only | default(false) | bool)
+
+- name: Report the wiki staged for a gitops push
+  ansible.builtin.debug:
+    msg: >-
+      Wiki '{{ wiki }}' is set up in the database{% if _add_extra_dbs | default([]) %},
+      with extra database(s) {{ _add_extra_dbs | join(', ') }} imported and
+      declared,{% endif %} and staged in its gitops repo but not deployed.
+      Run 'canasta gitops push -i {{ instance_id }}', then
+      'canasta gitops sync -i {{ instance_id }}', to deploy it.
+  when: _add_stage_only | default(false) | bool

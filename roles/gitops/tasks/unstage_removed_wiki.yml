@@ -10,6 +10,8 @@
 # removed. Gitops-only — no-ops when the gitops marker is absent.
 #
 # Input: instance_path, canasta_root, removed_wiki_id.
+# Optional: removed_wiki_report (bool, default true) - report the pending
+# push.
 
 - name: Check for gitops instance
   ansible.builtin.stat:
@@ -84,3 +86,4 @@
         msg: >-
           Staged the removal of wiki '{{ removed_wiki_id }}' for gitops.
           Publish it with 'canasta gitops push'.
+      when: removed_wiki_report | default(true) | bool

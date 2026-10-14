@@ -1,0 +1,33 @@
+---
+# Warn when the web container's last startup composer update failed. The
+# image records the failure in config/persistent/composer-update.failed and
+# removes it once an update succeeds; older images never write it. Run only
+# after web is ready: composer runs before apache starts, so a container
+# still starting may hold a record from an earlier run.
+#
+# Input: what orchestrator/tasks/exec.yml needs
+
+- name: Locate the startup composer failure record
+  ansible.builtin.set_fact:
+    _composer_failed_path: /mediawiki/config/persistent/composer-update.failed
+
+- name: Read the startup composer failure record
+  ansible.builtin.include_tasks:
+    file: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+    # Applied to the included tasks, not the include, where it is inert.
+    apply:
+      ignore_errors: true
+  vars:
+    exec_service: web
+    exec_command: >-
+      if [ -f {{ _composer_failed_path }} ]; then
+      head -n 1 {{ _composer_failed_path }}; fi
+
+- name: Warn that the startup composer update failed
+  ansible.builtin.debug:
+    msg: >-
+      Warning: {{ exec_result.stdout | trim }} Details: canasta maintenance
+      exec -i {{ instance_id }} -- cat {{ _composer_failed_path }}
+  when:
+    - exec_result.rc | default(1) == 0
+    - (exec_result.stdout | default('') | trim) | length > 0
