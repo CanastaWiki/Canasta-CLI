@@ -2,32 +2,77 @@
 # Trigger an immediate Argo CD sync and wait for completion.
 # Input: instance_id, argocd_namespace
 
-- name: Trigger Argo CD sync via refresh annotation
-  kubernetes.core.k8s:
-    state: patched
-    api_version: argoproj.io/v1alpha1
-    kind: Application
-    name: "canasta-{{ instance_id }}"
-    namespace: "{{ argocd_namespace | default('argocd') }}"
-    definition:
-      metadata:
-        annotations:
-          argocd.argoproj.io/refresh: "hard"
+# A stopped instance has auto-sync suspended and its web scaled to zero, so
+# Argo CD would never report it Synced and Healthy. It is left stopped; start
+# re-enables auto-sync, which deploys what was pushed.
+- name: Check whether the instance is stopped
+  ansible.builtin.command:
+    cmd: >-
+      kubectl get deployment canasta-{{ instance_id }}-web
+      -n canasta-{{ instance_id }} -o jsonpath={.spec.replicas}
+  register: _argocd_sync_replicas
+  changed_when: false
+  failed_when: false
 
-- name: Wait for Argo CD sync completion
-  kubernetes.core.k8s_info:
-    api_version: argoproj.io/v1alpha1
-    kind: Application
-    name: "canasta-{{ instance_id }}"
-    namespace: "{{ argocd_namespace | default('argocd') }}"
-  register: _argocd_sync_status
-  until:
-    - _argocd_sync_status.resources | length > 0
-    - _argocd_sync_status.resources[0].status.sync.status | default('') == 'Synced'
-    - _argocd_sync_status.resources[0].status.health.status | default('') == 'Healthy'
-  retries: 60
-  delay: 5
+- name: Decide whether the instance is stopped
+  ansible.builtin.set_fact:
+    _argocd_sync_stopped: >-
+      {{ _argocd_sync_replicas.rc == 0
+         and (_argocd_sync_replicas.stdout | trim) == '0' }}
 
-- name: Report sync complete
+- name: Report the instance is stopped
   ansible.builtin.debug:
-    msg: "Argo CD sync completed for 'canasta-{{ instance_id }}'."
+    msg: >-
+      Instance '{{ instance_id }}' is stopped, so it was left stopped and
+      nothing was synced. Pushed changes deploy when it starts; run
+      'canasta start -i {{ instance_id }}' to start it.
+  when: _argocd_sync_stopped | bool
+
+- name: Sync the running instance
+  when: not (_argocd_sync_stopped | bool)
+  block:
+    - name: Trigger Argo CD sync via refresh annotation
+      kubernetes.core.k8s:
+        state: patched
+        api_version: argoproj.io/v1alpha1
+        kind: Application
+        name: "canasta-{{ instance_id }}"
+        namespace: "{{ argocd_namespace | default('argocd') }}"
+        definition:
+          metadata:
+            annotations:
+              argocd.argoproj.io/refresh: "hard"
+
+    - name: Wait for Argo CD sync completion
+      kubernetes.core.k8s_info:
+        api_version: argoproj.io/v1alpha1
+        kind: Application
+        name: "canasta-{{ instance_id }}"
+        namespace: "{{ argocd_namespace | default('argocd') }}"
+      register: _argocd_sync_status
+      until:
+        - _argocd_sync_status.resources | length > 0
+        - _argocd_sync_status.resources[0].status.sync.status | default('') == 'Synced'
+        - _argocd_sync_status.resources[0].status.health.status | default('') == 'Healthy'
+      retries: 60
+      delay: 5
+      ignore_errors: true  # reported with the last state by the next task
+
+    - name: Read the last reported Argo CD state
+      ansible.builtin.set_fact:
+        _argocd_sync_last: "{{ (_argocd_sync_status.resources | default([]) + [{}])[0].status | default({}) }}"
+      when: _argocd_sync_status is failed
+
+    - name: Fail when the sync did not complete
+      ansible.builtin.fail:
+        msg: >-
+          Argo CD did not report 'canasta-{{ instance_id }}' as Synced and
+          Healthy within 5 minutes (sync:
+          {{ _argocd_sync_last.sync.status | default('Unknown') }}, health:
+          {{ _argocd_sync_last.health.status | default('Unknown') }}).
+          {{ _argocd_sync_status.msg | default('') }}
+      when: _argocd_sync_status is failed
+
+    - name: Report sync complete
+      ansible.builtin.debug:
+        msg: "Argo CD sync completed for 'canasta-{{ instance_id }}'."
