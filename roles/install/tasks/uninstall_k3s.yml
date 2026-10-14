@@ -7,12 +7,13 @@
 # install forms; the k3s installer creates a different script
 # depending on whether it set up a server or an agent.
 #
-# On a worker uninstall, if cp_host is provided, also SSH to the
-# control plane afterward and 'kubectl delete node <hostname>' so the
-# Node entry is removed from the cluster's view. Without that, the
-# Node lingers in 'kubectl get nodes' and a worker rejoining with the
-# same hostname reclaims it (preserving its AGE) — which masks the
-# uninstall.
+# On a worker uninstall, also SSH to the control plane afterward and
+# 'kubectl delete node <hostname>' so the Node entry is removed from the
+# cluster's view. Without that, the Node lingers in 'kubectl get nodes'
+# and a worker rejoining with the same hostname reclaims it (preserving
+# its AGE) — which masks the uninstall. With k3s already gone and
+# --cp-host given, only that Node removal runs, so an earlier run that
+# could not reach the control plane can be finished.
 
 - name: Check for k3s server uninstall script
   ansible.builtin.stat:
@@ -36,6 +37,12 @@
          if _k3s_server_uninstall.stat.exists
          else ('worker'
                if _k3s_agent_uninstall.stat.exists else '') }}
+
+- name: Decide whether to remove this host's Node from the control plane
+  ansible.builtin.set_fact:
+    _k3s_delete_node: >-
+      {{ _k3s_role_label == 'worker'
+         or (not _k3s_uninstall_script and (cp_host | default('') | length > 0)) }}
 
 - name: Report k3s not installed
   ansible.builtin.debug:
@@ -89,7 +96,7 @@
     cmd: hostname
   register: _worker_hostname_raw
   changed_when: false
-  when: _k3s_role_label == 'worker'
+  when: _k3s_delete_node | bool
 
 # A local-path PV lives on the node that provisioned it, and the k3s
 # uninstall removes /var/lib/rancher/k3s — so detaching a worker deletes
@@ -308,7 +315,9 @@
 
     - name: Report default storage class cleared
       ansible.builtin.debug:
-        msg: "Cleared default storage class '{{ _uninstall_default_sc.value }}'."
+        msg: >-
+          Cleared the Canasta default StorageClass for new instances
+          ('{{ _uninstall_default_sc.value }}'); that class was on this cluster.
 
 # Not gated on k3s still being installed: if an earlier run removed k3s and
 # then failed, a re-run must still withdraw the exports. The task acts only
@@ -319,7 +328,7 @@
 # --- Worker only: clean up the Node entry on the control plane ---
 
 - name: Delete worker Node from control plane
-  when: _k3s_role_label == 'worker'
+  when: _k3s_delete_node | bool
   block:
     - name: Resolve cp-host SSH target from hosts.yml
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_cp_host_ssh.yml"
@@ -340,8 +349,65 @@
         ansible_connection: local
       register: _node_delete
       changed_when: "'deleted' in (_node_delete.stdout | default(''))"
+      failed_when: false
 
     - name: Report Node cleanup
       ansible.builtin.debug:
         msg: "Removed Node '{{ _worker_hostname_raw.stdout | trim }}' from control plane."
       when: "'deleted' in (_node_delete.stdout | default(''))"
+
+    - name: Refuse to leave the Node on the control plane
+      ansible.builtin.fail:
+        msg: >-
+          Could not remove Node '{{ _worker_hostname_raw.stdout | trim }}'
+          from control plane '{{ cp_host }}':
+          {{ (_node_delete.stderr | default('') | trim) or ('exit code ' ~ _node_delete.rc) }}.
+          Re-run this command once the control plane is reachable, or run
+          'sudo k3s kubectl delete node {{ _worker_hostname_raw.stdout | trim }}'
+          on the control plane.
+      when:
+        - _node_delete.rc != 0
+        - not (force | default(false) | bool)
+
+    - name: Warn that the Node is left on the control plane
+      ansible.builtin.debug:
+        msg: >-
+          --force given: could not remove Node
+          '{{ _worker_hostname_raw.stdout | trim }}' from control plane
+          '{{ cp_host }}':
+          {{ (_node_delete.stderr | default('') | trim) or ('exit code ' ~ _node_delete.rc) }}.
+          Once it is reachable, run
+          'sudo k3s kubectl delete node {{ _worker_hostname_raw.stdout | trim }}'
+          on the control plane.
+      when:
+        - _node_delete.rc != 0
+        - force | default(false) | bool
+
+# --- Node leftovers the k3s uninstall scripts keep ---
+# The scripts leave /etc/rancher/node (the node password) and
+# /var/lib/rancher/cache. Removed once neither script remains, so a re-run
+# after an interrupted uninstall still clears them.
+- name: Check for a k3s install still on this host
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /usr/local/bin/k3s-uninstall.sh
+    - /usr/local/bin/k3s-agent-uninstall.sh
+  register: _k3s_scripts_left
+
+- name: Check for k3s node leftovers
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ k3s_leftover_paths | default(['/etc/rancher/node', '/var/lib/rancher/cache']) }}"
+  register: _k3s_node_leftovers
+  when: _k3s_scripts_left.results | selectattr('stat.exists') | list | length == 0
+
+- name: Remove k3s node leftovers
+  ansible.builtin.file:
+    path: "{{ item.item }}"
+    state: absent
+  loop: "{{ _k3s_node_leftovers.results | default([]) | selectattr('stat', 'defined')
+            | selectattr('stat.exists') | list }}"
+  loop_control:
+    label: "{{ item.item }}"
+  become: true

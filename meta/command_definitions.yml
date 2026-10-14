@@ -985,7 +985,8 @@ commands:
       Uninstall dependencies from the target host. Supported packages:
       k8s (removes k3s, kubectl, helm, and cleans up iptables rules;
       NFS exports that `canasta storage setup nfs --install-server`
-      scoped to the cluster are withdrawn, their contents left on disk).
+      scoped to the cluster are withdrawn, their contents left on disk;
+      the NFS server it started is stopped once nothing else is exported).
 
       When uninstalling k8s from a worker, pass `--cp-host <name>` to
       also delete the worker's Node entry from the control plane.
@@ -1020,14 +1021,15 @@ commands:
           For k8s worker uninstalls, name of the registered control-plane
           host. Canasta SSHs there after stopping the agent and runs
           'kubectl delete node <hostname>' so the Node entry is cleaned
-          up. Ignored on control-plane uninstalls.
+          up. On a host whose k3s is already gone, only that Node removal
+          runs. Ignored on control-plane uninstalls.
       - name: force
         short: f
         type: bool
         description: >-
           Proceed even when the target node holds PersistentVolumes whose
           data the uninstall would destroy, or when the control plane
-          cannot be reached to check.
+          cannot be reached to check them or to remove the worker's Node.
       - name: "yes"
         short: "y"
         type: bool
@@ -1390,7 +1392,8 @@ commands:
       argument it lists the seed files whose instance copy differs from
       the current template. With one or more files it shows the diff but
       changes nothing; add --apply to overwrite, so review the diff first
-      (your local edits to that file are replaced). Rendered files (.env,
+      (your local edits to that file are replaced). --apply requires at
+      least one file name. Rendered files (.env,
       wikis.yaml, Caddyfile) belong to 'canasta reconcile' and per-wiki
       Settings.php is user-owned; neither is touched here. --yes is
       accepted as a deprecated spelling of --apply.
@@ -2866,7 +2869,10 @@ commands:
       - name: repo
         type: string
         required: true
-        description: "Git repository URL"
+        description: >-
+          Git repository URL. On Kubernetes it must be an SSH URL
+          (user@host:path or ssh://user@host/path), since Argo CD clones it
+          over SSH from inside the cluster.
       - name: key
         type: path
         required_unless: git_crypt_gpg_user
@@ -2988,7 +2994,10 @@ commands:
       - name: repo
         type: string
         required: true
-        description: "Git repository URL"
+        description: >-
+          Git repository URL. On Kubernetes it must be an SSH URL
+          (user@host:path or ssh://user@host/path), since Argo CD clones it
+          over SSH from inside the cluster.
       - name: key
         type: path
         description: >-
@@ -3677,6 +3686,11 @@ commands:
       in-cluster registry's garbage collector (with `--delete-untagged`) and
       restarts the registry so its in-memory blob cache matches the pruned
       store. A host running both is reclaimed on both paths.
+
+      The Docker build cache, and on a Kubernetes host the Docker copies of
+      images built for the in-cluster registry, are kept because they speed
+      up the next build; their size or names are reported with the command
+      that removes them (`docker builder prune`, `docker image rm`).
 
       Volumes are never touched, and an image an instance on the host is
       pinned to is kept whether or not that instance is running.
