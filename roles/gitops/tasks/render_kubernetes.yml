@@ -27,6 +27,9 @@
   ansible.builtin.set_fact:
     _render_merged_vars: "{{ _gitops_host.shared_vars | combine(_gitops_host.host_vars, recursive=True) }}"
 
+# db.wikiUser comes from this host's vars alone: MediaWiki's account lives in
+# this host's database server, and a host whose vars predate the key stays on
+# root whatever the shared template says.
 - name: Apply per-host overrides to template
   ansible.builtin.set_fact:
     _rendered_values: >-
@@ -51,6 +54,10 @@
              'web': _render_template.web | default({})
                | combine({
                    'replicaCount': _render_merged_vars.web_replica_count | default(1) | int,
+                 }),
+             'db': _render_template.db | default({})
+               | combine({
+                   'wikiUser': _gitops_host.host_vars.wiki_db_user | default('root', true),
                  }),
            }, recursive=True) }}
 

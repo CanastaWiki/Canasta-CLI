@@ -191,13 +191,14 @@ class TestWiring:
         assert "WIKI_DB_USER=${WIKI_DB_USER}" in services["db"]["environment"]
         assert "WIKI_DB_PASSWORD=${WIKI_DB_PASSWORD}" in services["db"]["environment"]
 
-    def test_create_defaults_to_the_mediawiki_account_on_compose(self):
+    def test_create_defaults_to_the_mediawiki_account(self):
         tasks = yaml.safe_load(open(os.path.join(
             REPO_ROOT, "roles", "create", "tasks", "_passwords.yml")))
         choose = next(t for t in tasks if t.get("name") == "Choose MediaWiki's database account")
         expr = choose["ansible.builtin.set_fact"]["_wiki_db_user"]
         for given, orch, expected in (("", "compose", "mediawiki"),
-                                      ("", "kubernetes", "root"),
+                                      ("", "kubernetes", "mediawiki"),
+                                      ("wiki", "kubernetes", "wiki"),
                                       ("root", "compose", "root"),
                                       ("wiki", "compose", "wiki")):
             templar = Templar(loader=DataLoader(), variables={

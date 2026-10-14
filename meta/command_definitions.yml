@@ -404,11 +404,10 @@ commands:
       - name: wikidbuser
         type: string
         description: >-
-          Database account MediaWiki connects with (default: mediawiki on
-          Compose, root on Kubernetes). The CLI creates it with access to
-          the instance's wiki databases only. Pass root to keep MediaWiki
-          on the database administrator account. Kubernetes accepts only
-          root.
+          Database account MediaWiki connects with (default: mediawiki).
+          The CLI creates it with access to the instance's wiki databases
+          only. Pass root to keep MediaWiki on the database administrator
+          account.
       - name: wikidbpass
         type: string
         sensitive: true

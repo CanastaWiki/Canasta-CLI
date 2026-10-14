@@ -278,6 +278,12 @@
       - ingress.className
       - ingress.tls
       - web.replicaCount
+      - db.wikiUser
+
+# MediaWiki's account lives in this host's own database server, so which one
+# it uses is this host's choice, from its .env.
+- name: Read MediaWiki's database account
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_wiki_db_user.yml"
 
 - name: Generate values.template.yaml
   ansible.builtin.copy:
@@ -308,13 +314,17 @@
       ingress_class: "{{ _final_values.ingress.className | default('') }}"
       ingress_tls: {{ _final_values.ingress.tls | default(true) | lower }}
       web_replica_count: {{ _final_values.web.replicaCount | default(1) }}
+      wiki_db_user: "{{ _k8s_wiki_db_user }}"
     dest: "{{ instance_path }}/hosts/{{ host_name }}/vars.yaml"
     mode: "0644"
   no_log: true
 
 - name: Write rendered-values.yaml (initial render = current values)
   ansible.builtin.copy:
-    content: "{{ _final_values | to_nice_yaml(indent=2) }}"
+    content: >-
+      {{ _final_values
+         | combine({'db': {'wikiUser': _k8s_wiki_db_user}}, recursive=True)
+         | to_nice_yaml(indent=2) }}
     dest: "{{ instance_path }}/hosts/{{ host_name }}/rendered-values.yaml"
     mode: "0644"
 
