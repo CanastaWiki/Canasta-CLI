@@ -1,7 +1,8 @@
 ---
 # canasta remove - Remove a wiki from a Canasta instance.
 # Cleans images/public_assets inside container, drops the wiki's databases,
-# removes config.
+# removes config. A gitops-managed Kubernetes instance is staged in its
+# gitops repo instead of being redeployed.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
@@ -145,16 +146,36 @@
     name: orchestrator
     tasks_from: update_config.yml
 
+# Argo CD deploys a gitops-managed Kubernetes instance from its repo and
+# self-heals back to it, so a direct deploy would be reverted until the
+# staged changes are pushed. Such an instance is staged only.
+- name: Check whether the instance is gitops-managed
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _remove_gitops_marker
+
+- name: Decide whether remove only stages the change for a gitops push
+  ansible.builtin.set_fact:
+    _remove_stage_only: >-
+      {{ (instance_is_k8s | bool) and _remove_gitops_marker.stat.exists }}
+
 - name: Remove the wiki from gitops
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/unstage_removed_wiki.yml
   vars:
     removed_wiki_id: "{{ wiki }}"
+    removed_wiki_report: "{{ not (_remove_stage_only | default(false) | bool) }}"
 
 - name: Restart instance
   ansible.builtin.include_role:
     name: instance_lifecycle
     tasks_from: restart.yml
+  when: not (_remove_stage_only | default(false) | bool)
+
+- name: Check whether the instance is running
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/check_running.yml
+  when: _remove_stage_only | default(false) | bool
 
 - name: Report wiki removed
   ansible.builtin.debug:
@@ -162,3 +183,21 @@
       Wiki '{{ wiki }}' removed from instance '{{ instance_id }}'{{
       (', but its database(s) ' ~ (_remove_dbs_left | join(', ')) ~ ' were left in place')
       if _remove_dbs_left | length > 0 else '' }}.
+  when: not (_remove_stage_only | default(false) | bool)
+
+- name: Report the removal staged for a gitops push
+  ansible.builtin.debug:
+    msg: >-
+      Wiki '{{ wiki }}' is removed from instance '{{ instance_id }}'{{
+      (', but its database(s) ' ~ (_remove_dbs_left | join(', ')) ~ ' were left in place')
+      if _remove_dbs_left | length > 0 else '' }}. The removal is staged in
+      its gitops repo but not deployed.
+      {% if _container_running | default(false) | bool -%}
+      Run 'canasta gitops push -i {{ instance_id }}', then
+      'canasta gitops sync -i {{ instance_id }}', to deploy it.
+      {%- else -%}
+      The instance is stopped, so it was left stopped. Run
+      'canasta gitops push -i {{ instance_id }}'; the change deploys the
+      next time it starts.
+      {%- endif %}
+  when: _remove_stage_only | default(false) | bool

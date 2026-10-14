@@ -39,3 +39,6 @@
 - name: Report restarted
   ansible.builtin.debug:
     msg: "Instance '{{ instance_id }}' restarted."
+
+- name: Report a failed startup composer update
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/mediawiki/tasks/report_composer_failure.yml"
