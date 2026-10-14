@@ -22,7 +22,7 @@ pid=
 trap 'stopping=1; [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null' TERM INT
 
 local_only() {
-    echo "CrowdSec's Central API refuses or does not answer this engine's credentials; running with the local API only, so the community blocklist is unavailable." >&2
+    echo "CrowdSec's Central API refuses this engine's credentials or does not answer; running with the local API only, so the community blocklist is unavailable." >&2
 }
 
 # True when logging in to CAPI fails: a refusal, a network failure, a server
