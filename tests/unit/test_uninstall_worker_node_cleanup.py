@@ -8,11 +8,15 @@ command to run on the control plane, and a re-run with --cp-host still
 removes the Node.
 
 These run uninstall_k3s.yml on localhost with ssh and hostname stubbed.
-The host has no k3s uninstall script, so the k3s removal itself is
-skipped; the worker case sets the role the script check would have set.
+The roles are copied with their absolute host paths moved under the
+test's temp dir, so the k3s uninstall scripts and NFS state they look for
+never exist and nothing on the machine running the tests is touched,
+whatever is installed there; the worker case sets the role the script
+check would have set.
 """
 
 import os
+import shutil
 import subprocess
 import sys
 
@@ -28,6 +32,33 @@ def _stub(bindir, name, body):
     path = bindir / name
     path.write_text("#!/bin/sh\n" + body)
     path.chmod(0o755)
+
+
+# Host paths the uninstall and the task files it includes read or remove.
+# Running the real files against them on a machine with k3s or a Canasta
+# NFS server would uninstall k3s or withdraw its exports.
+HOST_PREFIXES = ("/usr/local/bin/", "/etc/rancher/", "/var/lib/rancher/",
+                 "/etc/canasta", "/etc/exports.d/", "/etc/systemd/system/")
+
+
+def _sandbox(root):
+    """A copy of the roles with every host path moved under root."""
+    shutil.copytree(os.path.join(REPO_ROOT, "roles"), root / "roles")
+    for path in (root / "roles").rglob("*.yml"):
+        text = path.read_text()
+        for prefix in HOST_PREFIXES:
+            text = text.replace(prefix, f"{root}{prefix}")
+        path.write_text(text)
+    return root
+
+
+def test_sandbox_moves_every_host_path(tmp_path):
+    root = _sandbox(tmp_path / "root")
+    for path in (root / "roles").rglob("*.yml"):
+        text = path.read_text()
+        for prefix in HOST_PREFIXES:
+            for lead in (" ", "'", '"'):
+                assert f"{lead}{prefix}" not in text, (path, prefix)
 
 
 def _run(tmp_path, ssh_ok, force, worker, cp_host="cp"):
@@ -55,15 +86,17 @@ def _run(tmp_path, ssh_ok, force, worker, cp_host="cp"):
     inventory.write_text(
         "localhost ansible_connection=local\n"
         "canasta_controller ansible_connection=local\n")
+    root = _sandbox(tmp_path / "root")
+    uninstall = root / "roles" / "install" / "tasks" / "uninstall_k3s.yml"
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
         "hosts": "localhost",
         "gather_facts": False,
-        "vars": {"canasta_root": REPO_ROOT, "cp_host": cp_host, "force": force,
+        "vars": {"canasta_root": str(root), "cp_host": cp_host, "force": force,
                  "k3s_leftover_paths": [str(tmp_path / "rancher-node"),
                                         str(tmp_path / "rancher-cache")],
                  "ansible_python_interpreter": sys.executable},
-        "tasks": [{"ansible.builtin.include_tasks": UNINSTALL}],
+        "tasks": [{"ansible.builtin.include_tasks": str(uninstall)}],
     }]))
     extra = ["-e", "ansible_become=false"]
     if worker:
