@@ -40,15 +40,39 @@
 
 # git add exits non-zero for a path outside the repository (e.g. a
 # shell-relative '../wikis.yaml.template' typed from a subdirectory) or a
-# path that does not exist. Name each rejected file, show git's own
-# reason, and remind that paths are relative to the instance root.
+# path that does not exist. Name each rejected file with the reason in
+# plain words, and remind that paths are relative to the instance root.
+# When the operator is in a subdirectory of a local instance, show the
+# root-relative spelling of what they typed.
+- name: Locate the current directory within a local instance
+  ansible.builtin.set_fact:
+    _add_cwd_rel: >-
+      {{ (_add_cwd | relpath(instance_path))
+         if (ansible_connection | default('local')) == 'local'
+            and _add_cwd.startswith(instance_path.rstrip('/') ~ '/')
+         else '' }}
+  vars:
+    _add_cwd: >-
+      {{ (lookup('env', 'CANASTA_HOST_PWD')
+          | default(lookup('env', 'PWD'), true)).rstrip('/') }}
+
 - name: Fail clearly when a requested file could not be staged
   ansible.builtin.fail:
     msg: |-
       Could not stage the following file(s). Paths are relative to the
       instance root ({{ instance_path }}), not your current directory.
       {% for f in _git_add_failures %}
-      - {{ f.item }}: {{ f.stderr | default('git add failed', true) | trim }}
+      {% set err = f.stderr | default('', true) | trim %}
+      {% if 'did not match any files' in err %}
+      - {{ f.item }}: no such file under the instance root
+      {% elif 'outside repository' in err %}
+      - {{ f.item }}: outside the instance
+      {% else %}
+      - {{ f.item }}: {{ err | regex_replace('^(fatal|error): ', '') | default('git add failed', true) }}
+      {% endif %}
+      {% if _add_cwd_rel and not f.item.startswith('/') %}
+        typed from {{ _add_cwd_rel }}/, that is {{ (_add_cwd_rel ~ '/' ~ f.item) | normpath }}
+      {% endif %}
       {% endfor %}
   vars:
     _git_add_failures: >-

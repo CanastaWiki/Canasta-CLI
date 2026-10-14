@@ -115,6 +115,12 @@ spec:
         # enforces. The crowdsec Service routes crowdsec:8080 back to this pod.
         - name: crowdsec
           image: {{ .Values.crowdsec.image }}
+          # Wraps the image's entrypoint: falls back to the local API only
+          # when the Central API refuses the engine (see the script).
+          command:
+            - /bin/sh
+            - -c
+            - {{ .Files.Get "files/crowdsec-start.sh" | toJson }}
           env:
             # Installed by the image entrypoint on start; idempotent against
             # the persisted /etc/crowdsec. The caddy collection ships the
