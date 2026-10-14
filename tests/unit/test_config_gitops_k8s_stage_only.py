@@ -174,6 +174,29 @@ class TestConfigSetGitopsKubernetes:
         assert WARNING in out
 
 
+class TestCrowdSecEnrollmentHint:
+    HINT = ("After the sync, run 'canasta crowdsec bouncer-enroll -i inst' to "
+            "give Caddy its bouncer key, then 'canasta gitops push -i inst' "
+            "to record it.")
+
+    def test_enabling_crowdsec_names_the_enrollment(self, tmp_path):
+        out, _, _ = _set(tmp_path, setting="CANASTA_ENABLE_CROWDSEC=true")
+        assert PUSH + " " + self.HINT in out
+
+    def test_other_settings_do_not(self, tmp_path):
+        out, _, _ = _set(tmp_path)
+        assert "bouncer-enroll" not in out
+
+    def test_disabling_crowdsec_does_not(self, tmp_path):
+        out, _, _ = _set(tmp_path, setting="CANASTA_ENABLE_CROWDSEC=false")
+        assert "bouncer-enroll" not in out
+
+    def test_a_stopped_instance_enrolls_when_it_starts(self, tmp_path):
+        out, _, _ = _set(tmp_path, running=False,
+                         setting="CANASTA_ENABLE_CROWDSEC=true")
+        assert "bouncer-enroll" not in out
+
+
 class TestConfigSetOtherInstancesStillRestart:
     def test_kubernetes_without_gitops_restarts(self, tmp_path):
         out, lines, inst = _set(tmp_path, gitops=False)

@@ -167,6 +167,8 @@
     tasks_from: check_running.yml
   when: _config_set_stage_only | bool
 
+# Only a start enrolls the bouncer, and a sync is not a start; a stopped
+# instance enrolls it when it next starts.
 - name: Report the change staged for a gitops push
   ansible.builtin.debug:
     msg: >-
@@ -175,9 +177,18 @@
       {% if _container_running | default(false) | bool -%}
       Run 'canasta gitops push -i {{ instance_id }}', then
       'canasta gitops sync -i {{ instance_id }}', to deploy it.
+      {%- if _config_set_enables_crowdsec | bool %} After the sync, run
+      'canasta crowdsec bouncer-enroll -i
+      {{ instance_id }}' to give Caddy its bouncer key, then
+      'canasta gitops push -i {{ instance_id }}' to record it.
+      {%- endif %}
       {%- else -%}
       The instance is stopped, so it was left stopped. Run
       'canasta gitops push -i {{ instance_id }}'; the change deploys the
       next time it starts.
       {%- endif %}
+  vars:
+    _config_set_enables_crowdsec: >-
+      {{ _config_settings | select('match', '(?i)^CANASTA_ENABLE_CROWDSEC=true$')
+         | list | length > 0 }}
   when: _config_set_stage_only | bool
