@@ -1,0 +1,38 @@
+---
+# Classify a failed `git ls-remote` against the gitops remote and fail for
+# the kinds the caller cannot handle itself.
+# Input: _remote_result (the registered ls-remote result), repo,
+#   _remote_fail_kinds (host_key and/or other; an unauthorized key is left
+#   to the caller)
+# Output: _remote_failure (ok, host_key, unauthorized or other)
+
+- name: Classify the remote access result
+  ansible.builtin.set_fact:
+    _remote_failure: >-
+      {{ 'ok' if (_remote_result.rc | default(1)) == 0
+         else (_remote_result.stderr | default('') | canasta_git_remote_failure) }}
+    _remote_known_hosts_name: "{{ repo | canasta_git_remote_known_hosts_name }}"
+
+- name: Fail when the git server's SSH host key cannot be verified
+  ansible.builtin.fail:
+    msg: >-
+      Cannot verify the SSH host key of the git server for '{{ repo }}' on
+      {{ inventory_hostname }}: it does not match the key recorded in that
+      host's known_hosts. If the server's key legitimately changed (for
+      example, the server was rebuilt), confirm the new key's fingerprint
+      with the git provider, remove the stale entry with
+      `ssh-keygen -R '{{ _remote_known_hosts_name | default('<host>', true) }}'`
+      as the user that runs gitops on {{ inventory_hostname }}, and retry.
+      ssh reported: {{ _remote_result.stderr | default('') | trim }}
+  when:
+    - _remote_failure == 'host_key'
+    - "'host_key' in _remote_fail_kinds"
+
+- name: Fail when the git remote cannot be reached
+  ansible.builtin.fail:
+    msg: >-
+      Cannot access remote '{{ repo }}' (git ls-remote failed:
+      {{ _remote_result.stderr | default('') | trim }}).
+  when:
+    - _remote_failure == 'other'
+    - "'other' in _remote_fail_kinds"

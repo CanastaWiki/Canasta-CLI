@@ -70,13 +70,20 @@
     # Edit the mounted host crontab file only for a local containerized
     # run; everything else edits the live crontab.
     _sched_use_file: "{{ _sched_is_local and _host_crontab_file != '' }}"
+    # cron's environment carries neither CANASTA_CONFIG_DIR nor
+    # XDG_CONFIG_HOME, so a local job names the registry this run used.
+    # A remote job uses the registry on its own host.
+    _cron_env: >-
+      {{ ('CANASTA_CONFIG_DIR=' ~ (lookup('env', 'CANASTA_CONFIG_DIR') | quote) ~ ' ')
+         if _sched_is_local and lookup('env', 'CANASTA_CONFIG_DIR') != ''
+         else '' }}
 
 # dictsort, not the policy's own order, so setting the same schedule
 # twice writes a byte-identical crontab line.
 - name: Build backup command for cron
   ansible.builtin.set_fact:
     _cron_base: >-
-      {{ _canasta_bin }} backup create
+      {{ _cron_env }}{{ _canasta_bin }} backup create
       -i {{ instance_id }} --tag scheduled
     _cron_retention: >-
       {{ '--' + ((retention | default({}, true)) | dictsort
@@ -89,7 +96,7 @@
 - name: Chain a purge onto the scheduled backup
   ansible.builtin.set_fact:
     _cron_purge: >-
-      {{ ('&& ' + _canasta_bin + ' backup purge -i ' + instance_id
+      {{ ('&& ' + _cron_env + _canasta_bin + ' backup purge -i ' + instance_id
           + ' ' + _cron_retention)
          if _cron_retention != '' else '' }}
 

@@ -25,6 +25,13 @@ web:
     limits:
       cpu: 1000m
       memory: 1Gi
+  # The web container opens its port only after composer and the
+  # per-wiki update.php run, which after an image change can take
+  # minutes. Startup gets periodSeconds x failureThreshold (10 minutes)
+  # before Kubernetes restarts the container.
+  startupProbe:
+    periodSeconds: 3
+    failureThreshold: 200
 
 # Caddy (reverse proxy + wiki farm routing)
 caddy:

@@ -315,6 +315,52 @@ def canasta_wiki_ingress_domains(wikis_yaml, extra=None, fallback=None):
     return domains
 
 
+# ssh/forge responses that mean the key was presented and refused. GitHub
+# answers "Repository not found" for a key registered on another repo.
+_REMOTE_UNAUTHORIZED = (
+    "Permission denied (publickey",
+    "Repository not found",
+    "could not be found or you don't have permission",
+)
+_REMOTE_HOST_KEY = (
+    "REMOTE HOST IDENTIFICATION HAS CHANGED",
+    "Host key verification failed",
+)
+
+
+def canasta_git_remote_failure(stderr):
+    """Classify a failed ``git ls-remote`` over ssh by its stderr.
+
+    Returns ``host_key`` when ssh could not verify the server's host key,
+    ``unauthorized`` when the server refused the key, and ``other`` for
+    anything else (DNS, connection, a bad URL).
+    """
+    text = str(stderr or "")
+    if any(marker in text for marker in _REMOTE_HOST_KEY):
+        return "host_key"
+    if any(marker in text for marker in _REMOTE_UNAUTHORIZED):
+        return "unauthorized"
+    return "other"
+
+
+def canasta_git_remote_known_hosts_name(repo):
+    """The name ssh records ``repo``'s server under in known_hosts.
+
+    ``host`` for the default port, ``[host]:port`` otherwise, which is the
+    form ``ssh-keygen -R`` takes. Empty when ``repo`` is not an ssh URL.
+    """
+    repo = str(repo or "")
+    match = re.match(r"^ssh://(?:[^@/]*@)?(\[[^\]]+\]|[^:/]+)(?::([0-9]+))?/",
+                     repo)
+    if match:
+        host, port = match.group(1).strip("[]"), match.group(2)
+        return "[%s]:%s" % (host, port) if port and port != "22" else host
+    if "://" in repo:
+        return ""
+    match = re.match(r"^(?:[^@/:]*@)?([^/:]+):", repo)
+    return match.group(1) if match else ""
+
+
 class FilterModule(object):
     def filters(self):
         return {
@@ -329,4 +375,7 @@ class FilterModule(object):
             "canasta_env_sync_plan": canasta_env_sync_plan,
             "canasta_wiki_url_sync_plan": canasta_wiki_url_sync_plan,
             "canasta_wiki_ingress_domains": canasta_wiki_ingress_domains,
+            "canasta_git_remote_failure": canasta_git_remote_failure,
+            "canasta_git_remote_known_hosts_name":
+                canasta_git_remote_known_hosts_name,
         }

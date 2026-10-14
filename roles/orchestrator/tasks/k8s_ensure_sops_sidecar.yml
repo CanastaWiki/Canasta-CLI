@@ -44,6 +44,11 @@
   ansible.builtin.set_fact:
     _argocd_chart_version: "{{ (_argocd_meta.stdout | from_json).version }}"
 
+- name: Stage the Argo CD known-hosts values so the upgrade keeps them
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_argocd_known_hosts_values.yml"
+  vars:
+    argocd_known_hosts_values_file: /tmp/canasta-argocd-known-hosts-values.yaml
+
 # --reuse-values overlays the sidecar onto whatever the install set, so we add
 # repoServer without knowing (or resetting) the original values. Launched
 # detached + polled so a controller SSH reset during --wait can't abort it;
@@ -59,3 +64,4 @@
       --version {{ _argocd_chart_version }}
       --reuse-values --wait --timeout 10m
       -f /tmp/canasta-argocd-sops-values.yaml
+      -f /tmp/canasta-argocd-known-hosts-values.yaml
