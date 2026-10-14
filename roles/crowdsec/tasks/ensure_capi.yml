@@ -24,10 +24,10 @@
   changed_when: false
   failed_when: false
 
-# The wrapper keeps credentials CAPI refused as a .refused copy and retests
-# them on each engine start. Registering anew would replace the engine's
+# The wrapper keeps credentials CAPI refused or did not answer as a .refused
+# copy and retests them on each engine start. Registering anew would replace the engine's
 # CAPI identity, so leave CAPI alone while the copy exists.
-- name: Check for credentials the Central API refused
+- name: Check for credentials the Central API refused or did not answer
   ansible.builtin.command:
     cmd: "{{ _cscli_prefix }} test -e /etc/crowdsec/online_api_credentials.yaml.refused"
     chdir: "{{ _cscli_chdir | default(omit) }}"
@@ -40,9 +40,9 @@
 - name: Warn that the engine runs without the Central API
   ansible.builtin.debug:
     msg: >-
-      CrowdSec's Central API refuses this engine's credentials, so the
-      engine runs with its local API only and the community blocklist is
-      unavailable. The engine retries the credentials each time it starts.
+      CrowdSec's Central API refused or did not answer this engine's
+      credentials, so the engine runs with its local API only and the
+      community blocklist is unavailable. The engine retries the credentials each time it starts.
   when:
     - _crowdsec_capi_refused.rc == 0
     - instance_path not in (_crowdsec_capi_warned | default([]))
