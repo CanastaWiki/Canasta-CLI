@@ -321,14 +321,59 @@
       changed_when: true
       ignore_errors: true  # nothing to commit if the file content was already committed
 
+# The rebuild below overwrites exec_result, and a block's when is
+# re-evaluated for every task in it.
+- name: "Record the composer install result"
+  when: _composer_paths | length > 0
+  ansible.builtin.set_fact:
+    _composer_install_result: "{{ exec_result }}"
+
 - name: "Revert composer registration when install failed"
   when:
     - _composer_paths | length > 0
-    - exec_result.rc | default(1) != 0
+    - _composer_install_result.rc | default(1) != 0
   block:
+    # Only what this run added: items that were already registered were
+    # working before and must stay.
+    - name: "Unregister composer requirements to keep config clean"
+      when: _composer_local.added | default([]) | length > 0
+      canasta_composer_local:
+        instance_path: "{{ instance_path }}"
+        include: "{{ _composer_local.added }}"
+        state: absent
+
+    # Rebuild vendor/ from the restored list, which also clears
+    # composer-update.failed on success. A no-op on images without the
+    # script.
+    - name: "Rebuild composer state from the restored list"
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: web
+        exec_command: >-
+          if [ -x /update-composer-deps.sh ]; then
+          /update-composer-deps.sh; rc=$?;
+          if [ -f /mediawiki/config/persistent/composer-update.failed ]; then
+          echo "composer-update.failed: $(head -n 1 /mediawiki/config/persistent/composer-update.failed)" >&2;
+          [ $rc -ne 0 ] || rc=1;
+          fi;
+          exit $rc;
+          fi
+        exec_long: true
+        rx_fail: false
+
     - name: "Warn that the composer install failed"
       vars:
         _composer_failed_reason: >-
+          {{ ((_composer_install_result.stderr | default('')).splitlines()
+              | select('match', 'composer-update.failed: ')
+              | map('replace', 'composer-update.failed: ',
+                    '; config/persistent/composer-update.failed: ')
+              | first) | default('') }}
+        _composer_rebuild_failure: >-
+          {% if (exec_result.rc | default(1)) != 0 %} Rebuilding composer
+          state from the restored list also failed (exit
+          {{ exec_result.rc | default('?') }}{{ _composer_rebuild_reason }}).{% endif %}
+        _composer_rebuild_reason: >-
           {{ ((exec_result.stderr | default('')).splitlines()
               | select('match', 'composer-update.failed: ')
               | map('replace', 'composer-update.failed: ',
@@ -338,21 +383,12 @@
         msg: >-
           Composer could not install the requirements for
           {{ _to_add | map(attribute='name') | join(', ') }}
-          (composer exited {{ exec_result.rc | default('?') }}{{ _composer_failed_reason }}). The
+          (composer exited {{ _composer_install_result.rc | default('?') }}{{ _composer_failed_reason }}). The
           {{ _item_type }} code was added, but its PHP dependencies are NOT
           installed and were left out of config/composer.local.json to keep the
           instance's composer config valid. Resolve the conflict — usually a
           version pin that is incompatible with the instance's existing
-          packages — then re-run the add or register the requirements manually.
-
-    # Only what this run added: items that were already registered were
-    # working before and must stay.
-    - name: "Unregister composer requirements to keep config clean"
-      when: _composer_local.added | default([]) | length > 0
-      canasta_composer_local:
-        instance_path: "{{ instance_path }}"
-        include: "{{ _composer_local.added }}"
-        state: absent
+          packages — then re-run the add or register the requirements manually.{{ _composer_rebuild_failure }}
 
 - name: "Enable added {{ _item_type }} (with containers up so the monitor has linked them)"
   when: not (skip_enable | default(false) | bool)

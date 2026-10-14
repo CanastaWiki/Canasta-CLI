@@ -176,8 +176,10 @@ class TestAddWaitsBeforeTheRefresh:
 @pytest.mark.parametrize("path", [ADD, REMOVE])
 class TestWarningReason:
     def _reason(self, path, stderr):
+        # add reads the install result saved before its rebuild.
+        result = {"stderr": stderr}
         return _env().from_string(_warning_reason_expr(path)).render(
-            exec_result={"stderr": stderr}).strip()
+            exec_result=result, _composer_install_result=result).strip()
 
     def test_surfaces_the_failed_file_line(self, path):
         stderr = ("composer noise\n"
@@ -194,3 +196,104 @@ class TestWarningReason:
                 if (t.get("vars") or {}).get("_composer_failed_reason")]
         assert msgs and all("{{ _composer_failed_reason }}" in m
                             for m in msgs)
+
+
+def _revert_block():
+    with open(ADD) as f:
+        tasks = yaml.safe_load(f)
+    names = [t.get("name", "") for t in tasks]
+    i = names.index("Revert composer registration when install failed")
+    return tasks, i, tasks[i]
+
+
+def _rebuild_command():
+    for t in _revert_block()[2]["block"]:
+        if t.get("name") == "Rebuild composer state from the restored list":
+            return t["vars"]["exec_command"]
+    raise AssertionError("no rebuild task")
+
+
+class TestAddRebuildAfterRevert:
+    def test_rebuild_follows_unregister_and_precedes_warning(self):
+        names = [t["name"] for t in _revert_block()[2]["block"]]
+        assert names == [
+            "Unregister composer requirements to keep config clean",
+            "Rebuild composer state from the restored list",
+            "Warn that the composer install failed",
+        ]
+
+    def test_block_gates_on_the_saved_install_result(self):
+        # The rebuild overwrites exec_result and block conditions are
+        # re-evaluated per task, so the gate must not read exec_result.
+        tasks, i, block = _revert_block()
+        assert "_composer_install_result.rc | default(1) != 0" in block["when"]
+        assert "exec_result" not in str(block["when"])
+        record = tasks[i - 1]
+        assert record["ansible.builtin.set_fact"] == {
+            "_composer_install_result": "{{ exec_result }}"}
+
+    def test_rebuild_is_best_effort(self):
+        rebuild = [t for t in _revert_block()[2]["block"]
+                   if t.get("name")
+                   == "Rebuild composer state from the restored list"]
+        assert len(rebuild) == 1
+        assert rebuild[0]["vars"]["rx_fail"] is False
+        assert rebuild[0]["vars"]["exec_long"] is True
+
+    def test_runs_the_script(self, tmp_path):
+        c = _Container(tmp_path, f'echo script >> {tmp_path}/calls\n')
+        result = c.run(_rebuild_command())
+        assert result.returncode == 0, result.stderr
+        assert c.calls() == ["script"]
+
+    def test_failed_file_counts_as_failure(self, tmp_path):
+        c = _Container(tmp_path, (
+            f'echo "Composer update failed at T (exit 2)." '
+            f'> {tmp_path}/mediawiki/config/persistent/'
+            f'composer-update.failed\n'))
+        result = c.run(_rebuild_command())
+        assert result.returncode == 1
+        assert ("composer-update.failed: Composer update failed at T "
+                "(exit 2).") in result.stderr.splitlines()
+
+    def test_noop_without_the_script(self, tmp_path):
+        c = _Container(tmp_path)
+        result = c.run(_rebuild_command())
+        assert result.returncode == 0, result.stderr
+        assert c.calls() == []
+        assert (c.mw / "composer.local.json").read_text() == (
+            '{"effective": true}')
+
+
+class TestAddWarningMessage:
+    def _message(self, install, rebuild):
+        warn = [t for t in _revert_block()[2]["block"]
+                if t.get("name") == "Warn that the composer install failed"][0]
+        env = _env()
+        context = {"_to_add": [{"name": "Foo"}], "_item_type": "extensions",
+                   "_composer_install_result": install,
+                   "exec_result": rebuild}
+        for key in ("_composer_failed_reason", "_composer_rebuild_reason",
+                    "_composer_rebuild_failure"):
+            context[key] = env.from_string(warn["vars"][key]).render(
+                **context)
+        return env.from_string(warn["ansible.builtin.debug"]["msg"]).render(
+            **context)
+
+    def test_successful_rebuild_adds_nothing(self):
+        msg = self._message(
+            {"rc": 1, "stderr": "composer-update.failed: first\n"},
+            {"rc": 0, "stderr": ""})
+        assert "(composer exited 1; config/persistent/composer-update" \
+            ".failed: first)" in msg
+        assert "Rebuilding" not in msg
+        assert msg.endswith("register the requirements manually.")
+
+    def test_failed_rebuild_is_appended(self):
+        msg = self._message(
+            {"rc": 1, "stderr": "composer-update.failed: first\n"},
+            {"rc": 1, "stderr": "composer-update.failed: second\n"})
+        assert msg.endswith(
+            "manually. Rebuilding composer state from the restored list "
+            "also failed (exit 1; config/persistent/composer-update.failed: "
+            "second).")
