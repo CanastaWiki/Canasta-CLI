@@ -135,3 +135,45 @@ class TestAbsentState:
                               state="absent")
         assert failed is True
         assert "not a list" in msg
+
+
+class TestComposerLocalFormatting:
+    # As the image writes it: PHP JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES.
+    IMAGE_FILE = (
+        '{\n'
+        '    "extra": {\n'
+        '        "merge-plugin": {\n'
+        '            "include": [\n'
+        '                "extensions/SemanticMediaWiki/composer.json"\n'
+        '            ]\n'
+        '        }\n'
+        '    }\n'
+        '}\n'
+    )
+
+    def _seed(self, tmp_dir, text):
+        os.mkdir(os.path.join(tmp_dir, "config"))
+        with open(_path(tmp_dir), "w") as f:
+            f.write(text)
+
+    def test_adding_an_include_changes_only_the_include_lines(self, tmp_dir):
+        self._seed(tmp_dir, self.IMAGE_FILE)
+        _run(tmp_dir, ["extensions/Foo/composer.json"])
+        with open(_path(tmp_dir)) as f:
+            written = f.read()
+        assert written == self.IMAGE_FILE.replace(
+            '"extensions/SemanticMediaWiki/composer.json"\n',
+            '"extensions/SemanticMediaWiki/composer.json",\n'
+            '                "extensions/Foo/composer.json"\n')
+
+    def test_keeps_a_two_space_file_at_two_spaces(self, tmp_dir):
+        self._seed(tmp_dir, json.dumps(
+            {"extra": {"merge-plugin": {"include": []}}}, indent=2) + "\n")
+        _run(tmp_dir, ["extensions/Foo/composer.json"])
+        with open(_path(tmp_dir)) as f:
+            assert f.read().splitlines()[1] == '  "extra": {'
+
+    def test_new_file_matches_the_image_format(self, tmp_dir):
+        _run(tmp_dir, ["extensions/SemanticMediaWiki/composer.json"])
+        with open(_path(tmp_dir)) as f:
+            assert f.read() == self.IMAGE_FILE

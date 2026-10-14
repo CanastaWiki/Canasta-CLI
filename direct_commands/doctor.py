@@ -486,6 +486,15 @@ def _doctor_backup_lines(probes):
     crontab = probes["crontab"]
     host_canasta = probes["host_canasta"]
     lines.append("")
+    if probes.get("docker_mode"):
+        # The crontab check is skipped with the other host checks (see
+        # _doctor_system_lines). The wrapper running this command is the
+        # host's canasta, and scheduled backups call it by this path.
+        lines.append("Scheduled backups (optional):")
+        cli_bin = os.environ.get("CANASTA_CLI_BIN")
+        if cli_bin:
+            lines.append("  canasta on host: OK (%s)" % cli_bin)
+        return lines
     # Backup scheduling writes a host crontab entry on the host where the
     # instance runs — the local/remote host for Compose, the control-plane
     # node for Kubernetes — so crontab is needed there for both orchestrators.
@@ -526,6 +535,13 @@ def _doctor_system_lines(probes):
     reclaimable = _reclaimable_line(system_df, k3s)
     if reclaimable:
         lines.append(reclaimable)
+    if probes.get("docker_mode"):
+        lines.append(
+            "  Host checks:     SKIPPED in docker mode — group membership, "
+            "crontab and sudo are host settings the CLI container cannot "
+            "see, so they are not checked"
+        )
+        return lines
     # On macOS, Docker Desktop handles UID remapping transparently — there
     # is no www-data user/group on the host and membership is irrelevant.
     # Only report membership on Linux, where host-side file permissions
@@ -589,8 +605,9 @@ def _doctor_system_lines(probes):
     return lines
 
 
-def _parse_doctor(stdout, hostname):
+def _parse_doctor(stdout, hostname, docker_mode=False):
     probes = _doctor_probes(stdout)
+    probes["docker_mode"] = docker_mode
     lines = [
         "Canasta Dependency Check (%s)" % hostname,
         "=" * 52,
@@ -1465,8 +1482,12 @@ def cmd_doctor(args):
         host = inst.get("host") or "localhost"
     script = _DOCTOR_SCRIPT % {"delim": _helpers._SENTINEL}
 
+    # Under canasta-docker a local probe runs inside the CLI container,
+    # not on the host.
+    docker_mode = False
     if not host or host == "localhost":
         hostname = "localhost"
+        docker_mode = os.environ.get("CANASTA_RUN_MODE") == "docker"
         try:
             result = subprocess.run(
                 ["bash", "-c", script],
@@ -1483,7 +1504,7 @@ def cmd_doctor(args):
             print("Error: failed to connect to %s" % host, file=sys.stderr)
             return 1
 
-    print(_parse_doctor(stdout, hostname))
+    print(_parse_doctor(stdout, hostname, docker_mode))
 
     for line in _collection_integrity_lines():
         print(line)
