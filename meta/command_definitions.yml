@@ -1048,6 +1048,16 @@ commands:
       image rebuilt, and its web pods restart when the new build differs
       from the image they run.
 
+      Upgrade also moves a running instance on the bundled database off the
+      database root account, onto MediaWiki's own `mediawiki` account with
+      access to the instance's wiki databases only. It leaves the instance
+      on root, and says why, while a settings file sets `$wgDBuser` or
+      `$wgDBpassword` or the server holds a database no wiki declares, and
+      tries again on the next upgrade. `canasta config set
+      CANASTA_DB_ROOT_ACCOUNT=true` keeps an instance on root. On a
+      gitops-managed Kubernetes instance the move is staged with the rest
+      and takes effect at the push and sync.
+
       By default the CLI itself updates to the latest released version
       within the current major (the highest vX.Y.Z tag whose major matches
       the installed version), so an upgrade never crosses a major boundary

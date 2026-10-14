@@ -409,6 +409,10 @@
           'canasta gitops push -i {{ instance_id }}'; the changes deploy the
           next time it starts.
           {%- endif %}
+          {%- if _mig_db_staged | default(false) | bool %}
+          The deploy also moves MediaWiki to its own 'mediawiki' database
+          account.
+          {%- endif %}
       when: _upgrade_gitops_pending | bool
 
     - name: Record the instance awaiting a gitops push
