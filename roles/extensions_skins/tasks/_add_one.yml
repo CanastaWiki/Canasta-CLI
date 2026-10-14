@@ -156,6 +156,7 @@
         cmd: >-
           git -C {{ instance_path | quote }} -c commit.gpgsign=false commit
           -m {{ ('Switch ' ~ _item_type ~ ' ' ~ item.name ~ ' to ' ~ item.branch) | quote }}
+          -- {{ (_item_dir ~ '/' ~ item.name) | quote }}
         chdir: "{{ instance_path }}"
       changed_when: true
       ignore_errors: true  # nothing to commit if the gitlink was already current
@@ -270,12 +271,15 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
+# The paths limit the commit to this item, leaving anything else that
+# happens to be staged for its own commit.
 - name: "Commit added {{ _item_type }} (gitops)"
   when: not _add_existing.stat.exists and is_gitops | bool
   ansible.builtin.command:
     cmd: >-
       git -C {{ instance_path | quote }} -c commit.gpgsign=false commit
       -m {{ ('Add ' ~ _item_type ~ ' ' ~ item.name) | quote }}
+      -- .gitmodules {{ (_item_dir ~ '/' ~ item.name) | quote }}
     chdir: "{{ instance_path }}"
   changed_when: true
   register: _add_commit
