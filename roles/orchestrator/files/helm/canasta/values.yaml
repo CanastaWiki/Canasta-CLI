@@ -161,6 +161,12 @@ secrets:
 # existing instances render no extra env.
 appSecretEnv: []
 
+# Hashes of the Secret values each workload reads (web, caddy, and per
+# sidecar name), set per host by `canasta gitops push`. Each becomes a pod
+# annotation, so an Argo CD sync rolls the pods when a value they read
+# changes. Never the values themselves.
+secretChecksums: {}
+
 # Config data — populated by Ansible or committed via gitops.
 # Helm renders these into ConfigMaps for each component.
 # When empty, ConfigMaps are not created (allows external management).
