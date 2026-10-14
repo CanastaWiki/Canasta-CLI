@@ -368,22 +368,24 @@
               | select('match', 'composer-update.failed: ')
               | map('replace', 'composer-update.failed: ',
                     '; config/persistent/composer-update.failed: ')
+              | map('regex_replace', '[.]$', '')
               | first) | default('') }}
         _composer_rebuild_failure: >-
           {% if (exec_result.rc | default(1)) != 0 %} Rebuilding composer
           state from the restored list also failed (exit
-          {{ exec_result.rc | default('?') }}{{ _composer_rebuild_reason }}).{% endif %}
+          {{ exec_result.rc | default('?') }}){{ _composer_rebuild_reason }}.{% endif %}
         _composer_rebuild_reason: >-
           {{ ((exec_result.stderr | default('')).splitlines()
               | select('match', 'composer-update.failed: ')
               | map('replace', 'composer-update.failed: ',
                     '; config/persistent/composer-update.failed: ')
+              | map('regex_replace', '[.]$', '')
               | first) | default('') }}
       ansible.builtin.debug:
         msg: >-
           Composer could not install the requirements for
           {{ _to_add | map(attribute='name') | join(', ') }}
-          (composer exited {{ _composer_install_result.rc | default('?') }}{{ _composer_failed_reason }}). The
+          (composer exited {{ _composer_install_result.rc | default('?') }}){{ _composer_failed_reason }}. The
           {{ _item_type }} code was added, but its PHP dependencies are NOT
           installed and were left out of config/composer.local.json to keep the
           instance's composer config valid. Resolve the conflict — usually a

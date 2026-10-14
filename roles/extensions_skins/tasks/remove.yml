@@ -265,11 +265,12 @@
           | select('match', 'composer-update.failed: ')
           | map('replace', 'composer-update.failed: ',
                 '; config/persistent/composer-update.failed: ')
+          | map('regex_replace', '[.]$', '')
           | first) | default('') }}
   ansible.builtin.debug:
     msg: >-
       Composer refresh after removal failed (composer exited
-      {{ exec_result.rc | default('?') }}{{ _composer_failed_reason }}). The
+      {{ exec_result.rc | default('?') }}){{ _composer_failed_reason }}. The
       {{ _item_type }} code and its composer.local.json registration were removed, but vendor/ may still
       contain the now-unused packages until the next successful
       'composer update'. Resolve any dependency conflict and re-run or run

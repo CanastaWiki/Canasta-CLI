@@ -64,6 +64,8 @@ def _env():
     env = jinja2.Environment(undefined=jinja2.ChainableUndefined)
     env.filters["quote"] = shlex.quote
     env.tests["match"] = lambda value, pattern: bool(re.match(pattern, value))
+    env.filters["regex_replace"] = (
+        lambda value, pattern, repl: re.sub(pattern, repl, value))
     return env
 
 
@@ -184,9 +186,10 @@ class TestWarningReason:
     def test_surfaces_the_failed_file_line(self, path):
         stderr = ("composer noise\n"
                   "composer-update.failed: Composer update failed at T.\n")
+        # The line's own period would double the sentence's.
         assert self._reason(path, stderr) == (
             "; config/persistent/composer-update.failed: "
-            "Composer update failed at T.")
+            "Composer update failed at T")
 
     def test_empty_without_the_marker(self, path):
         assert self._reason(path, "composer noise\n") == ""
@@ -282,18 +285,35 @@ class TestAddWarningMessage:
 
     def test_successful_rebuild_adds_nothing(self):
         msg = self._message(
-            {"rc": 1, "stderr": "composer-update.failed: first\n"},
+            {"rc": 2, "stderr": "composer-update.failed: first (exit 2).\n"},
             {"rc": 0, "stderr": ""})
-        assert "(composer exited 1; config/persistent/composer-update" \
-            ".failed: first)" in msg
+        assert ("(composer exited 2); config/persistent/composer-update"
+                ".failed: first (exit 2). The extensions code") in msg
         assert "Rebuilding" not in msg
         assert msg.endswith("register the requirements manually.")
 
     def test_failed_rebuild_is_appended(self):
         msg = self._message(
-            {"rc": 1, "stderr": "composer-update.failed: first\n"},
-            {"rc": 1, "stderr": "composer-update.failed: second\n"})
+            {"rc": 2, "stderr": "composer-update.failed: first (exit 2).\n"},
+            {"rc": 3, "stderr": "composer-update.failed: second (exit 3).\n"})
         assert msg.endswith(
             "manually. Rebuilding composer state from the restored list "
-            "also failed (exit 1; config/persistent/composer-update.failed: "
-            "second).")
+            "also failed (exit 3); config/persistent/composer-update.failed: "
+            "second (exit 3).")
+        assert ".)." not in msg
+
+
+class TestRemoveWarningMessage:
+    def test_reads_cleanly(self):
+        warn = [t for t in _tasks(REMOVE)
+                if (t.get("vars") or {}).get("_composer_failed_reason")][0]
+        env = _env()
+        context = {"_item_type": "extensions",
+                   "exec_result": {"rc": 2, "stderr":
+                                   "composer-update.failed: first (exit 2).\n"}}
+        context["_composer_failed_reason"] = env.from_string(
+            warn["vars"]["_composer_failed_reason"]).render(**context)
+        msg = env.from_string(warn["ansible.builtin.debug"]["msg"]).render(
+            **context)
+        assert ("(composer exited 2); config/persistent/composer-update"
+                ".failed: first (exit 2). The extensions code") in msg
