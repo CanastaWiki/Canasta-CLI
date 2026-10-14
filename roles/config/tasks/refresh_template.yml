@@ -9,6 +9,17 @@
 # Input: instance_path, instance_id, canasta_root, files (str:
 #        space-separated paths, optional), apply (bool).
 
+- name: Require file names with --apply
+  ansible.builtin.fail:
+    msg: >-
+      --apply needs the file(s) to overwrite, e.g.
+      'canasta config refresh-template config/default.vcl --apply'.
+      Without file names the command lists the seed files that differ
+      from the current template.
+  when:
+    - apply | default(false) | bool
+    - (files | default('', true)).split() | length == 0
+
 - name: Enumerate shipped template seed files
   ansible.builtin.find:
     paths: "{{ canasta_root }}/instance_template/config"

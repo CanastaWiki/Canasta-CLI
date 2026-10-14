@@ -1385,7 +1385,8 @@ commands:
       argument it lists the seed files whose instance copy differs from
       the current template. With one or more files it shows the diff but
       changes nothing; add --apply to overwrite, so review the diff first
-      (your local edits to that file are replaced). Rendered files (.env,
+      (your local edits to that file are replaced). --apply requires at
+      least one file name. Rendered files (.env,
       wikis.yaml, Caddyfile) belong to 'canasta reconcile' and per-wiki
       Settings.php is user-owned; neither is touched here. --yes is
       accepted as a deprecated spelling of --apply.
@@ -2861,7 +2862,10 @@ commands:
       - name: repo
         type: string
         required: true
-        description: "Git repository URL"
+        description: >-
+          Git repository URL. On Kubernetes it must be an SSH URL
+          (user@host:path or ssh://user@host/path), since Argo CD clones it
+          over SSH from inside the cluster.
       - name: key
         type: path
         required_unless: git_crypt_gpg_user
@@ -2983,7 +2987,10 @@ commands:
       - name: repo
         type: string
         required: true
-        description: "Git repository URL"
+        description: >-
+          Git repository URL. On Kubernetes it must be an SSH URL
+          (user@host:path or ssh://user@host/path), since Argo CD clones it
+          over SSH from inside the cluster.
       - name: key
         type: path
         description: >-
