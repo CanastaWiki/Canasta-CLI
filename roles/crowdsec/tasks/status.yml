@@ -76,6 +76,16 @@
   changed_when: false
   failed_when: false
 
+# The engine's start wrapper keeps credentials the Central API refused or
+# did not answer under this name and runs local-only until it accepts them.
+- name: Check for credentials the Central API refused or did not answer
+  ansible.builtin.command:
+    cmd: "{{ _cscli_prefix }} test -e /etc/crowdsec/online_api_credentials.yaml.refused"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
+  register: _crowdsec_capi_refused
+  changed_when: false
+  failed_when: false
+
 # Each pull that brings decisions records an alert; the engine itself uses
 # the newest one as its last pull time.
 - name: Find the last community-blocklist pull
@@ -123,7 +133,8 @@
     _crowdsec_capi_line: >-
       {{ (_crowdsec_capi_last.stdout | default(''))
          | canasta_crowdsec_capi_line(_crowdsec_capi_creds.rc == 0,
-                                      _crowdsec_capi_count.stdout | default('0')) }}
+                                      _crowdsec_capi_count.stdout | default('0'),
+                                      refused=_crowdsec_capi_refused.rc == 0) }}
     # Console blocklists (origin 'lists') are observable; enrollment is not —
     # confirming it needs PAPI. They are additional to the CAPI community
     # blocklist above, so say that is unaffected or "none" reads as unprotected.
