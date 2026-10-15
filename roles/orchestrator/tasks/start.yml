@@ -588,6 +588,9 @@
       changed_when: false
       ignore_errors: true  # OK if deployment doesn't exist yet
 
+    - name: Warn about gitops changes not yet pushed
+      ansible.builtin.include_tasks: k8s_warn_unpushed_gitops.yml
+
     - name: Report applying Helm release
       ansible.builtin.debug:
         msg: "Applying Helm release (pulling images and rolling out pods; this may take a few minutes)..."
