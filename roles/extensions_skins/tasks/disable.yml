@@ -1,6 +1,7 @@
 ---
 # Disable extensions or skins.
 # Input: id, wiki (optional), _item_type (extensions|skins), _names (comma-separated)
+# A gitops-managed Kubernetes instance is staged for a gitops push instead.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
@@ -34,12 +35,49 @@
   vars:
     _settings_action: Disable
 
+# Argo CD deploys a gitops-managed Kubernetes instance from its repo and
+# self-heals back to it, so a direct deploy would be reverted until the
+# change is pushed. Such an instance is staged only.
+- name: Check whether the instance is gitops-managed
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _disable_gitops_marker
+
+- name: "Decide whether disable only stages the {{ _item_type }} for a gitops push"
+  ansible.builtin.set_fact:
+    _disable_stage_only: >-
+      {{ (instance_is_k8s | bool) and _disable_gitops_marker.stat.exists }}
+
 - name: "Apply the {{ _item_type }} change to the running instance"
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: apply_config.yml
-  when: _settings_change is changed
+  when:
+    - _settings_change is changed
+    - not (_disable_stage_only | bool)
 
 - name: "Report {{ _item_type }} disabled"
   ansible.builtin.debug:
     msg: "Disabled {{ _item_type }}: {{ _names }}"
+  when: not (_disable_stage_only | bool)
+
+- name: Check whether the instance is running
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: check_running.yml
+  when: _disable_stage_only | bool
+
+- name: "Report the {{ _item_type }} disable staged for a gitops push"
+  ansible.builtin.debug:
+    msg: >-
+      Disabled {{ _item_type }}: {{ _names }}. The change to
+      '{{ instance_id }}' is staged in its gitops repo but not deployed.
+      {% if _container_running | default(false) | bool -%}
+      Run 'canasta gitops push -i {{ instance_id }}', then
+      'canasta gitops sync -i {{ instance_id }}', to deploy it.
+      {%- else -%}
+      The instance is stopped, so it was left stopped. Run
+      'canasta gitops push -i {{ instance_id }}'; the change deploys the
+      next time it starts.
+      {%- endif %}
+  when: _disable_stage_only | bool

@@ -1,4 +1,7 @@
 {{- if .Values.varnish.enabled }}
+{{- if le (int .Values.varnish.terminationGracePeriodSeconds) (int .Values.varnish.preStopSleepSeconds) }}
+  {{- fail "varnish.terminationGracePeriodSeconds must be greater than varnish.preStopSleepSeconds" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -11,6 +14,10 @@ metadata:
     {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
 spec:
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      {{- toYaml .Values.varnish.rollingUpdate | nindent 6 }}
   selector:
     matchLabels:
       {{- include "canasta.selectorLabels" . | nindent 6 }}
@@ -23,9 +30,17 @@ spec:
       annotations:
         checksum/varnish-config: {{ .Values.configData.varnish | default dict | toJson | sha256sum }}
     spec:
+      terminationGracePeriodSeconds: {{ int .Values.varnish.terminationGracePeriodSeconds }}
       containers:
         - name: varnish
           image: {{ .Values.varnish.image }}
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep {{ int .Values.varnish.preStopSleepSeconds }}
           ports:
             - name: http
               containerPort: 80
