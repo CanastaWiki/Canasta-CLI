@@ -7,6 +7,13 @@
 - name: Preflight (resolve, crowdsec running, build cscli prefix)
   ansible.builtin.include_tasks: _preflight.yml
 
+# On Kubernetes the scenarios run in the agent in the caddy pod.
+- name: Target the agent (Kubernetes)
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/crowdsec_cscli_prefix.yml"
+  vars:
+    _cscli_target: agent
+  when: instance_is_k8s | bool
+
 # Collections are the umbrella (each bundles scenarios + parsers); scenarios
 # are the individual detections. Show both so "is detection loaded?" is
 # answered at both levels. cscli's human table is already readable, so dump

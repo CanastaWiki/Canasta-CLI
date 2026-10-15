@@ -23,6 +23,16 @@
   ansible.builtin.set_fact:
     _crowdsec_bouncer_list: "{{ ((_crowdsec_bouncers.stdout | trim) or '[]') | from_json }}"
 
+# On Kubernetes the agent that parses the access log runs in the caddy pod
+# and logs in to the local API as the chart's crowdsec.agentUsername.
+- name: List the machines reporting to the local API (Kubernetes)
+  ansible.builtin.command:
+    cmd: "{{ _cscli_prefix }} cscli machines list -o json"
+  register: _crowdsec_machines
+  changed_when: false
+  failed_when: false
+  when: instance_is_k8s | bool
+
 - name: List active decisions
   ansible.builtin.command:
     cmd: "{{ _cscli_prefix }} cscli decisions list"
@@ -104,6 +114,10 @@
       Bouncers:
       {{ _crowdsec_bouncer_list | canasta_crowdsec_status_bouncers }}
 
+      {% if instance_is_k8s | bool -%}
+      Agent: {{ _crowdsec_machines.stdout | default('')
+                | canasta_crowdsec_agent_line('canasta-caddy-agent') }}
+      {% endif -%}
       Central API (community blocklist): {{ _crowdsec_capi_line }}
       Console blocklists: {{ _crowdsec_console_line }}
 
