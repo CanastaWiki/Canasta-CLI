@@ -1912,45 +1912,24 @@ WEB_RUNNING = "RUNNING"
 WEB_UNHEALTHY = "UNHEALTHY"
 WEB_STOPPED = "STOPPED"
 
-# RunningFor is the time since the container was created; Status carries
-# the time since it last started.
-_WEB_PS_FORMAT = "{{.ID}}|{{.State}}|{{.Status}}|{{.RunningFor}}"
-
-_HUMAN_DURATION_UNITS = {
-    "second": 1, "minute": 60, "hour": 3600, "day": 86400,
-    "week": 7 * 86400, "month": 30 * 86400, "year": 365 * 86400,
-}
-_HUMAN_DURATION = re.compile(
-    r"(less than a second|about an? (minute|hour)|(\d+) (second|minute|hour"
-    r"|day|week|month|year)s?)")
-# Restarted in place: started this long after it was created. Coarse
-# because both durations are rounded for humans.
-_RESTARTED_IN_PLACE_SECONDS = 120
-# Without a health status, how long after such a restart it still counts as
-# part of a crash loop.
-_JUST_STARTED_SECONDS = 60
-
-
-def _human_duration_seconds(text):
-    """Seconds in a runtime's rounded duration ("2 seconds", "About a
-    minute", "3 weeks ago"), or None when there is none."""
-    match = _HUMAN_DURATION.search((text or "").lower())
-    if not match:
-        return None
-    if match.group(1) == "less than a second":
-        return 0
-    if match.group(2):
-        return _HUMAN_DURATION_UNITS[match.group(2)]
-    return int(match.group(3)) * _HUMAN_DURATION_UNITS[match.group(4)]
+_WEB_PS_FORMAT = "{{.ID}}|{{.State}}|{{.Status}}"
+_WEB_RESTART_COUNT_FORMAT = "{{.RestartCount}}"
+# Up for under a minute with no health status ("Up 5 seconds"; older
+# Podman appends " ago").
+_WEB_JUST_UP = re.compile(r"up (less than a second|\d+ seconds?)( ago)?")
+# The same statuses as the shell `case` patterns that pick which containers
+# the remote list script inspects. A superset is harmless:
+# _compose_web_state decides which counts it reads.
+_WEB_STARTING_CASE = (
+    "*'starting)'*|'Up Less than a second'*|'Up '[0-9]' second'*"
+    "|'Up '[0-9]*' seconds'*")
 
 
 def _compose_web_ps_argv(inst):
     """`ps` for the instance's web container, one line per container in
     _WEB_PS_FORMAT. `ps` without -a includes a restarting container."""
-    compose_cmd = _resolve_compose_cmd(inst)
-    runtime = "podman" if "podman" in compose_cmd[0] else "docker"
     return [
-        runtime, "ps",
+        _compose_web_runtime(inst), "ps",
         "--filter", "label=com.docker.compose.project=%s"
                     % _compose_project(inst.get("path", "")),
         "--filter", "label=com.docker.compose.service=web",
@@ -1958,45 +1937,74 @@ def _compose_web_ps_argv(inst):
     ]
 
 
-def _compose_web_state(ps_out):
-    """WEB_RUNNING, WEB_UNHEALTHY or WEB_STOPPED from _WEB_PS_FORMAT lines."""
+def _compose_web_runtime(inst):
+    compose_cmd = _resolve_compose_cmd(inst)
+    return "podman" if "podman" in compose_cmd[0] else "docker"
+
+
+def _web_starting(status):
+    """True when `ps` shows a container that has not yet proven healthy:
+    its health check is starting, or it has none and came up under a
+    minute ago. Between crashes a crash-looping container looks like this."""
+    status = status.strip().lower()
+    return "starting)" in status or bool(_WEB_JUST_UP.fullmatch(status))
+
+
+def _compose_web_state(ps_out, restart_count):
+    """WEB_RUNNING, WEB_UNHEALTHY or WEB_STOPPED from _WEB_PS_FORMAT lines.
+
+    restart_count(container_id) returns the container's restart count, or
+    None when unknown. It is asked only about a container that is starting,
+    so a settled instance costs nothing beyond `ps`. `start` and `restart`
+    reset the count, so a starting container with restarts is between
+    crashes.
+    """
     state = WEB_STOPPED
     for line in (ps_out or "").splitlines():
         if not line.strip():
             continue
         fields = line.split("|")
+        cid = fields[0].strip()
         cstate = fields[1].strip().lower() if len(fields) > 1 else ""
         status = fields[2].strip().lower() if len(fields) > 2 else ""
         if (cstate == "restarting" or status.startswith("restarting")
-                or "(unhealthy)" in status
-                or _crash_loop_up_window(status, fields[3:4])):
+                or "(unhealthy)" in status):
+            return WEB_UNHEALTHY
+        if _web_starting(status) and (restart_count(cid) or 0) > 0:
             return WEB_UNHEALTHY
         state = WEB_RUNNING
     return state
 
 
-def _crash_loop_up_window(status, running_for):
-    """True for a container briefly up between crashes: restarted in place
-    (long after it was created, where start and restart create it afresh)
-    and not yet healthy.
-
-    `ps` carries no restart count, so the two ages stand in for one. A
-    host reboot looks the same until the container turns healthy.
-    """
-    up = _human_duration_seconds(status) if status.startswith("up") else None
-    created = _human_duration_seconds(running_for[0] if running_for else "")
-    if up is None or created is None:
-        return False
-    if created - up < _RESTARTED_IN_PLACE_SECONDS:
-        return False
-    if "starting)" in status:
-        return True
-    return "(" not in status and up < _JUST_STARTED_SECONDS
-
-
 def _web_state_compose(inst):
     rc, out = _runtime_capture(inst, _compose_web_ps_argv(inst), timeout=10)
-    return _compose_web_state(out) if rc == 0 else WEB_STOPPED
+    if rc != 0:
+        return WEB_STOPPED
+
+    def restart_count(cid):
+        rc, count = _runtime_capture(inst, [
+            _compose_web_runtime(inst), "inspect", "--format",
+            _WEB_RESTART_COUNT_FORMAT, cid,
+        ], timeout=10)
+        try:
+            return int(count.strip()) if rc == 0 else None
+        except ValueError:
+            return None
+
+    return _compose_web_state(out, restart_count)
+
+
+def _remote_restart_counts(text):
+    """{container id: restart count} from the remote list script's
+    "id|count" lines."""
+    counts = {}
+    for line in (text or "").splitlines():
+        cid, _, count = line.strip().partition("|")
+        try:
+            counts[cid] = int(count)
+        except ValueError:
+            continue
+    return counts
 
 
 # name|ready|restartCount|waiting reason|last exit code, per web pod.
@@ -2288,19 +2296,29 @@ def _gather_instance_info(inst_id, inst):
     if _is_k8s(inst):
         return _gather_k8s(inst_id, path, host)
 
+    env_prefix = (
+        "DOCKER_HOST=%s " % _shell_quote(docker_host) if docker_host else "")
     compose_ps = (
-        " ".join(_shell_quote(a) for a in _compose_web_ps_argv(inst))
-        + " 2>/dev/null || true")
-    if docker_host:
-        compose_ps = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), compose_ps)
+        env_prefix
+        + " ".join(_shell_quote(a) for a in _compose_web_ps_argv(inst))
+        + " 2>/dev/null")
+    restart_count = env_prefix + " ".join(_shell_quote(a) for a in [
+        _compose_web_runtime(inst), "inspect", "--format",
+        _WEB_RESTART_COUNT_FORMAT])
     script = (
         "test -d %(p)s && echo DIR_OK || echo DIR_MISSING; "
         "echo '%(d)s'; "
         "cat %(p)s/config/wikis.yaml 2>/dev/null || echo WIKIS_MISSING; "
         "echo '%(d)s'; "
-        + compose_ps
-        + "; echo '%(d)s'; "
-        "test -f %(p)s/%(m)s && echo RESTORE_INTERRUPTED || true"
+        "web_ps=$(" + compose_ps + "); "
+        "[ -n \"$web_ps\" ] && echo \"$web_ps\"; "
+        "echo '%(d)s'; "
+        "test -f %(p)s/%(m)s && echo RESTORE_INTERRUPTED || true; "
+        "echo '%(d)s'; "
+        "echo \"$web_ps\" | while IFS='|' read -r cid cstate status; do "
+        "case \"$status\" in " + _WEB_STARTING_CASE + ") "
+        "echo \"$cid|$(" + restart_count + " \"$cid\" 2>/dev/null)\";; "
+        "esac; done; true"
     ) % {"p": qpath, "d": _SENTINEL, "m": RESTORE_MARKER}
 
     rc, stdout = _ssh_run(host, script)
@@ -2316,6 +2334,7 @@ def _gather_instance_info(inst_id, inst):
     running_raw = parts[2].strip() if len(parts) > 2 else ""
     interrupted = (parts[3].strip() == "RESTORE_INTERRUPTED"
                    if len(parts) > 3 else False)
+    restart_counts = _remote_restart_counts(parts[4] if len(parts) > 4 else "")
 
     wikis = []
     if dir_ok and wikis_raw.strip() != "WIKIS_MISSING":
@@ -2325,7 +2344,8 @@ def _gather_instance_info(inst_id, inst):
         except yaml.YAMLError:
             pass
 
-    status = _compose_web_state(running_raw) if dir_ok else "NOT FOUND"
+    status = (_compose_web_state(running_raw, restart_counts.get)
+              if dir_ok else "NOT FOUND")
 
     return _make_detail(inst_id, host, path, orchestrator, status, wikis,
                        interrupted)

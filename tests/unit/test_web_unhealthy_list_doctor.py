@@ -36,35 +36,50 @@ STARTING = "abc123|running|Up 10 seconds (health: starting)"
 PODMAN_UP = "abc123|running|Up 3 minutes"
 
 
+UP_BETWEEN_CRASHES = "abc123|running|Up 2 seconds (health: starting)"
+
+
+def _never_asked(cid):
+    raise AssertionError("a settled container must not be inspected")
+
+
 class TestComposeWebState:
     @pytest.mark.parametrize("ps_out,state", [
         (RESTARTING, "UNHEALTHY"),
         (UNHEALTHY, "UNHEALTHY"),
         (HEALTHY, "RUNNING"),
-        (STARTING, "RUNNING"),
         (PODMAN_UP, "RUNNING"),
+        ("abc123|running|Up 5 seconds (healthy)", "RUNNING"),
         ("abc123\n", "RUNNING"),
-        # Briefly up between crashes: restarted long after it was created.
-        ("abc123|running|Up 2 seconds (health: starting)|12 minutes ago",
-         "UNHEALTHY"),
-        ("abc123|running|Up Less than a second (starting)|About an hour ago",
-         "UNHEALTHY"),
-        ("abc123|running|Up 1 second|3 weeks ago", "UNHEALTHY"),
-        # Created by this start, and still starting.
-        ("abc123|running|Up 2 minutes (health: starting)|2 minutes ago",
-         "RUNNING"),
-        ("abc123|running|Up 3 seconds|4 seconds ago", "RUNNING"),
-        # Restarted in place a while ago and settled.
-        ("abc123|running|Up 5 minutes (healthy)|3 weeks ago", "RUNNING"),
-        ("abc123|running|Up 5 minutes|3 weeks ago", "RUNNING"),
-        ("abc123|running|Up 3 weeks (healthy)|3 weeks ago", "RUNNING"),
-        ("abc123|running|Up 59 minutes (healthy)|About an hour ago",
-         "RUNNING"),
         ("", "STOPPED"),
         ("\n", "STOPPED"),
     ])
-    def test_state(self, ps_out, state):
-        assert _helpers._compose_web_state(ps_out) == state
+    def test_settled_needs_no_restart_count(self, ps_out, state):
+        assert _helpers._compose_web_state(ps_out, _never_asked) == state
+
+    @pytest.mark.parametrize("ps_out", [
+        STARTING,
+        UP_BETWEEN_CRASHES,
+        "abc123|running|Up Less than a second (starting)",
+        "abc123|running|Up 1 second",
+        "abc123|running|Up 59 seconds",
+        "abc123|running|Up 3 seconds ago",
+    ])
+    @pytest.mark.parametrize("count,state", [
+        (3, "UNHEALTHY"),
+        # start and restart reset the count, as a daemon restart does.
+        (0, "RUNNING"),
+        (None, "RUNNING"),
+    ])
+    def test_starting_reads_the_restart_count(self, ps_out, count, state):
+        asked = []
+
+        def restart_count(cid):
+            asked.append(cid)
+            return count
+
+        assert _helpers._compose_web_state(ps_out, restart_count) == state
+        assert asked == ["abc123"]
 
     def test_local_list_reads_restarting_as_unhealthy(
             self, tmp_path, monkeypatch):
@@ -84,6 +99,26 @@ class TestComposeWebState:
         assert calls[0][1] == "ps"
         assert "label=com.docker.compose.service=web" in calls[0]
 
+    @pytest.mark.parametrize("count,state", [
+        ("3", "UNHEALTHY"), ("0", "RUNNING")])
+    def test_local_list_inspects_only_a_starting_container(
+            self, tmp_path, monkeypatch, count, state):
+        (tmp_path / "config").mkdir()
+        calls = []
+
+        def fake_run(argv, **kw):
+            calls.append(argv)
+            out = UP_BETWEEN_CRASHES if argv[1] == "ps" else count
+            return subprocess.CompletedProcess(argv, 0, out + "\n", "")
+
+        monkeypatch.setattr(_helpers.subprocess, "run", fake_run)
+        inst = {"id": "mysite", "path": str(tmp_path),
+                "orchestrator": "compose"}
+        detail = direct_commands._gather_instance_info("mysite", inst)
+        assert detail["status"] == state
+        assert [c[1] for c in calls] == ["ps", "inspect"]
+        assert calls[1][-3:] == ["--format", "{{.RestartCount}}", "abc123"]
+
     def test_remote_list_reads_unhealthy_from_the_batched_call(
             self, monkeypatch):
         calls = []
@@ -102,8 +137,84 @@ class TestComposeWebState:
         assert detail["status"] == "UNHEALTHY"
         assert len(calls) == 1
         # The format's pipes must reach ps, not the shell.
-        assert "'{{.ID}}|{{.State}}|{{.Status}}|{{.RunningFor}}'" in calls[0]
+        assert "'{{.ID}}|{{.State}}|{{.Status}}'" in calls[0]
 
+
+FAKE_DOCKER = """#!/bin/sh
+echo "$*" >> "$CALLS"
+case "$1" in
+  ps) cat "$PS_OUT" ;;
+  inspect) eval "echo \\$COUNT_$4" ;;
+esac
+"""
+
+
+class TestRemoteListScript:
+    """Run the batched remote script under sh with a stand-in docker, so
+    the shell's choice of which containers to inspect is exercised."""
+
+    def _run(self, tmp_path, monkeypatch, ps_lines, counts):
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        docker = bindir / "docker"
+        docker.write_text(FAKE_DOCKER)
+        docker.chmod(0o755)
+        (tmp_path / "ps").write_text("".join(l + "\n" for l in ps_lines))
+        site = tmp_path / "site"
+        (site / "config").mkdir(parents=True)
+        env = dict(os.environ, PATH="%s:%s" % (bindir, os.environ["PATH"]),
+                   PS_OUT=str(tmp_path / "ps"),
+                   CALLS=str(tmp_path / "calls"))
+        for cid, count in counts.items():
+            env["COUNT_" + cid] = str(count)
+
+        def fake_ssh(host, cmd, **kw):
+            r = subprocess.run(["sh", "-c", cmd], capture_output=True,
+                               text=True, env=env)
+            return r.returncode, r.stdout
+
+        monkeypatch.setattr(_helpers, "_ssh_run", fake_ssh)
+        inst = {"id": "site", "path": str(site), "orchestrator": "compose",
+                "host": "remote"}
+        detail = direct_commands._gather_instance_info("site", inst)
+        calls = (tmp_path / "calls").read_text().splitlines()
+        return detail["status"], calls
+
+    @pytest.mark.parametrize("count,state", [(4, "UNHEALTHY"), (0, "RUNNING")])
+    def test_starting_container_is_inspected(
+            self, tmp_path, monkeypatch, count, state):
+        status, calls = self._run(tmp_path, monkeypatch,
+                                  [UP_BETWEEN_CRASHES], {"abc123": count})
+        assert status == state
+        assert calls[1] == "inspect --format {{.RestartCount}} abc123"
+
+    @pytest.mark.parametrize("line", [
+        "abc123|running|Up Less than a second",
+        "abc123|running|Up 12 seconds",
+        "abc123|running|Up 1 second (starting)",
+    ])
+    def test_other_starting_statuses_are_inspected(
+            self, tmp_path, monkeypatch, line):
+        status, calls = self._run(tmp_path, monkeypatch, [line],
+                                  {"abc123": 2})
+        assert status == "UNHEALTHY"
+        assert len(calls) == 2
+
+    @pytest.mark.parametrize("lines,state", [
+        ([HEALTHY], "RUNNING"),
+        ([PODMAN_UP], "RUNNING"),
+        ([RESTARTING], "UNHEALTHY"),
+        ([], "STOPPED"),
+    ])
+    def test_settled_container_is_not_inspected(
+            self, tmp_path, monkeypatch, lines, state):
+        status, calls = self._run(tmp_path, monkeypatch, lines,
+                                  {"abc123": 5})
+        assert status == state
+        assert [c.split()[0] for c in calls] == ["ps"]
+
+
+class TestListOutput:
     def test_list_prints_unhealthy(self, tmp_path, monkeypatch, capsys):
         site = tmp_path / "site"
         (site / "config").mkdir(parents=True)
