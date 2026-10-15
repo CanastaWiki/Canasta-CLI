@@ -32,6 +32,17 @@ web:
   startupProbe:
     periodSeconds: 3
     failureThreshold: 200
+  # On deletion the pod keeps serving for preStopSleepSeconds while its
+  # removal from the web Service reaches kube-proxy, then Apache stops
+  # gracefully, finishing in-flight requests and closing the keep-alive
+  # connections Varnish or Caddy hold to it. The grace period bounds the
+  # whole shutdown and must exceed the sleep.
+  preStopSleepSeconds: 10
+  terminationGracePeriodSeconds: 60
+  # Bring a replacement pod up and ready before taking an old one down.
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
 
 # Caddy (reverse proxy + wiki farm routing)
 caddy:
@@ -65,6 +76,13 @@ varnish:
     limits:
       cpu: 500m
       memory: 256Mi
+  # As for web: keep serving while removal from the varnish Service
+  # propagates, and replace before removing.
+  preStopSleepSeconds: 10
+  terminationGracePeriodSeconds: 30
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
 
 # Database (MariaDB)
 # Set db.enabled=false and externalDatabase settings to use an external DB.

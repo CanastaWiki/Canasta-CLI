@@ -118,6 +118,7 @@ class TestStatusShowsTheAgent:
             os.path.join(CROWDSEC, "status.yml"), "Show CrowdSec status", {
                 "instance_id": "demo", "instance_is_k8s": k8s,
                 "_crowdsec_bouncer_list": [],
+                "_crowdsec_bouncer_lines": "  (none)",
                 "_crowdsec_capi_line": "registered",
                 "_crowdsec_console_line": "none",
                 "_crowdsec_decisions": {"stdout": "(none)"},
@@ -133,6 +134,7 @@ class TestStatusShowsTheAgent:
             os.path.join(CROWDSEC, "status.yml"), "Show CrowdSec status", {
                 "instance_id": "demo", "instance_is_k8s": True,
                 "_crowdsec_bouncer_list": [],
+                "_crowdsec_bouncer_lines": "  (none)",
                 "_crowdsec_capi_line": "registered",
                 "_crowdsec_console_line": "none",
                 "_crowdsec_decisions": {"stdout": "(none)"},

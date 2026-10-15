@@ -772,8 +772,8 @@ class TestCleanup:
 
 class TestGatherInstanceInfo:
     def test_local_instance(self, registry, monkeypatch):
-        monkeypatch.setattr(direct_commands._helpers, "_check_running",
-            lambda *a, **kw: True,
+        monkeypatch.setattr(direct_commands._helpers, "_web_state",
+            lambda *a, **kw: "RUNNING",
         )
         _, data = registry
         detail = direct_commands._gather_instance_info(
@@ -936,8 +936,8 @@ class TestCmdList:
         assert "No Canasta instances." in capsys.readouterr().out
 
     def test_lists_instances_with_wikis(self, registry, monkeypatch, capsys):
-        monkeypatch.setattr(direct_commands._helpers, "_check_running",
-            lambda *a, **kw: False,
+        monkeypatch.setattr(direct_commands._helpers, "_web_state",
+            lambda *a, **kw: "STOPPED",
         )
         args = type("Args", (), {"cleanup": False, "host": None})()
         rc = direct_commands.cmd_list(args)
@@ -949,8 +949,8 @@ class TestCmdList:
         assert "STOPPED" in out
 
     def test_running_instance(self, registry, monkeypatch, capsys):
-        monkeypatch.setattr(direct_commands._helpers, "_check_running",
-            lambda *a, **kw: True,
+        monkeypatch.setattr(direct_commands._helpers, "_web_state",
+            lambda *a, **kw: "RUNNING",
         )
         args = type("Args", (), {"cleanup": False, "host": None})()
         rc = direct_commands.cmd_list(args)
