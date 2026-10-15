@@ -29,6 +29,9 @@ spec:
       annotations:
         checksum/web-config: {{ .Values.configData.web | default dict | toJson | sha256sum }}
         checksum/env-config: {{ .Values.configData.env | default dict | toJson | sha256sum }}
+        {{- with (.Values.secretChecksums | default dict).web }}
+        checksum/secrets: {{ . | quote }}
+        {{- end }}
     spec:
       initContainers:
         - name: assemble-config

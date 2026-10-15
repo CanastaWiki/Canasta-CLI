@@ -3,6 +3,8 @@
 # Loaded via the `filter_plugins` path in ansible.cfg (role-local plugin
 # auto-discovery does not fire under include_role / include_tasks).
 
+import hashlib
+import json
 import re
 
 import yaml
@@ -361,6 +363,53 @@ def canasta_git_remote_known_hosts_name(repo):
     return match.group(1) if match else ""
 
 
+def _secret_fingerprint(data, refs):
+    """sha256 over the (Secret, key, value) of each reference, in order."""
+    rows = sorted([name, key, data.get(name, {}).get(key)] for name, key in refs)
+    return hashlib.sha256(
+        json.dumps(rows, separators=(",", ":")).encode()).hexdigest()
+
+
+def canasta_secret_checksums(secrets, values, instance_id):
+    """Fingerprint the Secret values each workload of an instance reads.
+
+    ``secrets`` is a k8s_info Secret listing, ``values`` the instance's Helm
+    values. Returns hashes only, never the values: ``web`` (database
+    password, MediaWiki secret key and the --web app secrets), ``caddy``
+    (the CrowdSec bouncer key) and ``sidecars`` (one per sidecar that reads
+    app secrets), for the chart to put on each pod template so a changed
+    Secret value rolls the pods that read it.
+    """
+    values = values or {}
+    names = values.get("secrets") or {}
+    db = names.get("dbSecretName") or "%s-db-credentials" % instance_id
+    mw = names.get("mwSecretName") or "%s-mw-secrets" % instance_id
+    app = names.get("appSecretName") or "%s-app-secrets" % instance_id
+    crowdsec = ("canasta-%s" % instance_id)[:63].rstrip("-") + "-crowdsec"
+    data = {}
+    for secret in secrets or []:
+        name = (secret.get("metadata") or {}).get("name")
+        if name:
+            data[name] = secret.get("data") or {}
+    # The hashes are committed to git. MediaWiki's random secret key goes
+    # into each one, so a guessable app secret can't be recovered from it.
+    pepper = [(mw, "MW_SECRET_KEY")]
+    web = pepper + [(db, "MYSQL_PASSWORD")]
+    web += [(app, key) for key in values.get("appSecretEnv") or []]
+    sidecars = {}
+    for sidecar in values.get("sidecars") or []:
+        keys = sidecar.get("envSecret") or []
+        if keys:
+            sidecars[sidecar["name"]] = _secret_fingerprint(
+                data, pepper + [(app, key) for key in keys])
+    return {
+        "web": _secret_fingerprint(data, web),
+        "caddy": _secret_fingerprint(
+            data, pepper + [(crowdsec, "CROWDSEC_BOUNCER_API_KEY")]),
+        "sidecars": sidecars,
+    }
+
+
 class FilterModule(object):
     def filters(self):
         return {
@@ -378,4 +427,5 @@ class FilterModule(object):
             "canasta_git_remote_failure": canasta_git_remote_failure,
             "canasta_git_remote_known_hosts_name":
                 canasta_git_remote_known_hosts_name,
+            "canasta_secret_checksums": canasta_secret_checksums,
         }
