@@ -1,6 +1,9 @@
 {{- if not .Values.domains }}
   {{- fail "At least one domain must be configured in values.yaml (domains: [example.com])" }}
 {{- end }}
+{{- if le (int .Values.web.terminationGracePeriodSeconds) (int .Values.web.preStopSleepSeconds) }}
+  {{- fail "web.terminationGracePeriodSeconds must be greater than web.preStopSleepSeconds" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,6 +20,10 @@ spec:
   # would be reported as failed. The extra 300s covers the image pull
   # and the probe's initial delay.
   progressDeadlineSeconds: {{ add 300 (mul .Values.web.startupProbe.periodSeconds .Values.web.startupProbe.failureThreshold) }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      {{- toYaml .Values.web.rollingUpdate | nindent 6 }}
   selector:
     matchLabels:
       {{- include "canasta.selectorLabels" . | nindent 6 }}
@@ -33,6 +40,7 @@ spec:
         checksum/secrets: {{ . | quote }}
         {{- end }}
     spec:
+      terminationGracePeriodSeconds: {{ int .Values.web.terminationGracePeriodSeconds }}
       initContainers:
         - name: assemble-config
           image: busybox:1.36
@@ -73,6 +81,21 @@ spec:
         - name: web
           image: {{ include "canasta.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # The image's PID 1 is a shell that never passes SIGTERM on to
+          # Apache, so without this the pod is killed only when the grace
+          # period runs out, cutting off whatever it is still serving.
+          # graceful-stop lets in-flight requests finish and closes
+          # keep-alive connections; the container exits when Apache does.
+          # The hook returns at once: the SIGTERM that follows does not
+          # interrupt the drain, and a hook still running when the
+          # container exits is reported as failed.
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep {{ int .Values.web.preStopSleepSeconds }}; apachectl -k graceful-stop
           ports:
             - name: http
               containerPort: 80
