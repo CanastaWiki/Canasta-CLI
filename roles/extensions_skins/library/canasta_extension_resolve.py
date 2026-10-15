@@ -13,6 +13,10 @@ to check out. The URL comes from, in order:
 - Wikimedia Gerrit (``mediawiki/extensions/<Name>`` or ``mediawiki/skins/<Name>``),
   matched case-insensitively; archived (read-only) projects are refused.
 
+When Gerrit does not answer, a Gerrit project is taken from Wikimedia's GitHub
+mirror (``github.com/wikimedia/mediawiki-<extensions|skins>-<Name>``) instead,
+for both a name lookup and a Gerrit URL from ExtensionJson.json.
+
 The branch is chosen as follows:
 
 - an explicit ``--branch`` wins;
@@ -96,14 +100,17 @@ returns:
     returned: success
     type: bool
   source:
-    description: Where the data came from ('explicit', 'url:<url>', 'file:<path>', 'gerrit').
+    description: >-
+      Where the data came from ('explicit', 'url:<url>', 'file:<path>',
+      'gerrit', or 'gerrit-mirror' when Gerrit did not answer).
     returned: success
     type: str
   source_label:
     description: >-
       Human-readable origin of the repository URL ('--repository',
       'ExtensionJson.json' or 'Wikimedia Gerrit'), suffixed with
-      '; not hosted on Wikimedia Gerrit' when the URL points elsewhere.
+      '; not hosted on Wikimedia Gerrit' when the URL points elsewhere, or
+      with a note when Gerrit's GitHub mirror was used instead.
     returned: success
     type: str
   url:
@@ -130,6 +137,10 @@ MW_VERSION_RE = re.compile(r"^1\.(\d+)(?:\.\d+)?$")
 DEFAULT_JSON_URL = "https://extjsonuploader.toolforge.org/ExtensionJson.json"
 GERRIT_URL = "https://gerrit.wikimedia.org/r/"
 GERRIT_HOST_RE = re.compile(r"^https://gerrit\.wikimedia\.org(?:/|$)", re.IGNORECASE)
+GERRIT_PROJECT_RE = re.compile(
+    r"^https://gerrit\.wikimedia\.org/r/(?:p/)?mediawiki/(extensions|skins)/"
+    r"([A-Za-z0-9][A-Za-z0-9_.\-]*?)(?:\.git)?/?$", re.IGNORECASE)
+GITHUB_MIRROR_URL = "https://github.com/wikimedia/mediawiki-%s-%s"
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")
 
 
@@ -208,6 +219,32 @@ def branch_exists(repository, branch):
         return None
 
 
+def remote_reachable(repository):
+    """Return True if ``git ls-remote`` can read ``repository``.
+
+    Prompts are disabled so a missing GitHub repository, which asks for
+    credentials, fails instead of waiting for input.
+    """
+    import os
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    try:
+        out = subprocess.run(
+            ["git", "ls-remote", "--heads", repository],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.returncode == 0
+
+
+def gerrit_mirror_url(url):
+    """Map a Gerrit extension/skin URL to Wikimedia's GitHub mirror of it,
+    or None for any other URL."""
+    match = GERRIT_PROJECT_RE.match((url or "").strip())
+    if not match:
+        return None
+    return GITHUB_MIRROR_URL % (match.group(1).lower(), match.group(2))
+
+
 def load_json(json_path, json_url):
     """Load ExtensionJson.json from a local snapshot, else the live URL.
 
@@ -252,15 +289,19 @@ def usable_dataset_url(url):
     return "phabricator.wikimedia.org/" not in url.lower()
 
 
-def source_label(source, url):
+def source_label(source, url, mirrored=False):
     """Describe where ``url`` came from for the operator, flagging a remote
-    that is not on Wikimedia Gerrit."""
+    that is not on Wikimedia Gerrit or that replaced an unreachable one."""
+    if source == "gerrit-mirror":
+        return "GitHub mirror of Wikimedia Gerrit; Gerrit did not answer"
     if source == "explicit":
         label = "--repository"
     elif source == "gerrit":
         label = "Wikimedia Gerrit"
     else:
         label = "ExtensionJson.json"
+    if mirrored:
+        return label + "; Gerrit did not answer, using its GitHub mirror"
     if not GERRIT_HOST_RE.match((url or "").strip()):
         label += "; not hosted on Wikimedia Gerrit"
     return label
@@ -312,6 +353,7 @@ def gerrit_lookup(item_type, name):
 def resolve(name, item_type, mw_version, repository, branch, json_path, json_url):
     branch_note = None
     branch_unverified = False
+    mirrored = False
     if repository:
         url = repository
         entry = None
@@ -345,12 +387,16 @@ def resolve(name, item_type, mw_version, repository, branch, json_path, json_url
                                " (%s)" % detail if detail else "")),
                 }
             elif status == "unreachable":
-                return {
-                    "failed": True,
-                    "msg": ("Could not reach Wikimedia Gerrit to look up %s "
-                            "'%s'. Pass --repository with its git URL."
-                            % (kind.lower(), name)),
-                }
+                mirror = GITHUB_MIRROR_URL % (item_type, name)
+                if not remote_reachable(mirror):
+                    return {
+                        "failed": True,
+                        "msg": ("Could not reach Wikimedia Gerrit to look up %s "
+                                "'%s', and its GitHub mirror %s did not answer "
+                                "either. Pass --repository with its git URL."
+                                % (kind.lower(), name, mirror)),
+                    }
+                url, source = mirror, "gerrit-mirror"
             elif item_type == "skins":
                 return {
                     "failed": True,
@@ -378,6 +424,9 @@ def resolve(name, item_type, mw_version, repository, branch, json_path, json_url
         url_error = validate_repository_url(url)
         if url_error:
             return {"failed": True, "msg": url_error}
+        mirror = gerrit_mirror_url(url)
+        if mirror and not remote_reachable(url) and remote_reachable(mirror):
+            url, mirrored = mirror, True
 
     if branch and branch.strip().startswith("-"):
         return {"failed": True,
@@ -410,7 +459,7 @@ def resolve(name, item_type, mw_version, repository, branch, json_path, json_url
         "branch_note": branch_note,
         "branch_unverified": branch_unverified,
         "source": source,
-        "source_label": source_label(source, url),
+        "source_label": source_label(source, url, mirrored),
         "url": (entry or {}).get("url"),
         "description": (entry or {}).get("description"),
         "mw_required": (entry or {}).get("requires", {}).get("MediaWiki"),
