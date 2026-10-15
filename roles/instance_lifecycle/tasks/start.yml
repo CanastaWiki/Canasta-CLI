@@ -10,6 +10,10 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
   when: instance_path is not defined
 
+- name: Warn about gitops changes not yet pushed
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_warn_unpushed_gitops.yml"
+  when: instance_is_k8s | bool
+
 - name: Start containers
   ansible.builtin.include_role:
     name: orchestrator

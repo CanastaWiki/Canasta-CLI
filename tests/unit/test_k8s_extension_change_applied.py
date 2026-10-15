@@ -37,14 +37,16 @@ def test_enable_applies_the_change_before_update_php():
     apply_i = _apply_index(tasks)
     assert names.index("Enable {{ _item_type }}") < apply_i
     assert apply_i < names.index("Run update.php for each affected wiki")
-    assert tasks[apply_i]["when"] == "_settings_change is changed"
+    assert tasks[apply_i]["when"] == [
+        "_settings_change is changed", "not (_enable_stage_only | bool)"]
 
 
 def test_disable_applies_the_change():
     tasks = _load(os.path.join(EXT_TASKS, "disable.yml"))
     apply_i = _apply_index(tasks)
     assert _names(tasks).index("Disable {{ _item_type }}") < apply_i
-    assert tasks[apply_i]["when"] == "_settings_change is changed"
+    assert tasks[apply_i]["when"] == [
+        "_settings_change is changed", "not (_disable_stage_only | bool)"]
 
 
 def test_apply_is_a_no_op_on_compose():

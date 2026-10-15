@@ -707,8 +707,10 @@ commands:
       too, or --dry-run to preview without removing anything.
 
       The STATUS column reports what the orchestrator says about the
-      web container, which can read RUNNING while MediaWiki itself is
-      failing. With --check-wikis, each wiki of every running instance
+      web container: RUNNING, STOPPED, or UNHEALTHY when the container
+      is crash-looping or failing its health check (`canasta doctor -i
+      <id>` names the cause). It can read RUNNING while MediaWiki itself
+      is failing. With --check-wikis, each wiki of every running instance
       is also probed over HTTP and annotated REACHABLE, NOT REACHABLE
       or UNKNOWN — the last meaning the instance's host could not be
       reached, so the wiki's state is unknown rather than known-bad.
@@ -796,8 +798,10 @@ commands:
       agreement, whether local config edits have been applied, whether
       CrowdSec is enabled with no CADDY_TRUSTED_PROXIES set,
       the certificate the origin is actually serving (expired, or
-      silently reissued by Caddy's internal CA after ACME failed), and
-      whether the web container's startup `composer update` failed.
+      silently reissued by Caddy's internal CA after ACME failed),
+      whether the web container's startup `composer update` failed, and
+      whether the web container is crash-looping or failing its health
+      check, with the startup error from its log and how to fix it.
     examples:
       - "canasta doctor"
       - "canasta doctor --host prod1.example.com"
@@ -1529,6 +1533,12 @@ commands:
       After enabling, `update.php` is automatically run to apply any
       required database changes. Use `--skip-update` to skip this
       step.
+
+      A Kubernetes instance managed through gitops is not redeployed: Argo
+      CD deploys it from its gitops repo. Enable saves the change there, and
+      you deploy it with `canasta gitops push`, then `canasta gitops
+      sync`. The web pods run `update.php` for the affected wikis when
+      the sync restarts them, even with `--skip-update`.
     examples:
       - "canasta extension enable VisualEditor,Cite"
     playbook: extension_enable.yml
@@ -1558,6 +1568,11 @@ commands:
       extensions can be specified as a comma-separated list. Use
       the `--wiki` flag to disable an extension for a specific wiki
       only.
+
+      A Kubernetes instance managed through gitops is not redeployed: Argo
+      CD deploys it from its gitops repo. Disable saves the change there, and
+      you deploy it with `canasta gitops push`, then `canasta gitops
+      sync`.
     examples:
       - "canasta extension disable VisualEditor"
     playbook: extension_disable.yml
@@ -1705,7 +1720,9 @@ commands:
       When cloning, the git URL is taken from `--repository`, else from
       ExtensionJson.json (the extjsonuploader Toolforge dataset), else from
       Wikimedia Gerrit (mediawiki/extensions/<Name>). URLs from
-      ExtensionJson.json and Gerrit must be https. The URL and its source are
+      ExtensionJson.json and Gerrit must be https. When Gerrit does not
+      answer, its GitHub mirror (github.com/wikimedia/mediawiki-extensions-<Name>)
+      is used instead. The URL and its source are
       printed for every clone, flagged when the repository is not hosted on
       Wikimedia Gerrit. Pass `--branch` to pin a specific branch. The branch is
       chosen automatically as REL1_YY matching the instance's MediaWiki
@@ -1803,6 +1820,12 @@ commands:
       After enabling, `update.php` is automatically run to apply any
       required database changes. Use `--skip-update` to skip this
       step.
+
+      A Kubernetes instance managed through gitops is not redeployed: Argo
+      CD deploys it from its gitops repo. Enable saves the change there, and
+      you deploy it with `canasta gitops push`, then `canasta gitops
+      sync`. The web pods run `update.php` for the affected wikis when
+      the sync restarts them, even with `--skip-update`.
     examples:
       - "canasta skin enable Timeless"
     playbook: skin_enable.yml
@@ -1831,6 +1854,11 @@ commands:
       Disable one or more Canasta skins by name. Multiple skins can
       be specified as a comma-separated list. Use the `--wiki` flag
       to disable a skin for a specific wiki only.
+
+      A Kubernetes instance managed through gitops is not redeployed: Argo
+      CD deploys it from its gitops repo. Disable saves the change there, and
+      you deploy it with `canasta gitops push`, then `canasta gitops
+      sync`.
     examples:
       - "canasta skin disable Timeless"
     playbook: skin_disable.yml
@@ -1866,7 +1894,9 @@ commands:
         URL came from.
 
       When cloning, the git URL is taken from `--repository`, else from
-      Wikimedia Gerrit (mediawiki/skins/<Name>), which must be https. The URL
+      Wikimedia Gerrit (mediawiki/skins/<Name>), which must be https. When
+      Gerrit does not answer, its GitHub mirror
+      (github.com/wikimedia/mediawiki-skins-<Name>) is used instead. The URL
       and its source are printed for every clone, flagged when the repository
       is not hosted on Wikimedia Gerrit. A skin hosted elsewhere, or archived
       on Gerrit, needs `--repository`. Pass `--branch` to pin a specific

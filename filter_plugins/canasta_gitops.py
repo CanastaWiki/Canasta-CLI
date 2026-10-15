@@ -5,9 +5,20 @@
 
 import hashlib
 import json
+import os
 import re
+import sys
 
 import yaml
+
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "roles", "common", "module_utils"))
+
+from canasta_gitops_pending import (  # noqa: E402
+    unpushed_changes,
+    unpushed_probe_script,
+)
 
 ENCRYPTION_FILTER = "git-crypt"
 
@@ -410,6 +421,16 @@ def canasta_secret_checksums(secrets, values, instance_id):
     }
 
 
+def canasta_gitops_unpushed_probe(instance_path):
+    """Read-only shell that gathers what a gitops instance has not pushed."""
+    return unpushed_probe_script(instance_path)
+
+
+def canasta_gitops_unpushed(stdout, secret_key_regex):
+    """The unpushed commits and paths canasta_gitops_unpushed_probe found."""
+    return unpushed_changes(stdout, secret_key_regex)
+
+
 class FilterModule(object):
     def filters(self):
         return {
@@ -428,4 +449,6 @@ class FilterModule(object):
             "canasta_git_remote_known_hosts_name":
                 canasta_git_remote_known_hosts_name,
             "canasta_secret_checksums": canasta_secret_checksums,
+            "canasta_gitops_unpushed_probe": canasta_gitops_unpushed_probe,
+            "canasta_gitops_unpushed": canasta_gitops_unpushed,
         }

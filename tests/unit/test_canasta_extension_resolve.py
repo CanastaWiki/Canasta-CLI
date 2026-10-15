@@ -10,14 +10,17 @@ from mock_ansible import run_module_with_params
 
 URL = "https://unreachable.example/ExtensionJson.json"
 REAL_GERRIT_PROJECTS = canasta_extension_resolve.gerrit_projects
+REAL_REMOTE_REACHABLE = canasta_extension_resolve.remote_reachable
 
 
 @pytest.fixture(autouse=True)
 def no_gerrit(monkeypatch):
     """Keep every test off the network: Gerrit reports no matching project
-    unless a test sets its own answer."""
+    and every remote answers, unless a test sets its own answer."""
     monkeypatch.setattr(canasta_extension_resolve, "gerrit_projects",
                         lambda name: {})
+    monkeypatch.setattr(canasta_extension_resolve, "remote_reachable",
+                        lambda url: True)
 
 
 class TestMwMinorToRel:
@@ -357,12 +360,16 @@ class TestSkins:
         assert res["msg"] == ("Skin 'Citizen' is not on Wikimedia Gerrit. Pass "
                               "--repository with its git URL.")
 
-    def test_unreachable_gerrit_asks_for_repository(self, tmp_dir, monkeypatch):
+    def test_unreachable_gerrit_and_mirror_asks_for_repository(self, tmp_dir, monkeypatch):
         path = _json_file(tmp_dir, {})
         monkeypatch.setattr(canasta_extension_resolve, "gerrit_projects", lambda n: None)
+        monkeypatch.setattr(canasta_extension_resolve, "remote_reachable", lambda u: False)
         res = canasta_extension_resolve.resolve(
             "Timeless", "skins", "1.43.2", None, None, path, URL)
+        assert res["failed"] is True
         assert "Could not reach Wikimedia Gerrit" in res["msg"]
+        assert "https://github.com/wikimedia/mediawiki-skins-Timeless" in res["msg"]
+        assert "--repository" in res["msg"]
 
 
 class TestNames:
@@ -463,3 +470,111 @@ class TestSourceLabel:
             "Foo", "extensions", "1.43.2", None, None, path, URL)
         assert res["source_label"] == (
             "ExtensionJson.json; not hosted on Wikimedia Gerrit")
+
+
+GERRIT_EXT = "https://gerrit.wikimedia.org/r/mediawiki/extensions/OAuth"
+MIRROR_EXT = "https://github.com/wikimedia/mediawiki-extensions-OAuth"
+
+
+def _reachable(monkeypatch, answers):
+    """Make remote_reachable answer from ``answers`` (url -> bool) and record
+    the URLs it was asked about."""
+    calls = []
+
+    def fake(url):
+        calls.append(url)
+        return answers[url]
+    monkeypatch.setattr(canasta_extension_resolve, "remote_reachable", fake)
+    return calls
+
+
+class TestGerritMirrorUrl:
+    @pytest.mark.parametrize("url,mirror", [
+        (GERRIT_EXT, MIRROR_EXT),
+        ("https://gerrit.wikimedia.org/r/mediawiki/skins/Vector",
+         "https://github.com/wikimedia/mediawiki-skins-Vector"),
+        ("https://gerrit.wikimedia.org/r/p/mediawiki/extensions/OAuth.git",
+         MIRROR_EXT),
+        ("https://gerrit.wikimedia.org/r/mediawiki/extensions/OAuth/",
+         MIRROR_EXT),
+        ("https://Gerrit.Wikimedia.org/r/mediawiki/Extensions/OAuth",
+         MIRROR_EXT),
+    ])
+    def test_maps_extensions_and_skins(self, url, mirror):
+        assert canasta_extension_resolve.gerrit_mirror_url(url) == mirror
+
+    @pytest.mark.parametrize("url", [
+        "https://gerrit.wikimedia.org/r/mediawiki/core",
+        "https://gerrit.wikimedia.org/r/mediawiki/extensions/Foo/Bar",
+        "https://gerrit.wikimedia.org.evil.example/r/mediawiki/extensions/Foo",
+        "https://github.com/wikimedia/mediawiki-extensions-OAuth",
+        "",
+        None,
+    ])
+    def test_other_urls_have_no_mirror(self, url):
+        assert canasta_extension_resolve.gerrit_mirror_url(url) is None
+
+
+class TestRemoteReachable:
+    def test_unreachable_remote_is_false(self):
+        assert REAL_REMOTE_REACHABLE(
+            "https://invalid.example.invalid/repo.git") is False
+
+
+class TestGerritMirrorFallback:
+    def test_lookup_uses_mirror_when_gerrit_is_unreachable(self, tmp_dir, monkeypatch, verified):
+        path = _json_file(tmp_dir, {})
+        monkeypatch.setattr(canasta_extension_resolve, "gerrit_projects", lambda n: None)
+        mirror = "https://github.com/wikimedia/mediawiki-skins-Mirage"
+        _reachable(monkeypatch, {mirror: True})
+        res = canasta_extension_resolve.resolve(
+            "Mirage", "skins", "1.43.2", None, None, path, URL)
+        assert res.get("failed") is not True
+        assert res["name"] == "Mirage"
+        assert res["repository"] == mirror
+        assert res["source"] == "gerrit-mirror"
+        assert res["source_label"] == (
+            "GitHub mirror of Wikimedia Gerrit; Gerrit did not answer")
+
+    def test_dataset_gerrit_url_switches_to_mirror(self, tmp_dir, monkeypatch, verified):
+        path = _json_file(tmp_dir, {"OAuth": {"repository": GERRIT_EXT}})
+        _reachable(monkeypatch, {GERRIT_EXT: False, MIRROR_EXT: True})
+        res = canasta_extension_resolve.resolve(
+            "OAuth", "extensions", "1.43.2", None, None, path, URL)
+        assert res["repository"] == MIRROR_EXT
+        assert res["branch"] == "REL1_43"
+        assert res["source_label"] == (
+            "ExtensionJson.json; Gerrit did not answer, using its GitHub mirror")
+
+    def test_reachable_gerrit_is_kept(self, tmp_dir, monkeypatch, verified):
+        path = _json_file(tmp_dir, {"OAuth": {"repository": GERRIT_EXT}})
+        calls = _reachable(monkeypatch, {GERRIT_EXT: True})
+        res = canasta_extension_resolve.resolve(
+            "OAuth", "extensions", "1.43.2", None, None, path, URL)
+        assert res["repository"] == GERRIT_EXT
+        assert res["source_label"] == "ExtensionJson.json"
+        assert calls == [GERRIT_EXT]
+
+    def test_gerrit_url_kept_when_mirror_is_also_unreachable(self, tmp_dir, monkeypatch, verified):
+        path = _json_file(tmp_dir, {"OAuth": {"repository": GERRIT_EXT}})
+        _reachable(monkeypatch, {GERRIT_EXT: False, MIRROR_EXT: False})
+        res = canasta_extension_resolve.resolve(
+            "OAuth", "extensions", "1.43.2", None, None, path, URL)
+        assert res["repository"] == GERRIT_EXT
+        assert res["source_label"] == "ExtensionJson.json"
+
+    def test_non_gerrit_url_is_never_probed(self, tmp_dir, monkeypatch, verified):
+        path = _json_file(tmp_dir, {"Foo": {"repository": "https://github.com/example/Foo"}})
+        calls = _reachable(monkeypatch, {})
+        res = canasta_extension_resolve.resolve(
+            "Foo", "extensions", "1.43.2", None, None, path, URL)
+        assert res["repository"] == "https://github.com/example/Foo"
+        assert calls == []
+
+    def test_explicit_gerrit_repository_is_never_rewritten(self, tmp_dir, monkeypatch, verified):
+        path = _json_file(tmp_dir, {})
+        calls = _reachable(monkeypatch, {})
+        res = canasta_extension_resolve.resolve(
+            "OAuth", "extensions", "1.43.2", GERRIT_EXT, None, path, URL)
+        assert res["repository"] == GERRIT_EXT
+        assert calls == []
