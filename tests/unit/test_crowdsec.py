@@ -798,6 +798,9 @@ def _bouncer(name, last_pull=None, ip_address=None):
     }
 
 
+_NOW = datetime.datetime(2026, 6, 11, 12, 2, tzinfo=datetime.timezone.utc)
+
+
 class TestCrowdsecStatusBouncersDisplay:
     """`crowdsec status` collapses the canasta-caddy bouncer family for
     display: CrowdSec auto-creates an undeletable 'canasta-caddy@<ip>' child
@@ -811,7 +814,7 @@ class TestCrowdsecStatusBouncersDisplay:
         assert canasta_crowdsec_status_bouncers(None) == "  (none)"
 
     def test_single_bouncer_no_stale_note(self):
-        out = canasta_crowdsec_status_bouncers([
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
             _bouncer("canasta-caddy", "2026-06-11T12:00:00Z", "172.18.0.3"),
         ])
         assert "canasta-caddy — active" in out
@@ -821,7 +824,7 @@ class TestCrowdsecStatusBouncersDisplay:
 
     def test_duplicates_collapse_to_live_plus_count(self):
         # The real aic shape: stale base + stale child + live child.
-        out = canasta_crowdsec_status_bouncers([
+        out = canasta_crowdsec_status_bouncers(now="2026-06-11T10:43:00Z", bouncers=[
             _bouncer("canasta-caddy", "2026-06-11T02:54:46Z", "172.18.0.4"),
             _bouncer("canasta-caddy@172.18.0.5", "2026-06-11T03:44:44Z", "172.18.0.5"),
             _bouncer("canasta-caddy@172.18.0.3", "2026-06-11T10:42:33Z", "172.18.0.3"),
@@ -837,23 +840,62 @@ class TestCrowdsecStatusBouncersDisplay:
         assert out.count("— active") == 1
 
     def test_live_base_with_stale_children(self):
-        out = canasta_crowdsec_status_bouncers([
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
             _bouncer("canasta-caddy", "2026-06-11T12:00:00Z", "172.18.0.3"),
             _bouncer("canasta-caddy@172.18.0.9", "2026-06-11T09:00:00Z", "172.18.0.9"),
         ])
         assert "canasta-caddy — active" in out
         assert "1 stale auto-created duplicate" in out
 
-    def test_never_pulled_renders_never(self):
-        out = canasta_crowdsec_status_bouncers([
+    def test_never_pulled_is_not_active(self):
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
             _bouncer("canasta-caddy", None, None),
         ])
-        assert "active" in out
-        assert "never" in out
-        assert "IP ?" in out
+        assert "canasta-caddy — not pulling (IP ?, no pull yet)" in out
+        assert "active" not in out
+
+    def test_recent_pull_is_active(self):
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
+            _bouncer("canasta-caddy", "2026-06-11T12:01:00Z", "10.42.0.1"),
+        ])
+        assert "canasta-caddy — active (IP 10.42.0.1" in out
+
+    def test_old_pull_is_stale_not_active(self):
+        # The pull froze when Caddy came back without the bouncer.
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
+            _bouncer("canasta-caddy", "2026-06-11T11:56:00Z", "10.42.0.1"),
+        ])
+        assert ("canasta-caddy — stale (IP 10.42.0.1, last pull "
+                "2026-06-11T11:56:00Z, 6 min ago)") in out
+        assert "active" not in out
+
+    def test_stale_threshold_is_two_minutes(self):
+        def state(last_pull):
+            return canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
+                _bouncer("canasta-caddy", last_pull, "10.42.0.1"),
+            ])
+        assert "— active" in state("2026-06-11T12:00:00Z")
+        assert "— stale" in state("2026-06-11T11:59:59Z")
+
+    def test_fractional_seconds_and_offsets_parse(self):
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
+            _bouncer("canasta-caddy", "2026-06-11T12:01:30.123456789Z", "x"),
+        ])
+        assert "— active" in out
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
+            _bouncer("canasta-caddy", "2026-06-11T14:01:30+02:00", "x"),
+        ])
+        assert "— active" in out
+
+    def test_now_accepts_the_engine_clock_string(self):
+        out = canasta_crowdsec_status_bouncers(
+            now="2026-06-11T12:10:00Z", bouncers=[
+                _bouncer("canasta-caddy", "2026-06-11T12:00:00Z", "x"),
+            ])
+        assert "stale (IP x, last pull 2026-06-11T12:00:00Z, 10 min ago)" in out
 
     def test_other_bouncers_listed_verbatim(self):
-        out = canasta_crowdsec_status_bouncers([
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
             _bouncer("canasta-caddy", "2026-06-11T12:00:00Z", "172.18.0.3"),
             _bouncer("some-firewall-bouncer", "2026-06-11T11:00:00Z", "10.0.0.2"),
         ])
@@ -861,7 +903,7 @@ class TestCrowdsecStatusBouncersDisplay:
         assert "some-firewall-bouncer" in out
         assert "10.0.0.2" in out
         # A non-family name (no '@') is not folded into the caddy family.
-        out2 = canasta_crowdsec_status_bouncers([
+        out2 = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
             _bouncer("canasta-caddy", "2026-06-11T12:00:00Z", "172.18.0.3"),
             _bouncer("canasta-caddy-extra", "2026-06-11T11:00:00Z", "10.0.0.2"),
         ])
@@ -989,6 +1031,14 @@ class TestCrowdsecStatusWiring:
         assert "canasta_crowdsec_status_bouncers" in content, (
             "status must render bouncers through the de-duplicating filter"
         )
+
+    def test_status_judges_staleness_by_the_engine_clock(self):
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "status.yml",
+        ))
+        assert "{{ _cscli_prefix }} date -u" in content
+        assert "canasta_crowdsec_status_bouncers(\n" in content
+        assert "now=(_crowdsec_now.stdout" in content
 
     def test_status_filter_registered_in_ansible_cfg(self):
         cfg = _read(os.path.join(REPO_ROOT, "ansible.cfg"))
@@ -1368,13 +1418,12 @@ class TestCrowdsecRestartEngine:
         content = self._content()
         assert "{{ compose_command }} {{ _crowdsec_profile_flags | default('') }} restart crowdsec" in content
 
-    def test_k8s_rolls_the_caddy_deployment(self):
-        # The engine is a sidecar in the caddy pod, so the K8s equivalent is a
-        # rollout of the caddy deployment, waited on so callers can exec into
-        # the fresh pod.
+    def test_k8s_rolls_the_local_api_deployment(self):
+        # The K8s equivalent is a rollout of the local API deployment, waited
+        # on so callers can exec into the fresh pod. Caddy is left alone.
         content = self._content()
-        assert "kubectl rollout restart deployment/canasta-{{ instance_id }}-caddy" in content
-        assert "kubectl rollout status deployment/canasta-{{ instance_id }}-caddy" in content
+        assert "kubectl rollout restart deployment/canasta-{{ instance_id }}-crowdsec" in content
+        assert "kubectl rollout status deployment/canasta-{{ instance_id }}-crowdsec" in content
 
 
 class TestCrowdsecResolveCscli:
@@ -1398,11 +1447,10 @@ class TestCrowdsecResolveCscli:
         assert "compose_command.split()" in content
         assert '["{{ compose_command }}"]' not in content
 
-    def test_k8s_prefix_targets_the_sidecar_container(self):
-        # kubectl exec into the caddy pod, selecting the crowdsec sidecar.
+    def test_k8s_prefix_names_the_container(self):
         content = self._content()
         assert "kubectl exec" in content
-        assert "-c crowdsec --" in content
+        assert "-c {{ _cscli_k8s_container }} --" in content
 
     def test_preflight_builds_the_prefix(self):
         preflight = _read(os.path.join(
@@ -1412,7 +1460,7 @@ class TestCrowdsecResolveCscli:
 
 
 class TestCrowdsecPreflightK8sReadiness:
-    """The K8s caddy-pod readiness probe in _preflight.yml uses a jsonpath
+    """The K8s local API readiness probe in _preflight.yml uses a jsonpath
     that contains a space (the 'name=ready ' separator). It must be quoted so
     Ansible's command parser keeps it as one argument — otherwise the trailing
     ' {end}' splits into its own token and kubectl reads it as a pod name,
@@ -1511,27 +1559,35 @@ class TestCrowdsecK8sChart:
         )
         assert "crowdsec" in values["configData"]
 
-    def test_caddy_deployment_gates_sidecar_on_enabled(self):
+    def test_caddy_deployment_gates_agent_on_enabled(self):
         content = _read_helm("deployment-caddy.yaml")
         # Everything crowdsec is behind the enabled gate.
         assert "{{- if .Values.crowdsec.enabled }}" in content
-        # Sidecar container, log sharing, seed init container, key env.
-        assert "name: crowdsec" in content
+        # Agent sidecar, log sharing, key env.
+        assert "name: crowdsec-agent" in content
         assert "/var/log/caddy" in content
-        assert "seed-crowdsec-config" in content
         assert "CROWDSEC_BOUNCER_API_KEY" in content
         assert "secretKeyRef" in content
         assert "optional: true" in content
-        # RWO PVC sidecar forces a Recreate strategy.
+        # No PVC left in the pod, so it rolls.
+        assert "type: Recreate" not in content
+        assert "persistentVolumeClaim" not in content
+
+    def test_local_api_deployment_is_gated_and_holds_the_pvc(self):
+        content = _read_helm("deployment-crowdsec.yaml")
+        assert content.startswith("{{- if .Values.crowdsec.enabled }}")
+        assert "seed-crowdsec-config" in content
+        assert "claimName: {{ include \"canasta.fullname\" . }}-crowdsec" \
+            in content
         assert "type: Recreate" in content
 
-    def test_crowdsec_service_routes_lapi_to_caddy_pod(self):
+    def test_crowdsec_service_routes_lapi_to_crowdsec_pod(self):
         content = _read_helm("service-aliases.yaml")
         assert "name: crowdsec" in content
         assert "port: 8080" in content
-        # The Service selects the caddy pod (the sidecar lives there).
         crowdsec_block = content[content.index("name: crowdsec"):]
-        assert "app.kubernetes.io/component: caddy" in crowdsec_block
+        assert "app.kubernetes.io/component: crowdsec" in \
+            crowdsec_block[crowdsec_block.index("selector:"):]
 
     def test_pvc_and_configmap_exist_and_are_gated(self):
         pvc = _read_helm("pvc-crowdsec.yaml")
@@ -1547,12 +1603,13 @@ class TestCrowdsecK8sConfigSync:
             REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_sync_config.yml",
         ))
 
-    def test_creates_bouncer_key_secret(self):
+    def test_creates_crowdsec_secret(self):
         content = self._content()
         assert "canasta-{{ instance_id }}-crowdsec" in content
         assert "CROWDSEC_BOUNCER_API_KEY" in content
-        # The key Secret must be no_log so it never lands in output.
-        secret_block = content[content.index("crowdsec bouncer key data"):]
+        assert "CROWDSEC_AGENT_PASSWORD" in content
+        # The Secret must be no_log so it never lands in output.
+        secret_block = content[content.index("Build crowdsec Secret data"):]
         assert "no_log: true" in secret_block
 
     def test_syncs_acquisition_and_whitelist_into_configdata(self):
@@ -1630,12 +1687,12 @@ class TestCrowdsecAutoEnroll:
         hint = enroll[enroll.index("already enrolled"):]
         assert "not (bouncer_enroll_auto | default(false) | bool)" in hint
 
-    def test_autoenroll_sidecar_wait_is_k8s_guarded(self):
-        # The sidecar rollout wait is K8s-only; Compose starts the service
+    def test_autoenroll_local_api_wait_is_k8s_guarded(self):
+        # The local API rollout wait is K8s-only; Compose starts the service
         # synchronously. The guard lives inside the orchestrator task (allowed
         # by the orchestrator-dispatch design), not in action code.
         content = self._autoenroll()
-        assert "rollout status deployment/canasta-{{ instance_id }}-caddy" in content
+        assert "rollout status deployment/canasta-{{ instance_id }}-crowdsec" in content
         wait = content[content.index("rollout status"):]
         assert "when: instance_is_k8s | bool" in wait
 

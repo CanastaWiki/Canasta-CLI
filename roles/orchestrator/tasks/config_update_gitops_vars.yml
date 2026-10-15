@@ -5,11 +5,12 @@
 # local values.yaml, but the committed gitops source (values.template.yaml →
 # hosts/<name>/rendered-values.yaml) that Argo CD deploys is left untouched,
 # so warn the operator to push (a stage-only config set reports that
-# itself). A silent write-through isn't possible here: making the change
-# durable requires committing and pushing to the repo Argo CD watches, which
-# is exactly what 'canasta gitops push' does.
+# itself, as does an internal caller that reports on its own). A silent
+# write-through isn't possible here: making the change durable requires
+# committing and pushing to the repo Argo CD watches, which is exactly what
+# 'canasta gitops push' does.
 # Input: instance_path, instance_orchestrator, _config_settings,
-#        _config_gitops_stat
+#        _config_gitops_stat, config_set_caller_reports (optional)
 
 - name: Update gitops vars for changed keys (Compose)
   ansible.builtin.include_tasks: >-
@@ -39,3 +40,4 @@
   when:
     - instance_is_k8s | bool
     - not (_config_set_stage_only | default(false) | bool)
+    - not (config_set_caller_reports | default(false) | bool)

@@ -124,10 +124,9 @@ spec:
 {{- end }}
 ---
 {{- if .Values.crowdsec.enabled }}
-# The CrowdSec engine runs as a sidecar in the Caddy pod, so this Service
-# selects the caddy component and routes :8080 (the LAPI) back to that
-# pod. The shared Caddyfile hardcodes `api_url http://crowdsec:8080`, so
-# this name/port must match for the bouncer to reach the engine.
+# Routes :8080 to the CrowdSec local API (deployment-crowdsec.yaml). The
+# shared Caddyfile hardcodes `api_url http://crowdsec:8080` and the agent in
+# the caddy pod uses the same URL, so this name/port must match.
 apiVersion: v1
 kind: Service
 metadata:
@@ -147,5 +146,5 @@ spec:
       name: lapi
   selector:
     {{- include "canasta.selectorLabels" . | nindent 4 }}
-    app.kubernetes.io/component: caddy
+    app.kubernetes.io/component: crowdsec
 {{- end }}

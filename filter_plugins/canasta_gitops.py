@@ -5,9 +5,20 @@
 
 import hashlib
 import json
+import os
 import re
+import sys
 
 import yaml
+
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "roles", "common", "module_utils"))
+
+from canasta_gitops_pending import (  # noqa: E402
+    unpushed_changes,
+    unpushed_probe_script,
+)
 
 ENCRYPTION_FILTER = "git-crypt"
 
@@ -376,9 +387,10 @@ def canasta_secret_checksums(secrets, values, instance_id):
     ``secrets`` is a k8s_info Secret listing, ``values`` the instance's Helm
     values. Returns hashes only, never the values: ``web`` (database
     passwords, MediaWiki secret key and the --web app secrets), ``caddy``
-    (the CrowdSec bouncer key) and ``sidecars`` (one per sidecar that reads
-    app secrets), for the chart to put on each pod template so a changed
-    Secret value rolls the pods that read it.
+    (the CrowdSec bouncer key and agent password), ``crowdsec`` (the agent
+    password the local API registers) and ``sidecars`` (one per sidecar that
+    reads app secrets), for the chart to put on each pod template so a
+    changed Secret value rolls the pods that read it.
     """
     values = values or {}
     names = values.get("secrets") or {}
@@ -414,9 +426,22 @@ def canasta_secret_checksums(secrets, values, instance_id):
     return {
         "web": _secret_fingerprint(data, web),
         "caddy": _secret_fingerprint(
-            data, pepper + [(crowdsec, "CROWDSEC_BOUNCER_API_KEY")]),
+            data, pepper + [(crowdsec, "CROWDSEC_BOUNCER_API_KEY"),
+                            (crowdsec, "CROWDSEC_AGENT_PASSWORD")]),
+        "crowdsec": _secret_fingerprint(
+            data, pepper + [(crowdsec, "CROWDSEC_AGENT_PASSWORD")]),
         "sidecars": sidecars,
     }
+
+
+def canasta_gitops_unpushed_probe(instance_path):
+    """Read-only shell that gathers what a gitops instance has not pushed."""
+    return unpushed_probe_script(instance_path)
+
+
+def canasta_gitops_unpushed(stdout, secret_key_regex):
+    """The unpushed commits and paths canasta_gitops_unpushed_probe found."""
+    return unpushed_changes(stdout, secret_key_regex)
 
 
 class FilterModule(object):
@@ -437,4 +462,6 @@ class FilterModule(object):
             "canasta_git_remote_known_hosts_name":
                 canasta_git_remote_known_hosts_name,
             "canasta_secret_checksums": canasta_secret_checksums,
+            "canasta_gitops_unpushed_probe": canasta_gitops_unpushed_probe,
+            "canasta_gitops_unpushed": canasta_gitops_unpushed,
         }

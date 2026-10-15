@@ -1222,8 +1222,8 @@ class TestResilientExec:
         tasks = yaml.safe_load(
             open(os.path.join(ORCHESTRATOR_TASKS, "k8s_argocd_bootstrap.yml")))
         install_block = next(t for t in tasks if t.get("name") == "Install Argo CD")
-        sub = install_block["block"]
-        helm = next(t for t in sub if t.get("name") == "Install Argo CD via Helm")
+        helm = next(t for t in TestResilientExec._walk(install_block["block"])
+                    if t.get("name") == "Install Argo CD via Helm")
         assert "resilient_exec.yml" in helm["ansible.builtin.include_tasks"]
 
     def test_k3s_install_uses_resilient_exec(self):

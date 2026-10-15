@@ -2,7 +2,8 @@
 # Register CAPI + auto-enroll the CrowdSec bouncer, when CrowdSec is
 # enabled but no bouncer key is stored yet. Orchestrator-agnostic: the
 # crowdsec role tasks dispatch Compose vs k8s internally via
-# crowdsec_cscli_prefix, so only the K8s sidecar-readiness wait is guarded here.
+# crowdsec_cscli_prefix, so only the K8s local API readiness wait is guarded
+# here.
 #
 # Shared by the orchestrator start path and the create first-start path so
 # every entry point brings up a fully-enforcing CrowdSec (engine +
@@ -31,14 +32,14 @@
 - name: Register CAPI and enroll the CrowdSec bouncer when enabled
   when: _autoenroll_env.variables.CANASTA_ENABLE_CROWDSEC | default('false', true) | lower == 'true'
   block:
-    # The K8s engine is a sidecar in the caddy pod, so wait for that pod to
-    # be Ready before exec-ing cscli into it (helm --wait usually covers it,
-    # but the first-deploy / scale-from-stopped paths can outrun it).
-    # Compose starts the crowdsec service synchronously, so no wait needed.
-    - name: Wait for caddy (CrowdSec sidecar) readiness before enroll
+    # Wait for the K8s local API pod to be Ready before exec-ing cscli into
+    # it (helm --wait usually covers it, but the first-deploy /
+    # scale-from-stopped paths can outrun it). Compose starts the crowdsec
+    # service synchronously, so no wait needed.
+    - name: Wait for the CrowdSec local API readiness before enroll
       ansible.builtin.command:
         cmd: >-
-          kubectl rollout status deployment/canasta-{{ instance_id }}-caddy
+          kubectl rollout status deployment/canasta-{{ instance_id }}-crowdsec
           -n canasta-{{ instance_id }} --timeout=300s
       changed_when: false
       when: instance_is_k8s | bool

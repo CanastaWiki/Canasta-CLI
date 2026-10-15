@@ -1,11 +1,11 @@
 """gitops status, gitops diff commands."""
 
-import base64
 import json
 import re
 import subprocess
 import sys
 
+import canasta_gitops_pending
 import yaml
 
 from . import _helpers
@@ -79,41 +79,11 @@ def _gitops_status_script(path, ssh_key=None, k8s=False):
          "render": _k8s_render_inputs_script() if k8s else ""}
 
 
-# Gitignored inputs that 'gitops push' on Kubernetes renders into the
-# committed values, so git cannot see an edit to them until push runs.
-_K8S_RENDER_INPUT_FILES = (
-    ".env",
-    "config/wikis.yaml",
-    "config/Caddyfile",
-    "config/Caddyfile.site",
-    "config/default.vcl",
-    "config/composer.local.json",
-    "config/secrets-web",
-)
-
-
 def _k8s_render_inputs_script():
     """Status-script section emitting the files a Kubernetes push renders
-    from, plus the values file that holds their last render, as
-    `<path>\\t<base64>` lines. The values file is tagged `@basis`."""
-    emit = 'printf \'%s\\t%s\\n\' "$f" "$(base64 < "$f" | tr -d \'\\n\')"'
-    return (
-        "; echo '%(d)s'; "
-        "for f in %(files)s; do [ -f \"$f\" ] && %(emit)s; done; "
-        # The same selection k8s_sync_config.yml's find makes: regular
-        # files, not hidden, not named README.
-        "[ -d config/settings ] && find config/settings -type f "
-        "! -name README ! -name '.*' | while IFS= read -r f; do %(emit)s; done; "
-        "if [ -f values.template.yaml ]; then "
-        "b=\"hosts/$(cat .gitops-host 2>/dev/null)/rendered-values.yaml\"; "
-        "else b=values.yaml; fi; "
-        "[ -f \"$b\" ] && printf '@basis\\t%%s\\n' \"$(base64 < \"$b\" | tr -d '\\n')\"; "
-        "true"
-    ) % {
-        "d": _helpers._SENTINEL,
-        "files": " ".join(_K8S_RENDER_INPUT_FILES),
-        "emit": emit,
-    }
+    from, plus the values file that holds their last render."""
+    return "; echo '%s'; %s" % (
+        _helpers._SENTINEL, canasta_gitops_pending.k8s_render_inputs_probe())
 
 
 _URL_LINE_RE = re.compile(r"^[ \t]*url:.*$", re.MULTILINE)
@@ -123,29 +93,7 @@ _URL_LINE_RE = re.compile(r"^[ \t]*url:.*$", re.MULTILINE)
 # and other hosts pull it — ignoring it would break topology resolution.
 _MANAGED_UNTRACKED_FILES = {"hosts/hosts.yaml"}
 
-# git diff --name-status codes → human labels (git's own vocabulary), so a
-# staged/unstaged deletion doesn't read as content being pushed.
-_CHANGE_LABELS = {
-    "A": "new file", "M": "modified", "D": "deleted",
-    "R": "renamed", "C": "copied", "T": "typechange",
-}
-
-
-def _parse_name_status(raw):
-    """Parse `git diff --name-status` output into (label, path) pairs.
-
-    Each line is `<CODE>\\t<path>` (rename/copy is `<CODE>\\t<old>\\t<path>` —
-    take the last field for the current path). Unknown codes fall back to the
-    raw code so nothing is silently dropped."""
-    changes = []
-    for ln in raw.split("\n"):
-        if not ln.strip():
-            continue
-        fields = ln.split("\t")
-        code = fields[0][:1]
-        path = fields[-1]
-        changes.append((_CHANGE_LABELS.get(code, fields[0]), path))
-    return changes
+_parse_name_status = canasta_gitops_pending.parse_name_status
 
 
 def _wikis_uncaptured_edit(live_raw, tmpl_raw):
@@ -214,79 +162,9 @@ def _env_line_secret_re():
 
 
 def _pending_k8s_render(section, already_listed=()):
-    """Inputs whose content differs from what the last Kubernetes render
-    committed, so the next 'gitops push' will render and commit them.
-
-    `section` is the status-script output of _k8s_render_inputs_script.
-    Rebuilds the configData entries k8s_sync_config.yml builds from those
-    files and compares them with the configData in the values file Argo CD
-    deploys. Paths in `already_listed` (git already reports them) are left
-    out. Returns [] when there is no values file to compare with.
-    """
-    files = {}
-    basis_raw = None
-    for ln in (section or "").split("\n"):
-        name, sep, b64 = ln.partition("\t")
-        if not sep:
-            continue
-        try:
-            content = base64.b64decode(b64).decode("utf-8")
-        except (ValueError, UnicodeDecodeError):
-            continue
-        if name == "@basis":
-            basis_raw = content
-        else:
-            files[name] = content
-    if basis_raw is None:
-        return []
-    try:
-        basis = yaml.safe_load(basis_raw) or {}
-    except yaml.YAMLError:
-        return []
-    if not isinstance(basis, dict):
-        return []
-    config_data = basis.get("configData") or {}
-    rendered_web = config_data.get("web") or {}
-    pending = []
-
-    def check(path, expected, rendered):
-        if expected != rendered and path not in already_listed:
-            pending.append(path)
-
-    if ".env" in files:
-        secret_re = _env_line_secret_re()
-        env = "\n".join(
-            ln for ln in files[".env"].splitlines()
-            if not secret_re.match(ln)) + "\n"
-        check(".env", env, rendered_web.get(".env"))
-    for path, key in (("config/wikis.yaml", "wikis.yaml"),
-                      ("config/composer.local.json", "composer.local.json")):
-        check(path, files.get(path), rendered_web.get(key))
-
-    local_settings = {
-        "settings--" + p[len("config/settings/"):].replace("/", "--"): p
-        for p in files if p.startswith("config/settings/")
-    }
-    rendered_settings = {k for k in rendered_web if k.startswith("settings--")}
-    for key in sorted(set(local_settings) | rendered_settings):
-        path = local_settings.get(
-            key, "config/settings/" + key[len("settings--"):].replace("--", "/"))
-        check(path, files.get(path), rendered_web.get(key))
-
-    rendered_caddy = config_data.get("caddy") or {}
-    for path, key in (("config/Caddyfile", "Caddyfile"),
-                      ("config/Caddyfile.site", "Caddyfile.site")):
-        check(path, files.get(path), rendered_caddy.get(key))
-    check("config/default.vcl", files.get("config/default.vcl"),
-          (config_data.get("varnish") or {}).get("default.vcl"))
-
-    web_secrets = []
-    for ln in files.get("config/secrets-web", "").splitlines():
-        ln = ln.strip()
-        if ln and not ln.startswith("#") and ln not in web_secrets:
-            web_secrets.append(ln)
-    check("config/secrets-web", web_secrets, basis.get("appSecretEnv") or [])
-    return pending
+    """Inputs the next Kubernetes 'gitops push' will render and commit."""
+    return canasta_gitops_pending.pending_k8s_render(
+        section, _env_line_secret_re(), already_listed)
 
 
 def _pending_render_lines(pending):

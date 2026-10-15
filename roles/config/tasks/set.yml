@@ -168,7 +168,8 @@
   when: _config_set_stage_only | bool
 
 # Only a start enrolls the bouncer, and a sync is not a start; a stopped
-# instance enrolls it when it next starts.
+# instance enrolls it when it next starts. Either way the new key reaches
+# Caddy only through a later push.
 - name: Report the change staged for a gitops push
   ansible.builtin.debug:
     msg: >-
@@ -186,6 +187,10 @@
       The instance is stopped, so it was left stopped. Run
       'canasta gitops push -i {{ instance_id }}'; the change deploys the
       next time it starts.
+      {%- if _config_set_enables_crowdsec | bool %} That start enrolls the
+      CrowdSec bouncer; run 'canasta gitops push -i {{ instance_id }}'
+      again after it so Caddy uses the bouncer.
+      {%- endif %}
       {%- endif %}
   vars:
     _config_set_enables_crowdsec: >-

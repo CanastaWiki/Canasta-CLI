@@ -1,7 +1,7 @@
 """Kubernetes lifecycle checks: crowdsec reload, delete, create, worker join.
 
-- `crowdsec reload` must deliver an edited whitelists.yaml to the engine,
-  which on Kubernetes reads it from a ConfigMap seeded at caddy pod start.
+- `crowdsec reload` must deliver an edited whitelists.yaml to the agent,
+  which on Kubernetes reads it from a ConfigMap copied in at caddy pod start.
 - `delete` must not report success while the namespace is still terminating.
 - `create` must give the pods the MW_SECRET_KEY that .env holds.
 - `install k8s-worker` must wait for the new node itself to be Ready.
@@ -100,27 +100,12 @@ class TestCrowdsecReloadSyncsConfig:
         assert names.index("Apply edited CrowdSec config (Kubernetes)") \
             < names.index("Restart the CrowdSec engine")
 
-    @pytest.mark.parametrize("before,after,rolled", [
-        ("caddy-a", "caddy-b", True),
-        ("caddy-a", "caddy-a", False),
-        ("", "caddy-b", False),
-        (None, None, False),
-    ])
-    def test_restart_only_when_the_deploy_did_not_roll(
-            self, tmp_path, before, after, rolled):
-        tasks = _load(RELOAD)
-        note = _task(tasks, "Note whether the deploy already rolled the engine")
-        restart = _task(tasks, "Restart the CrowdSec engine")
-        play_vars = {}
-        if before is not None:
-            play_vars["_crowdsec_pods_before"] = {"stdout": before}
-            play_vars["_crowdsec_pods_after"] = {"stdout": after}
-        proc = _run(tmp_path, [
-            note,
-            {"ansible.builtin.assert": {"that": [
-                "(%s) == %s" % (restart["when"], not rolled)]}},
-        ], play_vars)
-        assert proc.returncode == 0, proc.stdout + proc.stderr
+    def test_the_local_api_always_restarts(self):
+        # A config change rolls only the caddy pod (the agent reads the
+        # files); the local API, which holds the console enrollment and
+        # credentials, is restarted every time.
+        restart = _task(_load(RELOAD), "Restart the CrowdSec engine")
+        assert "when" not in restart
 
 
 class TestDeleteWaitsForNamespace:

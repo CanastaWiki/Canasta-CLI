@@ -183,6 +183,13 @@ canasta_known_keys:
       Caddy bouncer API key from 'cscli bouncers add'. Optional; the
       bouncer stays dormant (blocks nothing) until it is set.
 
+  - name: CROWDSEC_AGENT_PASSWORD
+    group: Security (CrowdSec)
+    description: >-
+      Kubernetes only. Password the CrowdSec agent in the caddy pod logs in
+      to the local API with. Generated when CrowdSec is enabled; changing
+      it restarts both pods on the next deploy.
+
   - name: RESTIC_REPOSITORY
     group: Backup (Restic)
     description: Restic repo URL or local path

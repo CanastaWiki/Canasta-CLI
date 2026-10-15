@@ -27,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -4204,33 +4205,42 @@ def test_crowdsec(inst):
     )
 
 
+def _k8s_pod_containers_ready(ns, component):
+    """`name=ready` pairs for the containers of the first Running pod of
+    ``component``."""
+    result = subprocess.run(
+        ["kubectl", "get", "pods", "-n", ns,
+         "-l", "app.kubernetes.io/component=%s" % component,
+         "--field-selector=status.phase=Running",
+         "-o", "jsonpath={range .items[0].status.containerStatuses[*]}"
+         "{.name}={.ready} {end}"],
+        capture_output=True, text=True,
+    )
+    return result.stdout.split()
+
+
 def _k8s_caddy_ready(inst, timeout=300):
     """Wait until the caddy pod is Running with BOTH containers ready
-    (caddy + the crowdsec sidecar, i.e. 2/2). If caddy were left on the
-    stock image it would crashloop on the crowdsec Caddyfile
-    directive and never reach ready, so this doubles as that regression
-    guard."""
+    (caddy + the crowdsec-agent sidecar) and the CrowdSec local API pod is
+    ready. If caddy were left on the stock image it would crashloop on the
+    crowdsec Caddyfile directive and never reach ready, so this doubles as
+    that regression guard."""
     ns = "canasta-%s" % inst.id
     deadline = time.time() + timeout
     last = ""
-    print("  Waiting for caddy + crowdsec sidecar to be ready...", flush=True)
+    print("  Waiting for caddy, its crowdsec agent and the local API to be "
+          "ready...", flush=True)
     while time.time() < deadline:
-        result = subprocess.run(
-            ["kubectl", "get", "pods", "-n", ns,
-             "-l", "app.kubernetes.io/component=caddy",
-             "--field-selector=status.phase=Running",
-             "-o", "jsonpath={range .items[0].status.containerStatuses[*]}"
-             "{.name}={.ready} {end}"],
-            capture_output=True, text=True,
-        )
-        last = result.stdout.strip()
-        if "caddy=true" in last and "crowdsec=true" in last:
-            print("  caddy + crowdsec sidecar are ready (2/2)")
+        caddy = _k8s_pod_containers_ready(ns, "caddy")
+        lapi = _k8s_pod_containers_ready(ns, "crowdsec")
+        last = "caddy pod: %s; crowdsec pod: %s" % (caddy, lapi)
+        if ("caddy=true" in caddy and "crowdsec-agent=true" in caddy
+                and "crowdsec=true" in lapi):
+            print("  caddy, the crowdsec agent and the local API are ready")
             return
         time.sleep(5)
     raise AssertionError(
-        "caddy + crowdsec sidecar not ready within %ds (last: %s)"
-        % (timeout, last)
+        "caddy + crowdsec not ready within %ds (last: %s)" % (timeout, last)
     )
 
 
@@ -4278,14 +4288,14 @@ def test_k8s_crowdsec(inst):
     whole stack twice (enable + the bouncer-key store), and on a 2-CPU CI
     runner the MediaWiki pod's healthcheck start-period makes a second full
     restart blow helm's --wait. The restart-light command surface below
-    (reload only rolls the caddy deployment, not the stack) keeps this within
-    the runner's budget.
+    (reload only rolls the CrowdSec local API, not the stack) keeps this
+    within the runner's budget.
 
     The live 'banned IP gets a 403' assertion is intentionally omitted: in the
     CI cluster the client IP Caddy sees is environment-dependent (same reasoning
     as the Compose test_crowdsec). This pins the deterministic behavior: the
-    sidecar comes up on the plugin image, every command exits clean, and
-    ban/unban decisions plumb through the LAPI."""
+    agent and local API come up and caddy runs the plugin image, every
+    command exits clean, and ban/unban decisions plumb through the LAPI."""
     result = subprocess.run(["kubectl", "cluster-info"], capture_output=True)
     if result.returncode != 0:
         raise SkipTest("kubectl not available or cluster not reachable")
@@ -4307,7 +4317,7 @@ def test_k8s_crowdsec(inst):
     )
 
     # The caddy deployment must run the plugin image and the pod must
-    # reach 2/2 (caddy + crowdsec sidecar). Stock image -> crashloop, never 2/2.
+    # reach 2/2 (caddy + crowdsec agent). Stock image -> crashloop, never 2/2.
     _k8s_caddy_ready(inst)
     image = _k8s_caddy_image(inst)
     import yaml as _yaml
@@ -4325,7 +4335,8 @@ def test_k8s_crowdsec(inst):
         % values.get("crowdsec")
     )
 
-    # Every K8s crowdsec command must exec cleanly into the sidecar.
+    # Every K8s crowdsec command must exec cleanly into the local API or
+    # the agent.
     # run_quiet raises on a non-zero exit, so these calls ARE the assertion.
     print("Verifying the bouncer enrolled at create time...")
     out = _wait_bouncer_active(inst)
@@ -4347,10 +4358,10 @@ def test_k8s_crowdsec(inst):
     out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
     assert "203.0.113.7" not in out, "unbanned IP should be gone from decisions"
 
-    # reload / reload --purge-blocklists roll ONLY the caddy deployment (the
-    # engine is a sidecar there), not the whole stack — light enough for CI.
-    # The Recreate rollout renames the caddy pod, so this also exercises the
-    # post-restart cscli prefix re-resolve.
+    # reload / reload --purge-blocklists roll ONLY the local API deployment,
+    # not the whole stack — light enough for CI. The Recreate rollout renames
+    # the local API pod, so this also exercises the post-restart cscli prefix
+    # re-resolve.
     print("Reloading the engine...")
     inst.run_ok("crowdsec", "reload", "-i", inst.id)
     _k8s_caddy_ready(inst)
@@ -4378,6 +4389,186 @@ def test_k8s_crowdsec(inst):
             break
         time.sleep(5)
     assert result.returncode != 0, "Namespace still exists after delete"
+
+
+class _IngressProbe:
+    """Polls the wiki through the ingress in a background thread and records
+    every answer, so a test can assert that nothing failed while it acted."""
+
+    URL = "http://127.0.0.1/w/api.php?action=query&meta=siteinfo&format=json"
+
+    def __init__(self):
+        import threading
+        self.results = []
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    @classmethod
+    def once(cls):
+        """The HTTP status for one request, or the error text."""
+
+        class _NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args, **kwargs):
+                return None
+
+        req = urllib.request.Request(cls.URL)
+        req.add_header("Host", "localhost")
+        opener = urllib.request.build_opener(_NoRedirect)
+        try:
+            with opener.open(req, timeout=5) as resp:
+                return resp.status
+        except urllib.error.HTTPError as e:
+            return e.code
+        except Exception as e:
+            return "%s: %s" % (type(e).__name__, e)
+
+    def _run(self):
+        while not self._stop.is_set():
+            self.results.append((time.time(), self.once()))
+            self._stop.wait(0.25)
+
+    def __enter__(self):
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        self._thread.join()
+
+    def failures(self):
+        return [(t, r) for t, r in self.results
+                if not isinstance(r, int) or r >= 500]
+
+
+def _k8s_pod_names(ns, component):
+    result = subprocess.run(
+        ["kubectl", "get", "pods", "-n", ns,
+         "-l", "app.kubernetes.io/component=%s" % component,
+         "-o", "jsonpath={.items[*].metadata.name}"],
+        capture_output=True, text=True,
+    )
+    return set(result.stdout.split())
+
+
+def _wait_for_output(inst, needle, timeout, *args):
+    """Poll a canasta command until its output contains ``needle``."""
+    deadline = time.time() + timeout
+    out = ""
+    while time.time() < deadline:
+        out = inst.run_quiet(*args)
+        if needle in out:
+            return out
+        time.sleep(10)
+    raise AssertionError(
+        "'canasta %s' never showed %r within %ds:\n%s"
+        % (" ".join(args), needle, timeout, out))
+
+
+def test_k8s_crowdsec_rolling(inst):
+    """Kubernetes: with CrowdSec on, a Caddy change rolls without an outage.
+
+    The CrowdSec local API runs in its own Deployment holding the PVC, and
+    an agent sidecar in the caddy pod parses the access log, so the caddy
+    Deployment rolls (the new pod is Ready before the old one stops) instead
+    of recreating. This drives a crowdsec config edit through 'crowdsec
+    reload', which rolls the caddy pod and restarts the local API, while a
+    probe polls the wiki through the ingress, and asserts no request failed.
+    It also checks that the agent reports to the local API and reads the
+    access log, and that a ban survives a local API restart without the
+    caddy pod restarting."""
+    result = subprocess.run(["kubectl", "cluster-info"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("kubectl not available or cluster not reachable")
+    result = subprocess.run(["helm", "version", "--short"], capture_output=True)
+    if result.returncode != 0:
+        raise SkipTest("helm not installed")
+    ns = "canasta-%s" % inst.id
+
+    with open(inst.env_file, "a") as f:
+        f.write("CANASTA_ENABLE_CROWDSEC=true\n")
+
+    print("Creating Kubernetes instance with CrowdSec enabled...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "--orchestrator", "kubernetes",
+        "--skip-argocd-install",
+        "-e", inst.env_file,
+    )
+    try:
+        _k8s_caddy_ready(inst)
+        env = read_env(inst.env_path())
+        assert env.get("CROWDSEC_AGENT_PASSWORD"), (
+            "create should generate CROWDSEC_AGENT_PASSWORD")
+        _wait_bouncer_active(inst)
+
+        print("Waiting for the wiki to answer through the ingress...")
+        deadline = time.time() + 300
+        answer = None
+        while time.time() < deadline:
+            answer = _IngressProbe.once()
+            if isinstance(answer, int) and answer < 500:
+                break
+            time.sleep(5)
+        assert isinstance(answer, int) and answer < 500, (
+            "the wiki never answered through the ingress (last: %s)" % answer)
+
+        print("Checking the agent reports and reads the access log...")
+        _wait_for_output(inst, "Agent: reporting", 300,
+                         "crowdsec", "status", "-i", inst.id)
+        _wait_for_output(inst, "/var/log/caddy/access.log", 300,
+                         "crowdsec", "metrics", "-i", inst.id)
+
+        # 203.0.113.0/24 is TEST-NET-3 (documentation range) — safe to ban.
+        inst.run_ok("crowdsec", "ban", "203.0.113.9", "-i", inst.id)
+
+        print("Editing the whitelist and reloading under load...")
+        whitelist = os.path.join(inst.instance_path(), "config", "crowdsec",
+                                 "whitelists.yaml")
+        with open(whitelist, "a") as f:
+            f.write("# rolled by the integration test\n")
+        caddy_before = _k8s_pod_names(ns, "caddy")
+        lapi_before = _k8s_pod_names(ns, "crowdsec")
+        with _IngressProbe() as probe:
+            inst.run_ok("crowdsec", "reload", "-i", inst.id)
+            subprocess.run(
+                ["kubectl", "rollout", "status",
+                 "deployment/canasta-%s-caddy" % inst.id, "-n", ns,
+                 "--timeout=300s"], check=True)
+            # Requests keep arriving while the old pod drains.
+            time.sleep(15)
+        _k8s_caddy_ready(inst)
+        caddy_after = _k8s_pod_names(ns, "caddy")
+        assert not caddy_before & caddy_after, (
+            "the whitelist edit should roll the caddy pod (%s -> %s)"
+            % (caddy_before, caddy_after))
+        assert not lapi_before & _k8s_pod_names(ns, "crowdsec"), (
+            "reload should restart the local API")
+        failures = probe.failures()
+        print("  %d requests during the roll, %d failed"
+              % (len(probe.results), len(failures)))
+        assert probe.results, "the probe made no requests"
+        assert not failures, (
+            "requests failed while the caddy pod rolled: %s" % failures[:20])
+
+        print("Restarting the local API alone...")
+        caddy_before = _k8s_pod_names(ns, "caddy")
+        with _IngressProbe() as probe:
+            inst.run_ok("crowdsec", "reload", "-i", inst.id)
+        _k8s_caddy_ready(inst)
+        assert _k8s_pod_names(ns, "caddy") == caddy_before, (
+            "a reload with no config change must leave the caddy pod alone")
+        assert not probe.failures(), (
+            "requests failed while the local API restarted: %s"
+            % probe.failures()[:20])
+        out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
+        assert "203.0.113.9" in out, (
+            "the ban should survive a local API restart:\n%s" % out)
+        _wait_for_output(inst, "Agent: reporting", 300,
+                         "crowdsec", "status", "-i", inst.id)
+    finally:
+        print("Deleting instance...")
+        inst.run("delete", "-i", inst.id, "--yes")
 
 
 def test_k8s_build_from(inst):
@@ -5707,6 +5898,7 @@ ALL_TESTS = {
     "k8s-lifecycle": test_k8s_lifecycle,
     "k8s-build-from": test_k8s_build_from,
     "k8s-crowdsec": test_k8s_crowdsec,
+    "k8s-crowdsec-rolling": test_k8s_crowdsec_rolling,
     "k8s-backup": test_k8s_backup,
     "k8s-gitops": test_k8s_gitops,
     "k8s-multi-instance": test_k8s_multi_instance,

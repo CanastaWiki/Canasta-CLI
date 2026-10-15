@@ -107,8 +107,8 @@
       start checks it again. If the credentials were revoked, empty
       /etc/crowdsec/online_api_credentials.yaml and delete any
       /etc/crowdsec/online_api_credentials.yaml.refused in the crowdsec
-      container (on Kubernetes, the crowdsec sidecar in the caddy pod), then
-      run 'canasta restart' to register anew.
+      container (on Kubernetes, the crowdsec container in the crowdsec pod),
+      then run 'canasta restart' to register anew.
   when:
     - _crowdsec_capi_refused.rc != 0
     - _crowdsec_capi_restored.rc != 0
