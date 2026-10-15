@@ -1659,7 +1659,10 @@ class TestLifecycleCommands:
             captured_cmds.append(cmd)
             return 0
 
-        monkeypatch.setattr(subprocess, "call", mock_call)
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda argv, **kw: subprocess.CompletedProcess(
+                argv, mock_call(argv, **kw), stdout=""))
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
@@ -1675,9 +1678,9 @@ class TestLifecycleCommands:
         args = type("Args", (), {"id": "test"})()
         rc = direct_commands.cmd_start(args)
         assert rc == 0
-        assert captured_cmds[0] == [
+        assert [
             "docker", "compose", "-f", "docker-compose.yml", "up", "-d",
-        ]
+        ] in captured_cmds
 
     def test_stop_runs_down(self, monkeypatch):
         captured_cmds = []
@@ -1686,7 +1689,10 @@ class TestLifecycleCommands:
             captured_cmds.append(cmd)
             return 0
 
-        monkeypatch.setattr(subprocess, "call", mock_call)
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda argv, **kw: subprocess.CompletedProcess(
+                argv, mock_call(argv, **kw), stdout=""))
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",
@@ -1713,7 +1719,7 @@ class TestLifecycleCommands:
         monkeypatch.setattr(direct_commands._helpers, "_sync_compose_profiles",
             lambda inst: events.append("sync"))
         monkeypatch.setattr(direct_commands._helpers, "_run_compose",
-            lambda inst_id, inst, action: events.append(action[0]) or 0)
+            lambda inst_id, inst, action, **kw: events.append(action[0]) or 0)
         args = type("Args", (), {"id": "test"})()
         rc = direct_commands.cmd_stop(args)
         assert rc == 0
@@ -1727,14 +1733,17 @@ class TestLifecycleCommands:
         monkeypatch.setattr(direct_commands._helpers, "_ssh_run", mock_ssh)
 
         # ...but the long `up -d` runs via `ssh <target> <remote_cmd>` through
-        # subprocess.call (no 30s _ssh_run cap, which would kill image pulls).
+        # subprocess (no 30s _ssh_run cap, which would kill image pulls).
         call_argvs = []
 
         def mock_call(argv, **kw):
             call_argvs.append(argv)
             return 0
 
-        monkeypatch.setattr(subprocess, "call", mock_call)
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda argv, **kw: subprocess.CompletedProcess(
+                argv, mock_call(argv, **kw), stdout=""))
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
             lambda args: ("test", {
                 "path": "/srv/test",

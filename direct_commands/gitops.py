@@ -1,5 +1,6 @@
 """gitops status, gitops diff commands."""
 
+import base64
 import json
 import re
 import subprocess
@@ -38,7 +39,7 @@ def _git_ssh_env_prefix(ssh_key):
     )
 
 
-def _gitops_status_script(path, ssh_key=None):
+def _gitops_status_script(path, ssh_key=None, k8s=False):
     """Build a batched shell script that gathers all gitops status info."""
     d = _helpers._SENTINEL
     qp = _helpers._shell_quote(path)
@@ -73,7 +74,46 @@ def _gitops_status_script(path, ssh_key=None):
         # dirs whose contents are all ignored and mishandles submodules) so
         # it matches what `git status` shows exactly.
         "git status --porcelain 2>/dev/null"
-    ) % {"p": qp, "d": d, "ssh": _git_ssh_env_prefix(ssh_key)}
+        "%(render)s"
+    ) % {"p": qp, "d": d, "ssh": _git_ssh_env_prefix(ssh_key),
+         "render": _k8s_render_inputs_script() if k8s else ""}
+
+
+# Gitignored inputs that 'gitops push' on Kubernetes renders into the
+# committed values, so git cannot see an edit to them until push runs.
+_K8S_RENDER_INPUT_FILES = (
+    ".env",
+    "config/wikis.yaml",
+    "config/Caddyfile",
+    "config/Caddyfile.site",
+    "config/default.vcl",
+    "config/composer.local.json",
+    "config/secrets-web",
+)
+
+
+def _k8s_render_inputs_script():
+    """Status-script section emitting the files a Kubernetes push renders
+    from, plus the values file that holds their last render, as
+    `<path>\\t<base64>` lines. The values file is tagged `@basis`."""
+    emit = 'printf \'%s\\t%s\\n\' "$f" "$(base64 < "$f" | tr -d \'\\n\')"'
+    return (
+        "; echo '%(d)s'; "
+        "for f in %(files)s; do [ -f \"$f\" ] && %(emit)s; done; "
+        # The same selection k8s_sync_config.yml's find makes: regular
+        # files, not hidden, not named README.
+        "[ -d config/settings ] && find config/settings -type f "
+        "! -name README ! -name '.*' | while IFS= read -r f; do %(emit)s; done; "
+        "if [ -f values.template.yaml ]; then "
+        "b=\"hosts/$(cat .gitops-host 2>/dev/null)/rendered-values.yaml\"; "
+        "else b=values.yaml; fi; "
+        "[ -f \"$b\" ] && printf '@basis\\t%%s\\n' \"$(base64 < \"$b\" | tr -d '\\n')\"; "
+        "true"
+    ) % {
+        "d": _helpers._SENTINEL,
+        "files": " ".join(_K8S_RENDER_INPUT_FILES),
+        "emit": emit,
+    }
 
 
 _URL_LINE_RE = re.compile(r"^[ \t]*url:.*$", re.MULTILINE)
@@ -163,6 +203,103 @@ def _parse_working_tree_changes(parts):
     status_raw = parts[9].strip() if len(parts) > 9 else ""
     untracked = [ln[3:] for ln in status_raw.split("\n") if ln.startswith("?? ")]
     return staged, unstaged, untracked, wikis_drift
+
+
+def _env_line_secret_re():
+    """vars/secret_classification.yml's canasta_secret_key_regex, which
+    k8s_sync_config.yml matches against each .env line."""
+    pattern, prefixes, explicit = _helpers._secret_classification()
+    return re.compile(
+        "^([^=]*%s|%s)" % (pattern, "|".join(prefixes + explicit)))
+
+
+def _pending_k8s_render(section, already_listed=()):
+    """Inputs whose content differs from what the last Kubernetes render
+    committed, so the next 'gitops push' will render and commit them.
+
+    `section` is the status-script output of _k8s_render_inputs_script.
+    Rebuilds the configData entries k8s_sync_config.yml builds from those
+    files and compares them with the configData in the values file Argo CD
+    deploys. Paths in `already_listed` (git already reports them) are left
+    out. Returns [] when there is no values file to compare with.
+    """
+    files = {}
+    basis_raw = None
+    for ln in (section or "").split("\n"):
+        name, sep, b64 = ln.partition("\t")
+        if not sep:
+            continue
+        try:
+            content = base64.b64decode(b64).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if name == "@basis":
+            basis_raw = content
+        else:
+            files[name] = content
+    if basis_raw is None:
+        return []
+    try:
+        basis = yaml.safe_load(basis_raw) or {}
+    except yaml.YAMLError:
+        return []
+    if not isinstance(basis, dict):
+        return []
+    config_data = basis.get("configData") or {}
+    rendered_web = config_data.get("web") or {}
+    pending = []
+
+    def check(path, expected, rendered):
+        if expected != rendered and path not in already_listed:
+            pending.append(path)
+
+    if ".env" in files:
+        secret_re = _env_line_secret_re()
+        env = "\n".join(
+            ln for ln in files[".env"].splitlines()
+            if not secret_re.match(ln)) + "\n"
+        check(".env", env, rendered_web.get(".env"))
+    for path, key in (("config/wikis.yaml", "wikis.yaml"),
+                      ("config/composer.local.json", "composer.local.json")):
+        check(path, files.get(path), rendered_web.get(key))
+
+    local_settings = {
+        "settings--" + p[len("config/settings/"):].replace("/", "--"): p
+        for p in files if p.startswith("config/settings/")
+    }
+    rendered_settings = {k for k in rendered_web if k.startswith("settings--")}
+    for key in sorted(set(local_settings) | rendered_settings):
+        path = local_settings.get(
+            key, "config/settings/" + key[len("settings--"):].replace("--", "/"))
+        check(path, files.get(path), rendered_web.get(key))
+
+    rendered_caddy = config_data.get("caddy") or {}
+    for path, key in (("config/Caddyfile", "Caddyfile"),
+                      ("config/Caddyfile.site", "Caddyfile.site")):
+        check(path, files.get(path), rendered_caddy.get(key))
+    check("config/default.vcl", files.get("config/default.vcl"),
+          (config_data.get("varnish") or {}).get("default.vcl"))
+
+    web_secrets = []
+    for ln in files.get("config/secrets-web", "").splitlines():
+        ln = ln.strip()
+        if ln and not ln.startswith("#") and ln not in web_secrets:
+            web_secrets.append(ln)
+    check("config/secrets-web", web_secrets, basis.get("appSecretEnv") or [])
+    return pending
+
+
+def _pending_render_lines(pending):
+    """Advisory lines for inputs the next Kubernetes push will render."""
+    if not pending:
+        return []
+    lines = ["Changes the next push will render (%d files):" % len(pending)]
+    lines.extend("  %s" % p for p in pending)
+    lines.append(
+        "  'canasta gitops push' renders them into the deployed values "
+        "and commits the result.")
+    lines.append("")
+    return lines
 
 
 def _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift):
@@ -473,6 +610,9 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
     # edits apply to K8s gitops too (e.g. an upgrade backfilling
     # wikis.yaml.template), so surface the same advisories as the Compose path.
     staged, unstaged, untracked, wikis_drift = _parse_working_tree_changes(parts)
+    listed = {p for _, p in staged} | {p for _, p in unstaged} | set(untracked)
+    pending_render = _pending_k8s_render(
+        parts[10] if len(parts) > 10 else "", listed)
 
     lines = [
         "Host:             %s" % hostname,
@@ -493,6 +633,7 @@ def _parse_gitops_status_k8s(stdout, instance_id, argocd):
     lines.extend(
         _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift)
     )
+    lines.extend(_pending_render_lines(pending_render))
     lines.extend([
         "Argo CD:",
         "  Sync status:    %s" % sync_status,
@@ -581,7 +722,8 @@ def cmd_gitops_status(args):
         )
         return 1
 
-    script = _gitops_status_script(path, ssh_key=getattr(args, "ssh_key", None))
+    script = _gitops_status_script(path, ssh_key=getattr(args, "ssh_key", None),
+                                   k8s=_helpers._is_k8s(inst))
 
     if _helpers._is_localhost(host):
         try:
