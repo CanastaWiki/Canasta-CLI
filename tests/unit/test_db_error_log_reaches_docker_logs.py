@@ -141,7 +141,7 @@ class TestBothWaysAStartFailsReachIt:
         msg = str(_named(START, "Report that web never reported healthy")
                   ["ansible.builtin.fail"]["msg"])
         assert "_start_db_log_text" in msg
-        assert "_start_web_logs.stdout" in msg
+        assert "_start_web_log_lines" in msg
 
     def test_the_health_gate_conditions_are_unchanged(self):
         conds = [str(c) for c in _named(START, "Fail when web never reported healthy")["when"]]
@@ -169,13 +169,16 @@ class TestTheFastPathCapturesItToo:
 
     def test_an_unhealthy_web_dumps_both_logs(self):
         import inspect
-        src = inspect.getsource(self._helpers()._wait_web_ready)
+        helpers = self._helpers()
+        assert "_report_web_unhealthy(" in inspect.getsource(
+            helpers._wait_web_ready)
+        src = inspect.getsource(helpers._report_web_unhealthy)
         assert "_dump_db_error_log(inst)" in src
-        assert "_dump_web_logs(inst)" in src
+        assert "_dump_web_logs(inst" in src
 
     def test_the_health_timeout_names_the_database_as_a_cause(self):
         import inspect
-        src = inspect.getsource(self._helpers()._wait_web_ready)
+        src = inspect.getsource(self._helpers()._report_web_unhealthy)
         assert "the database web waits" in src, (
             "the message blamed composer alone for a gate a dead database "
             "also fails"
