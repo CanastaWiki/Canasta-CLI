@@ -18,6 +18,7 @@ metadata:
   labels:
     {{- include "canasta.labels" . | nindent 4 }}
   annotations:
+    {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
     {{- if .Values.ingress.certManager.enabled }}
     cert-manager.io/cluster-issuer: {{ .Values.ingress.certManager.issuer }}
     {{- end }}

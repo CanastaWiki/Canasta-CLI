@@ -271,7 +271,7 @@ def test_prune_guarded_against_empty_namespace():
     c = _read(WRITESECRETS)
     # Prune only runs when the namespace actually returned Secrets, so an
     # empty/absent namespace can't wipe every DR copy from git.
-    assert "_sops_secrets | length > 0" in c
+    assert "_sops_cluster_secrets | length > 0" in c
 
 
 def test_skip_gate_requires_encrypted_file():

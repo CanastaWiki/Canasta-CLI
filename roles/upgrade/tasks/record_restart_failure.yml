@@ -1,0 +1,42 @@
+---
+# Record a failed restart of one instance so the upgrade moves on to the
+# next. Runs in the rescue of the restart, where ansible_failed_result is
+# the failure; a failed command's stderr says more than its generic msg.
+# The reason is the first sentence of the message's first paragraph: the
+# full message, logs included, has already been printed with the failure.
+# Input: instance_id, ansible_failed_result
+
+- name: Read the failure message
+  ansible.builtin.set_fact:
+    _upgrade_restart_lines: >-
+      {{ ((ansible_failed_result.stderr | default('', true) | string | trim)
+          or (ansible_failed_result.msg | default('', true) | string | trim)
+          or 'unknown error').splitlines() }}
+
+- name: Note why the restart failed
+  ansible.builtin.set_fact:
+    _upgrade_restart_failed: true
+    _upgrade_restart_reason: >-
+      {%- set ns = namespace(done=false, words=[]) -%}
+      {%- for line in _upgrade_restart_lines -%}
+      {%- if line | trim == '' or (line | trim).startswith('---') -%}
+      {%- set ns.done = true -%}
+      {%- elif not ns.done -%}
+      {%- set ns.words = ns.words + [line | trim] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- set para = ns.words | join(' ') -%}
+      {{ para.split('. ') | first }}{{ '.' if '. ' in para else '' }}
+
+- name: Report the failed restart
+  ansible.builtin.debug:
+    msg: >-
+      Restarting '{{ instance_id }}' failed; continuing with the remaining
+      instances. {{ _upgrade_restart_reason }}
+
+- name: Add the instance to the upgrade failures
+  ansible.builtin.set_fact:
+    _upgrade_failures: >-
+      {{ (_upgrade_failures | default([]))
+         + ["'" ~ instance_id ~ "': restarting failed: "
+            ~ _upgrade_restart_reason] }}

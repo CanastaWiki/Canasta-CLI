@@ -1,0 +1,47 @@
+---
+# Scale a stopped instance back up. stop scales every Deployment and
+# StatefulSet to zero; Helm won't restore them on its own.
+# Input: instance_id, _k8s_namespace, _start_values
+
+- name: Read web replica count from values
+  ansible.builtin.set_fact:
+    _web_replicas: "{{ _start_values.get('web', {}).get('replicaCount', 1) }}"
+
+# External-DB instances with Elasticsearch disabled have no
+# StatefulSets; 'kubectl scale --all' errors with "no objects
+# passed to scale". Check first and skip if none exist.
+- name: Check for statefulsets before scaling
+  ansible.builtin.command:
+    cmd: "kubectl get statefulset -n {{ _k8s_namespace }} -o name"
+  register: _start_sts_list
+  changed_when: false
+
+- name: Scale up statefulsets
+  ansible.builtin.command:
+    cmd: >-
+      kubectl scale statefulset --all --replicas=1
+      -n {{ _k8s_namespace }}
+  changed_when: true
+  when: _start_sts_list.stdout_lines | length > 0
+
+# Scale every deployment back up — core components AND any app
+# sidecars. Helm won't restore them on its own: its 3-way merge
+# leaves the kubectl scale-to-0 in place when the manifest's
+# replicas didn't change. Using --all (rather than a fixed list)
+# is what makes a Helm-managed sidecar survive a stop/restart.
+- name: Scale up all deployments
+  ansible.builtin.command:
+    cmd: >-
+      kubectl scale deployment --all --replicas=1
+      -n {{ _k8s_namespace }}
+  changed_when: true
+
+# Restore the web count afterward (it may be > 1); --all set it to 1.
+- name: Restore web replica count
+  ansible.builtin.command:
+    cmd: >-
+      kubectl scale deployment canasta-{{ instance_id }}-web
+      --replicas={{ _web_replicas }}
+      -n {{ _k8s_namespace }}
+  changed_when: true
+  when: _web_replicas | int != 1

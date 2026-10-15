@@ -6,6 +6,8 @@ metadata:
   labels:
     {{- include "canasta.labels" . | nindent 4 }}
     app.kubernetes.io/component: caddy
+  annotations:
+    {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
 spec:
   replicas: 1
   {{- if .Values.crowdsec.enabled }}
