@@ -95,6 +95,7 @@
         - values.yaml
         - values-configdata.yaml
         - values-sidecars.yaml
+        - values-db-account.yaml
       register: _hd_checksum_values
       failed_when: false
 
@@ -120,7 +121,7 @@
              | selectattr('content', 'defined')
              | map(attribute='content') | map('b64decode') | map('from_yaml')
              | select('mapping') | list
-             | combine }}
+             | combine(recursive=True) }}
       no_log: true
 
 - name: Check for the Secret checksums file

@@ -107,6 +107,26 @@ class TestFingerprint:
         sums = _sums([], {})
         assert sums["web"] and sums["caddy"] and sums["sidecars"] == {}
 
+    def test_own_account_passwords_roll_the_web(self):
+        values = dict(VALUES, db={"wikiUser": "mediawiki"})
+        secrets = _secrets()
+        secrets[0]["data"]["WIKI_DB_PASSWORD"] = _b64("wiki")
+        for key in ("WIKI_DB_PASSWORD", "MYSQL_ROOT_PASSWORD"):
+            changed = [dict(s, data=dict(s["data"])) for s in secrets]
+            changed[0]["data"][key] = _b64("other")
+            assert _sums(secrets, values)["web"] != \
+                _sums(changed, values)["web"], key
+
+    def test_an_external_database_keeps_the_root_keys(self):
+        values = dict(VALUES, db={"enabled": False, "wikiUser": "mediawiki"})
+        secrets = _secrets()
+        secrets[0]["data"]["WIKI_DB_PASSWORD"] = _b64("wiki")
+        changed = [dict(s, data=dict(s["data"])) for s in secrets]
+        changed[0]["data"]["WIKI_DB_PASSWORD"] = _b64("other")
+        assert _sums(secrets, values) == _sums(changed, values)
+        assert _sums(secrets, values)["web"] != \
+            _sums(_secrets(db="new"), values)["web"]
+
 
 # --- Chart -----------------------------------------------------------------
 
@@ -141,6 +161,49 @@ class TestChart:
 
     def test_caddy_without_crowdsec_reads_no_secret(self):
         assert "checksum/secrets" not in _render(*SET)["canasta-inst-caddy"]
+
+
+def _web_secret_refs(*args):
+    """(Secret, key) of every secretKeyRef in the web pod, init containers
+    included."""
+    if not shutil.which("helm"):
+        pytest.skip("helm is not installed")
+    out = subprocess.run(
+        ["helm", "template", "canasta", CHART, "--set", "instance.id=inst",
+         "--set-string", "appSecretEnv[0]=MAPS", *args],
+        capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    web = next(d for d in yaml.safe_load_all(out.stdout)
+               if d and d.get("kind") == "Deployment"
+               and d["metadata"]["name"] == "canasta-inst-web")
+    spec = web["spec"]["template"]["spec"]
+    refs = set()
+    for c in spec.get("initContainers", []) + spec["containers"]:
+        for env in c.get("env") or []:
+            ref = (env.get("valueFrom") or {}).get("secretKeyRef")
+            if ref:
+                refs.add((ref["name"], ref["key"]))
+    return refs
+
+
+@pytest.mark.parametrize("args, values", [
+    ((), {}),
+    (("--set", "db.wikiUser=mediawiki",
+      "--set-string", "configData.web.wikis\\.yaml=wikis: [{id: main}]"),
+     {"db": {"wikiUser": "mediawiki"}}),
+], ids=["root", "own-account"])
+def test_every_secret_the_web_pod_reads_rolls_it(args, values):
+    refs = _web_secret_refs(*args)
+    assert refs
+    values = dict(values, appSecretEnv=["MAPS"])
+    base = [_secret(name, **{key: "v" for n, key in refs if n == name})
+            for name in {n for n, _ in refs}]
+    for name, key in sorted(refs):
+        changed = [dict(s, data=dict(s["data"])) for s in base]
+        next(s for s in changed if s["metadata"]["name"] == name)[
+            "data"][key] = _b64("other")
+        assert canasta_secret_checksums(base, values, "inst")["web"] != \
+            canasta_secret_checksums(changed, values, "inst")["web"], (name, key)
 
 
 # --- Render ----------------------------------------------------------------
@@ -231,6 +294,18 @@ def test_a_direct_deploy_of_a_gitops_instance_carries_the_hashes():
     assert "canasta_secret_checksums" in yaml.safe_dump(block)
     assert all(t.get("no_log") for t in block["block"][1:])
     assert "values-checksums.yaml', '')" in text
+
+
+def test_a_direct_deploy_hashes_with_this_hosts_db_account():
+    tasks = yaml.safe_load(open(HELM_DEPLOY))
+    names = [t.get("name") for t in tasks]
+    block = tasks[names.index("Write the Secret checksums of a gitops instance")]
+    assert names.index("Write MediaWiki's database account override") < \
+        names.index("Write the Secret checksums of a gitops instance")
+    read = block["block"][0]
+    assert read["loop"][-1] == "values-db-account.yaml"
+    merged = block["block"][2]["vars"]["_hd_merged"]
+    assert "combine(recursive=True)" in merged
 
 
 # --- Ignored in the gitops repo --------------------------------------------
