@@ -171,6 +171,13 @@ class TestConfigSetGitopsKubernetes:
         assert "RESTART" in lines
         assert "RECONCILE_CADDY" not in lines
         assert "staged in its gitops repo" not in out
+        # The caller reports the outcome and the push it needs itself.
+        assert WARNING not in out
+
+    def test_internal_caller_that_restarts_still_warns(self, tmp_path):
+        out, lines, _ = _set(tmp_path, config_restart_by_caller=True,
+                             no_restart=True)
+        assert "staged in its gitops repo" not in out
         assert WARNING in out
 
 
@@ -195,6 +202,14 @@ class TestCrowdSecEnrollmentHint:
         out, _, _ = _set(tmp_path, running=False,
                          setting="CANASTA_ENABLE_CROWDSEC=true")
         assert "bouncer-enroll" not in out
+        assert ("the change deploys the next time it starts. That start "
+                "enrolls the CrowdSec bouncer; run 'canasta gitops push -i "
+                "inst' again after it so Caddy uses the bouncer.") in out
+
+    def test_a_stopped_instance_needs_one_push_for_other_settings(
+            self, tmp_path):
+        out, _, _ = _set(tmp_path, running=False)
+        assert "again after it" not in out
 
 
 class TestConfigSetOtherInstancesStillRestart:

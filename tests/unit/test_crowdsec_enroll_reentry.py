@@ -46,7 +46,7 @@ STUB_CONFIG_SET = """\
 """
 
 
-def _run(tmp_path, env_text):
+def _run(tmp_path, env_text, k8s=False, gitops=False):
     roles = tmp_path / "roles"
     cs = roles / "crowdsec" / "tasks"
     cs.mkdir(parents=True)
@@ -65,12 +65,15 @@ def _run(tmp_path, env_text):
     inst = tmp_path / "inst"
     inst.mkdir()
     (inst / ".env").write_text(env_text)
+    if gitops:
+        (inst / ".gitops-host").write_text("prod\n")
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
         "vars": {"instance_path": str(inst), "instance_id": "demo",
+                 "instance_is_k8s": k8s,
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_role": {
             "name": "crowdsec", "tasks_from": "bouncer_enroll.yml"},
@@ -103,3 +106,36 @@ def test_enrolled_instance_is_a_no_op(tmp_path):
     assert proc.returncode == 0, out
     assert "is enrolled and active for" not in out
     assert (inst / ".env").read_text() == "CROWDSEC_BOUNCER_API_KEY=old\n"
+
+
+PUSH_HINT = ("CrowdSec bouncer 'canasta-caddy' is registered for instance "
+             "'demo' and its key is stored, but Caddy does not use it until "
+             "it is in the gitops repo. Run 'canasta gitops push -i demo' to "
+             "activate it")
+
+
+def test_gitops_kubernetes_enroll_says_to_push_not_active(tmp_path):
+    proc, inst = _run(tmp_path, "CANASTA_ENABLE_CROWDSEC=true\n",
+                      k8s=True, gitops=True)
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 0, out
+    assert "CROWDSEC_BOUNCER_API_KEY=fresh-key" in (inst / ".env").read_text()
+    assert out.count(PUSH_HINT) == 1, out
+    assert "is enrolled and active for" not in out
+    assert "restarting to activate it" not in out
+
+
+def test_kubernetes_without_gitops_reports_active(tmp_path):
+    proc, _ = _run(tmp_path, "CANASTA_ENABLE_CROWDSEC=true\n", k8s=True)
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 0, out
+    assert out.count("is enrolled and active for") == 1, out
+    assert "gitops push" not in out
+
+
+def test_compose_gitops_reports_active(tmp_path):
+    proc, _ = _run(tmp_path, "CANASTA_ENABLE_CROWDSEC=true\n", gitops=True)
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 0, out
+    assert out.count("is enrolled and active for") == 1, out
+    assert "gitops push" not in out
