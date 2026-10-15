@@ -1,6 +1,7 @@
 ---
 # Enable extensions or skins.
 # Check installed, enable in settings.yaml, optionally run update.php.
+# A gitops-managed Kubernetes instance is staged for a gitops push instead.
 # Input: id, wiki (optional), _item_type (extensions|skins), _item_dir (extensions|skins),
 #        _names (comma-separated), skip_update (bool)
 
@@ -57,17 +58,36 @@
   vars:
     _settings_action: Enable
 
+# Argo CD deploys a gitops-managed Kubernetes instance from its repo and
+# self-heals back to it, so a direct deploy would be reverted until the
+# change is pushed. Such an instance is staged only. The web pods' startup
+# runs update.php for each wiki whose loaded extensions and skins changed,
+# once the sync rolls them.
+- name: Check whether the instance is gitops-managed
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _enable_gitops_marker
+
+- name: "Decide whether enable only stages the {{ _item_type }} for a gitops push"
+  ansible.builtin.set_fact:
+    _enable_stage_only: >-
+      {{ (instance_is_k8s | bool) and _enable_gitops_marker.stat.exists }}
+
 # update.php has to run with the item loaded.
 - name: "Apply the {{ _item_type }} change to the running instance"
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: apply_config.yml
-  when: _settings_change is changed
+  when:
+    - _settings_change is changed
+    - not (_enable_stage_only | bool)
 
 # Without --wiki the item is enabled for every wiki, so each one needs
 # its schema updates.
 - name: Run update.php for each affected wiki
-  when: not (skip_update | default(false) | bool)
+  when:
+    - not (skip_update | default(false) | bool)
+    - not (_enable_stage_only | bool)
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/mediawiki/tasks/run_update_php.yml"
   vars:
     update_php_wikis: "{{ [wiki] if (wiki | default('') != '') else [] }}"
@@ -75,3 +95,25 @@
 - name: "Report {{ _item_type }} enabled"
   ansible.builtin.debug:
     msg: "Enabled {{ _item_type }}: {{ _names }}"
+  when: not (_enable_stage_only | bool)
+
+- name: Check whether the instance is running
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: check_running.yml
+  when: _enable_stage_only | bool
+
+- name: "Report the {{ _item_type }} enable staged for a gitops push"
+  ansible.builtin.debug:
+    msg: >-
+      Enabled {{ _item_type }}: {{ _names }}. The change to
+      '{{ instance_id }}' is staged in its gitops repo but not deployed.
+      {% if _container_running | default(false) | bool -%}
+      Run 'canasta gitops push -i {{ instance_id }}', then
+      'canasta gitops sync -i {{ instance_id }}', to deploy it.
+      {%- else -%}
+      The instance is stopped, so it was left stopped. Run
+      'canasta gitops push -i {{ instance_id }}'; the change deploys the
+      next time it starts.
+      {%- endif %}
+  when: _enable_stage_only | bool
