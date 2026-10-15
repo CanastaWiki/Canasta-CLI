@@ -1,0 +1,61 @@
+---
+# Report why the Argo CD install did not finish, before the caller fails.
+#
+# `helm upgrade --install --wait` fails with "context deadline exceeded"
+# and nothing else; which pod never became ready, and why, is only in the
+# cluster. Best-effort: every probe is guarded so a probe that itself fails
+# cannot replace the original error. Nothing here reads Secret data: the
+# manifest is filtered to its image lines.
+#
+# Input: argocd_namespace (default: argocd)
+
+- name: Collect Argo CD install state
+  ansible.builtin.shell:
+    executable: /bin/bash
+    # A literal block, not a folded one: folding keeps the newline on any
+    # more-indented continuation line, which silently splits a command in
+    # two. The go-template is wrapped in raw so Jinja leaves its braces.
+    cmd: |
+      set +o pipefail
+      ns={{ argocd_namespace | default('argocd') | quote }}
+      echo '--- helm release ---'
+      helm list -n "$ns" -a 2>&1 | head -5
+      echo '--- images in the release ---'
+      helm get manifest argocd -n "$ns" 2>&1 | grep -E '^[[:space:]]+image:' | sort -u | head -15
+      echo '--- pods ---'
+      kubectl get pods -n "$ns" -o wide 2>&1 | head -20
+      echo '--- containers not ready ---'
+      {% raw %}
+      t='{{range .items}}{{$p := .metadata.name}}'
+      t+='{{if and (ne .status.phase "Running") (ne .status.phase "Succeeded")}}{{$p}}: phase={{.status.phase}}'
+      t+='{{range .status.conditions}}{{if eq .status "False"}}{{if .message}} [{{.type}}: {{.message}}]{{end}}{{end}}{{end}}'
+      t+='{{println}}{{end}}'
+      t+='{{range .status.initContainerStatuses}}{{if not .ready}}{{$p}}/{{.name}} (init) image={{.image}} restarts={{.restartCount}}'
+      t+='{{with .state.waiting}} waiting={{.reason}}{{with .message}}: {{.}}{{end}}{{end}}'
+      t+='{{with .state.terminated}} terminated={{.reason}} exit={{.exitCode}}{{end}}'
+      t+='{{with .lastState.terminated}} last={{.reason}} exit={{.exitCode}}{{end}}{{println}}{{end}}{{end}}'
+      t+='{{range .status.containerStatuses}}{{if not .ready}}{{$p}}/{{.name}} image={{.image}} restarts={{.restartCount}}'
+      t+='{{with .state.waiting}} waiting={{.reason}}{{with .message}}: {{.}}{{end}}{{end}}'
+      t+='{{with .state.terminated}} terminated={{.reason}} exit={{.exitCode}}{{end}}'
+      t+='{{with .lastState.terminated}} last={{.reason}} exit={{.exitCode}}{{end}}{{println}}{{end}}{{end}}'
+      t+='{{end}}'
+      {% endraw %}
+      kubectl get pods -n "$ns" -o go-template="$t" 2>&1 | cut -c1-400 | head -30
+      echo '--- jobs ---'
+      kubectl get jobs -n "$ns" 2>&1 | head -10
+      echo '--- recent warnings ---'
+      kubectl get events -n "$ns" --field-selector type=Warning --sort-by=.lastTimestamp 2>&1 | cut -c1-300 | tail -20
+      if kubectl get pods -n "$ns" --no-headers 2>/dev/null | grep -q Pending; then
+        echo '--- nodes (pods are Pending) ---'
+        kubectl describe nodes 2>&1 | grep -E '^Name:|^Taints:|Pressure|^  Ready|^  (cpu|memory)[: ]' | head -40
+      fi
+  register: _argocd_install_state
+  changed_when: false
+  failed_when: false
+
+- name: Report Argo CD install state
+  ansible.builtin.debug:
+    msg: >-
+      {{ ['Argo CD did not become ready. What the cluster reports:', '']
+         + (_argocd_install_state.stdout | default('')).splitlines() }}
+  when: (_argocd_install_state.stdout | default('') | trim) | length > 0
