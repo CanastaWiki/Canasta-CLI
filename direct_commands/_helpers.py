@@ -1912,7 +1912,36 @@ WEB_RUNNING = "RUNNING"
 WEB_UNHEALTHY = "UNHEALTHY"
 WEB_STOPPED = "STOPPED"
 
-_WEB_PS_FORMAT = "{{.ID}}|{{.State}}|{{.Status}}"
+# RunningFor is the time since the container was created; Status carries
+# the time since it last started.
+_WEB_PS_FORMAT = "{{.ID}}|{{.State}}|{{.Status}}|{{.RunningFor}}"
+
+_HUMAN_DURATION_UNITS = {
+    "second": 1, "minute": 60, "hour": 3600, "day": 86400,
+    "week": 7 * 86400, "month": 30 * 86400, "year": 365 * 86400,
+}
+_HUMAN_DURATION = re.compile(
+    r"(less than a second|about an? (minute|hour)|(\d+) (second|minute|hour"
+    r"|day|week|month|year)s?)")
+# Restarted in place: started this long after it was created. Coarse
+# because both durations are rounded for humans.
+_RESTARTED_IN_PLACE_SECONDS = 120
+# Without a health status, how long after such a restart it still counts as
+# part of a crash loop.
+_JUST_STARTED_SECONDS = 60
+
+
+def _human_duration_seconds(text):
+    """Seconds in a runtime's rounded duration ("2 seconds", "About a
+    minute", "3 weeks ago"), or None when there is none."""
+    match = _HUMAN_DURATION.search((text or "").lower())
+    if not match:
+        return None
+    if match.group(1) == "less than a second":
+        return 0
+    if match.group(2):
+        return _HUMAN_DURATION_UNITS[match.group(2)]
+    return int(match.group(3)) * _HUMAN_DURATION_UNITS[match.group(4)]
 
 
 def _compose_web_ps_argv(inst):
@@ -1939,10 +1968,30 @@ def _compose_web_state(ps_out):
         cstate = fields[1].strip().lower() if len(fields) > 1 else ""
         status = fields[2].strip().lower() if len(fields) > 2 else ""
         if (cstate == "restarting" or status.startswith("restarting")
-                or "(unhealthy)" in status):
+                or "(unhealthy)" in status
+                or _crash_loop_up_window(status, fields[3:4])):
             return WEB_UNHEALTHY
         state = WEB_RUNNING
     return state
+
+
+def _crash_loop_up_window(status, running_for):
+    """True for a container briefly up between crashes: restarted in place
+    (long after it was created, where start and restart create it afresh)
+    and not yet healthy.
+
+    `ps` carries no restart count, so the two ages stand in for one. A
+    host reboot looks the same until the container turns healthy.
+    """
+    up = _human_duration_seconds(status) if status.startswith("up") else None
+    created = _human_duration_seconds(running_for[0] if running_for else "")
+    if up is None or created is None:
+        return False
+    if created - up < _RESTARTED_IN_PLACE_SECONDS:
+        return False
+    if "starting)" in status:
+        return True
+    return "(" not in status and up < _JUST_STARTED_SECONDS
 
 
 def _web_state_compose(inst):

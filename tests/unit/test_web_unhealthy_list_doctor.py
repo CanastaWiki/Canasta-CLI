@@ -44,6 +44,22 @@ class TestComposeWebState:
         (STARTING, "RUNNING"),
         (PODMAN_UP, "RUNNING"),
         ("abc123\n", "RUNNING"),
+        # Briefly up between crashes: restarted long after it was created.
+        ("abc123|running|Up 2 seconds (health: starting)|12 minutes ago",
+         "UNHEALTHY"),
+        ("abc123|running|Up Less than a second (starting)|About an hour ago",
+         "UNHEALTHY"),
+        ("abc123|running|Up 1 second|3 weeks ago", "UNHEALTHY"),
+        # Created by this start, and still starting.
+        ("abc123|running|Up 2 minutes (health: starting)|2 minutes ago",
+         "RUNNING"),
+        ("abc123|running|Up 3 seconds|4 seconds ago", "RUNNING"),
+        # Restarted in place a while ago and settled.
+        ("abc123|running|Up 5 minutes (healthy)|3 weeks ago", "RUNNING"),
+        ("abc123|running|Up 5 minutes|3 weeks ago", "RUNNING"),
+        ("abc123|running|Up 3 weeks (healthy)|3 weeks ago", "RUNNING"),
+        ("abc123|running|Up 59 minutes (healthy)|About an hour ago",
+         "RUNNING"),
         ("", "STOPPED"),
         ("\n", "STOPPED"),
     ])
@@ -86,7 +102,7 @@ class TestComposeWebState:
         assert detail["status"] == "UNHEALTHY"
         assert len(calls) == 1
         # The format's pipes must reach ps, not the shell.
-        assert "'{{.ID}}|{{.State}}|{{.Status}}'" in calls[0]
+        assert "'{{.ID}}|{{.State}}|{{.Status}}|{{.RunningFor}}'" in calls[0]
 
     def test_list_prints_unhealthy(self, tmp_path, monkeypatch, capsys):
         site = tmp_path / "site"
@@ -198,7 +214,8 @@ class TestDoctorCompose:
         text = "\n".join(lines)
         assert "Web container (mysite):" in text
         assert "WARN" in text
-        assert "crash-looping (last exit code 123, 14 restarts)" in text
+        assert ("crash-looping (last exit code 123, 14 restarts), so the "
+                "wiki is not being served.") in text
         assert ("Cause: MediaWiki can't load extension "
                 "'GoogleAnalyticsMetrics'") in text
         assert ("Fix: Disable it with 'canasta extension disable "
@@ -208,7 +225,15 @@ class TestDoctorCompose:
     def test_failing_health_check_is_reported(self, monkeypatch):
         lines, _ = _compose_doctor(monkeypatch, "running|0|unhealthy|0\n")
         text = "\n".join(lines)
-        assert "failing its health check (0 restarts)" in text
+        assert ("failing its health check (0 restarts), so the wiki may "
+                "not be served.") in text
+        assert "Cause:" in text
+
+    def test_up_between_crashes_is_reported(self, monkeypatch):
+        lines, _ = _compose_doctor(monkeypatch, "running|3|starting|0\n")
+        text = "\n".join(lines)
+        assert ("starting again after 3 restarts, so the wiki may not be "
+                "served.") in text
         assert "Cause:" in text
 
     def test_unrecognized_log_shows_its_tail(self, monkeypatch):
@@ -261,13 +286,19 @@ class TestDoctorK8s:
             monkeypatch, READY_POD + "\n" + CRASHLOOP_POD + "\n")
         text = "\n".join(lines)
         assert ("pod canasta-mysite-web-1 is crash-looping "
-                "(last exit code 123, 14 restarts)") in text
+                "(last exit code 123, 14 restarts), so the wiki may not be "
+                "served.") in text
         assert ("Cause: MediaWiki can't load extension "
                 "'GoogleAnalyticsMetrics'") in text
         assert "Fix: Disable it with" in text
         logs_cmd = calls[1]
         assert "kubectl logs -n 'canasta-mysite'" in logs_cmd
         assert "--previous" in logs_cmd
+
+    def test_no_ready_pod_is_not_being_served(self, monkeypatch):
+        lines, _ = _k8s_doctor(monkeypatch, CRASHLOOP_POD + "\n")
+        assert ("14 restarts), so the wiki is not being served."
+                in "\n".join(lines))
 
     def test_healthy_prints_nothing_and_fetches_no_logs(self, monkeypatch):
         lines, calls = _k8s_doctor(monkeypatch, READY_POD + "\n")

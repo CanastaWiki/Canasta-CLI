@@ -1522,11 +1522,15 @@ def _compose_web_problem(inst):
     except ValueError:
         restarts = 0
     if state == "restarting":
-        what = "is crash-looping (last exit code %s, %s)" % (
-            exit_code or "?", _restarts(restarts))
+        what = ("is crash-looping (last exit code %s, %s), so the wiki is "
+                "not being served" % (exit_code or "?", _restarts(restarts)))
     elif health == "unhealthy":
-        what = "is running but failing its health check (%s)" % (
-            _restarts(restarts))
+        what = ("is running but failing its health check (%s), so the wiki "
+                "may not be served" % _restarts(restarts))
+    elif health == "starting" and restarts > 0:
+        # Between crashes a crash-looping container runs again for a while.
+        what = ("is starting again after %s, so the wiki may not be served"
+                % _restarts(restarts))
     else:
         return None
     cause, logs = _helpers._compose_web_startup_cause(
@@ -1554,6 +1558,9 @@ def _k8s_web_problem(inst):
         "crash-looping" if pod["reason"] == "CrashLoopBackOff"
         else "not ready",
         pod["exit_code"] or "?", _restarts(pod["restarts"]))
+    served = any(p["ready"] for p in _helpers._k8s_web_pods(out))
+    what += (", so the wiki may not be served" if served
+             else ", so the wiki is not being served")
     # A crash-looping container's own error is in its previous run's log.
     ns = _helpers._shell_quote("canasta-%s" % inst_id)
     script = (
@@ -1588,7 +1595,7 @@ def _web_health_lines(inst):
     what, logs, cause = problem
     lines = [
         "", "Web container (%s):" % inst.get("id", "?"),
-        "  WARN — web %s, so the wiki is not being served." % what,
+        "  WARN — web %s." % what,
     ]
     if cause:
         lines.append("  Cause: %s" % cause["cause"])
