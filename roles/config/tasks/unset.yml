@@ -5,6 +5,19 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+# Argo CD deploys a gitops-managed Kubernetes instance from its repo and
+# self-heals back to it, so a direct restart would be reverted until the
+# change is pushed. Such an instance is staged only.
+- name: Check whether the instance is gitops-managed
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _config_unset_gitops_marker
+
+- name: Decide whether config unset only stages the change for a gitops push
+  ansible.builtin.set_fact:
+    _config_unset_stage_only: >-
+      {{ (instance_is_k8s | bool) and _config_unset_gitops_marker.stat.exists }}
+
 # Dispatch: --secret removes values set with `config set --secret` (no .env
 # validation/side effects); otherwise the normal .env config path.
 - name: Remove opaque secret values
@@ -18,12 +31,16 @@
 # The restart is a side effect here, not what the operator asked for, so
 # say it is coming before the instance goes down.
 - name: Report restarting to apply changes
-  when: not (no_restart | default(false) | bool)
+  when:
+    - not (no_restart | default(false) | bool)
+    - not (_config_unset_stage_only | bool)
   ansible.builtin.debug:
     msg: "Restarting instance to apply changes..."
 
 - name: Restart instance to apply changes
-  when: not (no_restart | default(false) | bool)
+  when:
+    - not (no_restart | default(false) | bool)
+    - not (_config_unset_stage_only | bool)
   ansible.builtin.include_role:
     name: instance_lifecycle
     tasks_from: restart.yml
@@ -31,3 +48,33 @@
 - name: Report keys removed
   ansible.builtin.debug:
     msg: "Keys removed.{{ (no_restart | default(false) | bool) | ternary(' Restart skipped.', '') }}"
+  when: not (_config_unset_stage_only | bool)
+
+# A start reconciles these into values.yaml before it deploys; gitops push
+# does not, so do it here for the push to carry them.
+- name: Reconcile the caddy image and crowdsec.enabled for the gitops push
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: k8s_reconcile_caddy.yml
+  when: _config_unset_stage_only | bool
+
+- name: Check whether the instance is running
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: check_running.yml
+  when: _config_unset_stage_only | bool
+
+- name: Report the removal staged for a gitops push
+  ansible.builtin.debug:
+    msg: >-
+      Keys removed. The change to '{{ instance_id }}' is staged in its
+      gitops repo but not deployed.
+      {% if _container_running | default(false) | bool -%}
+      Run 'canasta gitops push -i {{ instance_id }}', then
+      'canasta gitops sync -i {{ instance_id }}', to deploy it.
+      {%- else -%}
+      The instance is stopped, so it was left stopped. Run
+      'canasta gitops push -i {{ instance_id }}'; the change deploys the
+      next time it starts.
+      {%- endif %}
+  when: _config_unset_stage_only | bool

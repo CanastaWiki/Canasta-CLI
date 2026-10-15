@@ -27,6 +27,10 @@ spec:
       labels:
         {{- include "canasta.selectorLabels" $ | nindent 8 }}
         app.kubernetes.io/component: {{ $sc.name | quote }}
+      {{- with index (($.Values.secretChecksums | default dict).sidecars | default dict) $sc.name }}
+      annotations:
+        checksum/secrets: {{ . | quote }}
+      {{- end }}
     spec:
       containers:
         - name: {{ $sc.name | quote }}

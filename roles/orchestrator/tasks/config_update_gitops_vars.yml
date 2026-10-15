@@ -4,9 +4,10 @@
 # change survives the next gitops pull. Kubernetes: config set writes the
 # local values.yaml, but the committed gitops source (values.template.yaml →
 # hosts/<name>/rendered-values.yaml) that Argo CD deploys is left untouched,
-# so warn the operator to push. A silent write-through isn't possible here:
-# making the change durable requires committing and pushing to the repo Argo
-# CD watches, which is exactly what 'canasta gitops push' does.
+# so warn the operator to push (a stage-only config set reports that
+# itself). A silent write-through isn't possible here: making the change
+# durable requires committing and pushing to the repo Argo CD watches, which
+# is exactly what 'canasta gitops push' does.
 # Input: instance_path, instance_orchestrator, _config_settings,
 #        _config_gitops_stat
 
@@ -24,4 +25,6 @@
       unchanged. Run 'canasta gitops push' to commit and deploy the change —
       otherwise Argo CD may revert it on the next sync, and it won't reach
       other hosts.
-  when: instance_is_k8s | bool
+  when:
+    - instance_is_k8s | bool
+    - not (_config_set_stage_only | default(false) | bool)

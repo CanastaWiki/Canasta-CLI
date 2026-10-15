@@ -1347,6 +1347,11 @@ commands:
       Change one or more configuration values in the instance .env file.
       Handles side effects automatically (e.g. updating wikis.yaml when
       changing HTTPS_PORT).
+
+      A Kubernetes instance managed through gitops is not restarted: Argo
+      CD deploys it from its gitops repo. Config set saves the change for
+      that repo, and you deploy it with `canasta gitops push`, then
+      `canasta gitops sync`.
     examples:
       - "canasta config set MW_SITE_SERVER=https://example.com"
       - "canasta config set --secret --web MAPS_API_KEY=abc123"
@@ -1450,6 +1455,11 @@ commands:
       If a key has side effects (e.g., `HTTPS_PORT`), they are
       reverted before the key is removed. The instance is then
       restarted unless `--no-restart` is specified.
+
+      A Kubernetes instance managed through gitops is not restarted: Argo
+      CD deploys it from its gitops repo. Config unset saves the change
+      for that repo, and you deploy it with `canasta gitops push`, then
+      `canasta gitops sync`.
 
       With `--secret`, the keys set with `config set --secret` are
       removed, along with any `--web` exposure: on Compose from `.env`

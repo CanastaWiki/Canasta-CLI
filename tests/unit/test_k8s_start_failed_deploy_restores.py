@@ -33,6 +33,13 @@ def _fake(bindir, name, body):
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
+FAKE_K8S_INFO = """#!/usr/bin/python
+from ansible.module_utils.basic import AnsibleModule
+m = AnsibleModule(argument_spec=dict(kind=dict(), namespace=dict()))
+m.exit_json(changed=False, resources=[])
+"""
+
+
 def _run(tmp_path, replicas_before, helm_rc):
     bindir = tmp_path / "bin"
     bindir.mkdir()
@@ -48,6 +55,12 @@ def _run(tmp_path, replicas_before, helm_rc):
           '  "get statefulset"*) echo statefulset.apps/canasta-demo-db ;;\n'
           'esac\n'
           'exit 0\n')
+    # helm_deploy.yml names kubernetes.core.k8s_info; Ansible resolves it
+    # even when the task is skipped, and CI has no kubernetes.core.
+    mods = tmp_path / "ac" / "ansible_collections" / "kubernetes" / "core" \
+        / "plugins" / "modules"
+    mods.mkdir(parents=True)
+    (mods / "k8s_info.py").write_text(FAKE_K8S_INFO)
     inst = tmp_path / "inst"
     (inst / "config").mkdir(parents=True)
     (inst / "values.yaml").write_text("instance:\n  id: demo\n")
@@ -70,6 +83,7 @@ def _run(tmp_path, replicas_before, helm_rc):
     }]))
     env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
                PATH=str(bindir) + os.pathsep + os.environ["PATH"],
+               ANSIBLE_COLLECTIONS_PATH=str(tmp_path / "ac"),
                ANSIBLE_FILTER_PLUGINS=os.path.join(REPO_ROOT, "filter_plugins"),
                ANSIBLE_LIBRARY=os.path.join(COMMON, "library"),
                ANSIBLE_MODULE_UTILS=os.path.join(COMMON, "module_utils"))

@@ -65,6 +65,57 @@
     path: "{{ instance_path }}/values-sidecars.yaml"
   register: _sidecars_file
 
+# Argo CD deploys a gitops instance with the Secret checksums its push
+# rendered (render_kubernetes.yml). A direct deploy carries the same ones,
+# or Argo CD would roll the pods again to put them back.
+- name: Check whether the instance is gitops-managed
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _hd_gitops
+
+- name: Write the Secret checksums of a gitops instance
+  when: _hd_gitops.stat.exists
+  block:
+    - name: Read the values the checksums depend on
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/{{ item }}"
+      loop:
+        - values.yaml
+        - values-configdata.yaml
+        - values-sidecars.yaml
+      register: _hd_checksum_values
+      failed_when: false
+
+    - name: Read the namespace Secrets for their checksums
+      kubernetes.core.k8s_info:
+        kind: Secret
+        namespace: "{{ _k8s_namespace }}"
+      register: _hd_secrets
+      no_log: true
+
+    - name: Write the Secret checksums override
+      ansible.builtin.copy:
+        content: >-
+          {{ {'secretChecksums': _hd_secrets.resources | default([])
+              | canasta_overlay_local_secrets(_k8s_local_secrets | default({}))
+              | canasta_secret_checksums(_hd_merged, instance_id)}
+             | to_nice_yaml(indent=2) }}
+        dest: "{{ instance_path }}/values-checksums.yaml"
+        mode: "0644"
+      vars:
+        _hd_merged: >-
+          {{ _hd_checksum_values.results
+             | selectattr('content', 'defined')
+             | map(attribute='content') | map('b64decode') | map('from_yaml')
+             | select('mapping') | list
+             | combine }}
+      no_log: true
+
+- name: Check for the Secret checksums file
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/values-checksums.yaml"
+  register: _checksums_file
+
 # Launched detached and polled (resilient_exec) so a controller-side SSH
 # reset during the up-to-15m `--wait` doesn't abort a deploy that is still
 # progressing on the target. helm upgrade --install is idempotent, so a
@@ -91,6 +142,8 @@
              | ternary('-f ' ~ instance_path ~ '/values-sidecars.yaml', '') }}
           {{ (_domains_file.stat.exists | default(false))
              | ternary('-f ' ~ instance_path ~ '/values-domains.yaml', '') }}
+          {{ (_hd_gitops.stat.exists and _checksums_file.stat.exists)
+             | ternary('-f ' ~ instance_path ~ '/values-checksums.yaml', '') }}
           {{ (helm_reset_values | default(true) | bool)
              | ternary('--reset-values', '') }}
           {{ (helm_wait | default(true) | bool)
