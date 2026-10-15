@@ -145,7 +145,7 @@ def test_k8s_branch_warns_to_push():
     k8s = [t for t in tasks
            if _when(t).startswith("instance_is_k8s | bool")]
     assert k8s, "must have a K8s-gated task"
-    msg = _debug_msg(k8s[0])
+    msg = _debug_msg(next((t for t in k8s if _debug_msg(t)), k8s[0]))
     assert "gitops push" in msg, "K8s warning must tell the user to push"
     assert "unchanged" in msg or "not" in msg.lower()
 
