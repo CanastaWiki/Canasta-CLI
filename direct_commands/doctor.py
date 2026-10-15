@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 
+import canasta_web_cause
 import yaml
 
 
@@ -1490,6 +1491,120 @@ def _composer_failure_lines(inst):
     ]
 
 
+_WEB_INSPECT_FORMAT = (
+    "{{.State.Status}}|{{.RestartCount}}|"
+    "{{if .State.Health}}{{.State.Health.Status}}{{end}}|{{.State.ExitCode}}")
+
+# How much of web's log to show when no startup error is recognized in it.
+_WEB_LOG_TAIL_LINES = 10
+
+
+def _restarts(n):
+    return "%d restart%s" % (n, "" if n == 1 else "s")
+
+
+def _compose_web_problem(inst):
+    """(description, web log text, startup cause) for an unhealthy Compose
+    web container, or None when it is healthy or not running."""
+    cid = _helpers._web_container_id(inst)
+    if not cid:
+        return None
+    rc, out = _helpers._runtime_capture(inst, [
+        _helpers._resolve_inspect_cmd(inst), "inspect", "-f",
+        _WEB_INSPECT_FORMAT, cid,
+    ])
+    if rc != 0:
+        return None
+    fields = out.strip().split("|") + [""] * 4
+    state, health, exit_code = fields[0], fields[2], fields[3]
+    try:
+        restarts = int(fields[1])
+    except ValueError:
+        restarts = 0
+    if state == "restarting":
+        what = "is crash-looping (last exit code %s, %s)" % (
+            exit_code or "?", _restarts(restarts))
+    elif health == "unhealthy":
+        what = "is running but failing its health check (%s)" % (
+            _restarts(restarts))
+    else:
+        return None
+    cause, logs = _helpers._compose_web_startup_cause(
+        inst.get("id", "?"), inst)
+    return what, logs, cause
+
+
+def _k8s_web_problem(inst):
+    """(description, web log text, startup cause) for an instance with a
+    crash-looping web pod, or None when there is none."""
+    inst_id = inst.get("id")
+    if not inst_id:
+        return None
+    host = inst.get("host") or "localhost"
+    rc, out = _helpers._k8s_web_pods_query(inst_id, host)
+    if rc != 0:
+        return None
+    bad = [p for p in _helpers._k8s_web_pods(out)
+           if _helpers._k8s_pod_unhealthy(p)]
+    if not bad:
+        return None
+    pod = bad[0]
+    what = "pod %s is %s (last exit code %s, %s)" % (
+        pod["name"],
+        "crash-looping" if pod["reason"] == "CrashLoopBackOff"
+        else "not ready",
+        pod["exit_code"] or "?", _restarts(pod["restarts"]))
+    # A crash-looping container's own error is in its previous run's log.
+    ns = _helpers._shell_quote("canasta-%s" % inst_id)
+    script = (
+        "kubectl logs -n %(ns)s -l app.kubernetes.io/component=web -c web "
+        "--previous --tail=%(n)d 2>/dev/null; "
+        "kubectl logs -n %(ns)s -l app.kubernetes.io/component=web -c web "
+        "--tail=%(n)d 2>/dev/null; true"
+    ) % {"ns": ns, "n": _helpers._WEB_CAUSE_SCAN_LINES}
+    if _helpers._is_localhost(host):
+        try:
+            logs = subprocess.run(
+                ["bash", "-c", script],
+                capture_output=True, text=True, timeout=30,
+            ).stdout
+        except (subprocess.TimeoutExpired, OSError):
+            logs = ""
+    else:
+        _rc, logs = _helpers._ssh_run(host, script)
+    cause = canasta_web_cause.web_startup_cause(logs, inst_id)
+    return what, logs, cause
+
+
+def _web_health_lines(inst):
+    """doctor lines for a web container that is crash-looping or failing
+    its health check, or [] when it is healthy, stopped or unreadable."""
+    if _helpers._is_k8s(inst):
+        problem = _k8s_web_problem(inst)
+    else:
+        problem = _compose_web_problem(inst)
+    if not problem:
+        return []
+    what, logs, cause = problem
+    lines = [
+        "", "Web container (%s):" % inst.get("id", "?"),
+        "  WARN — web %s, so the wiki is not being served." % what,
+    ]
+    if cause:
+        lines.append("  Cause: %s" % cause["cause"])
+        lines.append("  Fix: %s" % cause["hint"])
+        return lines
+    tail = (logs or "").strip().splitlines()[-_WEB_LOG_TAIL_LINES:]
+    if not tail:
+        lines.append("  Its log is empty or could not be read.")
+        return lines
+    lines.append(
+        "  No known startup error was found in its log. Its last %d lines:"
+        % len(tail))
+    lines += ["    %s" % line for line in tail]
+    return lines
+
+
 @register("doctor")
 def cmd_doctor(args):
     host = getattr(args, "host", None)
@@ -1550,6 +1665,9 @@ def cmd_doctor(args):
         print(line)
 
     if inst:
+        for line in _web_health_lines(inst):
+            print(line)
+
         for line in _db_tuning_lines(inst):
             print(line)
 

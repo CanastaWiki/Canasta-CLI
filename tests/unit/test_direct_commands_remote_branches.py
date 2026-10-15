@@ -530,16 +530,17 @@ class TestStreamInContainer:
 
 class TestGatherK8s:
     @pytest.mark.parametrize("dir_exists,running,status", [
-        (False, True, "NOT FOUND"),
-        (True, True, "RUNNING"),
-        (True, False, "STOPPED"),
+        (False, "RUNNING", "NOT FOUND"),
+        (True, "RUNNING", "RUNNING"),
+        (True, "UNHEALTHY", "UNHEALTHY"),
+        (True, "STOPPED", "STOPPED"),
     ])
     def test_status(self, monkeypatch, dir_exists, running, status):
         wikis = [{"id": "main", "url": "m.example.com"}]
         monkeypatch.setattr(_helpers, "_ssh_run",
                             lambda h, c: (0 if dir_exists else 1, ""))
         monkeypatch.setattr(_helpers, "_read_wikis", lambda p, h: wikis)
-        monkeypatch.setattr(_helpers, "_check_running_k8s",
+        monkeypatch.setattr(_helpers, "_web_state_k8s",
                             lambda i, h: running)
         monkeypatch.setattr(_helpers, "_read_restore_marker",
                             lambda p, h: None)
@@ -559,8 +560,8 @@ class TestGatherK8s:
     def test_interrupted_restore_flagged(self, monkeypatch):
         monkeypatch.setattr(_helpers, "_check_dir_exists", lambda p, h: True)
         monkeypatch.setattr(_helpers, "_read_wikis", lambda p, h: [])
-        monkeypatch.setattr(_helpers, "_check_running_k8s",
-                            lambda i, h: True)
+        monkeypatch.setattr(_helpers, "_web_state_k8s",
+                            lambda i, h: "RUNNING")
         monkeypatch.setattr(_helpers, "_read_restore_marker",
                             lambda p, h: "2026-01-01")
         detail = _helpers._gather_k8s("mysite", "/srv/mysite", "localhost")

@@ -888,15 +888,8 @@ def _web_health_status(inst, cid):
     return out.strip() if rc == 0 else ""
 
 
-def _report_web_unhealthy(inst_id, inst, status):
-    """Explain a web container that never reported healthy.
-
-    Leads with the startup error web logged when there is one; otherwise
-    falls back to the usual suspects, composer and the database.
-    """
-    timeout = (
-        "did not report healthy within %d minutes; its last status was '%s'."
-        % (_WEB_HEALTH_RETRIES * _WEB_HEALTH_DELAY // 60, status or "(none)"))
+def _compose_web_startup_cause(inst_id, inst):
+    """(web_startup_cause result, web log text) for a Compose instance."""
     path = inst.get("path", "")
     logs, composer = None, []
     if path:
@@ -906,6 +899,19 @@ def _report_web_unhealthy(inst_id, inst, status):
             COMPOSER_FAILED_RELPATH).strip().splitlines()
     cause = canasta_web_cause.web_startup_cause(
         logs, inst_id, composer[0] if composer else "")
+    return cause, logs
+
+
+def _report_web_unhealthy(inst_id, inst, status):
+    """Explain a web container that never reported healthy.
+
+    Leads with the startup error web logged when there is one; otherwise
+    falls back to the usual suspects, composer and the database.
+    """
+    timeout = (
+        "did not report healthy within %d minutes; its last status was '%s'."
+        % (_WEB_HEALTH_RETRIES * _WEB_HEALTH_DELAY // 60, status or "(none)"))
+    cause, logs = _compose_web_startup_cause(inst_id, inst)
     if cause:
         print("Error: %s\n%s\nThe 'web' container for instance '%s' %s"
               % (cause["cause"], cause["hint"], inst_id, timeout),
@@ -1897,6 +1903,136 @@ def _check_running_k8s(instance_id, host):
     return rc == 0 and stdout.strip() not in ("", "0")
 
 
+# --- web container state (shared by list and doctor) ---
+#
+# Present-or-absent is not enough: a web container that crash-loops is still
+# listed by `ps`, and a crash-looping pod is intermittently ready.
+
+WEB_RUNNING = "RUNNING"
+WEB_UNHEALTHY = "UNHEALTHY"
+WEB_STOPPED = "STOPPED"
+
+_WEB_PS_FORMAT = "{{.ID}}|{{.State}}|{{.Status}}"
+
+
+def _compose_web_ps_argv(inst):
+    """`ps` for the instance's web container, one line per container in
+    _WEB_PS_FORMAT. `ps` without -a includes a restarting container."""
+    compose_cmd = _resolve_compose_cmd(inst)
+    runtime = "podman" if "podman" in compose_cmd[0] else "docker"
+    return [
+        runtime, "ps",
+        "--filter", "label=com.docker.compose.project=%s"
+                    % _compose_project(inst.get("path", "")),
+        "--filter", "label=com.docker.compose.service=web",
+        "--format", _WEB_PS_FORMAT,
+    ]
+
+
+def _compose_web_state(ps_out):
+    """WEB_RUNNING, WEB_UNHEALTHY or WEB_STOPPED from _WEB_PS_FORMAT lines."""
+    state = WEB_STOPPED
+    for line in (ps_out or "").splitlines():
+        if not line.strip():
+            continue
+        fields = line.split("|")
+        cstate = fields[1].strip().lower() if len(fields) > 1 else ""
+        status = fields[2].strip().lower() if len(fields) > 2 else ""
+        if (cstate == "restarting" or status.startswith("restarting")
+                or "(unhealthy)" in status):
+            return WEB_UNHEALTHY
+        state = WEB_RUNNING
+    return state
+
+
+def _web_state_compose(inst):
+    rc, out = _runtime_capture(inst, _compose_web_ps_argv(inst), timeout=10)
+    return _compose_web_state(out) if rc == 0 else WEB_STOPPED
+
+
+# name|ready|restartCount|waiting reason|last exit code, per web pod.
+_K8S_WEB_PODS_JSONPATH = (
+    '{range .items[*]}{.metadata.name}|'
+    '{range .status.containerStatuses[?(@.name=="web")]}'
+    '{.ready}|{.restartCount}|{.state.waiting.reason}|'
+    '{.lastState.terminated.exitCode}{end}{"\\n"}{end}'
+)
+
+
+def _k8s_web_pods_argv(instance_id):
+    return [
+        "kubectl", "get", "pods", "-n", "canasta-%s" % instance_id,
+        "-l", "app.kubernetes.io/component=web",
+        "-o", "jsonpath=%s" % _K8S_WEB_PODS_JSONPATH,
+    ]
+
+
+def _k8s_web_pods(out):
+    """Parse _K8S_WEB_PODS_JSONPATH output into one dict per web pod."""
+    pods = []
+    for line in (out or "").splitlines():
+        fields = line.strip().split("|")
+        if len(fields) < 3 or not fields[0]:
+            continue
+        fields += [""] * (5 - len(fields))
+        try:
+            restarts = int(fields[2])
+        except ValueError:
+            restarts = 0
+        pods.append({
+            "name": fields[0],
+            "ready": fields[1] == "true",
+            "restarts": restarts,
+            "reason": fields[3],
+            "exit_code": fields[4],
+        })
+    return pods
+
+
+def _k8s_pod_unhealthy(pod):
+    """A web pod that is not ready and has crashed at least once."""
+    return not pod["ready"] and (
+        pod["reason"] == "CrashLoopBackOff" or pod["restarts"] > 0)
+
+
+def _k8s_web_state(pods):
+    """WEB_RUNNING, WEB_UNHEALTHY or WEB_STOPPED for a list of web pods.
+
+    A pod that is still starting, never having crashed, is not yet RUNNING.
+    """
+    if any(_k8s_pod_unhealthy(p) for p in pods):
+        return WEB_UNHEALTHY
+    if any(p["ready"] for p in pods):
+        return WEB_RUNNING
+    return WEB_STOPPED
+
+
+def _k8s_web_pods_query(instance_id, host):
+    """(rc, stdout) of the web pod query, run where the cluster's
+    kubeconfig is: locally, or on the instance's host."""
+    argv = _k8s_web_pods_argv(instance_id)
+    if _is_localhost(host):
+        try:
+            result = subprocess.run(
+                argv, capture_output=True, text=True, timeout=10)
+            return result.returncode, result.stdout
+        except (subprocess.TimeoutExpired, OSError):
+            return 1, ""
+    return _ssh_run(host, " ".join(_shell_quote(a) for a in argv))
+
+
+def _web_state_k8s(instance_id, host):
+    rc, out = _k8s_web_pods_query(instance_id, host)
+    return _k8s_web_state(_k8s_web_pods(out)) if rc == 0 else WEB_STOPPED
+
+
+def _web_state(instance_id, inst):
+    """WEB_RUNNING, WEB_UNHEALTHY or WEB_STOPPED for an instance's web."""
+    if _is_k8s(inst):
+        return _web_state_k8s(instance_id, inst.get("host") or "localhost")
+    return _web_state_compose(inst)
+
+
 # --- wiki liveness probe (shared by wiki-check and list) ---
 #
 # The orchestrator checks above answer "is the workload up"; this one
@@ -2095,22 +2231,17 @@ def _gather_instance_info(inst_id, inst):
     # this one's rootless socket via a per-command DOCKER_HOST rather than the
     # process-global env another thread might read.
     docker_host = inst.get("dockerHost")
-    compose_cmd = _resolve_compose_cmd(inst)
     qpath = _shell_quote(path)
 
     if _is_localhost(host):
-        return _gather_local(inst_id, path, orchestrator, host, docker_host,
-                             compose_cmd)
+        return _gather_local(inst_id, inst)
 
     if _is_k8s(inst):
         return _gather_k8s(inst_id, path, host)
 
-    runtime = "podman" if "podman" in compose_cmd[0] else "docker"
     compose_ps = (
-        "%(r)s ps --filter label=com.docker.compose.project=%(proj)s "
-        "--filter label=com.docker.compose.service=web "
-        "--format '{{.ID}}' 2>/dev/null || true"
-    ) % {"r": runtime, "proj": _shell_quote(_compose_project(path))}
+        " ".join(_shell_quote(a) for a in _compose_web_ps_argv(inst))
+        + " 2>/dev/null || true")
     if docker_host:
         compose_ps = "DOCKER_HOST=%s %s" % (_shell_quote(docker_host), compose_ps)
     script = (
@@ -2145,29 +2276,19 @@ def _gather_instance_info(inst_id, inst):
         except yaml.YAMLError:
             pass
 
-    if not dir_ok:
-        status = "NOT FOUND"
-    elif running_raw:
-        status = "RUNNING"
-    else:
-        status = "STOPPED"
+    status = _compose_web_state(running_raw) if dir_ok else "NOT FOUND"
 
     return _make_detail(inst_id, host, path, orchestrator, status, wikis,
                        interrupted)
 
 
-def _gather_local(inst_id, path, orchestrator, host, docker_host=None,
-                   compose_cmd=None):
+def _gather_local(inst_id, inst):
+    host = inst.get("host") or "localhost"
+    path = inst.get("path", "")
+    orchestrator = inst.get("orchestrator", "compose")
     dir_exists = os.path.isdir(path)
     wikis = _read_wikis(path, host) if dir_exists else []
-
-    if not dir_exists:
-        status = "NOT FOUND"
-    elif _check_running(inst_id, path, orchestrator, host, docker_host,
-                        compose_cmd):
-        status = "RUNNING"
-    else:
-        status = "STOPPED"
+    status = _web_state(inst_id, inst) if dir_exists else "NOT FOUND"
 
     interrupted = dir_exists and os.path.exists(
         os.path.join(path, RESTORE_MARKER))
@@ -2186,12 +2307,7 @@ def _gather_k8s(inst_id, path, host):
         dir_exists = rc == 0
     wikis = _read_wikis(path, host) if dir_exists else []
 
-    if not dir_exists:
-        status = "NOT FOUND"
-    elif _check_running_k8s(inst_id, host):
-        status = "RUNNING"
-    else:
-        status = "STOPPED"
+    status = _web_state_k8s(inst_id, host) if dir_exists else "NOT FOUND"
 
     return _make_detail(inst_id, host, path, "kubernetes", status, wikis,
                        dir_exists and _read_restore_marker(path, host) is not None)
