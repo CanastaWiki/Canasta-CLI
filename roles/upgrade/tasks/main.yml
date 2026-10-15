@@ -232,6 +232,11 @@
     _upgrade_stage_only: >-
       {{ (instance_is_k8s | bool) and _upgrade_gitops_marker.stat.exists }}
 
+- name: Move the Argo CD Application into the instance's own project
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/migrate_argo_project.yml
+  when: _upgrade_stage_only | bool
+
 # --- Bump configured image tag (orchestrator-specific) ---
 # K8s updates values.yaml image.tag and CANASTA_IMAGE in .env; Compose
 # updates CANASTA_IMAGE in .env.
@@ -281,6 +286,12 @@
           or (_upgrade_rebuilt_image_changed | bool))
          and (_upgrade_build_failed_services | default([]) | length) == 0 }}
 
+- name: Reset the restart failure signal for this instance
+  ansible.builtin.set_fact:
+    _upgrade_restart_failed: false
+
+# A failed restart is recorded rather than raised, so the remaining instances
+# still upgrade; the playbook fails once the loop is done.
 - name: Restart containers
   when:
     - _restart_needed | bool
@@ -315,11 +326,24 @@
       ansible.builtin.debug:
         msg: "Canasta upgraded successfully!"
 
+    - name: Report a failed startup composer update
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/mediawiki/tasks/report_composer_failure.yml"
+  rescue:
+    - name: Record the failed restart
+      ansible.builtin.include_tasks: record_restart_failure.yml
+
 # After the restart: the instance must be running on the refreshed compose
 # file, which takes MediaWiki's credentials from WIKI_DB_USER /
 # WIKI_DB_PASSWORD.
 - name: Move MediaWiki to its own database account
   ansible.builtin.include_tasks: migrate_wiki_db_account.yml
+  when: not (_upgrade_restart_failed | bool)
+
+# After the restart too, so the running web container's image decides which
+# includes it ignores.
+- name: Tidy composer.local.json
+  ansible.builtin.include_tasks: tidy_composer_local.yml
+  when: not (_upgrade_restart_failed | bool)
 
 - name: Re-render generated compose layers
   ansible.builtin.include_role:
@@ -386,17 +410,39 @@
           changed_when: true
 
         - name: Wait for the web pods to run the rebuilt image
-          ansible.builtin.command:
-            cmd: >-
-              kubectl rollout status deployment/canasta-{{ instance_id }}-web
-              -n canasta-{{ instance_id }} --timeout=300s
-          changed_when: false
+          block:
+            - name: Wait for the web deployment to roll out
+              ansible.builtin.command:
+                cmd: >-
+                  kubectl rollout status deployment/canasta-{{ instance_id }}-web
+                  -n canasta-{{ instance_id }} --timeout=300s
+              changed_when: false
+          rescue:
+            - name: Report why the rollout did not finish
+              ansible.builtin.include_role:
+                name: orchestrator
+                tasks_from: k8s_capture_rollout_failure.yml
+              vars:
+                _k8s_namespace: "canasta-{{ instance_id }}"
+
+            - name: Fail with the original rollout error
+              ansible.builtin.fail:
+                msg: >-
+                  The web pods of '{{ instance_id }}' did not roll out onto
+                  the rebuilt image. The output above explains why.
+                  {{ ansible_failed_result.msg | default('') }}
 
         - name: Report the web pods restarted
           ansible.builtin.debug:
             msg: >-
               Restarted the web pods of '{{ instance_id }}' onto the rebuilt
               image.
+
+        - name: Report a failed startup composer update
+          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/mediawiki/tasks/report_composer_failure.yml"
+      rescue:
+        - name: Record the failed restart
+          ansible.builtin.include_tasks: record_restart_failure.yml
 
     - name: Report the upgrade staged for a gitops push
       ansible.builtin.debug:
@@ -420,7 +466,9 @@
     - name: Record the instance awaiting a gitops push
       ansible.builtin.set_fact:
         _upgrade_gitops_staged: "{{ (_upgrade_gitops_staged | default([])) + [instance_id] }}"
-      when: _upgrade_gitops_pending | bool
+      when:
+        - _upgrade_gitops_pending | bool
+        - not (_upgrade_restart_failed | bool)
 
     - name: Report nothing staged
       ansible.builtin.debug:

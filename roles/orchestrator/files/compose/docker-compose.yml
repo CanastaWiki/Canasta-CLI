@@ -293,8 +293,9 @@ services:
     restart: unless-stopped
     # Runs the image's entrypoint through the wrapper the Helm chart ships as
     # files/crowdsec-start.sh (kept identical, with $ doubled for Compose):
-    # it falls back to the local API only when the Central API refuses the
-    # engine, and holds other failed starts before the container exits.
+    # it falls back to the local API only when the Central API refuses or
+    # does not answer the engine, and holds other failed starts before the
+    # container exits.
     entrypoint:
       - /bin/sh
       - -c
@@ -303,12 +304,13 @@ services:
         # runs this file; the Compose crowdsec service carries an identical copy.
         #
         # The engine does not start while the Central API (CAPI) refuses its
-        # credentials, and the local API the Caddy bouncer needs goes down with it.
-        # When a start fails that way, the credentials are kept as a .refused copy
-        # and replaced by an empty file (a missing one is fatal), so the engine runs
-        # with the local API only. Each later start tests the kept copy once and
-        # puts it back when CAPI accepts it, so the engine keeps its CAPI identity,
-        # and leaves a .restored marker for the CLI to report.
+        # credentials, or cannot be reached and the engine has no cached CAPI token,
+        # and the local API the Caddy bouncer needs goes down with it. When a start
+        # fails that way, the credentials are kept as a .refused copy and replaced
+        # by an empty file (a missing one is fatal), so the engine runs with the
+        # local API only. Each later start tests the kept copy once and puts it back
+        # when CAPI accepts it, so the engine keeps its CAPI identity, and leaves a
+        # .restored marker for the CLI to report.
         #
         # A start that fails within 5 minutes for any other reason is held for 10
         # minutes before the container exits, keeping restarts under the Central
@@ -322,15 +324,15 @@ services:
         trap 'stopping=1; [ -n "$$pid" ] && kill -TERM "$$pid" 2>/dev/null' TERM INT
 
         local_only() {
-            echo "CrowdSec's Central API refuses this engine's credentials; running with the local API only, so the community blocklist is unavailable." >&2
+            echo "CrowdSec's Central API refuses this engine's credentials or does not answer; running with the local API only, so the community blocklist is unavailable." >&2
         }
 
-        # True when CAPI answered and turned the credentials away. A network
-        # failure, a server error or rate limiting is not a refusal.
-        capi_refuses() {
+        # True when logging in to CAPI fails: a refusal, a network failure, a server
+        # error or rate limiting. cscli reports other failures, such as missing CAPI
+        # configuration, without this message.
+        capi_unavailable() {
             out=$$(cscli capi status 2>&1) && return 1
-            echo "$$out" | grep -q 'API error:' || return 1
-            ! echo "$$out" | grep -qiE 'http code (5[0-9][0-9]|429)|internal server error|bad gateway|service unavailable|gateway timeout|too many requests'
+            echo "$$out" | grep -q 'failed to authenticate to Central API'
         }
 
         run_engine() {
@@ -362,7 +364,7 @@ services:
         [ -e "$$creds" ] && had_creds=1 || had_creds=0
         run_engine
 
-        if failed_fast && [ -s "$$creds" ] && capi_refuses; then
+        if failed_fast && [ -s "$$creds" ] && capi_unavailable; then
             [ -e "$$refused" ] || mv "$$creds" "$$refused"
             : > "$$creds"
             local_only

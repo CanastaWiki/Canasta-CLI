@@ -41,6 +41,7 @@ def cmd_start(args):
         missing = _helpers._missing_profile_services(inst, compose_cmd)
         if not missing:
             print("Instance '%s' is already running." % inst_id)
+            _helpers._warn_composer_failure(inst_id, inst)
             return 0
         print("Starting %s..." % ", ".join(missing))
     # Before 'up', not after a failure: MariaDB ignores the root-password
@@ -53,13 +54,16 @@ def cmd_start(args):
     # free: _sync_compose_profiles just parsed it.
     if _helpers._missing_db_password(inst, env):
         return _helpers.FALLBACK
-    rc = _helpers._run_compose(inst_id, inst, ["up", "-d"])
+    rc = _helpers._run_compose(inst_id, inst, ["up", "-d"], quiet=True)
     if rc != 0:
         _helpers._dump_compose_failure(inst)
         return rc
     rc = _helpers._wait_web_ready(inst_id, inst)
     if rc == 0:
         _helpers._rootless_operator_chown(inst)
+        print("Instance '%s' started." % inst_id)
+        # Startup composer has finished once web is ready.
+        _helpers._warn_composer_failure(inst_id, inst)
     return rc
 
 
@@ -83,7 +87,11 @@ def cmd_stop(args):
     # that was just removed: sidecars.yaml is now empty (so we take this
     # non-sidecar path), but its docker-compose.sidecars.yml entry and
     # running container still linger and a plain `down` would not touch them.
-    return _helpers._run_compose(inst_id, inst, ["down", "--remove-orphans"])
+    rc = _helpers._run_compose(
+        inst_id, inst, ["down", "--remove-orphans"], quiet=True)
+    if rc == 0:
+        print("Instance '%s' stopped." % inst_id)
+    return rc
 
 
 _SCALE_SUPPORTED_COMPONENTS = ("web",)

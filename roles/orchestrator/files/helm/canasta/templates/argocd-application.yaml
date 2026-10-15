@@ -6,8 +6,10 @@ metadata:
   namespace: {{ .Values.argocd.namespace }}
   labels:
     {{- include "canasta.labels" . | nindent 4 }}
+  annotations:
+    {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
 spec:
-  project: default
+  project: {{ include "canasta.fullname" . }}
   source:
     repoURL: {{ .Values.argocd.repoURL }}
     targetRevision: {{ .Values.argocd.targetRevision }}

@@ -18,3 +18,6 @@
 - name: Report started
   ansible.builtin.debug:
     msg: "Instance '{{ instance_id }}' started."
+
+- name: Report a failed startup composer update
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/mediawiki/tasks/report_composer_failure.yml"

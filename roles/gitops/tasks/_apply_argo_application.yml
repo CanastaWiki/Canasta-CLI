@@ -9,7 +9,7 @@
 # deleted to make way: Argo CD's resources finalizer would delete the
 # instance's resources with it.
 #
-# Input: instance_path
+# Input: instance_path, instance_id
 
 - name: Read the Argo CD Application manifest
   ansible.builtin.slurp:
@@ -19,6 +19,13 @@
 - name: Parse the Argo CD Application manifest
   ansible.builtin.set_fact:
     _argo_app: "{{ _argo_app_raw.content | b64decode | from_yaml }}"
+
+# The Application names its own project, which must exist and admit it
+# before the Application is applied.
+- name: Apply the instance's Argo CD AppProject
+  ansible.builtin.include_tasks: _apply_argo_project.yml
+  vars:
+    _argo_project_repo: "{{ _argo_app.spec.source.repoURL }}"
 
 - name: Look up the existing Argo CD Application
   kubernetes.core.k8s_info:

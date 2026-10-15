@@ -389,32 +389,69 @@
         - _start_web_has_health.stdout | default('') | trim != ''
         - (_start_web_health.stdout | default('') | trim) != 'healthy'
       block:
-        - name: Capture the database error log for the health-gate failure
-          ansible.builtin.include_tasks: _capture_db_error_log.yml
-
         - name: Capture web's logs for the health-gate failure
           ansible.builtin.command:
             cmd: >-
               {{ _compose_cmd }} {{ _compose_files | join(' ') }}
               {{ _compose_profile_flags | default('') }}
-              logs --tail=60 --no-color web
+              logs --tail=200 --no-color web
             chdir: "{{ instance_path }}"
           register: _start_web_logs
           changed_when: false
           failed_when: false
 
-        - name: Report that web never reported healthy
-          ansible.builtin.fail:
-            msg: |-
+        # Through the ./config bind mount, so a container that is
+        # restarting does not have to answer an exec.
+        - name: Read the startup composer failure record for the health-gate failure
+          ansible.builtin.command:
+            argv:
+              - head
+              - "-n"
+              - "1"
+              - "{{ instance_path }}/config/persistent/composer-update.failed"
+          register: _start_composer_failed
+          changed_when: false
+          failed_when: false
+
+        - name: Find the startup error web logged
+          ansible.builtin.set_fact:
+            _start_web_cause: >-
+              {{ (_start_web_logs.stdout | default(''))
+                 | web_startup_cause(instance_id,
+                                     _start_composer_failed.stdout | default('')) }}
+            _start_web_timeout: >-
               The 'web' container for instance '{{ instance_id }}' did not
               report healthy within 10 minutes; its last status was
               '{{ _start_web_health.stdout | default('') | trim | default('(none)', true) }}'.
+            _start_web_log_lines: "{{ (_start_web_logs.stdout | default('')).splitlines() }}"
+
+        - name: Report the startup error web logged
+          ansible.builtin.fail:
+            msg: |-
+              {{ _start_web_cause.cause }}
+              {{ _start_web_cause.hint }}
+              {{ _start_web_timeout }}
+              --- web logs (last 20) ---
+              {% for line in _start_web_log_lines[-20:] %}
+              {{ line }}
+              {% endfor %}
+          when: _start_web_cause.cause | default('') | length > 0
+
+        - name: Capture the database error log for the health-gate failure
+          ansible.builtin.include_tasks: _capture_db_error_log.yml
+
+        - name: Report that web never reported healthy
+          ansible.builtin.fail:
+            msg: |-
+              {{ _start_web_timeout }}
               The image's healthcheck probes /server-status, which answers only
               once composer and apache have both finished — so this usually
               means composer is still running or failed, or the database web
               waits on never came up.
               --- web logs (last 60) ---
-              {{ _start_web_logs.stdout | default('(not captured)') }}
+              {% for line in _start_web_log_lines[-60:] %}
+              {{ line }}
+              {% endfor %}
               --- database error log (last 100) ---
               {{ _start_db_log_text | default('(not captured)') }}
 
@@ -556,53 +593,7 @@
         msg: "Applying Helm release (pulling images and rolling out pods; this may take a few minutes)..."
 
     - name: Apply values and upgrade Helm release
-      ansible.builtin.include_tasks: helm_deploy.yml
-
-    - name: Restore replica counts after stop
-      when: (_current_replicas.stdout | default('0')) == '0'
-      block:
-        - name: Read web replica count from values
-          ansible.builtin.set_fact:
-            _web_replicas: "{{ _start_values.get('web', {}).get('replicaCount', 1) }}"
-
-        # External-DB instances with Elasticsearch disabled have no
-        # StatefulSets; 'kubectl scale --all' errors with "no objects
-        # passed to scale". Check first and skip if none exist.
-        - name: Check for statefulsets before scaling
-          ansible.builtin.command:
-            cmd: "kubectl get statefulset -n {{ _k8s_namespace }} -o name"
-          register: _start_sts_list
-          changed_when: false
-
-        - name: Scale up statefulsets
-          ansible.builtin.command:
-            cmd: >-
-              kubectl scale statefulset --all --replicas=1
-              -n {{ _k8s_namespace }}
-          changed_when: true
-          when: _start_sts_list.stdout_lines | length > 0
-
-        # Scale every deployment back up — core components AND any app
-        # sidecars. Helm won't restore them on its own: its 3-way merge
-        # leaves the kubectl scale-to-0 in place when the manifest's
-        # replicas didn't change. Using --all (rather than a fixed list)
-        # is what makes a Helm-managed sidecar survive a stop/restart.
-        - name: Scale up all deployments
-          ansible.builtin.command:
-            cmd: >-
-              kubectl scale deployment --all --replicas=1
-              -n {{ _k8s_namespace }}
-          changed_when: true
-
-        # Restore the web count afterward (it may be > 1); --all set it to 1.
-        - name: Restore web replica count
-          ansible.builtin.command:
-            cmd: >-
-              kubectl scale deployment canasta-{{ instance_id }}-web
-              --replicas={{ _web_replicas }}
-              -n {{ _k8s_namespace }}
-          changed_when: true
-          when: _web_replicas | int != 1
+      ansible.builtin.include_tasks: k8s_start_helm_deploy.yml
 
     # Skip the DB readiness wait when the instance uses an external
     # database (db.enabled: false). In that case there's no bundled
@@ -624,11 +615,23 @@
       when: _db_enabled | bool
 
     - name: Wait for web readiness
-      ansible.builtin.command:
-        cmd: >-
-          kubectl rollout status deployment/canasta-{{ instance_id }}-web
-          -n {{ _k8s_namespace }} --timeout=900s
-      changed_when: false
+      block:
+        - name: Wait for the web deployment to become ready
+          ansible.builtin.command:
+            cmd: >-
+              kubectl rollout status deployment/canasta-{{ instance_id }}-web
+              -n {{ _k8s_namespace }} --timeout=900s
+          changed_when: false
+      rescue:
+        - name: Report why the rollout did not finish
+          ansible.builtin.include_tasks: k8s_capture_rollout_failure.yml
+
+        - name: Fail with the original rollout error
+          ansible.builtin.fail:
+            msg: >-
+              The web deployment for '{{ instance_id }}' did not become
+              ready. The output above explains why.
+              {{ ansible_failed_result.msg | default('') }}
 
     # Register CAPI + auto-enroll the bouncer when CrowdSec is on but no
     # key is stored yet. Shared with the Compose start path and create.
@@ -636,42 +639,5 @@
       ansible.builtin.include_tasks: crowdsec_autoenroll.yml
       when: crowdsec_autoenroll | default(true) | bool
 
-    # Re-enable Argo CD auto-sync after start. The stop flow suspends
-    # sync to prevent selfHeal from reverting the scale-to-zero. We
-    # read the sync policy from the instance's values.yaml so we
-    # restore whatever the user configured, not a hardcoded default.
-    - name: Check if Argo CD Application exists for this instance
-      ansible.builtin.command:
-        cmd: >-
-          kubectl get application canasta-{{ instance_id }}
-          -n {{ argocd_namespace | default('argocd') }}
-          -o jsonpath={.metadata.name}
-      register: _start_argocd_app
-      changed_when: false
-      ignore_errors: true  # OK if no Argo CD app exists
-
-    - name: Re-enable Argo CD auto-sync
-      when: _start_argocd_app.rc == 0
-      block:
-        - name: Read sync policy from values.yaml
-          ansible.builtin.set_fact:
-            _argocd_sync_policy: "{{ _start_values.get('argocd', {}).get('syncPolicy', {}) }}"
-
-        - name: Build sync policy patch
-          ansible.builtin.set_fact:
-            _sync_patch:
-              spec:
-                syncPolicy:
-                  automated:
-                    selfHeal: "{{ _argocd_sync_policy.get('selfHeal', true) }}"
-                    prune: "{{ _argocd_sync_policy.get('prune', true) }}"
-                  syncOptions:
-                    - CreateNamespace=true
-
-        - name: Patch Application to restore auto-sync
-          ansible.builtin.command:
-            cmd: >-
-              kubectl patch application canasta-{{ instance_id }}
-              -n {{ argocd_namespace | default('argocd') }}
-              --type merge -p '{{ _sync_patch | to_json }}'
-          changed_when: true
+    - name: Resume Argo CD auto-sync
+      ansible.builtin.include_tasks: k8s_resume_argocd_sync.yml

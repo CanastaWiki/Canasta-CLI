@@ -9,6 +9,7 @@ values-sidecars.yaml
 _chart/
 values-domains.yaml
 values-db-account.yaml
+values-checksums.yaml
 
 # Part of the chart Argo CD renders
 !/files/my.cnf

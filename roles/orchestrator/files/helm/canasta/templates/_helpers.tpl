@@ -35,6 +35,17 @@ app.kubernetes.io/part-of: canasta
 {{- end }}
 
 {{/*
+Helm release ownership annotations, so a resource Argo CD creates from this
+chart can be adopted by a later direct `helm upgrade`. They must name the
+release helm_deploy.yml installs; the helm-sops plugin renders without
+--namespace, so both come from values rather than .Release.
+*/}}
+{{- define "canasta.ownershipAnnotations" -}}
+meta.helm.sh/release-name: {{ include "canasta.fullname" . }}
+meta.helm.sh/release-namespace: {{ include "canasta.namespace" . }}
+{{- end }}
+
+{{/*
 Selector labels for a specific component.
 */}}
 {{- define "canasta.selectorLabels" -}}

@@ -72,6 +72,22 @@
     - web | default(false) | bool
     - not (secret | default(false) | bool)
 
+# Argo CD deploys a gitops-managed Kubernetes instance from its repo and
+# self-heals back to it, so a direct restart would be reverted until the
+# change is pushed. Such an instance is staged only. An internal caller that
+# restarts or reports on its own keeps its usual behavior.
+- name: Check whether the instance is gitops-managed
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _config_set_gitops_marker
+
+- name: Decide whether config set only stages the change for a gitops push
+  ansible.builtin.set_fact:
+    _config_set_stage_only: >-
+      {{ (instance_is_k8s | bool) and _config_set_gitops_marker.stat.exists
+         and not (config_set_caller_reports | default(false) | bool)
+         and not (config_restart_by_caller | default(false) | bool) }}
+
 # Dispatch: --secret stores opaque values without .env validation or side
 # effects (_set_secret.yml); otherwise the normal .env config path.
 #
@@ -114,20 +130,65 @@
   when:
     - not (no_restart | default(false) | bool)
     - not (config_set_caller_reports | default(false) | bool)
+    - not (_config_set_stage_only | bool)
   ansible.builtin.debug:
     msg: "Restarting instance to apply changes..."
 
 - name: Restart instance to apply changes
-  when: not (no_restart | default(false) | bool)
+  when:
+    - not (no_restart | default(false) | bool)
+    - not (_config_set_stage_only | bool)
   ansible.builtin.include_role:
     name: instance_lifecycle
     tasks_from: restart.yml
 
 - name: Report settings applied
-  when: not (config_set_caller_reports | default(false) | bool)
+  when:
+    - not (config_set_caller_reports | default(false) | bool)
+    - not (_config_set_stage_only | bool)
   ansible.builtin.debug:
     msg: >-
       Settings updated.{{ (no_restart | default(false) | bool
       and not (config_restart_by_caller | default(false) | bool))
       | ternary(' Restart skipped — run `canasta reconcile` to apply
       the changes to the running instance.', '') }}
+
+# A start reconciles these into values.yaml before it deploys; gitops push
+# does not, so do it here for the push to carry them.
+- name: Reconcile the caddy image and crowdsec.enabled for the gitops push
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: k8s_reconcile_caddy.yml
+  when: _config_set_stage_only | bool
+
+- name: Check whether the instance is running
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: check_running.yml
+  when: _config_set_stage_only | bool
+
+# Only a start enrolls the bouncer, and a sync is not a start; a stopped
+# instance enrolls it when it next starts.
+- name: Report the change staged for a gitops push
+  ansible.builtin.debug:
+    msg: >-
+      Settings updated. The change to '{{ instance_id }}' is staged in its
+      gitops repo but not deployed.
+      {% if _container_running | default(false) | bool -%}
+      Run 'canasta gitops push -i {{ instance_id }}', then
+      'canasta gitops sync -i {{ instance_id }}', to deploy it.
+      {%- if _config_set_enables_crowdsec | bool %} After the sync, run
+      'canasta crowdsec bouncer-enroll -i
+      {{ instance_id }}' to give Caddy its bouncer key, then
+      'canasta gitops push -i {{ instance_id }}' to record it.
+      {%- endif %}
+      {%- else -%}
+      The instance is stopped, so it was left stopped. Run
+      'canasta gitops push -i {{ instance_id }}'; the change deploys the
+      next time it starts.
+      {%- endif %}
+  vars:
+    _config_set_enables_crowdsec: >-
+      {{ _config_settings | select('match', '(?i)^CANASTA_ENABLE_CROWDSEC=true$')
+         | list | length > 0 }}
+  when: _config_set_stage_only | bool

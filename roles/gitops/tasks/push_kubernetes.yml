@@ -142,6 +142,8 @@
 
 - name: Render per-host values
   ansible.builtin.include_tasks: render_kubernetes.yml
+  vars:
+    render_secret_checksums: true
   when: _push_template_check.stat.exists
 
 # Values that select MediaWiki's own database account make the web pods read

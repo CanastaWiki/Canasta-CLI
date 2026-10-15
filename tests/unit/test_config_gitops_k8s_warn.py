@@ -41,9 +41,9 @@ def test_compose_branch_updates_vars():
 
 def test_k8s_branch_warns_to_push():
     k8s = [t for t in _tasks()
-           if _when(t) == "instance_is_k8s | bool"]
+           if _when(t).startswith("instance_is_k8s | bool")]
     assert k8s, "must have a K8s-gated task"
-    warn = k8s[0]
+    warn = next((t for t in k8s if _debug_msg(t)), k8s[0])
     msg = _debug_msg(warn)
     assert "gitops push" in msg, "K8s warning must tell the user to push"
     # It must not claim to have persisted the change itself.
@@ -53,7 +53,7 @@ def test_k8s_branch_warns_to_push():
 def test_k8s_branch_is_not_a_silent_noop():
     # Regression: the K8s path used to be an unmentioned no-op, silently
     # dropping the change from the gitops source.
-    k8s = [t for t in _tasks() if _when(t) == "instance_is_k8s | bool"]
+    k8s = [t for t in _tasks() if _when(t).startswith("instance_is_k8s | bool")]
     assert any(_debug_msg(t) for t in k8s), (
         "K8s config set on a gitops instance must surface a warning, "
         "not silently skip")

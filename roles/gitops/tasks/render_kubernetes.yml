@@ -4,6 +4,8 @@
 # Output: hosts/{hostname}/rendered-values.yaml
 #
 # Requires: instance_path, instance_id (set by dispatcher)
+# Optional: render_secret_checksums (bool, default false) - hash the live
+# Secrets into secretChecksums instead of keeping the previous hashes.
 
 - name: Read this host's gitops identity and vars
   ansible.builtin.include_tasks: _read_gitops_host.yml
@@ -114,6 +116,41 @@
            'caddy': ({'Caddyfile': _render_local_caddy.content | b64decode}
                      if _render_identity.results[1].stat.exists else {}),
          }}, recursive=True) }}
+
+# --- Per-host Secret checksums ---
+# Pods read Secrets through secretKeyRef, which a changed value does not
+# roll. Push hashes the values each workload reads from this host's cluster
+# into this host's rendered values, where the chart makes them pod
+# annotations. Secrets differ per host, so they never go in the shared
+# template. Other renders (pull, join) keep the hashes the last push wrote.
+- name: Read the namespace Secrets for their checksums
+  kubernetes.core.k8s_info:
+    kind: Secret
+    namespace: "canasta-{{ instance_id }}"
+  register: _render_secrets
+  no_log: true
+  when: render_secret_checksums | default(false) | bool
+
+- name: Read the previously rendered values
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/{{ _render_hostname }}/rendered-values.yaml"
+  register: _render_previous
+  failed_when: false
+  when: not (render_secret_checksums | default(false) | bool)
+
+- name: Set this host's Secret checksums
+  ansible.builtin.set_fact:
+    _rendered_values: >-
+      {{ _rendered_values | combine({'secretChecksums': _render_checksums}) }}
+  vars:
+    _render_checksums: >-
+      {{ (_render_secrets.resources | default([]))
+         | canasta_overlay_local_secrets(_k8s_local_secrets | default({}))
+         | canasta_secret_checksums(_rendered_values, instance_id)
+         if (render_secret_checksums | default(false) | bool)
+         else ((_render_previous.content | default('') | b64decode | from_yaml)
+               | default({}, true)).get('secretChecksums', {}) }}
+  no_log: true
 
 - name: Write rendered-values.yaml
   ansible.builtin.copy:

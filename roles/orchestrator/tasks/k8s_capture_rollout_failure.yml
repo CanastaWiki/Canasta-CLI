@@ -13,6 +13,34 @@
 #
 # Input: instance_id, _k8s_namespace
 
+# A web pod that never becomes ready has usually logged why: a PHP fatal
+# error, or MediaWiki refusing an extension whose files are missing. The
+# previous container's log holds it when the pod is crash-looping.
+- name: Collect web's logs for the failed rollout
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      ns={{ _k8s_namespace | quote }}
+      sel=app.kubernetes.io/component=web
+      kubectl logs -n "$ns" -l "$sel" -c web --previous --tail=200 2>/dev/null
+      kubectl logs -n "$ns" -l "$sel" -c web --tail=200 2>/dev/null
+      true
+  register: _rollout_web_logs
+  changed_when: false
+  failed_when: false
+
+- name: Find the startup error web logged
+  ansible.builtin.set_fact:
+    _rollout_web_cause: >-
+      {{ (_rollout_web_logs.stdout | default(''))
+         | web_startup_cause(instance_id) }}
+
+- name: Report the startup error web logged
+  ansible.builtin.debug:
+    msg: >-
+      {{ [_rollout_web_cause.cause, _rollout_web_cause.hint] }}
+  when: _rollout_web_cause.cause | default('') | length > 0
+
 - name: Collect cluster state for the failed rollout
   ansible.builtin.shell:
     executable: /bin/bash
