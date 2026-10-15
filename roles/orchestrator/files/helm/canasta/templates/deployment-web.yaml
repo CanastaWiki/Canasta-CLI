@@ -86,13 +86,16 @@ spec:
           # period runs out, cutting off whatever it is still serving.
           # graceful-stop lets in-flight requests finish and closes
           # keep-alive connections; the container exits when Apache does.
+          # The hook returns at once: the SIGTERM that follows does not
+          # interrupt the drain, and a hook still running when the
+          # container exits is reported as failed.
           lifecycle:
             preStop:
               exec:
                 command:
                   - /bin/sh
                   - -c
-                  - sleep {{ int .Values.web.preStopSleepSeconds }}; apachectl -k graceful-stop && exec sleep infinity
+                  - sleep {{ int .Values.web.preStopSleepSeconds }}; apachectl -k graceful-stop
           ports:
             - name: http
               containerPort: 80

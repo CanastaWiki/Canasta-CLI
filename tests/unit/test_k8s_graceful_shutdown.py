@@ -86,10 +86,9 @@ class TestShutdown:
         assert "terminationGracePeriodSeconds must be greater" in out.stderr
 
 
-def test_web_prestop_stops_apache_gracefully_and_waits():
+def test_web_prestop_stops_apache_gracefully_and_returns():
     script = _prestop(_render("deployment-web.yaml"), "web")
-    assert script == ("sleep 10; apachectl -k graceful-stop"
-                      " && exec sleep infinity")
+    assert script == "sleep 10; apachectl -k graceful-stop"
 
 
 def test_web_grace_period_leaves_time_to_drain():
