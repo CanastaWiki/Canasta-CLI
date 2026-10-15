@@ -142,20 +142,51 @@
     config_settings_override: "CROWDSEC_BOUNCER_API_KEY={{ _crowdsec_add.stdout | trim }}"
     config_set_caller_reports: true
 
-# Argo CD deploys a gitops-managed Kubernetes instance from its repo, where
-# the Caddyfile has no bouncer until the new key is pushed, so Caddy runs
-# without it until then.
+# Argo CD deploys a gitops-managed Kubernetes instance from its repo, so
+# Caddy uses the new key only once the repo carries what it needs: the
+# crowdsec block in the committed Caddyfile, and with SOPS the key itself
+# (Argo CD owns the key's Secret there). Without SOPS the key lives in a
+# Secret the CLI applies, so a committed crowdsec block is enough.
 - name: Check whether the instance is gitops-managed
   when: _crowdsec_enroll_stack | last | bool
   ansible.builtin.stat:
-    path: "{{ instance_path }}/.gitops-host"
-  register: _crowdsec_gitops_marker
+    path: "{{ instance_path }}/{{ item }}"
+  loop:
+    - .gitops-host
+    - .sops.yaml
+  register: _crowdsec_gitops_markers
+
+- name: Read the committed render of this host's values
+  when:
+    - _crowdsec_enroll_stack | last | bool
+    - instance_is_k8s | bool
+    - _crowdsec_gitops_markers.results[0].stat.exists
+    - not _crowdsec_gitops_markers.results[1].stat.exists
+  ansible.builtin.shell:
+    cmd: git show "HEAD:hosts/$(cat .gitops-host)/rendered-values.yaml"
+    chdir: "{{ instance_path }}"
+  register: _crowdsec_committed_values
+  changed_when: false
+  failed_when: false
+  no_log: true  # the rendered values carry the instance's config
+
+- name: Decide whether Caddy needs a push to use the bouncer
+  when: _crowdsec_enroll_stack | last | bool
+  ansible.builtin.set_fact:
+    _crowdsec_needs_push: >-
+      {{ (instance_is_k8s | bool)
+         and _crowdsec_gitops_markers.results[0].stat.exists
+         and (_crowdsec_gitops_markers.results[1].stat.exists
+              or _crowdsec_committed_values.rc | default(1) != 0
+              or not (((_crowdsec_committed_values.stdout | from_yaml or {})
+                       .get('configData') or {}).get('caddy') or {})
+                     .get('Caddyfile', '') is search('(?m)^ *crowdsec *[{]')) }}
 
 - name: Report success
   when: _crowdsec_enroll_stack | last | bool
   ansible.builtin.debug:
     msg: >-
-      {% if (instance_is_k8s | bool) and _crowdsec_gitops_marker.stat.exists -%}
+      {% if _crowdsec_needs_push | bool -%}
       CrowdSec bouncer 'canasta-caddy' is registered for instance
       '{{ instance_id }}' and its key is stored, but Caddy does not use it
       until it is in the gitops repo. Run 'canasta gitops push -i
