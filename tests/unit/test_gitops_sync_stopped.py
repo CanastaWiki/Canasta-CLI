@@ -37,6 +37,23 @@ def _task_result(out, name):
     return next(line for line in lines[i + 1:] if line.strip())
 
 
+# Stand-ins for kubernetes.core, which CI doesn't install: the sync patch
+# fails as it would with no cluster, and the status read finds nothing.
+FAKE_K8S = """#!/usr/bin/python
+from ansible.module_utils.basic import AnsibleModule
+m = AnsibleModule(argument_spec=dict(
+    state=dict(), api_version=dict(), kind=dict(), name=dict(),
+    namespace=dict(), definition=dict(type="dict")))
+m.fail_json(msg="no cluster")
+"""
+FAKE_K8S_INFO = """#!/usr/bin/python
+from ansible.module_utils.basic import AnsibleModule
+m = AnsibleModule(argument_spec=dict(
+    api_version=dict(), kind=dict(), name=dict(), namespace=dict()))
+m.exit_json(changed=False, resources=[])
+"""
+
+
 def _run(tmp_path, tasks, play_vars, fake_out="", fake_rc=0):
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
@@ -45,6 +62,11 @@ def _run(tmp_path, tasks, play_vars, fake_out="", fake_rc=0):
     exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
     log = tmp_path / "cmd.log"
     log.write_text("")
+    mods = tmp_path / "ac" / "ansible_collections" / "kubernetes" / "core" \
+        / "plugins" / "modules"
+    mods.mkdir(parents=True, exist_ok=True)
+    (mods / "k8s.py").write_text(FAKE_K8S)
+    (mods / "k8s_info.py").write_text(FAKE_K8S_INFO)
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
         "hosts": "localhost",
@@ -57,6 +79,7 @@ def _run(tmp_path, tasks, play_vars, fake_out="", fake_rc=0):
     env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
                PATH="%s:%s" % (bindir, os.environ.get("PATH", "")),
                FAKE_OUT=fake_out, FAKE_RC=str(fake_rc), CMD_LOG=str(log),
+               ANSIBLE_COLLECTIONS_PATH=str(tmp_path / "ac"),
                ANSIBLE_STDOUT_CALLBACK="default",
                ANSIBLE_DISPLAY_SKIPPED_HOSTS="true",
                KUBECONFIG=str(tmp_path / "no-such-kubeconfig"))
