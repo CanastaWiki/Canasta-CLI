@@ -43,6 +43,16 @@ caddy:
     limits:
       cpu: 200m
       memory: 128Mi
+  # On deletion the pod keeps serving for preStopSleepSeconds while its
+  # removal from the caddy Service reaches the ingress, then Caddy stops
+  # gracefully. The grace period bounds the whole shutdown and must exceed
+  # the sleep.
+  preStopSleepSeconds: 5
+  terminationGracePeriodSeconds: 30
+  # Bring a replacement pod up and ready before taking the old one down.
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
 
 # Varnish cache
 varnish:

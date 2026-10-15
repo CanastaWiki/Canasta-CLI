@@ -1,3 +1,6 @@
+{{- if le (int .Values.caddy.terminationGracePeriodSeconds) (int .Values.caddy.preStopSleepSeconds) }}
+  {{- fail "caddy.terminationGracePeriodSeconds must be greater than caddy.preStopSleepSeconds" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -10,13 +13,10 @@ metadata:
     {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
 spec:
   replicas: 1
-  # Every request reaches the wiki through this pod, so the replacement must
-  # be Ready before the outgoing pod stops.
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+      {{- toYaml .Values.caddy.rollingUpdate | nindent 6 }}
   selector:
     matchLabels:
       {{- include "canasta.selectorLabels" . | nindent 6 }}
@@ -37,9 +37,20 @@ spec:
         {{- end }}
         {{- end }}
     spec:
+      terminationGracePeriodSeconds: {{ int .Values.caddy.terminationGracePeriodSeconds }}
       containers:
         - name: caddy
           image: {{ .Values.caddy.image | default "caddy:2.10.2-alpine" }}
+          # The ingress keeps routing to a deleted pod until its removal from
+          # the caddy Service reaches it, so keep serving for that long
+          # before Caddy is told to stop. The hook returns on its own.
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep {{ int .Values.caddy.preStopSleepSeconds }}
           {{- if .Values.crowdsec.enabled }}
           # The Caddyfile reads the bouncer key via {env.CROWDSEC_BOUNCER_API_KEY}.
           # optional: true lets Caddy start key-less before the bouncer is
@@ -95,6 +106,15 @@ spec:
         # failure, so CrowdSec can never take this pod out of service.
         - name: crowdsec-agent
           image: {{ .Values.crowdsec.image }}
+          # Stop with Caddy, not before it, so the requests the outgoing pod
+          # still serves are parsed too.
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep {{ int .Values.caddy.preStopSleepSeconds }}
           command:
             - /bin/sh
             - -c
