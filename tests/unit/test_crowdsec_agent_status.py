@@ -87,27 +87,33 @@ class TestAgentStatusLine:
 def _show(path, name, play_vars):
     with open(path) as f:
         task = next(t for t in yaml.safe_load(f) if t.get("name") == name)
+    task = dict(task, register="_shown")
+    # The msg is written to a file rather than read from a stdout callback:
+    # ansible-core ships no json callback, and CI has no collections.
+    save = {"ansible.builtin.copy": {"content": "{{ _shown.msg }}",
+                                     "dest": "{{ shown_msg_path }}"}}
     play = [{"hosts": "localhost", "connection": "local",
              "gather_facts": False,
              "vars": dict({"ansible_python_interpreter": sys.executable},
                           **play_vars),
-             "tasks": [task]}]
+             "tasks": [task, save]}]
     return play
 
 
 def _run(tmp_path, play):
     path = tmp_path / "play.yml"
+    shown = tmp_path / "shown.txt"
+    play[0]["vars"]["shown_msg_path"] = str(shown)
     path.write_text(yaml.safe_dump(play))
     base = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_")}
     env = dict(base, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
-               ANSIBLE_STDOUT_CALLBACK="json",
+               ANSIBLE_COLLECTIONS_PATH=str(tmp_path / "no-collections"),
                ANSIBLE_FILTER_PLUGINS=os.path.join(REPO_ROOT, "filter_plugins"))
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
     proc = subprocess.run([playbook, "-i", "localhost,", str(path)],
                           capture_output=True, text=True, env=env)
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    result = json.loads(proc.stdout)
-    return result["plays"][0]["tasks"][0]["hosts"]["localhost"]["msg"]
+    return shown.read_text()
 
 
 class TestStatusShowsTheAgent:
