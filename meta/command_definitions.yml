@@ -1533,6 +1533,12 @@ commands:
       After enabling, `update.php` is automatically run to apply any
       required database changes. Use `--skip-update` to skip this
       step.
+
+      A Kubernetes instance managed through gitops is not redeployed: Argo
+      CD deploys it from its gitops repo. Enable saves the change there, and
+      you deploy it with `canasta gitops push`, then `canasta gitops
+      sync`. The web pods run `update.php` for the affected wikis when
+      the sync restarts them, even with `--skip-update`.
     examples:
       - "canasta extension enable VisualEditor,Cite"
     playbook: extension_enable.yml
@@ -1562,6 +1568,11 @@ commands:
       extensions can be specified as a comma-separated list. Use
       the `--wiki` flag to disable an extension for a specific wiki
       only.
+
+      A Kubernetes instance managed through gitops is not redeployed: Argo
+      CD deploys it from its gitops repo. Disable saves the change there, and
+      you deploy it with `canasta gitops push`, then `canasta gitops
+      sync`.
     examples:
       - "canasta extension disable VisualEditor"
     playbook: extension_disable.yml
@@ -1809,6 +1820,12 @@ commands:
       After enabling, `update.php` is automatically run to apply any
       required database changes. Use `--skip-update` to skip this
       step.
+
+      A Kubernetes instance managed through gitops is not redeployed: Argo
+      CD deploys it from its gitops repo. Enable saves the change there, and
+      you deploy it with `canasta gitops push`, then `canasta gitops
+      sync`. The web pods run `update.php` for the affected wikis when
+      the sync restarts them, even with `--skip-update`.
     examples:
       - "canasta skin enable Timeless"
     playbook: skin_enable.yml
@@ -1837,6 +1854,11 @@ commands:
       Disable one or more Canasta skins by name. Multiple skins can
       be specified as a comma-separated list. Use the `--wiki` flag
       to disable a skin for a specific wiki only.
+
+      A Kubernetes instance managed through gitops is not redeployed: Argo
+      CD deploys it from its gitops repo. Disable saves the change there, and
+      you deploy it with `canasta gitops push`, then `canasta gitops
+      sync`.
     examples:
       - "canasta skin disable Timeless"
     playbook: skin_disable.yml
