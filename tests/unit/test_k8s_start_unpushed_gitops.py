@@ -17,6 +17,7 @@ import canasta_gitops_pending as pending  # noqa: E402
 TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 WARN = os.path.join(TASKS, "k8s_warn_unpushed_gitops.yml")
 START = os.path.join(TASKS, "start.yml")
+LIFECYCLE = os.path.join(REPO_ROOT, "roles", "instance_lifecycle", "tasks")
 
 ENV = "MW_SITE_FQDN=wiki.example.com\nMYSQL_PASSWORD=s3cret\nMW_ENABLE_JOB_RUNNER=true\n"
 WIKIS = "wikis:\n- id: main\n  url: wiki.example.com\n  name: Main\n"
@@ -131,7 +132,7 @@ class TestUnpushedChanges:
                               capture_output=True, text=True).stdout == refs
 
 
-def _run_warn(tmp_path, root):
+def _run_warn(tmp_path, root, includes=1):
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
         "hosts": "localhost",
@@ -139,7 +140,7 @@ def _run_warn(tmp_path, root):
         "gather_facts": False,
         "vars": {"instance_path": str(root), "instance_id": "mysite",
                  "canasta_secret_key_regex": _secret_regex()},
-        "tasks": [{"ansible.builtin.include_tasks": WARN}],
+        "tasks": [{"ansible.builtin.include_tasks": WARN}] * includes,
     }]))
     env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
                ANSIBLE_COLLECTIONS_PATH=str(tmp_path / "ac"),
@@ -162,6 +163,15 @@ class TestStartWarning:
         assert "canasta gitops sync -i mysite" in proc.stdout
         assert "s3cret" not in proc.stdout
 
+    def test_warns_once_when_included_again(self, tmp_path):
+        # start and restart warn before stopping; the Kubernetes start
+        # they then run includes the check again.
+        root = _instance(tmp_path)
+        _write(root, "config/wikis.yaml", WIKIS + "# edit\n")
+        proc = _run_warn(tmp_path, root, includes=2)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert proc.stdout.count("has changes not yet pushed") == 1
+
     def test_silent_when_clean(self, tmp_path):
         proc = _run_warn(tmp_path, _instance(tmp_path))
         assert proc.returncode == 0, proc.stdout + proc.stderr
@@ -177,3 +187,35 @@ def test_k8s_start_warns_before_the_helm_deploy():
     warn = includes.index("k8s_warn_unpushed_gitops.yml")
     assert warn < includes.index("k8s_start_helm_deploy.yml")
     assert "when" not in k8s["block"][warn]
+
+
+def _first_index(tasks, predicate):
+    return next(i for i, t in enumerate(tasks) if predicate(t))
+
+
+def _is_warn(t):
+    return "k8s_warn_unpushed_gitops.yml" in str(
+        t.get("ansible.builtin.include_tasks", ""))
+
+
+def _includes_role_tasks(name):
+    return lambda t: (t.get("ansible.builtin.include_role") or {}).get(
+        "tasks_from") == name
+
+
+def test_restart_warns_before_stopping():
+    with open(os.path.join(LIFECYCLE, "restart.yml")) as f:
+        tasks = yaml.safe_load(f)
+    warn = _first_index(tasks, _is_warn)
+    assert warn < _first_index(tasks, _includes_role_tasks("stop.yml"))
+    assert warn < _first_index(
+        tasks, lambda t: "canasta_render_sidecars" in t)
+    assert tasks[warn]["when"] == "instance_is_k8s | bool"
+
+
+def test_start_warns_before_starting():
+    with open(os.path.join(LIFECYCLE, "start.yml")) as f:
+        tasks = yaml.safe_load(f)
+    warn = _first_index(tasks, _is_warn)
+    assert warn < _first_index(tasks, _includes_role_tasks("start.yml"))
+    assert tasks[warn]["when"] == "instance_is_k8s | bool"

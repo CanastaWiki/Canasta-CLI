@@ -2,30 +2,39 @@
 # Name the changes a gitops-managed instance has not pushed. A start deploys
 # the local state, and Argo CD, which deploys what is committed and pushed,
 # puts the pushed state back. Read-only, and silent when the instance is not
-# gitops-managed.
+# gitops-managed. start and restart include this before anything stops, and
+# the Kubernetes start includes it again for the callers that start directly;
+# each instance is checked once per run.
 # Input: instance_id, instance_path
 
-# The probe output carries the render inputs, .env among them.
-- name: Look for changes not yet pushed
-  ansible.builtin.shell:
-    cmd: "{{ instance_path | canasta_gitops_unpushed_probe }}"
-    executable: /bin/bash
-  register: _start_unpushed_probe
-  changed_when: false
-  failed_when: false
-  check_mode: false
-  no_log: true
+- name: Check for gitops changes not yet pushed
+  when: instance_id not in (_k8s_unpushed_checked | default([]))
+  block:
+    # The probe output carries the render inputs, .env among them.
+    - name: Look for changes not yet pushed
+      ansible.builtin.shell:
+        cmd: "{{ instance_path | canasta_gitops_unpushed_probe }}"
+        executable: /bin/bash
+      register: _start_unpushed_probe
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      no_log: true
 
-- name: Report changes not yet pushed
-  ansible.builtin.debug:
-    msg: >-
-      Warning: '{{ instance_id }}' has changes not yet pushed:
-      {{ _unpushed | join(', ') }}. This deploys them now, but Argo CD will
-      put back the committed state until you run
-      'canasta gitops push -i {{ instance_id }}' and
-      'canasta gitops sync -i {{ instance_id }}'.
-  vars:
-    _unpushed: >-
-      {{ _start_unpushed_probe.stdout | default('')
-         | canasta_gitops_unpushed(canasta_secret_key_regex) }}
-  when: _unpushed | length > 0
+    - name: Report changes not yet pushed
+      ansible.builtin.debug:
+        msg: >-
+          Warning: '{{ instance_id }}' has changes not yet pushed:
+          {{ _unpushed | join(', ') }}. This deploys them now, but Argo CD will
+          put back the committed state until you run
+          'canasta gitops push -i {{ instance_id }}' and
+          'canasta gitops sync -i {{ instance_id }}'.
+      vars:
+        _unpushed: >-
+          {{ _start_unpushed_probe.stdout | default('')
+             | canasta_gitops_unpushed(canasta_secret_key_regex) }}
+      when: _unpushed | length > 0
+
+- name: Record that the instance was checked for unpushed changes
+  ansible.builtin.set_fact:
+    _k8s_unpushed_checked: "{{ (_k8s_unpushed_checked | default([])) | union([instance_id]) }}"
