@@ -7,6 +7,8 @@ metadata:
   labels:
     {{- include "canasta.labels" . | nindent 4 }}
     app.kubernetes.io/component: web
+  annotations:
+    {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
 data:
   ensure_wiki_db_account.sh: |
     {{- .Files.Get "files/ensure_wiki_db_account.sh" | nindent 4 }}

@@ -23,7 +23,7 @@ CHART = os.path.join(
 ALL_ON = {
     "instance": {"id": "demo"},
     "domains": ["wiki.example.com"],
-    "db": {"enabled": True},
+    "db": {"enabled": True, "wikiUser": "mediawiki"},
     "crowdsec": {"enabled": True},
     "varnish": {"enabled": True},
     "elasticsearch": {"enabled": True},
@@ -32,7 +32,7 @@ ALL_ON = {
     "configData": {
         "caddy": {"Caddyfile": "x"},
         "env": {"A": "1"},
-        "web": {"f": "x"},
+        "web": {"f": "x", "wikis.yaml": "wikis:\n- id: main\n"},
         "db": {"my.cnf": "[mysqld]"},
         "varnish": {"default.vcl": "x"},
         "crowdsec": {"whitelist.yaml": "x"},
