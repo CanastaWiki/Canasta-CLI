@@ -15,7 +15,6 @@ passing. So the headline behavior, and the bug it fixes, had no coverage.
 """
 
 import os
-import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(
@@ -34,8 +33,9 @@ def _args():
 
 
 def _common(monkeypatch, calls):
-    monkeypatch.setattr(subprocess, "call",
-                        lambda cmd, **kw: calls.append(cmd) or 0)
+    monkeypatch.setattr(direct_commands._helpers, "_run_compose",
+                        lambda i, inst, action, **kw: calls.append(action)
+                        or 0)
     monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
                         lambda args: _instance())
     monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",

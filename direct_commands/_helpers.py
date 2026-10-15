@@ -363,7 +363,8 @@ def _compose_file_args(path, host, devmode=False, include_sidecars=False):
     return result
 
 
-def _run_compose(inst_id, inst, action_args, include_sidecars=False):
+def _run_compose(inst_id, inst, action_args, include_sidecars=False,
+                 quiet=False):
     """Run a compose command for an instance. Returns exit code.
 
     Output streams to the terminal and there is NO timeout: the actions
@@ -372,6 +373,9 @@ def _run_compose(inst_id, inst, action_args, include_sidecars=False):
     falsely reported failure on slow pulls/builds while the work kept
     running.) On a remote host these actions are idempotent, so a
     connection-level reset (ssh exit 255) is retried.
+
+    With ``quiet``, output is captured instead and printed to stderr only
+    when the command fails.
     """
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
@@ -380,10 +384,21 @@ def _run_compose(inst_id, inst, action_args, include_sidecars=False):
     compose_cmd = _resolve_compose_cmd(inst)
     profile_args = _compose_profile_args(inst)
 
+    def _call(argv, cwd=None):
+        if not quiet:
+            return subprocess.call(argv, cwd=cwd)
+        result = subprocess.run(
+            argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if result.returncode != 0 and result.stdout:
+            print(result.stdout.rstrip(), file=sys.stderr)
+        return result.returncode
+
     if _is_localhost(host):
         cmd = compose_cmd + file_args + profile_args + action_args
         try:
-            return subprocess.call(cmd, cwd=path)
+            return _call(cmd, cwd=path)
         except OSError as e:
             print("Error: %s" % e, file=sys.stderr)
             return 1
@@ -401,7 +416,7 @@ def _run_compose(inst_id, inst, action_args, include_sidecars=False):
 
     def _attempt():
         try:
-            return subprocess.call(argv)
+            return _call(argv)
         except OSError as e:
             print("Error: %s" % e, file=sys.stderr)
             return 1
