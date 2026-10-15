@@ -95,18 +95,29 @@ elasticsearch:
       cpu: 500m
       memory: 1Gi
 
-# CrowdSec (optional). When enabled, the engine runs as a sidecar in the
-# Caddy pod sharing the access log, and the Caddy deployment uses the
-# plugin image (set by Ansible) so the bouncer can enforce decisions.
-# The Caddy deployment stays at one replica while this is on (the sidecar
-# holds a ReadWriteOnce PVC).
+# CrowdSec (optional). When enabled, the local API runs as its own
+# Deployment holding the PVC, an agent sidecar in the Caddy pod parses the
+# access log and reports to it, and the Caddy deployment uses the plugin
+# image (set by Ansible) so the bouncer can enforce decisions. The agent
+# logs in as agentUsername with CROWDSEC_AGENT_PASSWORD from the
+# canasta-<id>-crowdsec Secret.
 crowdsec:
   enabled: false
   image: docker.io/crowdsecurity/crowdsec:v1.6.11
   collections: "crowdsecurity/caddy crowdsecurity/http-cve"
+  agentUsername: canasta-caddy-agent
   storage: 1Gi
   storageClass: ""
+  # The local API
   resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  # The agent in the caddy pod
+  agentResources:
     requests:
       cpu: 50m
       memory: 128Mi
@@ -161,8 +172,8 @@ secrets:
 # existing instances render no extra env.
 appSecretEnv: []
 
-# Hashes of the Secret values each workload reads (web, caddy, and per
-# sidecar name), set per host by `canasta gitops push`. Each becomes a pod
+# Hashes of the Secret values each workload reads (web, caddy, crowdsec,
+# and per sidecar name), set per host by `canasta gitops push`. Each becomes a pod
 # annotation, so an Argo CD sync rolls the pods when a value they read
 # changes. Never the values themselves.
 secretChecksums: {}

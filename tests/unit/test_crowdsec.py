@@ -1368,13 +1368,12 @@ class TestCrowdsecRestartEngine:
         content = self._content()
         assert "{{ compose_command }} {{ _crowdsec_profile_flags | default('') }} restart crowdsec" in content
 
-    def test_k8s_rolls_the_caddy_deployment(self):
-        # The engine is a sidecar in the caddy pod, so the K8s equivalent is a
-        # rollout of the caddy deployment, waited on so callers can exec into
-        # the fresh pod.
+    def test_k8s_rolls_the_local_api_deployment(self):
+        # The K8s equivalent is a rollout of the local API deployment, waited
+        # on so callers can exec into the fresh pod. Caddy is left alone.
         content = self._content()
-        assert "kubectl rollout restart deployment/canasta-{{ instance_id }}-caddy" in content
-        assert "kubectl rollout status deployment/canasta-{{ instance_id }}-caddy" in content
+        assert "kubectl rollout restart deployment/canasta-{{ instance_id }}-crowdsec" in content
+        assert "kubectl rollout status deployment/canasta-{{ instance_id }}-crowdsec" in content
 
 
 class TestCrowdsecResolveCscli:
@@ -1398,11 +1397,10 @@ class TestCrowdsecResolveCscli:
         assert "compose_command.split()" in content
         assert '["{{ compose_command }}"]' not in content
 
-    def test_k8s_prefix_targets_the_sidecar_container(self):
-        # kubectl exec into the caddy pod, selecting the crowdsec sidecar.
+    def test_k8s_prefix_names_the_container(self):
         content = self._content()
         assert "kubectl exec" in content
-        assert "-c crowdsec --" in content
+        assert "-c {{ _cscli_k8s_container }} --" in content
 
     def test_preflight_builds_the_prefix(self):
         preflight = _read(os.path.join(
@@ -1412,7 +1410,7 @@ class TestCrowdsecResolveCscli:
 
 
 class TestCrowdsecPreflightK8sReadiness:
-    """The K8s caddy-pod readiness probe in _preflight.yml uses a jsonpath
+    """The K8s local API readiness probe in _preflight.yml uses a jsonpath
     that contains a space (the 'name=ready ' separator). It must be quoted so
     Ansible's command parser keeps it as one argument — otherwise the trailing
     ' {end}' splits into its own token and kubectl reads it as a pod name,
@@ -1511,27 +1509,35 @@ class TestCrowdsecK8sChart:
         )
         assert "crowdsec" in values["configData"]
 
-    def test_caddy_deployment_gates_sidecar_on_enabled(self):
+    def test_caddy_deployment_gates_agent_on_enabled(self):
         content = _read_helm("deployment-caddy.yaml")
         # Everything crowdsec is behind the enabled gate.
         assert "{{- if .Values.crowdsec.enabled }}" in content
-        # Sidecar container, log sharing, seed init container, key env.
-        assert "name: crowdsec" in content
+        # Agent sidecar, log sharing, key env.
+        assert "name: crowdsec-agent" in content
         assert "/var/log/caddy" in content
-        assert "seed-crowdsec-config" in content
         assert "CROWDSEC_BOUNCER_API_KEY" in content
         assert "secretKeyRef" in content
         assert "optional: true" in content
-        # RWO PVC sidecar forces a Recreate strategy.
+        # No PVC left in the pod, so it rolls.
+        assert "type: Recreate" not in content
+        assert "persistentVolumeClaim" not in content
+
+    def test_local_api_deployment_is_gated_and_holds_the_pvc(self):
+        content = _read_helm("deployment-crowdsec.yaml")
+        assert content.startswith("{{- if .Values.crowdsec.enabled }}")
+        assert "seed-crowdsec-config" in content
+        assert "claimName: {{ include \"canasta.fullname\" . }}-crowdsec" \
+            in content
         assert "type: Recreate" in content
 
-    def test_crowdsec_service_routes_lapi_to_caddy_pod(self):
+    def test_crowdsec_service_routes_lapi_to_crowdsec_pod(self):
         content = _read_helm("service-aliases.yaml")
         assert "name: crowdsec" in content
         assert "port: 8080" in content
-        # The Service selects the caddy pod (the sidecar lives there).
         crowdsec_block = content[content.index("name: crowdsec"):]
-        assert "app.kubernetes.io/component: caddy" in crowdsec_block
+        assert "app.kubernetes.io/component: crowdsec" in \
+            crowdsec_block[crowdsec_block.index("selector:"):]
 
     def test_pvc_and_configmap_exist_and_are_gated(self):
         pvc = _read_helm("pvc-crowdsec.yaml")
@@ -1547,12 +1553,13 @@ class TestCrowdsecK8sConfigSync:
             REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_sync_config.yml",
         ))
 
-    def test_creates_bouncer_key_secret(self):
+    def test_creates_crowdsec_secret(self):
         content = self._content()
         assert "canasta-{{ instance_id }}-crowdsec" in content
         assert "CROWDSEC_BOUNCER_API_KEY" in content
-        # The key Secret must be no_log so it never lands in output.
-        secret_block = content[content.index("crowdsec bouncer key data"):]
+        assert "CROWDSEC_AGENT_PASSWORD" in content
+        # The Secret must be no_log so it never lands in output.
+        secret_block = content[content.index("Build crowdsec Secret data"):]
         assert "no_log: true" in secret_block
 
     def test_syncs_acquisition_and_whitelist_into_configdata(self):
@@ -1630,12 +1637,12 @@ class TestCrowdsecAutoEnroll:
         hint = enroll[enroll.index("already enrolled"):]
         assert "not (bouncer_enroll_auto | default(false) | bool)" in hint
 
-    def test_autoenroll_sidecar_wait_is_k8s_guarded(self):
-        # The sidecar rollout wait is K8s-only; Compose starts the service
+    def test_autoenroll_local_api_wait_is_k8s_guarded(self):
+        # The local API rollout wait is K8s-only; Compose starts the service
         # synchronously. The guard lives inside the orchestrator task (allowed
         # by the orchestrator-dispatch design), not in action code.
         content = self._autoenroll()
-        assert "rollout status deployment/canasta-{{ instance_id }}-caddy" in content
+        assert "rollout status deployment/canasta-{{ instance_id }}-crowdsec" in content
         wait = content[content.index("rollout status"):]
         assert "when: instance_is_k8s | bool" in wait
 

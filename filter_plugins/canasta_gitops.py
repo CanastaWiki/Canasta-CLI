@@ -376,9 +376,10 @@ def canasta_secret_checksums(secrets, values, instance_id):
     ``secrets`` is a k8s_info Secret listing, ``values`` the instance's Helm
     values. Returns hashes only, never the values: ``web`` (database
     password, MediaWiki secret key and the --web app secrets), ``caddy``
-    (the CrowdSec bouncer key) and ``sidecars`` (one per sidecar that reads
-    app secrets), for the chart to put on each pod template so a changed
-    Secret value rolls the pods that read it.
+    (the CrowdSec bouncer key and agent password), ``crowdsec`` (the agent
+    password the local API registers) and ``sidecars`` (one per sidecar that
+    reads app secrets), for the chart to put on each pod template so a
+    changed Secret value rolls the pods that read it.
     """
     values = values or {}
     names = values.get("secrets") or {}
@@ -405,7 +406,10 @@ def canasta_secret_checksums(secrets, values, instance_id):
     return {
         "web": _secret_fingerprint(data, web),
         "caddy": _secret_fingerprint(
-            data, pepper + [(crowdsec, "CROWDSEC_BOUNCER_API_KEY")]),
+            data, pepper + [(crowdsec, "CROWDSEC_BOUNCER_API_KEY"),
+                            (crowdsec, "CROWDSEC_AGENT_PASSWORD")]),
+        "crowdsec": _secret_fingerprint(
+            data, pepper + [(crowdsec, "CROWDSEC_AGENT_PASSWORD")]),
         "sidecars": sidecars,
     }
 

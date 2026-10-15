@@ -1,14 +1,17 @@
 ---
 # Build the orchestrator-appropriate command prefix for running cscli in the
 # CrowdSec engine, so the subcommand tasks stay orchestrator-agnostic:
-#   Compose -> `docker compose exec` into the crowdsec service.
-#   K8s     -> `kubectl exec -c crowdsec` into the caddy pod (the engine runs
-#              as a sidecar there).
+#   Compose -> `docker compose exec` into the crowdsec service, which runs
+#              both the local API and the agent.
+#   K8s     -> `kubectl exec` into the local API pod, or, with
+#              _cscli_target: agent, into the crowdsec-agent container of
+#              the caddy pod, where the access log is parsed.
 # Every cscli call uses `{{ _cscli_prefix }} cscli …` (cmd string) or
 # `{{ _cscli_argv }} + [...]` (argv list, for calls that pass an unquoted IP,
 # reason, or enrollment key), with `chdir: {{ _cscli_chdir | default(omit) }}`,
 # keeping each call's own failed_when / until / no_log control intact.
-# Input: instance_id, instance_path, instance_orchestrator
+# Input: instance_id, instance_path, instance_orchestrator,
+#        _cscli_target (optional: 'lapi', the default, or 'agent')
 # Output: _cscli_prefix (str), _cscli_argv (list), _cscli_chdir (str or null)
 
 # podman-compose ignores COMPOSE_PROFILES from .env, so we must pass
@@ -65,13 +68,18 @@
       ansible.builtin.set_fact:
         _k8s_namespace: "canasta-{{ instance_id }}"
 
-    - name: Resolve the caddy pod (hosts the crowdsec sidecar)
+    - name: Choose the pod and container that run cscli
+      ansible.builtin.set_fact:
+        _cscli_k8s_component: "{{ 'caddy' if _cscli_target | default('lapi') == 'agent' else 'crowdsec' }}"
+        _cscli_k8s_container: "{{ 'crowdsec-agent' if _cscli_target | default('lapi') == 'agent' else 'crowdsec' }}"
+
+    - name: Resolve the pod
       ansible.builtin.include_tasks: k8s_get_pod.yml
       vars:
-        _k8s_component: caddy
+        _k8s_component: "{{ _cscli_k8s_component }}"
 
     - name: Build cscli prefix
       ansible.builtin.set_fact:
-        _cscli_prefix: "kubectl exec {{ _k8s_pod_name }} -n {{ _k8s_namespace }} -c crowdsec --"
-        _cscli_argv: ['kubectl', 'exec', "{{ _k8s_pod_name }}", '-n', "{{ _k8s_namespace }}", '-c', 'crowdsec', '--']
+        _cscli_prefix: "kubectl exec {{ _k8s_pod_name }} -n {{ _k8s_namespace }} -c {{ _cscli_k8s_container }} --"
+        _cscli_argv: ['kubectl', 'exec', "{{ _k8s_pod_name }}", '-n', "{{ _k8s_namespace }}", '-c', "{{ _cscli_k8s_container }}", '--']
         _cscli_chdir: null

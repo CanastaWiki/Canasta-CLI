@@ -193,7 +193,7 @@ def _crowdsec_k8s_tasks():
         tasks = yaml.safe_load(f)
     names = [t.get("name") for t in tasks]
     start = names.index("Read CrowdSec enablement from .env")
-    end = names.index("Verify crowdsec sidecar is running (Kubernetes)")
+    end = names.index("Verify the CrowdSec local API is running (Kubernetes)")
     return tasks[start:end + 1] + [
         {"ansible.builtin.debug": {"msg": "PREFLIGHT PASSED"}}]
 
@@ -207,19 +207,19 @@ class TestCrowdsecPreflightK8s:
             "instance_path": str(inst), "instance_id": "site",
             "instance_orchestrator": "kubernetes"}, fake_out)
 
-    def test_no_caddy_pod_gives_the_plain_message(self, tmp_path):
+    def test_no_crowdsec_pod_gives_the_plain_message(self, tmp_path):
         proc, out, _ = self._run(tmp_path, "")
         assert proc.returncode != 0
-        assert "crowdsec container in the caddy pod is not running" in out
+        assert "local API pod is not running" in out
         assert RAW_ERROR not in out
 
-    def test_ready_sidecar_passes(self, tmp_path):
-        proc, out, _ = self._run(tmp_path, "caddy=true crowdsec=true |")
+    def test_ready_local_api_passes(self, tmp_path):
+        proc, out, _ = self._run(tmp_path, "crowdsec=true |")
         assert proc.returncode == 0, out
         assert "PREFLIGHT PASSED" in out
 
-    def test_only_the_first_caddy_pod_counts(self, tmp_path):
+    def test_only_the_first_crowdsec_pod_counts(self, tmp_path):
         proc, out, _ = self._run(
-            tmp_path, "caddy=true crowdsec=false |caddy=true crowdsec=true |")
+            tmp_path, "crowdsec=false |crowdsec=true |")
         assert proc.returncode != 0
         assert "PREFLIGHT PASSED" not in out

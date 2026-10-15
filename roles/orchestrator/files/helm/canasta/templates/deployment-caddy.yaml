@@ -10,12 +10,13 @@ metadata:
     {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
 spec:
   replicas: 1
-  {{- if .Values.crowdsec.enabled }}
-  # The crowdsec sidecar holds a ReadWriteOnce PVC, which a rolling-update
-  # surge pod could not co-mount with the outgoing pod — recreate instead.
+  # Every request reaches the wiki through this pod, so the replacement must
+  # be Ready before the outgoing pod stops.
   strategy:
-    type: Recreate
-  {{- end }}
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       {{- include "canasta.selectorLabels" . | nindent 6 }}
@@ -28,39 +29,14 @@ spec:
       annotations:
         checksum/caddy-config: {{ .Values.configData.caddy | default dict | toJson | sha256sum }}
         {{- if .Values.crowdsec.enabled }}
-        # The seed init container copies the whitelist in only at pod start.
+        # The agent copies the acquisition and whitelist files in only at
+        # pod start.
         checksum/crowdsec-config: {{ .Values.configData.crowdsec | default dict | toJson | sha256sum }}
         {{- with (.Values.secretChecksums | default dict).caddy }}
         checksum/secrets: {{ . | quote }}
         {{- end }}
         {{- end }}
     spec:
-      {{- if .Values.crowdsec.enabled }}
-      initContainers:
-        # K8s PVCs do not prepopulate from the image the way Docker named
-        # volumes do, so an empty /etc/crowdsec PVC would mask the image's
-        # baked-in config and parsers. Seed it once (cp -n preserves the
-        # LAPI/bouncer/CAPI credentials the engine writes on later boots),
-        # then drop in the per-instance acquisition + whitelist from the
-        # ConfigMap (overwritten every start so operator edits land).
-        - name: seed-crowdsec-config
-          image: {{ .Values.crowdsec.image }}
-          command:
-            - sh
-            - -c
-            - |
-              cp -rn /etc/crowdsec/. /seed/ 2>/dev/null || true
-              mkdir -p /seed/acquis.d /seed/parsers/s02-enrich
-              cp /cm/acquis.yaml /seed/acquis.d/caddy.yaml
-              cp /cm/whitelists.yaml /seed/parsers/s02-enrich/canasta-whitelists.yaml
-          volumeMounts:
-            - name: crowdsec-data
-              mountPath: /seed
-              subPath: etc
-            - name: crowdsec-config
-              mountPath: /cm
-              readOnly: true
-      {{- end }}
       containers:
         - name: caddy
           image: {{ .Values.caddy.image | default "caddy:2.10.2-alpine" }}
@@ -113,47 +89,44 @@ spec:
               port: http
             periodSeconds: 30
         {{- if .Values.crowdsec.enabled }}
-        # CrowdSec detection engine (LAPI on :8080). Runs as a sidecar so it
-        # reads Caddy's access log over the shared caddy-logs volume (mirrors
-        # the Compose caddy-logs mount). It parses the log, correlates attack
-        # patterns, and publishes decisions the caddy-crowdsec-bouncer
-        # enforces. The crowdsec Service routes crowdsec:8080 back to this pod.
-        - name: crowdsec
+        # CrowdSec agent: parses Caddy's access log from the shared caddy-logs
+        # volume and sends its alerts to the local API in the crowdsec pod.
+        # It has no readiness probe and its wrapper never exits on an agent
+        # failure, so CrowdSec can never take this pod out of service.
+        - name: crowdsec-agent
           image: {{ .Values.crowdsec.image }}
-          # Wraps the image's entrypoint: falls back to the local API only
-          # when the Central API refuses the engine (see the script).
           command:
             - /bin/sh
             - -c
-            - {{ .Files.Get "files/crowdsec-start.sh" | toJson }}
+            - {{ .Files.Get "files/crowdsec-agent-start.sh" | toJson }}
           env:
-            # Installed by the image entrypoint on start; idempotent against
-            # the persisted /etc/crowdsec. The caddy collection ships the
-            # Caddy log parser plus base HTTP attack scenarios.
+            - name: DISABLE_LOCAL_API
+              value: "true"
+            - name: LOCAL_API_URL
+              value: http://crowdsec:8080
+            - name: AGENT_USERNAME
+              value: {{ .Values.crowdsec.agentUsername | default "canasta-caddy-agent" | quote }}
+            - name: AGENT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "canasta.fullname" . }}-crowdsec
+                  key: CROWDSEC_AGENT_PASSWORD
+            # The caddy collection ships the Caddy log parser plus base HTTP
+            # attack scenarios. The image carries the hub content, so this
+            # installs without network access.
             - name: COLLECTIONS
               value: {{ .Values.crowdsec.collections | quote }}
-          ports:
-            - name: lapi
-              containerPort: 8080
-              protocol: TCP
           volumeMounts:
-            - name: crowdsec-data
-              mountPath: /etc/crowdsec
-              subPath: etc
-            - name: crowdsec-data
-              mountPath: /var/lib/crowdsec/data
-              subPath: data
+            - name: crowdsec-config
+              mountPath: /cm
+              readOnly: true
             - name: caddy-logs
               mountPath: /var/log/caddy
               readOnly: true
-          {{- with .Values.crowdsec.resources }}
+          {{- with .Values.crowdsec.agentResources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          readinessProbe:
-            tcpSocket:
-              port: lapi
-            periodSeconds: 10
         {{- end }}
       volumes:
         - name: caddy-config
@@ -162,9 +135,6 @@ spec:
         - name: caddy-data
           emptyDir: {}
         {{- if .Values.crowdsec.enabled }}
-        - name: crowdsec-data
-          persistentVolumeClaim:
-            claimName: {{ include "canasta.fullname" . }}-crowdsec
         - name: crowdsec-config
           configMap:
             name: {{ include "canasta.fullname" . }}-crowdsec-config

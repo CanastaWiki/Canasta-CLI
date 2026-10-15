@@ -52,6 +52,9 @@
 
 # --- Gather config files ---
 
+- name: Ensure the CrowdSec agent password
+  ansible.builtin.include_tasks: ensure_crowdsec_agent_password.yml
+
 - name: Read .env
   ansible.builtin.slurp:
     src: "{{ instance_path }}/.env"
@@ -196,9 +199,9 @@
 
 # --- CrowdSec config ---
 # Mirror the Compose acquisition + whitelist files into a ConfigMap the
-# crowdsec sidecar mounts (see configmap-crowdsec.yaml). Backfill them first
-# for instances that enabled CrowdSec after create, the same materialization
-# concern ensure_crowdsec_config.yml handles for Compose.
+# crowdsec agent in the caddy pod mounts (see configmap-crowdsec.yaml).
+# Backfill them first for instances that enabled CrowdSec after create, the
+# same materialization concern ensure_crowdsec_config.yml handles for Compose.
 
 - name: Determine CrowdSec enablement
   ansible.builtin.set_fact:
@@ -267,23 +270,25 @@
   when: _backup_env_data | length > 0
   no_log: true
 
-# --- CrowdSec bouncer-key Secret ---
-# The caddy container reads CROWDSEC_BOUNCER_API_KEY via secretKeyRef from
-# this Secret (deployment-caddy.yaml). It is created here — in the restart
-# path — rather than k8s_apply_secrets.yml (create-time only) so that a key
-# the bouncer enroll just minted reaches the running pod on the next start.
-# Absent until enrollment: the secretKeyRef is optional, so Caddy starts
-# key-less and only emits the crowdsec directive once a key exists.
-- name: Build crowdsec bouncer key data
+# --- CrowdSec Secret ---
+# The local API and the agent in the caddy pod read CROWDSEC_AGENT_PASSWORD,
+# and the caddy container CROWDSEC_BOUNCER_API_KEY, via secretKeyRef from this
+# Secret (deployment-crowdsec.yaml, deployment-caddy.yaml). It is created here
+# — in the restart path — rather than k8s_apply_secrets.yml (create-time
+# only) so that a key the bouncer enroll just minted reaches the running pod
+# on the next start. The bouncer key is absent until enrollment: its
+# secretKeyRef is optional, so Caddy starts key-less and only emits the
+# crowdsec directive once a key exists.
+- name: Build crowdsec Secret data
   ansible.builtin.set_fact:
     _crowdsec_key_data: >-
-      {{ {'CROWDSEC_BOUNCER_API_KEY': _sync_env_dict.variables.CROWDSEC_BOUNCER_API_KEY}
-         if (_crowdsec_enabled_k8s | bool
-             and (_sync_env_dict.variables.CROWDSEC_BOUNCER_API_KEY | default('') | length) > 0)
-         else {} }}
+      {{ (_sync_env_dict.variables | default({}) | dict2items
+          | selectattr('key', 'in', ['CROWDSEC_AGENT_PASSWORD', 'CROWDSEC_BOUNCER_API_KEY'])
+          | selectattr('value') | items2dict)
+         if (_crowdsec_enabled_k8s | bool) else {} }}
   no_log: true
 
-- name: Apply crowdsec bouncer key Secret
+- name: Apply crowdsec Secret
   kubernetes.core.k8s:
     state: present
     definition:

@@ -241,8 +241,9 @@ class TestSyncRecordsLocalSecrets:
         ], "API_KEY=new\n")
         local = self._local(tmp_path, inst)
         assert local[APP] == {"API_KEY": "new"}
-        assert local["canasta-mysite-crowdsec"] == {
-            "CROWDSEC_BOUNCER_API_KEY": "bouncer"}
+        crowdsec = local["canasta-mysite-crowdsec"]
+        assert crowdsec["CROWDSEC_BOUNCER_API_KEY"] == "bouncer"
+        assert len(crowdsec["CROWDSEC_AGENT_PASSWORD"]) == 30
         backup = local["canasta-mysite-backup-env"]
         assert backup["RESTIC_REPOSITORY"] == "s3:example.com/bucket"
         assert backup["MYSQL_PASSWORD"] == "rootpw"
