@@ -27,6 +27,24 @@ HELM_DEPLOY = os.path.join(TASKS, "helm_deploy.yml")
 RENDER = os.path.join(GITOPS, "render_kubernetes.yml")
 
 
+# render_kubernetes.yml names kubernetes.core.k8s_info, which Ansible
+# resolves even when the task is skipped; CI has no kubernetes.core.
+_STUB_K8S_MODULE = """#!/usr/bin/python
+from ansible.module_utils.basic import AnsibleModule
+AnsibleModule(argument_spec={}, bypass_checks=True).fail_json(
+    msg="kubernetes.core stub called")
+"""
+
+
+def _stub_collections(tmp_path):
+    mods = tmp_path / "ac" / "ansible_collections" / "kubernetes" / "core" \
+        / "plugins" / "modules"
+    mods.mkdir(parents=True, exist_ok=True)
+    for name in ("k8s.py", "k8s_info.py"):
+        (mods / name).write_text(_STUB_K8S_MODULE)
+    return str(tmp_path / "ac")
+
+
 def play(tmp_path, play_vars, tasks):
     playfile = tmp_path / "play.yml"
     playfile.write_text(yaml.safe_dump([{
@@ -41,7 +59,8 @@ def play(tmp_path, play_vars, tasks):
     env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
                ANSIBLE_FILTER_PLUGINS=os.path.join(REPO_ROOT, "filter_plugins"),
                ANSIBLE_LIBRARY=os.path.join(COMMON, "library"),
-               ANSIBLE_MODULE_UTILS=os.path.join(COMMON, "module_utils"))
+               ANSIBLE_MODULE_UTILS=os.path.join(COMMON, "module_utils"),
+               ANSIBLE_COLLECTIONS_PATH=_stub_collections(tmp_path))
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
     return subprocess.run([playbook, "-i", "localhost,", str(playfile)],
                           capture_output=True, text=True, env=env,
