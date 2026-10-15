@@ -12,6 +12,8 @@ import sys
 import pytest
 import yaml
 
+from _orchestrator import INSTANCE_IS_K8S_VARS
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ROLES = os.path.join(REPO_ROOT, "roles")
 
@@ -64,8 +66,10 @@ def _run(tmp_path, task_file, extra_vars):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": dict({"instance_path": str(inst), "canasta_root": str(root),
-                      "ansible_python_interpreter": sys.executable},
+        "vars": dict(INSTANCE_IS_K8S_VARS,
+                     **{"instance_path": str(inst), "canasta_root": str(root),
+                        "instance_orchestrator": "compose",
+                        "ansible_python_interpreter": sys.executable},
                      **extra_vars),
         "tasks": [{"ansible.builtin.include_tasks":
                    os.path.join(ROLES, task_file)}],
