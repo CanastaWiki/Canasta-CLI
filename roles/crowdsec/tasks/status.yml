@@ -23,6 +23,16 @@
   ansible.builtin.set_fact:
     _crowdsec_bouncer_list: "{{ ((_crowdsec_bouncers.stdout | trim) or '[]') | from_json }}"
 
+# Bouncer staleness is judged against the engine's clock, which stamped the
+# last pull, so skew between the controller and the host doesn't matter.
+- name: Read the engine's current time
+  ansible.builtin.command:
+    cmd: "{{ _cscli_prefix }} date -u +%Y-%m-%dT%H:%M:%SZ"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
+  register: _crowdsec_now
+  changed_when: false
+  failed_when: false
+
 - name: List active decisions
   ansible.builtin.command:
     cmd: "{{ _cscli_prefix }} cscli decisions list"
@@ -81,8 +91,11 @@
     _crowdsec_blocklist_lines: >-
       {{ _crowdsec_lists_raw.stdout | default('') | canasta_crowdsec_blocklist_breakdown }}
 
-- name: Summarize Central API and console state
+- name: Summarize bouncers, Central API, and console state
   ansible.builtin.set_fact:
+    _crowdsec_bouncer_lines: >-
+      {{ _crowdsec_bouncer_list | canasta_crowdsec_status_bouncers(
+           now=(_crowdsec_now.stdout | default('') | trim) or none) }}
     _crowdsec_capi_line: >-
       {{ (_crowdsec_capi_last.stdout | default(''))
          | canasta_crowdsec_capi_line(_crowdsec_capi_creds.rc == 0,
@@ -102,7 +115,7 @@
       CrowdSec status for instance '{{ instance_id }}'
 
       Bouncers:
-      {{ _crowdsec_bouncer_list | canasta_crowdsec_status_bouncers }}
+      {{ _crowdsec_bouncer_lines }}
 
       Central API (community blocklist): {{ _crowdsec_capi_line }}
       Console blocklists: {{ _crowdsec_console_line }}

@@ -798,6 +798,9 @@ def _bouncer(name, last_pull=None, ip_address=None):
     }
 
 
+_NOW = datetime.datetime(2026, 6, 11, 12, 2, tzinfo=datetime.timezone.utc)
+
+
 class TestCrowdsecStatusBouncersDisplay:
     """`crowdsec status` collapses the canasta-caddy bouncer family for
     display: CrowdSec auto-creates an undeletable 'canasta-caddy@<ip>' child
@@ -811,7 +814,7 @@ class TestCrowdsecStatusBouncersDisplay:
         assert canasta_crowdsec_status_bouncers(None) == "  (none)"
 
     def test_single_bouncer_no_stale_note(self):
-        out = canasta_crowdsec_status_bouncers([
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
             _bouncer("canasta-caddy", "2026-06-11T12:00:00Z", "172.18.0.3"),
         ])
         assert "canasta-caddy — active" in out
@@ -821,7 +824,7 @@ class TestCrowdsecStatusBouncersDisplay:
 
     def test_duplicates_collapse_to_live_plus_count(self):
         # The real aic shape: stale base + stale child + live child.
-        out = canasta_crowdsec_status_bouncers([
+        out = canasta_crowdsec_status_bouncers(now="2026-06-11T10:43:00Z", bouncers=[
             _bouncer("canasta-caddy", "2026-06-11T02:54:46Z", "172.18.0.4"),
             _bouncer("canasta-caddy@172.18.0.5", "2026-06-11T03:44:44Z", "172.18.0.5"),
             _bouncer("canasta-caddy@172.18.0.3", "2026-06-11T10:42:33Z", "172.18.0.3"),
@@ -837,23 +840,62 @@ class TestCrowdsecStatusBouncersDisplay:
         assert out.count("— active") == 1
 
     def test_live_base_with_stale_children(self):
-        out = canasta_crowdsec_status_bouncers([
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
             _bouncer("canasta-caddy", "2026-06-11T12:00:00Z", "172.18.0.3"),
             _bouncer("canasta-caddy@172.18.0.9", "2026-06-11T09:00:00Z", "172.18.0.9"),
         ])
         assert "canasta-caddy — active" in out
         assert "1 stale auto-created duplicate" in out
 
-    def test_never_pulled_renders_never(self):
-        out = canasta_crowdsec_status_bouncers([
+    def test_never_pulled_is_not_active(self):
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
             _bouncer("canasta-caddy", None, None),
         ])
-        assert "active" in out
-        assert "never" in out
-        assert "IP ?" in out
+        assert "canasta-caddy — not pulling (IP ?, no pull yet)" in out
+        assert "active" not in out
+
+    def test_recent_pull_is_active(self):
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
+            _bouncer("canasta-caddy", "2026-06-11T12:01:00Z", "10.42.0.1"),
+        ])
+        assert "canasta-caddy — active (IP 10.42.0.1" in out
+
+    def test_old_pull_is_stale_not_active(self):
+        # The pull froze when Caddy came back without the bouncer.
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
+            _bouncer("canasta-caddy", "2026-06-11T11:56:00Z", "10.42.0.1"),
+        ])
+        assert ("canasta-caddy — stale (IP 10.42.0.1, last pull "
+                "2026-06-11T11:56:00Z, 6 min ago)") in out
+        assert "active" not in out
+
+    def test_stale_threshold_is_two_minutes(self):
+        def state(last_pull):
+            return canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
+                _bouncer("canasta-caddy", last_pull, "10.42.0.1"),
+            ])
+        assert "— active" in state("2026-06-11T12:00:00Z")
+        assert "— stale" in state("2026-06-11T11:59:59Z")
+
+    def test_fractional_seconds_and_offsets_parse(self):
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
+            _bouncer("canasta-caddy", "2026-06-11T12:01:30.123456789Z", "x"),
+        ])
+        assert "— active" in out
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
+            _bouncer("canasta-caddy", "2026-06-11T14:01:30+02:00", "x"),
+        ])
+        assert "— active" in out
+
+    def test_now_accepts_the_engine_clock_string(self):
+        out = canasta_crowdsec_status_bouncers(
+            now="2026-06-11T12:10:00Z", bouncers=[
+                _bouncer("canasta-caddy", "2026-06-11T12:00:00Z", "x"),
+            ])
+        assert "stale (IP x, last pull 2026-06-11T12:00:00Z, 10 min ago)" in out
 
     def test_other_bouncers_listed_verbatim(self):
-        out = canasta_crowdsec_status_bouncers([
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
             _bouncer("canasta-caddy", "2026-06-11T12:00:00Z", "172.18.0.3"),
             _bouncer("some-firewall-bouncer", "2026-06-11T11:00:00Z", "10.0.0.2"),
         ])
@@ -861,7 +903,7 @@ class TestCrowdsecStatusBouncersDisplay:
         assert "some-firewall-bouncer" in out
         assert "10.0.0.2" in out
         # A non-family name (no '@') is not folded into the caddy family.
-        out2 = canasta_crowdsec_status_bouncers([
+        out2 = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
             _bouncer("canasta-caddy", "2026-06-11T12:00:00Z", "172.18.0.3"),
             _bouncer("canasta-caddy-extra", "2026-06-11T11:00:00Z", "10.0.0.2"),
         ])
@@ -989,6 +1031,14 @@ class TestCrowdsecStatusWiring:
         assert "canasta_crowdsec_status_bouncers" in content, (
             "status must render bouncers through the de-duplicating filter"
         )
+
+    def test_status_judges_staleness_by_the_engine_clock(self):
+        content = _read(os.path.join(
+            REPO_ROOT, "roles", "crowdsec", "tasks", "status.yml",
+        ))
+        assert "{{ _cscli_prefix }} date -u" in content
+        assert "canasta_crowdsec_status_bouncers(\n" in content
+        assert "now=(_crowdsec_now.stdout" in content
 
     def test_status_filter_registered_in_ansible_cfg(self):
         cfg = _read(os.path.join(REPO_ROOT, "ansible.cfg"))
