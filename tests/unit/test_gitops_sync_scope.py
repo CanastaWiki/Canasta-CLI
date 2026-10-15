@@ -23,6 +23,12 @@ def _load(path):
         return yaml.safe_load(f)
 
 
+def _flat(tasks):
+    for t in tasks:
+        yield t
+        yield from _flat(t.get("block", []))
+
+
 def _when(task):
     w = task.get("when", [])
     return " ".join(w if isinstance(w, list) else [str(w)])
@@ -48,7 +54,7 @@ class TestSyncDispatch:
 
 class TestArgocdSyncSemantics:
     def test_patches_instance_application_with_hard_refresh(self):
-        tasks = _load(SYNC_YML)
+        tasks = list(_flat(_load(SYNC_YML)))
         patches = [t.get("kubernetes.core.k8s") for t in tasks
                    if t.get("kubernetes.core.k8s")]
         assert patches, "must patch the Argo CD Application"
@@ -62,7 +68,7 @@ class TestArgocdSyncSemantics:
         assert annotations.get("argocd.argoproj.io/refresh") == "hard"
 
     def test_waits_for_synced_and_healthy(self):
-        tasks = _load(SYNC_YML)
+        tasks = list(_flat(_load(SYNC_YML)))
         waits = [t for t in tasks if t.get("kubernetes.core.k8s_info")]
         assert waits, "must poll the Application status"
         until = waits[0].get("until", [])

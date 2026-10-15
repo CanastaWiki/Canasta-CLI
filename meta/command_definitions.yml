@@ -3248,7 +3248,8 @@ commands:
     long_description: |
       Forces Argo CD to immediately reconcile the cluster state with the Git
       repository, rather than waiting for the next automatic sync interval.
-      On Docker Compose instances this command has no effect.
+      A stopped instance is left stopped; the pushed changes deploy when it
+      starts. On Docker Compose instances this command has no effect.
     examples:
       - "canasta gitops sync"
     playbook: gitops_sync.yml
