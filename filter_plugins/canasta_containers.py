@@ -3,7 +3,15 @@
 # Loaded via the `filter_plugins` path in ansible.cfg (see canasta_crowdsec.py).
 
 import calendar
+import os
 import re
+import sys
+
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "roles", "common", "module_utils"))
+
+from canasta_web_cause import web_startup_cause  # noqa: E402
 
 # Docker prints RFC 3339 ("2026-10-13T12:34:56.123456789Z"); podman prints
 # Go's time.Time ("2026-10-13 12:34:56.123456789 -0400 EDT").
@@ -36,4 +44,5 @@ class FilterModule:
     def filters(self):
         return {
             "container_started_epoch": container_started_epoch,
+            "web_startup_cause": web_startup_cause,
         }

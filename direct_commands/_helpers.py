@@ -17,6 +17,7 @@ import urllib.parse
 import urllib.request
 
 import canasta_config
+import canasta_web_cause
 import yaml
 
 
@@ -363,7 +364,8 @@ def _compose_file_args(path, host, devmode=False, include_sidecars=False):
     return result
 
 
-def _run_compose(inst_id, inst, action_args, include_sidecars=False):
+def _run_compose(inst_id, inst, action_args, include_sidecars=False,
+                 quiet=False):
     """Run a compose command for an instance. Returns exit code.
 
     Output streams to the terminal and there is NO timeout: the actions
@@ -372,6 +374,9 @@ def _run_compose(inst_id, inst, action_args, include_sidecars=False):
     falsely reported failure on slow pulls/builds while the work kept
     running.) On a remote host these actions are idempotent, so a
     connection-level reset (ssh exit 255) is retried.
+
+    With ``quiet``, output is captured instead and printed to stderr only
+    when the command fails.
     """
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
@@ -380,10 +385,21 @@ def _run_compose(inst_id, inst, action_args, include_sidecars=False):
     compose_cmd = _resolve_compose_cmd(inst)
     profile_args = _compose_profile_args(inst)
 
+    def _call(argv, cwd=None):
+        if not quiet:
+            return subprocess.call(argv, cwd=cwd)
+        result = subprocess.run(
+            argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True,
+        )
+        if result.returncode != 0 and result.stdout:
+            print(result.stdout.rstrip(), file=sys.stderr)
+        return result.returncode
+
     if _is_localhost(host):
         cmd = compose_cmd + file_args + profile_args + action_args
         try:
-            return subprocess.call(cmd, cwd=path)
+            return _call(cmd, cwd=path)
         except OSError as e:
             print("Error: %s" % e, file=sys.stderr)
             return 1
@@ -401,7 +417,7 @@ def _run_compose(inst_id, inst, action_args, include_sidecars=False):
 
     def _attempt():
         try:
-            return subprocess.call(argv)
+            return _call(argv)
         except OSError as e:
             print("Error: %s" % e, file=sys.stderr)
             return 1
@@ -738,12 +754,10 @@ def _dump_compose_failure(inst, include_sidecars=False):
     _dump_db_error_log(inst)
 
 
-def _dump_web_logs(inst, tail=60):
-    """Print web's own logs. Composer failing is the other common cause."""
+def _web_logs(inst, tail):
+    """web's own logs, or a note saying why they could not be captured."""
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
-    if not path:
-        return
     compose_cmd = _resolve_compose_cmd(inst)
     file_args = _compose_file_args(path, host, inst.get("devMode", False))
     action = ["logs", "--tail=%d" % tail, "--no-color", "web"]
@@ -753,16 +767,26 @@ def _dump_web_logs(inst, tail=60):
                 compose_cmd + file_args + action,
                 cwd=path, capture_output=True, text=True, timeout=30,
             )
-            output = result.stdout or result.stderr
+            return result.stdout or result.stderr
         except (subprocess.TimeoutExpired, OSError) as e:
-            output = "(failed to capture: %s)" % e
-    else:
-        _rc, output = _ssh_run(host, "cd %s && %s %s %s" % (
-            _shell_quote(path), " ".join(compose_cmd),
-            " ".join(file_args), " ".join(action),
-        ))
+            return "(failed to capture: %s)" % e
+    _rc, output = _ssh_run(host, "cd %s && %s %s %s" % (
+        _shell_quote(path), " ".join(compose_cmd),
+        " ".join(file_args), " ".join(action),
+    ))
+    return output
+
+
+def _dump_web_logs(inst, tail=60, output=None):
+    """Print the last `tail` lines of web's own logs, fetching them unless
+    `output` already holds them. Composer failing is the other common cause."""
+    if output is None:
+        if not inst.get("path", ""):
+            return
+        output = _web_logs(inst, tail)
+    lines = (output or "").strip().splitlines()[-tail:]
     print("--- web logs (last %d) ---" % tail, file=sys.stderr)
-    print(output.strip() if output else "(empty)", file=sys.stderr)
+    print("\n".join(lines) if lines else "(empty)", file=sys.stderr)
 
 
 def _dump_db_error_log(inst):
@@ -804,6 +828,10 @@ _WEB_HEALTH_RETRIES = 60
 _WEB_HEALTH_DELAY = 10
 _WEB_PROBE_RETRIES = 30
 _WEB_PROBE_DELAY = 10
+# How much of web's log to search for a startup error, and how much of it to
+# show once one is found.
+_WEB_CAUSE_SCAN_LINES = 200
+_WEB_CAUSE_DUMP_LINES = 20
 
 
 def _runtime_capture(inst, argv, timeout=30):
@@ -860,6 +888,45 @@ def _web_health_status(inst, cid):
     return out.strip() if rc == 0 else ""
 
 
+def _report_web_unhealthy(inst_id, inst, status):
+    """Explain a web container that never reported healthy.
+
+    Leads with the startup error web logged when there is one; otherwise
+    falls back to the usual suspects, composer and the database.
+    """
+    timeout = (
+        "did not report healthy within %d minutes; its last status was '%s'."
+        % (_WEB_HEALTH_RETRIES * _WEB_HEALTH_DELAY // 60, status or "(none)"))
+    path = inst.get("path", "")
+    logs, composer = None, []
+    if path:
+        logs = _web_logs(inst, _WEB_CAUSE_SCAN_LINES)
+        composer = _read_instance_file(
+            path, inst.get("host") or "localhost",
+            COMPOSER_FAILED_RELPATH).strip().splitlines()
+    cause = canasta_web_cause.web_startup_cause(
+        logs, inst_id, composer[0] if composer else "")
+    if cause:
+        print("Error: %s\n%s\nThe 'web' container for instance '%s' %s"
+              % (cause["cause"], cause["hint"], inst_id, timeout),
+              file=sys.stderr)
+        _dump_web_logs(inst, tail=_WEB_CAUSE_DUMP_LINES, output=logs)
+        return
+    print(
+        "Error: the 'web' container for instance '%s' %s The image's "
+        "healthcheck probes /server-status, which answers only once "
+        "composer and apache have both finished — so this usually means "
+        "composer is still running or failed, or the database web waits "
+        "on never came up." % (inst_id, timeout),
+        file=sys.stderr,
+    )
+    # `up` returning 0 while the database crash-loops is the commoner
+    # failure, and the one no diagnostic covered: compose reports every
+    # container started, so nothing before this point failed.
+    _dump_web_logs(inst, output=logs)
+    _dump_db_error_log(inst)
+
+
 def _wait_web_ready(inst_id, inst):
     """Block until the instance's web container is ready. Returns an exit code.
 
@@ -893,22 +960,7 @@ def _wait_web_ready(inst_id, inst):
                 print("Waiting for web to become ready...")
             time.sleep(_WEB_HEALTH_DELAY)
             status = _web_health_status(inst, cid)
-        print(
-            "Error: the 'web' container for instance '%s' did not report "
-            "healthy within %d minutes; its last status was '%s'. The image's "
-            "healthcheck probes /server-status, which answers only once "
-            "composer and apache have both finished — so this usually means "
-            "composer is still running or failed, or the database web waits "
-            "on never came up."
-            % (inst_id, _WEB_HEALTH_RETRIES * _WEB_HEALTH_DELAY // 60,
-               status or "(none)"),
-            file=sys.stderr,
-        )
-        # `up` returning 0 while the database crash-loops is the commoner
-        # failure, and the one no diagnostic covered: compose reports every
-        # container started, so nothing before this point failed.
-        _dump_web_logs(inst)
-        _dump_db_error_log(inst)
+        _report_web_unhealthy(inst_id, inst, status)
         return 1
 
     runtime = _resolve_inspect_cmd(inst)
@@ -1078,6 +1130,8 @@ def _exec_in_container(inst_id, inst, command, service="web"):
 # Written by the image's startup composer update when it fails and removed
 # when a later one succeeds; older images never write it.
 COMPOSER_FAILED_PATH = "/mediawiki/config/persistent/composer-update.failed"
+# The same file on the Compose host, through the ./config bind mount.
+COMPOSER_FAILED_RELPATH = "config/persistent/composer-update.failed"
 
 
 def _composer_failure_summary(inst_id, inst):

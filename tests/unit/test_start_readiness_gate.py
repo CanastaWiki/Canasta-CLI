@@ -170,7 +170,7 @@ class TestLifecycleGating:
                             lambda inst: None)
         monkeypatch.setattr(
             _helpers, "_run_compose",
-            lambda inst_id, inst, action: events.append(action[0]) or 0)
+            lambda inst_id, inst, action, **kw: events.append(action[0]) or 0)
         return type("Args", (), {"id": "test"})()
 
     def test_start_returns_the_gates_failure(self, monkeypatch):
@@ -188,7 +188,7 @@ class TestLifecycleGating:
         monkeypatch.setattr(_helpers, "_sync_compose_profiles",
                             lambda inst: None)
         monkeypatch.setattr(_helpers, "_run_compose",
-                            lambda inst_id, inst, action: 1)
+                            lambda inst_id, inst, action, **kw: 1)
         monkeypatch.setattr(_helpers, "_dump_compose_failure",
                             lambda inst, **kw: events.append("dump"))
         monkeypatch.setattr(_helpers, "_wait_web_ready",

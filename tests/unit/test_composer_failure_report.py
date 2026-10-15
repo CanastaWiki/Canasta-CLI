@@ -108,7 +108,8 @@ class TestStartFastPath:
         _start(monkeypatch, None)
         assert direct_commands.cmd_start(_args()) == 0
         captured = capsys.readouterr()
-        assert captured.out == "" and captured.err == ""
+        assert captured.out == "Instance 'test' started.\n"
+        assert captured.err == ""
 
     def test_not_read_before_web_is_ready(self, monkeypatch):
         reads = _start(monkeypatch, FIRST_LINE, ready=1)
