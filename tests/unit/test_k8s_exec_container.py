@@ -39,6 +39,7 @@ class TestChartContainerNames:
     @pytest.mark.parametrize("template,name", [
         ("deployment-web.yaml", "web"),
         ("deployment-caddy.yaml", "caddy"),
+        ("deployment-crowdsec.yaml", "crowdsec"),
         ("deployment-varnish.yaml", "varnish"),
         ("statefulset-db.yaml", "db"),
         ("statefulset-elasticsearch.yaml", "elasticsearch"),

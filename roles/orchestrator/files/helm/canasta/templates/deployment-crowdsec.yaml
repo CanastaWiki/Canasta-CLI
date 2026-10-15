@@ -1,0 +1,103 @@
+{{- if .Values.crowdsec.enabled }}
+# CrowdSec local API (LAPI on :8080): holds the decisions database, the
+# bouncer and machine registrations, and the Central API credentials. The
+# agent that parses Caddy's access log runs in the caddy pod and sends its
+# alerts here; the Caddy bouncer pulls decisions from here through the
+# crowdsec Service.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "canasta.fullname" . }}-crowdsec
+  namespace: {{ include "canasta.namespace" . }}
+  labels:
+    {{- include "canasta.labels" . | nindent 4 }}
+    app.kubernetes.io/component: crowdsec
+  annotations:
+    {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
+spec:
+  replicas: 1
+  # The engine holds a ReadWriteOnce PVC, which a rolling-update surge pod
+  # could not co-mount with the outgoing pod. Caddy keeps enforcing its
+  # cached decisions while this pod restarts.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "canasta.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: crowdsec
+  template:
+    metadata:
+      labels:
+        {{- include "canasta.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: crowdsec
+      {{- with (.Values.secretChecksums | default dict).crowdsec }}
+      annotations:
+        checksum/secrets: {{ . | quote }}
+      {{- end }}
+    spec:
+      initContainers:
+        # K8s PVCs do not prepopulate from the image the way Docker named
+        # volumes do, so an empty /etc/crowdsec PVC would mask the image's
+        # baked-in config. Seed it once; cp -n preserves the machine,
+        # bouncer and Central API credentials the engine writes later.
+        - name: seed-crowdsec-config
+          image: {{ .Values.crowdsec.image }}
+          command:
+            - sh
+            - -c
+            - cp -rn /etc/crowdsec/. /seed/ 2>/dev/null || true
+          volumeMounts:
+            - name: crowdsec-data
+              mountPath: /seed
+              subPath: etc
+      containers:
+        - name: crowdsec
+          image: {{ .Values.crowdsec.image }}
+          # Wraps the image's entrypoint: falls back to the local API only
+          # when the Central API refuses the engine (see the script).
+          command:
+            - /bin/sh
+            - -c
+            - {{ .Files.Get "files/crowdsec-start.sh" | toJson }}
+          env:
+            # The agent runs in the caddy pod; this pod serves the API only.
+            - name: DISABLE_AGENT
+              value: "true"
+            # Installed by the image entrypoint on start; idempotent against
+            # the persisted /etc/crowdsec. The Central API reports the
+            # installed scenarios with the signals it receives.
+            - name: COLLECTIONS
+              value: {{ .Values.crowdsec.collections | quote }}
+            # The image registers this machine (re-setting its password) on
+            # every start, so the agent in the caddy pod can log in.
+            - name: AGENT_USERNAME
+              value: {{ .Values.crowdsec.agentUsername | default "canasta-caddy-agent" | quote }}
+            - name: AGENT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "canasta.fullname" . }}-crowdsec
+                  key: CROWDSEC_AGENT_PASSWORD
+          ports:
+            - name: lapi
+              containerPort: 8080
+              protocol: TCP
+          volumeMounts:
+            - name: crowdsec-data
+              mountPath: /etc/crowdsec
+              subPath: etc
+            - name: crowdsec-data
+              mountPath: /var/lib/crowdsec/data
+              subPath: data
+          {{- with .Values.crowdsec.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: lapi
+            periodSeconds: 10
+      volumes:
+        - name: crowdsec-data
+          persistentVolumeClaim:
+            claimName: {{ include "canasta.fullname" . }}-crowdsec
+{{- end }}

@@ -208,9 +208,9 @@ class TestWrapperIsShared:
         assert svc["entrypoint"][:2] == ["/bin/sh", "-c"]
         assert svc["entrypoint"][2].replace("$$", "$") == _wrapper()
 
-    def test_chart_sidecar_runs_the_wrapper(self):
+    def test_chart_local_api_runs_the_wrapper(self):
         with open(os.path.join(CHART, "templates",
-                               "deployment-caddy.yaml")) as f:
+                               "deployment-crowdsec.yaml")) as f:
             template = f.read()
         sidecar = template[template.index("- name: crowdsec\n"):]
         assert re.search(

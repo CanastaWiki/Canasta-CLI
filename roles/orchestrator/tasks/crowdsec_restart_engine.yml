@@ -1,12 +1,9 @@
 ---
 # Restart the CrowdSec engine to reload its config / freshly-written
-# credentials. Compose: restart just the crowdsec service. K8s: the engine
-# is a sidecar in the caddy pod, so roll the caddy deployment — this bounces
-# Caddy too (coarser than Compose), but the bouncer reconnects and resumes
-# enforcing once the engine is back. The caddy deployment uses the Recreate
-# strategy when CrowdSec is on (the sidecar holds a ReadWriteOnce PVC that a
-# surge pod could not co-mount), so the rollout is terminate-then-create; we
-# wait for it to finish so callers can immediately exec into the new pod.
+# credentials. Compose: restart just the crowdsec service. K8s: roll the
+# local API deployment, which holds the credentials and the console
+# enrollment; Caddy keeps serving and enforcing its cached decisions. We wait
+# for the rollout so callers can immediately exec into the new pod.
 # Input: instance_id, instance_path, instance_orchestrator
 
 # podman-compose ignores COMPOSE_PROFILES from .env, so we must pass
@@ -42,16 +39,16 @@
 - name: Restart the CrowdSec engine (Kubernetes)
   when: instance_is_k8s | bool
   block:
-    - name: Roll the caddy deployment (hosts the crowdsec sidecar)
+    - name: Roll the CrowdSec local API deployment
       ansible.builtin.command:
         cmd: >-
-          kubectl rollout restart deployment/canasta-{{ instance_id }}-caddy
+          kubectl rollout restart deployment/canasta-{{ instance_id }}-crowdsec
           -n canasta-{{ instance_id }}
       changed_when: true
 
     - name: Wait for the rollout to complete
       ansible.builtin.command:
         cmd: >-
-          kubectl rollout status deployment/canasta-{{ instance_id }}-caddy
+          kubectl rollout status deployment/canasta-{{ instance_id }}-crowdsec
           -n canasta-{{ instance_id }} --timeout=300s
       changed_when: false

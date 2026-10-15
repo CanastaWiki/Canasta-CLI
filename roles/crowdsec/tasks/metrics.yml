@@ -18,10 +18,38 @@
   changed_when: false
   failed_when: false
 
+# On Kubernetes the agent in the caddy pod parses the access log, so the
+# acquisition, parser and scenario metrics come from it; the local API's
+# metrics above cover the bouncer and decisions.
+- name: Read agent metrics (Kubernetes)
+  when: instance_is_k8s | bool
+  block:
+    - name: Target the agent
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/crowdsec_cscli_prefix.yml"
+      vars:
+        _cscli_target: agent
+
+    - name: Read agent metrics
+      ansible.builtin.command:
+        cmd: "{{ _cscli_prefix }} cscli metrics"
+      register: _crowdsec_agent_metrics
+      changed_when: false
+      failed_when: false
+
 - name: Show metrics
   ansible.builtin.debug:
     msg: |-
       CrowdSec metrics for instance '{{ instance_id }}'
+      {% if instance_is_k8s | bool %}
+
+      Agent (caddy pod):
+      {{ _crowdsec_agent_metrics.stdout | default('') | trim
+         or _crowdsec_agent_metrics.stderr | default('') | trim
+         or ('(none yet: the agent reports metrics once it has parsed '
+             ~ 'lines from the Caddy access log)') }}
+
+      Local API:
+      {%- endif %}
 
       {{ _crowdsec_metrics.stdout | default('') | trim
          or _crowdsec_metrics.stderr | default('') | trim

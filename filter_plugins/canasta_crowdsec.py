@@ -1,4 +1,4 @@
-# Jinja filters for the CrowdSec Compose integration.
+# Jinja filters for the CrowdSec integration.
 #
 # Loaded via the `filter_plugins` path in ansible.cfg (role-local plugin
 # auto-discovery does not fire because Canasta drives everything through
@@ -219,6 +219,74 @@ def canasta_crowdsec_capi_line(last_pull_json, registered, ip_count,
     return "registered — community blocklist active (%s)" % detail
 
 
+def _parse_cscli_time(value):
+    """An aware datetime from a cscli JSON timestamp (RFC 3339, with or
+    without fractional seconds), or None."""
+    import datetime
+    import re
+
+    match = re.match(
+        r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?(Z|[+-]\d\d:\d\d)$",
+        str(value or ""))
+    if not match:
+        return None
+    zone = "+00:00" if match.group(2) == "Z" else match.group(2)
+    return datetime.datetime.fromisoformat(match.group(1) + zone)
+
+
+def canasta_crowdsec_agent_line(machines_json, agent_name, started_at=None,
+                                now=None, stale_after_minutes=5,
+                                starting_minutes=3):
+    """The ``Agent:`` line for ``crowdsec status`` on Kubernetes.
+
+    ``machines_json`` is ``cscli machines list -o json`` from the local API.
+    The agent in the caddy pod is the only thing that parses the access log,
+    so an agent that stopped reporting leaves the engine healthy but
+    detecting nothing. It sends heartbeats regularly while it runs, so one
+    older than ``stale_after_minutes`` means it has stopped.
+
+    ``started_at`` lists the start times (RFC 3339, space-separated) of the
+    caddy and local API pods. For ``starting_minutes`` after the newest of
+    them, an agent that has not reported yet is starting, not failing.
+    ``now`` is an aware datetime, defaulting to the current UTC time.
+    """
+    import datetime
+    import json
+
+    try:
+        machines = json.loads(machines_json or "null") or []
+    except ValueError:
+        machines = []
+    agent = next((m for m in machines if isinstance(m, dict)
+                  and m.get("machineId") == agent_name), None)
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    last = _parse_cscli_time(agent.get("last_heartbeat")) if agent else None
+    if last is not None and \
+            now - last <= datetime.timedelta(minutes=stale_after_minutes):
+        return "reporting (last heartbeat %s)" % last.strftime(
+            "%Y-%m-%d %H:%M UTC")
+
+    starts = [t for t in (_parse_cscli_time(v)
+                          for v in str(started_at or "").split()) if t]
+    if starts:
+        age = now - max(starts)
+        if age <= datetime.timedelta(minutes=starting_minutes):
+            return ("starting (pods restarted %d s ago; the agent reports "
+                    "once it has logged in)" % max(0, age.total_seconds()))
+
+    if agent is None:
+        return ("WARNING: not registered with the local API, so nothing is "
+                "parsing the Caddy access log. Run 'canasta crowdsec reload' "
+                "to register it.")
+    if last is None:
+        return ("WARNING: registered but has never reported, so nothing is "
+                "parsing the Caddy access log. Check the crowdsec-agent "
+                "container logs in the caddy pod.")
+    return ("WARNING: no report since %s, so the Caddy access log is "
+            "not being parsed. Check the crowdsec-agent container logs "
+            "in the caddy pod." % last.strftime("%Y-%m-%d %H:%M UTC"))
+
+
 class FilterModule(object):
     def filters(self):
         return {
@@ -226,4 +294,5 @@ class FilterModule(object):
             "canasta_crowdsec_blocklist_breakdown":
                 canasta_crowdsec_blocklist_breakdown,
             "canasta_crowdsec_capi_line": canasta_crowdsec_capi_line,
+            "canasta_crowdsec_agent_line": canasta_crowdsec_agent_line,
         }

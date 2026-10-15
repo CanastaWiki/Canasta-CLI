@@ -1,5 +1,5 @@
-# Wraps the CrowdSec image's entrypoint. The Helm chart's crowdsec sidecar
-# runs this file; the Compose crowdsec service carries an identical copy.
+# Wraps the CrowdSec image's entrypoint. The Helm chart's crowdsec local API
+# pod runs this file; the Compose crowdsec service carries an identical copy.
 #
 # The engine does not start while the Central API (CAPI) refuses its
 # credentials, or cannot be reached and the engine has no cached CAPI token,

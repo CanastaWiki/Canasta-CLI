@@ -11,8 +11,8 @@
 # trusted-proxy mode (cloudflare/imperva, which need caddy-cdn-ranges +
 # caddy-combine-ip-ranges). The image field is treated as managed when
 # empty, the stock default, or any managed tag — a custom operator image
-# is left untouched. crowdsec.enabled gates the engine sidecar in the
-# chart and is always reconciled from the flag.
+# is left untouched. crowdsec.enabled gates the CrowdSec local API
+# and agent in the chart and is always reconciled from the flag.
 #
 # Runs on the target host (instance_path lives there), matching the
 # values.yaml slurp in start.yml. Input: instance_path.

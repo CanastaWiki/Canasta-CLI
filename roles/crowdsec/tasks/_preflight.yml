@@ -1,6 +1,6 @@
 ---
 # Shared preflight for crowdsec subcommands: resolve the instance, verify the
-# crowdsec engine is up (Compose service or K8s sidecar), and build the
+# crowdsec engine is up (Compose service or K8s local API pod), and build the
 # orchestrator-appropriate cscli prefix.
 # Output: instance_id, instance_path, instance_orchestrator (+ the rest of
 # resolve_instance's facts), _cscli_prefix, _cscli_chdir.
@@ -63,34 +63,36 @@
           {%- endif %}
       when: "'crowdsec' not in (_crowdsec_running.stdout_lines | default([]))"
 
-# --- Kubernetes: the crowdsec sidecar must be Ready in the caddy pod ---
-- name: Verify crowdsec sidecar is running (Kubernetes)
+# --- Kubernetes: the local API pod must be Ready ---
+# The agent in the caddy pod is checked by `crowdsec status`, which reports
+# when it stops reporting to the local API.
+- name: Verify the CrowdSec local API is running (Kubernetes)
   when: instance_is_k8s | bool
   block:
     # Space-separated `name=ready` pairs for every container in each Running
-    # caddy pod, e.g. "caddy=true crowdsec=true |", one `|`-terminated group
-    # per pod. kubectl jsonpath has no filter expressions, so emit them all
-    # and substring-match the first pod's group below. items[*] rather than
+    # crowdsec pod, e.g. "crowdsec=true |", one `|`-terminated group per pod.
+    # kubectl jsonpath has no filter expressions, so emit them all and
+    # substring-match the first pod's group below. items[*] rather than
     # items[0], so no Running pod prints nothing instead of failing kubectl.
-    - name: Read container readiness from the caddy pod
+    - name: Read container readiness from the crowdsec pod
       ansible.builtin.command:
         cmd: >-
           kubectl get pods -n canasta-{{ instance_id }}
-          -l app.kubernetes.io/component=caddy
+          -l app.kubernetes.io/component=crowdsec
           --field-selector=status.phase=Running
           -o "jsonpath={range .items[*]}{range .status.containerStatuses[*]}{.name}={.ready} {end}|{end}"
       register: _crowdsec_k8s_ready
       changed_when: false
 
-    - name: Refuse when the crowdsec sidecar is not running
+    - name: Refuse when the CrowdSec local API is not running
       ansible.builtin.fail:
         msg: >-
           {% if _crowdsec_enabled | bool -%}
           CrowdSec is enabled for instance '{{ instance_id }}', but its
-          crowdsec container in the caddy pod is not running. Run
-          'canasta status -i {{ instance_id }}' and check the container's
+          local API pod is not running. Run
+          'canasta status -i {{ instance_id }}' and check the pod's
           logs ('kubectl logs -n canasta-{{ instance_id }}
-          -l app.kubernetes.io/component=caddy -c crowdsec') to see why it
+          -l app.kubernetes.io/component=crowdsec -c crowdsec') to see why it
           did not start.
           {%- else -%}
           The CrowdSec engine is not running for instance
