@@ -508,7 +508,7 @@ main() {
             case "$PLATFORM" in
                 linux)
                     install_native_linux
-                    post_install_summary "/opt/canasta-ansible" "linux"
+                    post_install_summary "${PREFIX:-/opt/canasta-ansible}" "linux"
                     ;;
                 macos)
                     install_native_macos
