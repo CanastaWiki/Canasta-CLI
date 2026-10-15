@@ -1709,7 +1709,9 @@ commands:
       When cloning, the git URL is taken from `--repository`, else from
       ExtensionJson.json (the extjsonuploader Toolforge dataset), else from
       Wikimedia Gerrit (mediawiki/extensions/<Name>). URLs from
-      ExtensionJson.json and Gerrit must be https. The URL and its source are
+      ExtensionJson.json and Gerrit must be https. When Gerrit does not
+      answer, its GitHub mirror (github.com/wikimedia/mediawiki-extensions-<Name>)
+      is used instead. The URL and its source are
       printed for every clone, flagged when the repository is not hosted on
       Wikimedia Gerrit. Pass `--branch` to pin a specific branch. The branch is
       chosen automatically as REL1_YY matching the instance's MediaWiki
@@ -1870,7 +1872,9 @@ commands:
         URL came from.
 
       When cloning, the git URL is taken from `--repository`, else from
-      Wikimedia Gerrit (mediawiki/skins/<Name>), which must be https. The URL
+      Wikimedia Gerrit (mediawiki/skins/<Name>), which must be https. When
+      Gerrit does not answer, its GitHub mirror
+      (github.com/wikimedia/mediawiki-skins-<Name>) is used instead. The URL
       and its source are printed for every clone, flagged when the repository
       is not hosted on Wikimedia Gerrit. A skin hosted elsewhere, or archived
       on Gerrit, needs `--repository`. Pass `--branch` to pin a specific
