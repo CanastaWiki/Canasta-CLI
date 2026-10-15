@@ -45,7 +45,8 @@
       Agent (caddy pod):
       {{ _crowdsec_agent_metrics.stdout | default('') | trim
          or _crowdsec_agent_metrics.stderr | default('') | trim
-         or '(no metrics available)' }}
+         or ('(none yet: the agent reports metrics once it has parsed '
+             ~ 'lines from the Caddy access log)') }}
 
       Local API:
       {%- endif %}

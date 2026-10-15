@@ -33,6 +33,20 @@
   failed_when: false
   when: instance_is_k8s | bool
 
+# An agent that has not reported yet is only starting while its caddy pod,
+# or the local API it logs in to, has just started.
+- name: Read the caddy and local API pod start times (Kubernetes)
+  ansible.builtin.command:
+    cmd: >-
+      kubectl get pods -n canasta-{{ instance_id }}
+      -l "app.kubernetes.io/component in (caddy,crowdsec)"
+      --field-selector=status.phase=Running
+      -o "jsonpath={.items[*].status.startTime}"
+  register: _crowdsec_pod_starts
+  changed_when: false
+  failed_when: false
+  when: instance_is_k8s | bool
+
 - name: List active decisions
   ansible.builtin.command:
     cmd: "{{ _cscli_prefix }} cscli decisions list"
@@ -116,7 +130,8 @@
 
       {% if instance_is_k8s | bool -%}
       Agent: {{ _crowdsec_machines.stdout | default('')
-                | canasta_crowdsec_agent_line('canasta-caddy-agent') }}
+                | canasta_crowdsec_agent_line('canasta-caddy-agent',
+                    _crowdsec_pod_starts.stdout | default('')) }}
       {% endif -%}
       Central API (community blocklist): {{ _crowdsec_capi_line }}
       Console blocklists: {{ _crowdsec_console_line }}

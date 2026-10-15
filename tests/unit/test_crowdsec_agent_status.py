@@ -50,6 +50,39 @@ class TestAgentStatusLine:
         for machines in [None, [], [{"machineId": "localhost"}]]:
             assert "not registered" in self._line(machines)
 
+    def _starting(self, machines, started_at):
+        return canasta_crowdsec_agent_line(
+            json.dumps(machines), "canasta-caddy-agent",
+            started_at, now=self.NOW)
+
+    def test_new_pod_without_a_report_is_starting(self):
+        never = [{"machineId": "canasta-caddy-agent", "last_heartbeat": None}]
+        line = self._starting(never, "2026-10-15T11:59:30Z")
+        assert line == ("starting (pods restarted 30 s ago; the agent "
+                        "reports once it has logged in)")
+
+    def test_newest_pod_start_counts(self):
+        stale = [{"machineId": "canasta-caddy-agent",
+                  "last_heartbeat": "2026-10-15T11:00:00Z"}]
+        line = self._starting(
+            stale, "2026-10-15T10:00:00Z 2026-10-15T11:58:00Z")
+        assert line.startswith("starting (pods restarted 120 s ago")
+
+    def test_unregistered_agent_is_starting_after_a_restart(self):
+        assert self._starting([], "2026-10-15T11:59:00Z").startswith(
+            "starting")
+
+    def test_warns_once_the_grace_period_is_over(self):
+        never = [{"machineId": "canasta-caddy-agent", "last_heartbeat": None}]
+        assert "never reported" in self._starting(
+            never, "2026-10-15T11:56:59Z")
+
+    def test_reporting_agent_ignores_pod_age(self):
+        live = [{"machineId": "canasta-caddy-agent",
+                 "last_heartbeat": "2026-10-15T11:59:50Z"}]
+        assert self._starting(live, "2026-10-15T11:59:55Z").startswith(
+            "reporting")
+
 
 def _show(path, name, play_vars):
     with open(path) as f:
@@ -90,7 +123,24 @@ class TestStatusShowsTheAgent:
                 "_crowdsec_decisions": {"stdout": "(none)"},
                 "_crowdsec_machines": {"stdout": json.dumps([{
                     "machineId": "canasta-caddy-agent",
-                    "last_heartbeat": heartbeat}])}}))
+                    "last_heartbeat": heartbeat}])},
+                "_crowdsec_pod_starts": {"stdout": ""}}))
+
+    def test_kubernetes_new_pod_reports_starting(self, tmp_path):
+        started = datetime.datetime.now(datetime.timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ")
+        msg = _run(tmp_path, _show(
+            os.path.join(CROWDSEC, "status.yml"), "Show CrowdSec status", {
+                "instance_id": "demo", "instance_is_k8s": True,
+                "_crowdsec_bouncer_list": [],
+                "_crowdsec_capi_line": "registered",
+                "_crowdsec_console_line": "none",
+                "_crowdsec_decisions": {"stdout": "(none)"},
+                "_crowdsec_machines": {"stdout": json.dumps([{
+                    "machineId": "canasta-caddy-agent",
+                    "last_heartbeat": None}])},
+                "_crowdsec_pod_starts": {"stdout": started}}))
+        assert "\nAgent: starting (pods restarted " in msg
 
     def test_kubernetes_reports_the_agent(self, tmp_path):
         msg = self._msg(tmp_path, True)
@@ -116,6 +166,15 @@ class TestMetricsShowTheAgent:
             "CrowdSec metrics for instance 'demo'\n\n"
             "Agent (caddy pod):\nAGENT METRICS\n\n"
             "Local API:\nLAPI METRICS")
+
+    def test_kubernetes_agent_with_nothing_parsed_yet(self, tmp_path):
+        msg = _run(tmp_path, _show(
+            os.path.join(CROWDSEC, "metrics.yml"), "Show metrics", {
+                "instance_id": "demo", "instance_is_k8s": True,
+                "_crowdsec_metrics": {"stdout": "LAPI METRICS"},
+                "_crowdsec_agent_metrics": {"stdout": "", "stderr": ""}}))
+        assert ("Agent (caddy pod):\n(none yet: the agent reports metrics "
+                "once it has parsed lines from the Caddy access log)\n") in msg
 
     def test_compose_shows_the_engine(self, tmp_path):
         assert self._msg(tmp_path, False) == (

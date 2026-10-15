@@ -189,8 +189,9 @@ def _parse_cscli_time(value):
     return datetime.datetime.fromisoformat(match.group(1) + zone)
 
 
-def canasta_crowdsec_agent_line(machines_json, agent_name, now=None,
-                                stale_after_minutes=5):
+def canasta_crowdsec_agent_line(machines_json, agent_name, started_at=None,
+                                now=None, stale_after_minutes=5,
+                                starting_minutes=3):
     """The ``Agent:`` line for ``crowdsec status`` on Kubernetes.
 
     ``machines_json`` is ``cscli machines list -o json`` from the local API.
@@ -198,6 +199,10 @@ def canasta_crowdsec_agent_line(machines_json, agent_name, now=None,
     so an agent that stopped reporting leaves the engine healthy but
     detecting nothing. It sends heartbeats regularly while it runs, so one
     older than ``stale_after_minutes`` means it has stopped.
+
+    ``started_at`` lists the start times (RFC 3339, space-separated) of the
+    caddy and local API pods. For ``starting_minutes`` after the newest of
+    them, an agent that has not reported yet is starting, not failing.
     ``now`` is an aware datetime, defaulting to the current UTC time.
     """
     import datetime
@@ -209,23 +214,32 @@ def canasta_crowdsec_agent_line(machines_json, agent_name, now=None,
         machines = []
     agent = next((m for m in machines if isinstance(m, dict)
                   and m.get("machineId") == agent_name), None)
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    last = _parse_cscli_time(agent.get("last_heartbeat")) if agent else None
+    if last is not None and \
+            now - last <= datetime.timedelta(minutes=stale_after_minutes):
+        return "reporting (last heartbeat %s)" % last.strftime(
+            "%Y-%m-%d %H:%M UTC")
+
+    starts = [t for t in (_parse_cscli_time(v)
+                          for v in str(started_at or "").split()) if t]
+    if starts:
+        age = now - max(starts)
+        if age <= datetime.timedelta(minutes=starting_minutes):
+            return ("starting (pods restarted %d s ago; the agent reports "
+                    "once it has logged in)" % max(0, age.total_seconds()))
+
     if agent is None:
         return ("WARNING: not registered with the local API, so nothing is "
                 "parsing the Caddy access log. Run 'canasta crowdsec reload' "
                 "to register it.")
-
-    last = _parse_cscli_time(agent.get("last_heartbeat"))
     if last is None:
         return ("WARNING: registered but has never reported, so nothing is "
                 "parsing the Caddy access log. Check the crowdsec-agent "
                 "container logs in the caddy pod.")
-    now = now or datetime.datetime.now(datetime.timezone.utc)
-    when = last.strftime("%Y-%m-%d %H:%M UTC")
-    if now - last > datetime.timedelta(minutes=stale_after_minutes):
-        return ("WARNING: no report since %s, so the Caddy access log is "
-                "not being parsed. Check the crowdsec-agent container logs "
-                "in the caddy pod." % when)
-    return "reporting (last heartbeat %s)" % when
+    return ("WARNING: no report since %s, so the Caddy access log is "
+            "not being parsed. Check the crowdsec-agent container logs "
+            "in the caddy pod." % last.strftime("%Y-%m-%d %H:%M UTC"))
 
 
 class FilterModule(object):
