@@ -27,6 +27,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
 TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 SWITCH = os.path.join(TASKS, "switch_wiki_db_account.yml")
 CONFIG_GITOPS = os.path.join(TASKS, "config_update_gitops_vars.yml")
+CONFIG_GITOPS_REMOVE = os.path.join(TASKS, "config_remove_gitops_vars.yml")
 SYNC_VAR = os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
                         "sync_wiki_db_user_var.yml")
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
@@ -346,3 +347,23 @@ class TestComposeRestartIsRecorded:
             record = tasks[names.index(restart) + 1]
             assert record["ansible.builtin.set_fact"] == {"_mig_db_redeployed": True}
             assert "when" not in record
+
+
+class TestConfigUnsetAccount:
+    @pytest.mark.parametrize("keys, orchestrator, synced", [
+        ("WIKI_DB_USER", "kubernetes", True),
+        ("PHP_POST_MAX_SIZE CANASTA_DB_ROOT_ACCOUNT", "kubernetes", True),
+        ("PHP_POST_MAX_SIZE", "kubernetes", False),
+        ("WIKI_DB_USER", "compose", False),
+    ])
+    def test_gitops_vars_follow_the_unset(self, keys, orchestrator, synced):
+        task = next(t for t in _load(CONFIG_GITOPS_REMOVE) if t.get("name") ==
+                    "Record MediaWiki's database account in this host's vars (Kubernetes)")
+        assert task["ansible.builtin.include_tasks"].strip().endswith(
+            "/roles/gitops/tasks/sync_wiki_db_user_var.yml")
+        templar = Templar(loader=DataLoader(), variables={
+            "keys": keys, "instance_orchestrator": orchestrator,
+            **TEMPLAR_VARS})
+        results = [templar.template(trust_as_template("{{ %s }}" % w))
+                   for w in task["when"]]
+        assert all(results) is synced
