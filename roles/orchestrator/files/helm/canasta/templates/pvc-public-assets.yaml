@@ -5,6 +5,8 @@ metadata:
   namespace: {{ include "canasta.namespace" . }}
   labels:
     {{- include "canasta.labels" . | nindent 4 }}
+  annotations:
+    {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
 spec:
   accessModes:
     - {{ .Values.persistence.publicAssets.accessMode }}

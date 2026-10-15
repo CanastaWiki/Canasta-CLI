@@ -6,6 +6,8 @@ metadata:
   labels:
     {{- include "canasta.labels" . | nindent 4 }}
     app.kubernetes.io/component: varnish
+  annotations:
+    {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
 data:
   {{- range $key, $value := .Values.configData.varnish }}
   {{ $key }}: |

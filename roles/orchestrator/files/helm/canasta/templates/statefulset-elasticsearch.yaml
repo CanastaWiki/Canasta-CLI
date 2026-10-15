@@ -7,6 +7,8 @@ metadata:
   labels:
     {{- include "canasta.labels" . | nindent 4 }}
     app.kubernetes.io/component: elasticsearch
+  annotations:
+    {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
 spec:
   serviceName: {{ include "canasta.fullname" . }}-elasticsearch
   replicas: 1
