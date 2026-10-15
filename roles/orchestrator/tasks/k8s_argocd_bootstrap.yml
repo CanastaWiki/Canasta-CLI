@@ -43,16 +43,27 @@
     # The helm-sops CMP sidecar for encrypted secrets is NOT added here — it is
     # overlaid onto this release at `gitops init --encrypt-secrets`
     # (k8s_ensure_sops_sidecar.yml) so create stays orchestration-agnostic.
-    - name: Install Argo CD via Helm
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
-      vars:
-        rx_name: "install Argo CD"
-        rx_async: 720
-        rx_cmd: >-
-          helm upgrade --install argocd argo/argo-cd
-          --namespace {{ argocd_namespace | default('argocd') }} --create-namespace
-          --wait --timeout 10m
-          -f /tmp/canasta-argocd-values.yaml
+    - name: Install Argo CD and report why it did not become ready
+      block:
+        - name: Install Argo CD via Helm
+          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
+          vars:
+            rx_name: "install Argo CD"
+            rx_async: 720
+            rx_cmd: >-
+              helm upgrade --install argocd argo/argo-cd
+              --namespace {{ argocd_namespace | default('argocd') }} --create-namespace
+              --wait --timeout 10m
+              -f /tmp/canasta-argocd-values.yaml
+      rescue:
+        - name: Report why Argo CD did not become ready
+          ansible.builtin.include_tasks: >-
+            {{ canasta_root }}/roles/orchestrator/tasks/k8s_capture_argocd_install_failure.yml
+
+        - name: Fail with the original Argo CD install error
+          ansible.builtin.fail:
+            msg: >-
+              {{ ansible_failed_result.msg | default('Installing Argo CD failed; see the error above.') }}
 
     - name: Report Argo CD installed
       ansible.builtin.debug:
