@@ -124,15 +124,13 @@
 # WIKI_DB_PASSWORD is unused until an upgrade moves MediaWiki to its own
 # account, which keeps the key's value. Root's own password must not be it.
 - name: Generate a password for MediaWiki's own account
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/common/tasks/generate_password.yml
-  when: _wikidbpass == _rootdbpass
+  ansible.builtin.include_tasks: _resolve_password.yml
+  vars:
+    _rp_input: "{{ '' if _wikidbpass == _rootdbpass else _wikidbpass }}"
 
 - name: Choose the Secret's password for MediaWiki's own account
   ansible.builtin.set_fact:
-    _k8s_wikidbpass: >-
-      {{ _generated_password if _wikidbpass == _rootdbpass
-         else _wikidbpass }}
+    _k8s_wikidbpass: "{{ _resolved_password }}"
   no_log: true
 
 # The pods must get the key .env holds, which keeps one supplied with -e.

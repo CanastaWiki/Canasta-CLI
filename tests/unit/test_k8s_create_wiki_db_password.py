@@ -28,13 +28,17 @@ def _tasks():
 
 def _choose(tmp_path, wikidbpass, rootdbpass):
     by_name = {t.get("name"): t for t in _tasks()}
+    # Outside its role, the helper's relative path needs anchoring.
+    generate = dict(by_name[GENERATE], **{"ansible.builtin.include_tasks":
+                    os.path.join(os.path.dirname(SETUP),
+                                 by_name[GENERATE]["ansible.builtin.include_tasks"])})
     out = tmp_path / "out.json"
     play = [{
         "hosts": "localhost", "connection": "local", "gather_facts": False,
         "vars": {"ansible_python_interpreter": sys.executable,
                  "canasta_root": REPO_ROOT,
                  "_wikidbpass": wikidbpass, "_rootdbpass": rootdbpass},
-        "tasks": [by_name[GENERATE], by_name[CHOOSE],
+        "tasks": [generate, by_name[CHOOSE],
                   {"ansible.builtin.copy": {
                       "content": "{{ {'pw': _k8s_wikidbpass} | to_json }}",
                       "dest": str(out)}}],
