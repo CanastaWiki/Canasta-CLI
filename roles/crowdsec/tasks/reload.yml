@@ -42,6 +42,11 @@
 - name: Restart the CrowdSec engine
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/crowdsec_restart_engine.yml"
 
+# The restarted engine retests credentials the Central API refused, as on
+# start; report the outcome and clear the marker for restored ones.
+- name: Check the engine's Central API credentials after the restart
+  ansible.builtin.include_tasks: ensure_capi.yml
+
 # --origin lists scopes the delete to console blocklists (never manual bans or
 # the CAPI community list); --scenario narrows it to one list by the name shown
 # under "Console blocklists in effect" in status. argv (not a shell string) so a
