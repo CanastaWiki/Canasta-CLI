@@ -17,10 +17,14 @@
       ansible.builtin.debug:
         msg: "Installing Argo CD..."
 
+    # force_update re-downloads the index, which an existing repository
+    # entry would otherwise keep from whenever it was added, possibly from
+    # before the pinned chart version was published.
     - name: Add Argo CD Helm repository
       kubernetes.core.helm_repository:
         name: argo
         repo_url: https://argoproj.github.io/argo-helm
+        force_update: true
 
     # Stage the chart values as a file so the helm invocation below can be a
     # plain CLI command (no --set dotted-key escaping) and run through
