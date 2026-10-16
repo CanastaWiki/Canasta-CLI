@@ -53,7 +53,14 @@ def _gitops_status_script(path, ssh_key=None, k8s=False):
         "git rev-parse --short HEAD 2>/dev/null "
         "|| { [ -e .git ] && echo NOCOMMIT || echo none; }; "
         "echo '%(d)s'; "
-        "cat .gitops-applied 2>/dev/null || echo none; "
+        "{ cat .gitops-applied 2>/dev/null && echo; } || echo none; "
+        # Commits after the applied one that are all local (none came from
+        # the remote) were made on this host, so no pull is left unfinished.
+        "applied=$(cat .gitops-applied 2>/dev/null) "
+        "&& git merge-base --is-ancestor \"$applied\" HEAD 2>/dev/null "
+        "&& git merge-base --is-ancestor "
+        "\"$(git merge-base HEAD @{upstream} 2>/dev/null)\" \"$applied\" "
+        "2>/dev/null && echo LOCAL_ONLY; "
         "echo '%(d)s'; "
         "git diff --cached --name-status 2>/dev/null; "
         "echo '%(d)s'; "
@@ -311,7 +318,9 @@ def _parse_gitops_status(stdout, instance_id):
             pass
 
     commit = parts[2].strip() if len(parts) > 2 else "none"
-    applied = parts[3].strip() if len(parts) > 3 else "none"
+    applied_lines = (parts[3].split() if len(parts) > 3 else []) or ["none"]
+    applied = applied_lines[0]
+    local_only = "LOCAL_ONLY" in applied_lines[1:]
 
     staged, unstaged, untracked, wikis_drift = _parse_working_tree_changes(parts)
 
@@ -349,7 +358,8 @@ def _parse_gitops_status(stdout, instance_id):
     # A pull that stopped before rendering leaves config/wikis.yaml on the
     # previous commit; its difference from the template is the pending
     # change, not an edit to capture.
-    pending = applied != "none" and commit != "none" and not applied.startswith(commit)
+    pending = (applied != "none" and commit != "none"
+               and not applied.startswith(commit) and not local_only)
     if pending:
         wikis_drift = False
         lines.append(
