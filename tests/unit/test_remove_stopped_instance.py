@@ -91,7 +91,7 @@ class TestGetPod:
         assert RAW_ERROR not in out
 
     def test_first_running_pod_is_chosen(self, tmp_path):
-        proc, out, _ = _run(tmp_path, self.TASKS, self.VARS, "db-0 db-1")
+        proc, out, _ = _run(tmp_path, self.TASKS, self.VARS, "db-0 \ndb-1 \n")
         assert proc.returncode == 0, out
         assert "POD=[db-0]" in out
 

@@ -47,7 +47,10 @@ from direct_commands._helpers import (  # noqa: E402
     _compose_profile_args,
     _is_k8s,
     _is_local_target,
+    _k8s_first_live_pod,
     _read_env,
+    K8S_POD_JSONPATH,
+    K8S_POD_PICK_SHELL,
     _resolve_compose_cmd,
 )
 
@@ -1440,8 +1443,9 @@ def handle_interactive_exec(args):
                 "kubectl get pods -n %s "
                 "-l app.kubernetes.io/component=%s "
                 "--field-selector=status.phase=Running "
-                "-o 'jsonpath={.items[0].metadata.name}'"
-                % (shlex.quote(ns), shlex.quote(service))
+                "-o '%s' | %s"
+                % (shlex.quote(ns), shlex.quote(service),
+                   K8S_POD_JSONPATH, K8S_POD_PICK_SHELL)
             )
             remote_cmd = (
                 'pod="$(%s 2>/dev/null)"; '
@@ -1468,26 +1472,27 @@ def handle_interactive_exec(args):
                 sys.exit(1)
             return True  # unreachable: execvp replaced the process
         # Find the pod for this service.
-        # Select only a Running pod, matching roles/orchestrator/tasks/
-        # k8s_get_pod.yml. Without the phase filter, items[0] during a
-        # rollout/scale/crash-loop can be a Pending/Terminating/Failed pod,
-        # so the exec would target the wrong replica or fail outright.
+        # Select only a Running pod that is not being deleted, matching
+        # roles/orchestrator/tasks/k8s_get_pod.yml. During a rollout, scale
+        # or crash loop the first pod can be Pending, Failed or draining, so
+        # the exec would target the wrong replica or fail outright.
         result = subprocess.run(
             [
                 "kubectl", "get", "pods", "-n", ns,
                 "-l", "app.kubernetes.io/component=%s" % service,
                 "--field-selector=status.phase=Running",
-                "-o", "jsonpath={.items[0].metadata.name}",
+                "-o", K8S_POD_JSONPATH,
             ],
             capture_output=True, text=True,
         )
-        if result.returncode != 0 or not result.stdout.strip():
+        pod = (_k8s_first_live_pod(result.stdout)
+               if result.returncode == 0 else None)
+        if not pod:
             print(
                 "Error: no running pod found for service '%s'" % service,
                 file=sys.stderr,
             )
             sys.exit(1)
-        pod = result.stdout.strip()
         exec_args = ["kubectl", "exec", tty_flags, pod, "-n", ns,
                      "-c", service, "--"]
         exec_args.extend(command)
