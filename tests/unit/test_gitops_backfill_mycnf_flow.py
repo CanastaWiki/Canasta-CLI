@@ -175,3 +175,15 @@ def test_report_does_not_claim_a_shared_default_already_there(tmp_path):
     out = _run(tmp_path)
     assert "4G as the shared" not in out
     assert "The shared vars already set innodb_buffer_pool_size" in out
+
+
+def test_untracked_my_cnf_without_buffer_pool_is_silent(tmp_path):
+    # The my.cnf a new gitops instance gets: gitignored, [client] only,
+    # no template. Nothing is shared, so nothing is reported, and a second
+    # upgrade stays as quiet as the first.
+    inst = _instance(tmp_path, mycnf="[client]\n", tracked=False)
+    for _ in range(2):
+        out = _run(tmp_path)
+        assert "sets no innodb_buffer_pool_size" not in out
+        assert not (inst / "my.cnf.template").exists()
+        assert _staged(inst) == set()

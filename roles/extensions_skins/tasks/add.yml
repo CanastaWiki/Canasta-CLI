@@ -399,6 +399,8 @@
       ansible.builtin.include_role:
         name: orchestrator
         tasks_from: start.yml
+      vars:
+        start_quiet_when_running: true
       when: not (instance_is_k8s | bool)
 
     - name: "Enable added {{ _item_type }}"

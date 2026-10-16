@@ -21,6 +21,20 @@
   changed_when: false
   failed_when: false
 
+# Commits after the applied one that are all local (none came from the
+# remote) were made on this host and leave no pull unfinished.
+- name: Check whether every commit since the last apply is local
+  ansible.builtin.shell:
+    cmd: >-
+      applied=$(cat .gitops-applied) &&
+      git merge-base --is-ancestor "$applied" HEAD &&
+      git merge-base --is-ancestor
+      "$(git merge-base HEAD @{upstream})" "$applied"
+    chdir: "{{ instance_path }}"
+  register: _gap_local_only
+  changed_when: false
+  failed_when: false
+
 - name: Decide whether the checked-out commit is still to be applied
   ansible.builtin.set_fact:
     _gitops_apply_pending: >-
@@ -28,4 +42,5 @@
          and (_gap_applied_raw.content | b64decode | trim) != ''
          and _gap_head.rc == 0
          and (_gap_applied_raw.content | b64decode | trim)
-             != _gap_head.stdout | trim }}
+             != _gap_head.stdout | trim
+         and _gap_local_only.rc != 0 }}
