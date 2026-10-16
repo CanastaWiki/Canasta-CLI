@@ -1,0 +1,5 @@
+/usr/local/etc/haproxy/certs/default.pem
+/usr/local/etc/haproxy/certs/example.com.pem example.com
+/usr/local/etc/haproxy/certs/www.example.com.pem www.example.com
+/usr/local/etc/haproxy/certs/images.example.com.pem images.example.com
+/usr/local/etc/haproxy/certs/custom-other.pem other.example.org

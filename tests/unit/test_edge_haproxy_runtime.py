@@ -1,0 +1,208 @@
+"""Run the rendered edge configuration in the pinned HAProxy image.
+
+Each backend's first rule is replaced with a response naming the backend, so
+a request shows which instance and class the edge chose without any Caddy
+behind it. Skipped where Docker is not available.
+"""
+
+import http.client
+import os
+import re
+import shutil
+import socket
+import ssl
+import subprocess
+import time
+import uuid
+
+import pytest
+from cryptography import x509
+from cryptography.x509.oid import NameOID
+
+import canasta_edge_render as edge
+
+# Code under test in other modules exports DOCKER_HOST into os.environ, and
+# not every test undoes it. Pytest imports every test module before running
+# any, so the environment here is the one the suite started with.
+_DOCKER_ENV = dict(os.environ)
+
+
+def _docker(*args, **kwargs):
+    return subprocess.run(["docker"] + list(args), env=_DOCKER_ENV,
+                          capture_output=True, text=True, **kwargs)
+
+
+def _docker_ok():
+    return bool(shutil.which("docker")) and _docker("info").returncode == 0
+
+
+pytestmark = pytest.mark.skipif(not _docker_ok(), reason="Docker is not available")
+
+
+def _instances():
+    return [
+        edge.instance_from_config(
+            "main", {}, [{"id": "w0", "url": "example.com"},
+                         {"id": "w1", "url": "www.example.com/docs"}],
+            [{"hostname": "images.example.com", "bucket": "b", "endpoint": "e"}]),
+        edge.instance_from_config(
+            "other", {"CADDY_TLS_MODE": "custom"},
+            [{"id": "w0", "url": "other.example.org"}]),
+    ]
+
+
+def _stub_backends(cfg):
+    return re.sub(
+        r"^backend (be_\w+?_(?:dynamic|default))\n",
+        lambda m: 'backend %s\n    http-request return status 200 '
+                  'content-type text/plain string "%s"\n' % (m.group(1), m.group(1)),
+        cfg, flags=re.M)
+
+
+def _self_signed(path, common_name):
+    subprocess.run(
+        ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2",
+         "-subj", "/CN=%s" % common_name, "-keyout", path + ".key",
+         "-out", path + ".crt"],
+        check=True, capture_output=True)
+    with open(path, "w") as out:
+        for part in (".crt", ".key"):
+            with open(path + part) as f:
+                out.write(f.read())
+            os.remove(path + part)
+
+
+def _port(container, inner):
+    out = _docker("port", container, "%d/tcp" % inner, check=True).stdout
+    return int(out.splitlines()[0].rsplit(":", 1)[1])
+
+
+@pytest.fixture(scope="module")
+def edge_ports(tmp_path_factory):
+    conf = tmp_path_factory.mktemp("edge")
+    rendered = edge.render(_instances(), acme_thumbprint="THUMB")
+    for name, content in rendered["files"].items():
+        if name == "haproxy.cfg":
+            content = _stub_backends(content)
+        (conf / name).write_text(content)
+    certs = conf / "certs"
+    certs.mkdir()
+    _self_signed(str(certs / "default.pem"), "default")
+    for entry in rendered["certificates"]:
+        _self_signed(str(certs / entry["file"]), entry["file"])
+    os.chmod(conf, 0o755)
+    for path in [certs] + list(certs.iterdir()) + list(conf.iterdir()):
+        os.chmod(path, 0o755 if path.is_dir() else 0o644)
+
+    name = "canasta-edge-test-%s" % uuid.uuid4().hex[:8]
+    started = _docker(
+        "run", "-d", "--rm", "--name", name,
+        "-p", "127.0.0.1::80", "-p", "127.0.0.1::443",
+        "--tmpfs", "/var/run/haproxy:mode=1777",
+        "-v", "%s:%s:ro" % (conf, edge.CONFIG_DIR), edge.HAPROXY_IMAGE)
+    if started.returncode != 0:
+        pytest.fail("docker run failed:\n" + started.stderr)
+    try:
+        ports = {80: _port(name, 80), 443: _port(name, 443)}
+        deadline = time.time() + 30
+        while True:
+            try:
+                socket.create_connection(("127.0.0.1", ports[443]), timeout=1).close()
+                _request(ports, "example.com", "/")
+                break
+            except (OSError, http.client.HTTPException):
+                if time.time() > deadline:
+                    logs = _docker("logs", name)
+                    pytest.fail("edge did not start:\n" + logs.stdout + logs.stderr)
+                time.sleep(0.5)
+        yield ports
+    finally:
+        _docker("rm", "-f", name)
+
+
+def _context():
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
+def _request(ports, host, path, method="GET", headers=None, tls=True, sni=None):
+    if tls:
+        conn = http.client.HTTPSConnection(
+            "127.0.0.1", ports[443], timeout=5, context=_context())
+        conn.sock = _context().wrap_socket(
+            socket.create_connection(("127.0.0.1", ports[443]), timeout=5),
+            server_hostname=sni or host.split(":")[0])
+    else:
+        conn = http.client.HTTPConnection("127.0.0.1", ports[80], timeout=5)
+    conn.request(method, path, headers=dict({"Host": host}, **(headers or {})))
+    resp = conn.getresponse()
+    body = resp.read().decode()
+    conn.close()
+    return resp.status, body, resp.getheader("Location")
+
+
+@pytest.mark.parametrize("host,path,method,headers,expected", [
+    ("example.com", "/wiki/Main_Page", "GET", {}, "be_main_default"),
+    ("example.com", "/w/index.php?title=Main_Page&action=view", "GET", {}, "be_main_default"),
+    ("example.com", "/w/images/a/ab/Logo.png", "GET", {}, "be_main_default"),
+    ("example.com", "/wiki/Main_Page", "GET", {"Cookie": "lang=en"}, "be_main_default"),
+    ("example.com", "/w/api.php?action=query", "GET", {}, "be_main_dynamic"),
+    ("example.com", "/w/rest.php/v1/page/Main_Page", "GET", {}, "be_main_dynamic"),
+    ("example.com", "/wiki/Special:RecentChanges", "GET", {}, "be_main_dynamic"),
+    ("example.com", "/wiki/special:recentchanges", "GET", {}, "be_main_dynamic"),
+    ("example.com", "/w/index.php?title=Special%3AWhatLinksHere", "GET", {}, "be_main_dynamic"),
+    ("example.com", "/w/index.php?title=Main_Page&action=history", "GET", {}, "be_main_dynamic"),
+    ("example.com", "/w/index.php?title=Main_Page&oldid=5", "GET", {}, "be_main_dynamic"),
+    ("example.com", "/w/index.php?title=Main_Page&diff=5", "GET", {}, "be_main_dynamic"),
+    ("example.com", "/wiki/Main_Page", "POST", {}, "be_main_dynamic"),
+    ("example.com", "/wiki/Main_Page", "HEAD", {}, "be_main_default"),
+    ("example.com", "/wiki/Main_Page", "GET", {"Cookie": "wiki_session=abc"}, "be_main_dynamic"),
+    ("example.com", "/wiki/Main_Page", "GET", {"Cookie": "wikiToken=abc"}, "be_main_dynamic"),
+    ("example.com", "/wiki/Main_Page", "GET", {"Authorization": "Bearer x"}, "be_main_dynamic"),
+    ("EXAMPLE.COM", "/wiki/Main_Page", "GET", {}, "be_main_default"),
+    ("example.com:443", "/wiki/Main_Page", "GET", {}, "be_main_default"),
+    ("www.example.com", "/docs/wiki/Main_Page", "GET", {}, "be_main_default"),
+    ("images.example.com", "/a/ab/Logo.png", "GET", {"Cookie": "wiki_session=abc"}, "be_main_default"),
+    ("other.example.org", "/wiki/Special:Log", "GET", {}, "be_other_dynamic"),
+    ("other.example.org", "/wiki/Main_Page", "GET", {}, "be_other_default"),
+])
+def test_requests_reach_the_expected_backend(edge_ports, host, path, method, headers, expected):
+    status, body, _ = _request(edge_ports, host, path, method, headers)
+    assert status == 200
+    if method != "HEAD":
+        assert body == expected
+
+
+def test_unknown_host_gets_404(edge_ports):
+    status, body, _ = _request(edge_ports, "unknown.example.net", "/")
+    assert status == 404 and "No site" in body
+
+
+def test_plain_http_redirects_to_https(edge_ports):
+    status, _, location = _request(edge_ports, "example.com", "/wiki/X?a=1", tls=False)
+    assert status == 301 and location == "https://example.com/wiki/X?a=1"
+
+
+@pytest.mark.parametrize("tls", [False, True])
+def test_acme_challenge_is_answered_on_both_ports(edge_ports, tls):
+    status, body, _ = _request(
+        edge_ports, "example.com", "/.well-known/acme-challenge/TOKEN123", tls=tls)
+    assert status == 200 and body == "TOKEN123.THUMB\n"
+
+
+@pytest.mark.parametrize("sni,expected", [
+    ("example.com", "example.com.pem"),
+    ("images.example.com", "images.example.com.pem"),
+    ("other.example.org", "custom-other.pem"),
+    ("unknown.example.net", "default"),
+])
+def test_certificate_is_chosen_by_sni(edge_ports, sni, expected):
+    raw = _context().wrap_socket(
+        socket.create_connection(("127.0.0.1", edge_ports[443]), timeout=5),
+        server_hostname=sni)
+    der = raw.getpeercert(binary_form=True)
+    raw.close()
+    cert = x509.load_der_x509_certificate(der)
+    assert cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value == expected

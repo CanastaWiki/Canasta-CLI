@@ -30,6 +30,7 @@ import importlib  # noqa: E402
 _module_utils_dir = os.path.join(ROLES_DIR, "common", "module_utils")
 sys.path.insert(0, _module_utils_dir)
 for _name in ("canasta_validate", "canasta_config", "canasta_sidecar_render",
+              "canasta_edge_render",
               "canasta_override_migrate"):
     _mod = importlib.import_module(_name)
     sys.modules.setdefault("ansible.module_utils.%s" % _name, _mod)
