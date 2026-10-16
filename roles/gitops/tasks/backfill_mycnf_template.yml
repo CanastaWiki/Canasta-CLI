@@ -107,7 +107,9 @@
 
 # Only a file that already sets the buffer pool has a value worth
 # templating. Where it does not, MariaDB is already at its compiled
-# default, so there is nothing to preserve and nothing to migrate.
+# default, so there is nothing to preserve and nothing to migrate. An
+# untracked my.cnf is already host-local, so it is left alone silently:
+# reporting it would repeat on every upgrade with nothing to act on.
 - name: Report that my.cnf sets no buffer pool (nothing to migrate)
   ansible.builtin.debug:
     msg: >-
@@ -117,6 +119,7 @@
   when:
     - _bmt_mycnf_raw.content is defined
     - _bmt_current == ''
+    - _bmt_tracked.rc | default(1) == 0
 
 - name: Decide whether to migrate my.cnf to a template plus a recorded value
   ansible.builtin.set_fact:
