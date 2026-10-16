@@ -10,12 +10,34 @@
   ansible.builtin.set_fact:
     _ep_key: "{{ _ep_setting.split('=', 1)[0] }}"
 
+- name: Read env.template for the key's current line
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/env.template"
+  register: _ep_template
+  no_log: true  # an old template can still hold a literal secret
+
+- name: Classify the key
+  ansible.builtin.set_fact:
+    _ep_secret: >-
+      {{ (_ep_key | regex_search(canasta_secret_key_regex)) is not none
+         or _ep_key in (_config_secret_names | default([])) }}
+    _ep_has_literal: >-
+      {{ (_ep_template.content | b64decode).splitlines()
+         | select('match', '^' ~ (_ep_key | regex_escape) ~ '=')
+         | reject('search', '=[{][{]')
+         | list | length > 0 }}
+
+# A literal is the value every host renders. Replacing it with a placeholder
+# keeps the value for this host only: the others have no entry, so their next
+# render omits the key and falls back to its default. A host-specific key
+# that is already a literal therefore stays one, and config set updates the
+# literal. A secret is still moved, since a literal secret is a leak.
 - name: Decide whether key should be a placeholder
   ansible.builtin.set_fact:
     _ep_needs_placeholder: >-
-      {{ (_ep_key | regex_search(canasta_secret_key_regex)) is not none
-         or _ep_key in canasta_host_specific_nonsecret
-         or _ep_key in (_config_secret_names | default([])) }}
+      {{ (_ep_secret | bool)
+         or (_ep_key in canasta_host_specific_nonsecret
+             and not (_ep_has_literal | bool)) }}
 
 - name: Add placeholder line to env.template
   ansible.builtin.lineinfile:
