@@ -5,6 +5,8 @@
 # Optional: start_converge (bool) - on Compose, run `up -d` even when every
 #   service is running, so containers whose configuration changed are
 #   recreated.
+# Optional: start_quiet_when_running (bool) - on Compose, print nothing about
+#   starting unless something is actually started.
 
 - name: Start (Docker Compose)
   when: not (instance_is_k8s | bool)
@@ -55,6 +57,7 @@
     - name: Report starting containers
       ansible.builtin.debug:
         msg: "Starting containers..."
+      when: not (start_quiet_when_running | default(false) | bool)
 
     # The compose command can be overridden for podman deployments.
     # When using rootless Podman instead of Docker, set
@@ -137,6 +140,7 @@
         - _container_running | default(false) | bool
         - _missing_services | length == 0
         - not (start_converge | default(false) | bool)
+        - not (start_quiet_when_running | default(false) | bool)
 
     - name: Report the services being started
       ansible.builtin.debug:
@@ -152,6 +156,13 @@
              or _missing_services | length > 0
              or start_converge | default(false) | bool }}
         _start_account_ensured: false
+
+    - name: Report starting containers (quiet mode)
+      ansible.builtin.debug:
+        msg: "Starting containers..."
+      when:
+        - start_quiet_when_running | default(false) | bool
+        - not (_container_running | default(false) | bool)
 
     # web runs update.php for every wiki as soon as it boots, so MediaWiki's
     # database account and its grants must be in place before web starts.
