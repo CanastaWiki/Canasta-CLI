@@ -37,6 +37,9 @@ images/
 # Runtime state (e.g. Semantic MediaWiki rebuild status)
 config/persistent/
 
+# Left by an upgrade whose restart failed
+.upgrade-incomplete
+
 # Editor / tooling backup files
 *.bak
 *.bak.*
