@@ -121,7 +121,10 @@ def edge_ports(tmp_path_factory):
 
 
 def _context():
+    # The certificates are self-signed, so they are not verified; the test
+    # checks which one the edge chose.
     ctx = ssl.create_default_context()
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     return ctx
