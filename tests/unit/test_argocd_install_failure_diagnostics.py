@@ -18,6 +18,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 BOOTSTRAP = os.path.join(TASKS, "k8s_argocd_bootstrap.yml")
 CAPTURE = os.path.join(TASKS, "k8s_capture_argocd_install_failure.yml")
+TOOL_VERSIONS = os.path.join(REPO_ROOT, "vars", "tool_versions.yml")
 
 FAKE_HELM_REPOSITORY = """#!/usr/bin/python
 from ansible.module_utils.basic import AnsibleModule
@@ -37,10 +38,15 @@ def _run(tmp_path, helm_upgrade_rc):
     bindir.mkdir()
     log = tmp_path / "calls.log"
     template = tmp_path / "template.txt"
+    values = tmp_path / "values.yaml"
     _fake(bindir, "helm",
           'echo "helm $*" >> %s\n' % log
           + 'case "$1 $2" in\n'
           '  "upgrade --install")\n'
+          '    prev=""; for a in "$@"; do\n'
+          '      [ "$prev" = "-f" ] && cat "$a" >> ' + str(values) + '\n'
+          '      prev="$a"\n'
+          '    done\n'
           + ('    echo "Error: context deadline exceeded" >&2; exit 1 ;;\n'
              if helm_upgrade_rc else '    exit 0 ;;\n')
           + '  "list -n") echo "argocd  argocd  1  failed  argo-cd-9.0.0  v3.1.0" ;;\n'
@@ -90,6 +96,7 @@ def _run(tmp_path, helm_upgrade_rc):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
+        "vars_files": [TOOL_VERSIONS],
         "vars": {
             "canasta_root": REPO_ROOT,
             "rx_delay": 1,
@@ -106,7 +113,8 @@ def _run(tmp_path, helm_upgrade_rc):
                           cwd=tmp_path)
     calls = log.read_text().splitlines() if log.exists() else []
     tmpl = template.read_text() if template.exists() else ""
-    return proc, calls, tmpl
+    vals = values.read_text() if values.exists() else ""
+    return proc, calls, tmpl, vals
 
 
 @pytest.fixture(autouse=True)
@@ -117,7 +125,7 @@ def _posix_only():
 
 class TestFailedInstall:
     def test_reports_cluster_state_and_fails_with_helms_error(self, tmp_path):
-        proc, calls, _ = _run(tmp_path, helm_upgrade_rc=1)
+        proc, calls, _, _ = _run(tmp_path, helm_upgrade_rc=1)
         out = proc.stdout + proc.stderr
         assert proc.returncode != 0, out
         assert "Argo CD did not become ready" in out
@@ -138,12 +146,12 @@ class TestFailedInstall:
         assert any("--field-selector type=Warning" in c for c in calls), calls
 
     def test_never_prints_secret_data_from_the_manifest(self, tmp_path):
-        proc, _, _ = _run(tmp_path, helm_upgrade_rc=1)
+        proc, _, _, _ = _run(tmp_path, helm_upgrade_rc=1)
         out = proc.stdout + proc.stderr
         assert "c2VjcmV0LXZhbHVl" not in out
 
     def test_go_template_reaches_kubectl_unrendered_by_jinja(self, tmp_path):
-        _, _, tmpl = _run(tmp_path, helm_upgrade_rc=1)
+        _, _, tmpl, _ = _run(tmp_path, helm_upgrade_rc=1)
         assert tmpl.startswith("{{range .items}}{{$p := .metadata.name}}")
         assert "{{with .state.waiting}} waiting={{.reason}}" in tmpl
         assert tmpl.count("{{range ") + tmpl.count("{{if ") \
@@ -152,11 +160,37 @@ class TestFailedInstall:
 
 class TestSuccessfulInstall:
     def test_no_diagnostic_when_the_install_succeeds(self, tmp_path):
-        proc, calls, _ = _run(tmp_path, helm_upgrade_rc=0)
+        proc, calls, _, _ = _run(tmp_path, helm_upgrade_rc=0)
         out = proc.stdout + proc.stderr
         assert proc.returncode == 0, out
         assert "Argo CD did not become ready" not in out
         assert not any(c.startswith("helm list") for c in calls), calls
+
+
+class TestPinnedInstall:
+    def test_installs_the_pinned_chart_version(self, tmp_path):
+        proc, calls, _, _ = _run(tmp_path, helm_upgrade_rc=0)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        pinned = yaml.safe_load(open(TOOL_VERSIONS))["argocd_chart_version"]
+        install = [c for c in calls if c.startswith("helm upgrade --install")]
+        assert install, calls
+        assert all(("--version %s " % pinned) in c for c in install), install
+
+    def test_pulls_redis_from_the_mirror(self, tmp_path):
+        proc, _, _, vals = _run(tmp_path, helm_upgrade_rc=0)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        image = yaml.safe_load(vals)["redis"]["image"]
+        assert image == {"repository": "mirror.gcr.io/library/redis",
+                         "tag": "8.6.4-alpine"}
+
+
+def test_sidecar_upgrade_keeps_the_installed_chart_version():
+    # A cluster created before the pin must not have its Argo CD moved to
+    # the pinned chart when gitops init adds the SOPS sidecar.
+    ensure = open(os.path.join(TASKS, "k8s_ensure_sops_sidecar.yml")).read()
+    assert "--version {{ _argocd_chart_version }}" in ensure
+    assert "argocd_chart_version }}" not in ensure.replace(
+        "_argocd_chart_version }}", "")
 
 
 def test_capture_is_best_effort():
