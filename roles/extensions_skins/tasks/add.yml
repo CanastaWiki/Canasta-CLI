@@ -177,6 +177,7 @@
     repository: "{{ repository | default(omit) }}"
     branch: "{{ branch | default(omit) }}"
     json_path: "{{ _extjson_path }}"
+    user_agent: "{{ canasta_user_agent | default(omit) }}"
   loop: "{{ _non_bundled }}"
   loop_control:
     label: "{{ item.name }}"

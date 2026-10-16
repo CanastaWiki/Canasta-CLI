@@ -70,6 +70,11 @@ options:
     description: URL of the live ExtensionJson.json (fallback when no snapshot).
     type: str
     default: https://extjsonuploader.toolforge.org/ExtensionJson.json
+  user_agent:
+    description: >-
+      User-Agent for requests to Wikimedia, which refuses generic ones.
+      Defaults to one naming the CLI and its repository.
+    type: str
 returns:
   name:
     description: The extension/skin name, in its canonical spelling.
@@ -141,6 +146,9 @@ GERRIT_PROJECT_RE = re.compile(
     r"^https://gerrit\.wikimedia\.org/r/(?:p/)?mediawiki/(extensions|skins)/"
     r"([A-Za-z0-9][A-Za-z0-9_.\-]*?)(?:\.git)?/?$", re.IGNORECASE)
 GITHUB_MIRROR_URL = "https://github.com/wikimedia/mediawiki-%s-%s"
+# Wikimedia's edge refuses generic user agents; the playbook passes one
+# naming the CLI version, and this is the fallback.
+USER_AGENT = "Canasta-CLI (https://github.com/CanastaWiki/Canasta-CLI)"
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]*$")
 
 
@@ -262,7 +270,7 @@ def load_json(json_path, json_url):
     try:
         import urllib.request
         request = urllib.request.Request(
-            json_url, headers={"User-Agent": "canasta-cli"})
+            json_url, headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(request, timeout=30) as resp:
             return json.loads(resp.read().decode("utf-8")), "url:%s" % json_url
     except Exception:
@@ -316,7 +324,7 @@ def gerrit_projects(name):
         import urllib.parse
         import urllib.request
         url = "%sprojects/?m=%s&d" % (GERRIT_URL, urllib.parse.quote(name))
-        request = urllib.request.Request(url, headers={"User-Agent": "canasta-cli"})
+        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(request, timeout=30) as resp:
             body = resp.read().decode("utf-8")
     except Exception:
@@ -480,10 +488,14 @@ def run_module():
             "json_path": {"type": "str", "required": False},
             "json_url": {"type": "str", "required": False,
                          "default": DEFAULT_JSON_URL},
+            "user_agent": {"type": "str", "required": False},
         },
         supports_check_mode=True,
     )
     params = module.params
+    if params.get("user_agent"):
+        global USER_AGENT
+        USER_AGENT = params["user_agent"]
     try:
         result = resolve(
             params["name"], params.get("item_type", "extensions"),
