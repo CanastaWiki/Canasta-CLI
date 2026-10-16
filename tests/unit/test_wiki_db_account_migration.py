@@ -170,6 +170,7 @@ class TestOptOut:
         names = [k["name"] for k in _load(DEFAULTS)["canasta_known_keys"]]
         assert "CANASTA_DB_ROOT_ACCOUNT" in names
         assert "WIKI_DB_PASSWORD" in names
+        assert "WIKI_DB_USER" in names
 
     def test_opting_out_puts_a_moved_instance_back_on_root(self):
         env = {"MYSQL_USER": "root", "MYSQL_PASSWORD": "rootpw",

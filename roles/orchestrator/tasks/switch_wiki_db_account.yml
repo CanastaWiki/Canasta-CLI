@@ -6,8 +6,8 @@
 # Compose: records the keys through config set, restarts so the db
 # container creates and grants the account, and checks each wiki.
 #
-# Kubernetes: generates the password into the db Secret's WIKI_DB_PASSWORD
-# key and .env. A direct instance is then redeployed as a rolling update, in
+# Kubernetes: puts the password in the db Secret's WIKI_DB_PASSWORD key,
+# reusing one the Secret already has, and in .env. A direct instance is then redeployed as a rolling update, in
 # which the web pod's ensure-db-account init container creates and grants
 # the account before MediaWiki starts, and each wiki is checked. A
 # gitops-managed instance (_upgrade_stage_only) is staged instead: this
@@ -108,9 +108,37 @@
 - name: Switch (Kubernetes)
   when: instance_is_k8s | bool
   block:
+    # An instance that opted out and back in already has the key, and on a
+    # gitops instance its encrypted Secret holds it, so Argo CD would undo
+    # a new value before the push.
+    - name: Read the db Secret
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: "{{ instance_id }}-db-credentials"
+        namespace: "canasta-{{ instance_id }}"
+      register: _mig_db_secret
+      no_log: true
+
+    - name: Find the account's existing password
+      ansible.builtin.set_fact:
+        _mig_db_existing_password: >-
+          {{ ((_mig_db_secret.resources | default([]) | first | default({}))
+              .data.WIKI_DB_PASSWORD | default('')) | b64decode }}
+      no_log: true
+
     - name: Generate the account's password
       ansible.builtin.include_tasks: >-
         {{ canasta_root }}/roles/common/tasks/generate_password.yml
+      when: _mig_db_existing_password == ''
+
+    - name: Choose the account's password
+      ansible.builtin.set_fact:
+        _mig_db_password: >-
+          {{ _mig_db_existing_password
+             if _mig_db_existing_password != ''
+             else _generated_password }}
+      no_log: true
 
     # Inert until a deploy selects the account: nothing references the key.
     - name: Give the db Secret the account's password
@@ -122,7 +150,8 @@
         namespace: "canasta-{{ instance_id }}"
         definition:
           stringData:
-            WIKI_DB_PASSWORD: "{{ _generated_password }}"
+            WIKI_DB_PASSWORD: "{{ _mig_db_password }}"
+      when: _mig_db_existing_password == ''
       no_log: true
 
     - name: Record the account in .env
@@ -133,7 +162,7 @@
         value: "{{ item.value }}"
       loop:
         - { key: WIKI_DB_USER, value: mediawiki }
-        - { key: WIKI_DB_PASSWORD, value: "{{ _generated_password }}" }
+        - { key: WIKI_DB_PASSWORD, value: "{{ _mig_db_password }}" }
       no_log: true
 
     # start.yml redeploys a running instance as a rolling update, so the

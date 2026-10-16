@@ -9,6 +9,7 @@ either way. These run the Kubernetes switch as a localhost play with its
 includes stubbed out and the Secret patch recorded instead of applied.
 """
 
+import base64
 import copy
 import json
 import os
@@ -98,6 +99,10 @@ def _stub(task, fail_at):
                 target = target.get("tasks_from")
             task.pop("vars", None)
             task.update(_record(os.path.basename(str(target).strip())))
+    if "kubernetes.core.k8s_info" in task:
+        task.pop("kubernetes.core.k8s_info")
+        task["ansible.builtin.set_fact"] = {
+            task.pop("register"): {"resources": "{{ _test_live_secrets }}"}}
     if "kubernetes.core.k8s" in task:
         patch = task.pop("kubernetes.core.k8s")
         task.pop("no_log", None)
@@ -113,7 +118,7 @@ def _stub(task, fail_at):
     return task
 
 
-def _switch(tmp_path, stage_only, fail_at=None):
+def _switch(tmp_path, stage_only, fail_at=None, live_password=None):
     inst = tmp_path / "inst"
     inst.mkdir()
     (inst / ".env").write_text("MYSQL_PASSWORD=rootpw\nWIKI_DB_USER=root\n")
@@ -127,6 +132,9 @@ def _switch(tmp_path, stage_only, fail_at=None):
         "_generated_password": "genpw",
         "_mig_db_wikis": {"wiki_ids": ["main", "docs"]},
         "_test_calls": [],
+        "_test_live_secrets": [{"data": {} if live_password is None else {
+            "WIKI_DB_PASSWORD": base64.b64encode(
+                live_password.encode()).decode()}}],
     }, [_stub(k8s, fail_at), {"ansible.builtin.copy": {
         "content": "{{ {'calls': _test_calls,"
                    " 'secret': _test_secret | default(none),"
@@ -190,12 +198,27 @@ class TestGitopsInstance:
         assert result["redeployed"] is False
 
 
+class TestExistingPassword:
+    def test_a_password_the_secret_already_has_is_reused(self, tmp_path):
+        result, env, _ = _switch(tmp_path, stage_only=True,
+                                 live_password="keptpw")
+        assert "generate_password.yml" not in result["calls"]
+        assert result["secret"] is None
+        assert env["WIKI_DB_USER"] == "mediawiki"
+        assert env["WIKI_DB_PASSWORD"] == "keptpw"
+        assert result["staged"] is True
+
+
 class TestSecretsStayOutOfLogs:
     def test_secret_and_env_writes_are_no_log(self):
         k8s = next(t for t in _load(SWITCH) if t.get("name") == "Switch (Kubernetes)")
         by_name = {t["name"]: t for t in k8s["block"]}
         assert by_name["Give the db Secret the account's password"]["no_log"] is True
         assert by_name["Record the account in .env"]["no_log"] is True
+        for name in ("Read the db Secret",
+                     "Find the account's existing password",
+                     "Choose the account's password"):
+            assert by_name[name]["no_log"] is True
 
 
 def _gitops_repo(tmp_path, env_text, host_vars):
