@@ -407,8 +407,9 @@ commands:
         description: >-
           Database account MediaWiki connects with (default: mediawiki).
           The CLI creates it with access to the instance's wiki databases
-          only. Pass root to keep MediaWiki on the database administrator
-          account.
+          only. Pass root to start MediaWiki on the database administrator
+          account; the next upgrade moves it to its own account unless
+          CANASTA_DB_ROOT_ACCOUNT=true is set.
       - name: wikidbpass
         type: string
         sensitive: true
