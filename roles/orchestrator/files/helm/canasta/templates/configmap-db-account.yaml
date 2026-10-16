@@ -1,0 +1,15 @@
+{{- if include "canasta.wikiDbAccount" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "canasta.fullname" . }}-db-account
+  namespace: {{ include "canasta.namespace" . }}
+  labels:
+    {{- include "canasta.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+  annotations:
+    {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
+data:
+  ensure_wiki_db_account.sh: |
+    {{- .Files.Get "files/ensure_wiki_db_account.sh" | nindent 4 }}
+{{- end }}

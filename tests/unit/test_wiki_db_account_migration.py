@@ -28,6 +28,8 @@ UPGRADE = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks")
 MIGRATE = os.path.join(UPGRADE, "migrate_wiki_db_account.yml")
 DEFAULTS = os.path.join(REPO_ROOT, "roles", "config", "defaults", "main.yml")
 CONFIG_SET = os.path.join(REPO_ROOT, "roles", "config", "tasks", "set.yml")
+SWITCH = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
+                      "switch_wiki_db_account.yml")
 
 
 def _load(path):
@@ -60,19 +62,27 @@ class TestWhoIsMoved:
                        instance_orchestrator=orchestrator, _was_running=running,
                        **TEMPLAR_VARS)
 
-    def test_a_running_root_instance_is_moved(self):
-        assert self._decide({"WIKI_DB_USER": "root"}) is True
-        assert self._decide({}) is True
+    @pytest.mark.parametrize("orchestrator", ["compose", "kubernetes"])
+    def test_a_running_root_instance_is_moved(self, orchestrator):
+        assert self._decide({"WIKI_DB_USER": "root"}, orchestrator) is True
+        assert self._decide({}, orchestrator) is True
 
-    @pytest.mark.parametrize("env, orchestrator, running", [
-        ({"WIKI_DB_USER": "mediawiki"}, "compose", True),
-        ({"WIKI_DB_USER": "root", "CANASTA_DB_ROOT_ACCOUNT": "true"}, "compose", True),
-        ({"WIKI_DB_USER": "root", "USE_EXTERNAL_DB": "true"}, "compose", True),
-        ({"WIKI_DB_USER": "root"}, "kubernetes", True),
-        ({"WIKI_DB_USER": "root"}, "compose", False),
+    @pytest.mark.parametrize("orchestrator", ["compose", "kubernetes"])
+    @pytest.mark.parametrize("env, running", [
+        ({"WIKI_DB_USER": "mediawiki"}, True),
+        ({"WIKI_DB_USER": "root", "CANASTA_DB_ROOT_ACCOUNT": "true"}, True),
+        ({"WIKI_DB_USER": "root", "USE_EXTERNAL_DB": "true"}, True),
+        ({"WIKI_DB_USER": "root"}, False),
     ])
     def test_others_are_left_alone(self, env, orchestrator, running):
         assert self._decide(env, orchestrator, running) is False
+
+    def test_the_staged_flag_is_reset_for_every_instance(self):
+        task = _named(_load(MIGRATE),
+                      "Decide whether to move MediaWiki to its own database account")
+        assert "when" not in task
+        assert task["ansible.builtin.set_fact"]["_mig_db_staged"] is False
+        assert task["ansible.builtin.set_fact"]["_mig_db_redeployed"] is False
 
 
 class TestRefusals:
@@ -90,6 +100,15 @@ class TestRefusals:
         switch = _named(_load(MIGRATE), "Switch to MediaWiki's own account")
         assert "_mig_db_overrides.stdout_lines | length == 0" in switch["when"]
         assert "_mig_db_undeclared | length == 0" in switch["when"]
+        assert switch["ansible.builtin.include_tasks"].strip().endswith(
+            "/roles/orchestrator/tasks/switch_wiki_db_account.yml")
+
+    def test_databases_are_listed_where_db_admin_says(self):
+        # On Kubernetes db_admin.yml points _db_admin_exec at the db pod.
+        names = [t.get("name") for t in _named(
+            _load(MIGRATE), "Move MediaWiki to its own database account")["block"]]
+        assert names.index("Find where database administration runs") < \
+            names.index("List the databases on the server")
 
     def test_settings_file_overrides_are_looked_for(self):
         look = _named(_load(MIGRATE), "Look for database credentials set in settings files")
@@ -100,7 +119,7 @@ class TestRefusals:
 
 class TestSwitchAndRollback:
     def _switch(self):
-        return _named(_load(MIGRATE), "Switch to MediaWiki's own account")
+        return _named(_load(SWITCH), "Switch (Docker Compose)")
 
     def test_keys_are_recorded_through_config_set(self):
         names = [t["name"] for t in self._switch()["block"]]
@@ -151,6 +170,7 @@ class TestOptOut:
         names = [k["name"] for k in _load(DEFAULTS)["canasta_known_keys"]]
         assert "CANASTA_DB_ROOT_ACCOUNT" in names
         assert "WIKI_DB_PASSWORD" in names
+        assert "WIKI_DB_USER" in names
 
     def test_opting_out_puts_a_moved_instance_back_on_root(self):
         env = {"MYSQL_USER": "root", "MYSQL_PASSWORD": "rootpw",

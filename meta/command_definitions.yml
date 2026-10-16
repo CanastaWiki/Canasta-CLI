@@ -404,11 +404,10 @@ commands:
       - name: wikidbuser
         type: string
         description: >-
-          Database account MediaWiki connects with (default: mediawiki on
-          Compose, root on Kubernetes). The CLI creates it with access to
-          the instance's wiki databases only. Pass root to keep MediaWiki
-          on the database administrator account. Kubernetes accepts only
-          root.
+          Database account MediaWiki connects with (default: mediawiki).
+          The CLI creates it with access to the instance's wiki databases
+          only. Pass root to keep MediaWiki on the database administrator
+          account.
       - name: wikidbpass
         type: string
         sensitive: true
@@ -1058,6 +1057,16 @@ commands:
       `canasta gitops sync`. An instance built from source still has its
       image rebuilt, and its web pods restart when the new build differs
       from the image they run.
+
+      Upgrade also moves a running instance on the bundled database off the
+      database root account, onto MediaWiki's own `mediawiki` account with
+      access to the instance's wiki databases only. It leaves the instance
+      on root, and says why, while a settings file sets `$wgDBuser` or
+      `$wgDBpassword` or the server holds a database no wiki declares, and
+      tries again on the next upgrade. `canasta config set
+      CANASTA_DB_ROOT_ACCOUNT=true` keeps an instance on root. On a
+      gitops-managed Kubernetes instance the move is staged with the rest
+      and takes effect at the push and sync.
 
       By default the CLI itself updates to the latest released version
       within the current major (the highest vX.Y.Z tag whose major matches
@@ -2825,6 +2834,11 @@ commands:
       on a farm and optional on a single-wiki instance. The declaration is
       stored in `config/wikis.yaml` and takes effect on the next backup —
       no restart.
+
+      MediaWiki's own database account gets access to the database at once
+      on Compose. On Kubernetes it gets it when the instance next restarts,
+      or, on a gitops-managed instance, when the change is pushed and
+      synced.
     examples:
       - "canasta backup databases add mywiki_cargo"
       - "canasta backup databases add -w mywiki mywiki_cargo"
@@ -2853,6 +2867,10 @@ commands:
       Takes effect on the next backup. Snapshots already taken keep the
       database they captured, so a restore from one of them still brings
       it back.
+
+      MediaWiki's own database account loses access to the database at once
+      on Compose, and on Kubernetes when the instance next restarts or, on
+      a gitops-managed instance, when the change is pushed and synced.
     examples:
       - "canasta backup databases remove mywiki_cargo"
     playbook: backup_databases_remove.yml

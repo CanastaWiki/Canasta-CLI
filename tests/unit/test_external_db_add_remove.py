@@ -21,8 +21,6 @@ ADD = os.path.join(REPO_ROOT, "playbooks", "add.yml")
 REMOVE = os.path.join(REPO_ROOT, "playbooks", "remove.yml")
 IMPORT_DB = os.path.join(REPO_ROOT, "roles", "mediawiki", "tasks",
                          "import_database.yml")
-VALIDATE = os.path.join(REPO_ROOT, "roles", "create", "tasks",
-                        "_validate_inputs.yml")
 
 
 def _walk(tasks):
@@ -235,28 +233,3 @@ class TestRemove:
         for t in _walk(block["block"]):
             assert "ignore_errors" not in t
             assert "apply" not in t
-
-
-class TestKubernetesWikiDbUser:
-    def _run(self, tmp_path, orchestrator, wikidbuser):
-        task = _named(_load(VALIDATE),
-                      "Fail if --wikidbuser names an account other than root on Kubernetes")
-        play_vars = {"orchestrator": orchestrator}
-        if wikidbuser is not None:
-            play_vars["wikidbuser"] = wikidbuser
-        return _run_play(tmp_path, play_vars, [task])
-
-    def test_kubernetes_refuses_a_non_root_account(self, tmp_path):
-        proc = self._run(tmp_path, "kubernetes", "wiki")
-        assert proc.returncode != 0
-        assert "--wikidbuser wiki is not supported on Kubernetes" in \
-            proc.stdout + proc.stderr
-
-    def test_kubernetes_accepts_root_or_no_account(self, tmp_path):
-        for given in (None, "", "root"):
-            proc = self._run(tmp_path, "kubernetes", given)
-            assert proc.returncode == 0, (given, proc.stdout + proc.stderr)
-
-    def test_compose_accepts_any_account(self, tmp_path):
-        proc = self._run(tmp_path, "compose", "wiki")
-        assert proc.returncode == 0, proc.stdout + proc.stderr

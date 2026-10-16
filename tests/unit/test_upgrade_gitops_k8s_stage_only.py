@@ -74,7 +74,8 @@ def _instance(tmp_path, gitops, staged):
 
 
 def _run(tmp_path, *, k8s=True, gitops=True, staged=True, running=True,
-         images_updated=True, image_changed=False, already_staged=()):
+         images_updated=True, image_changed=False, already_staged=(),
+         **extra_vars):
     inst = _instance(tmp_path, gitops, staged)
     bindir = tmp_path / "bin"
     bindir.mkdir()
@@ -102,6 +103,7 @@ def _run(tmp_path, *, k8s=True, gitops=True, staged=True, running=True,
             "_upgrade_instances": {"instances": {
                 i: {} for i in (*already_staged, "inst")}},
             "_upgrade_gitops_staged": list(already_staged),
+            **extra_vars,
         },
         "tasks": _tail() + [_summary_task(), {
             "ansible.builtin.copy": {
@@ -138,6 +140,19 @@ class TestGitopsKubernetes:
         assert ("Upgraded 1 instance(s). 1 of them (inst) is staged in its "
                 "gitops repo and deploys only after 'canasta gitops push'.") in out
         assert "rollout restart" not in fake
+
+    MOVED = ("The deploy also moves MediaWiki to its own 'mediawiki' "
+             "database account.")
+
+    def test_a_staged_account_move_is_announced(self, tmp_path):
+        out, calls, _ = _run(tmp_path, _mig_db_staged=True)
+        assert "migrate_wiki_db_account.yml" in calls
+        assert PUSH + " " + self.MOVED in out
+
+    def test_no_account_move_no_announcement(self, tmp_path):
+        out, _, _ = _run(tmp_path, _mig_db_staged=False)
+        assert PUSH in out
+        assert self.MOVED not in out
 
     def test_staged_change_alone_awaits_a_push(self, tmp_path):
         out, calls, _ = _run(tmp_path, images_updated=False)
@@ -198,6 +213,27 @@ class TestOtherInstancesStillDeploy:
         out, calls, _ = _run(tmp_path, k8s=False)
         assert "stop.yml" in calls and "start.yml" in calls
         assert "staged in its gitops repo" not in out
+
+
+class TestAccountMoveRestart:
+    """The account move restarts the instance, so it is not "up to date"."""
+
+    UP_TO_DATE = "Already up to date — no restart needed."
+
+    def test_kubernetes_redeployed_by_the_move(self, tmp_path):
+        out, _, _ = _run(tmp_path, gitops=False, staged=False,
+                         images_updated=False, _mig_db_redeployed=True)
+        assert self.UP_TO_DATE not in out
+
+    def test_compose_restarted_by_the_move(self, tmp_path):
+        out, _, _ = _run(tmp_path, k8s=False, gitops=False, staged=False,
+                         images_updated=False, _mig_db_redeployed=True)
+        assert self.UP_TO_DATE not in out
+
+    def test_untouched_instance_is_up_to_date(self, tmp_path):
+        out, _, _ = _run(tmp_path, gitops=False, staged=False,
+                         images_updated=False, _mig_db_redeployed=False)
+        assert self.UP_TO_DATE in out
 
 
 class TestImageTagReport:

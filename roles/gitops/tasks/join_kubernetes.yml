@@ -188,6 +188,11 @@
     _register_file_mode: "0644"
     _register_dir_mode: "0755"
 
+# MediaWiki's account lives in this host's own database server, so which one
+# it uses is this host's choice, from its .env.
+- name: Read MediaWiki's database account
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_wiki_db_user.yml"
+
 - name: Write host vars from current values
   ansible.builtin.copy:
     content: |
@@ -203,6 +208,7 @@
       ingress_class: "{{ _join_values.ingress.className | default('') }}"
       ingress_tls: {{ _join_values.ingress.tls | default(true) | lower }}
       web_replica_count: {{ _join_values.web.replicaCount | default(1) }}
+      wiki_db_user: "{{ _k8s_wiki_db_user }}"
     dest: "{{ instance_path }}/hosts/{{ host_name }}/vars.yaml"
     mode: "0644"
   no_log: true
