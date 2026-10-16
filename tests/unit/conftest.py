@@ -1,5 +1,6 @@
 """Shared fixtures for Canasta CLI unit tests."""
 
+import contextlib
 import json
 import os
 import sys
@@ -33,6 +34,27 @@ for _name in ("canasta_validate", "canasta_config", "canasta_sidecar_render",
               "canasta_override_migrate"):
     _mod = importlib.import_module(_name)
     sys.modules.setdefault("ansible.module_utils.%s" % _name, _mod)
+
+
+@contextlib.contextmanager
+def preserve_docker_host():
+    """Restore DOCKER_HOST (or its absence) on exit."""
+    saved = os.environ.get("DOCKER_HOST")
+    try:
+        yield
+    finally:
+        if saved is None:
+            os.environ.pop("DOCKER_HOST", None)
+        else:
+            os.environ["DOCKER_HOST"] = saved
+
+
+# Production code exports DOCKER_HOST into os.environ; a fake socket left
+# behind breaks every later test that runs the real docker CLI.
+@pytest.fixture(autouse=True)
+def _isolate_docker_host():
+    with preserve_docker_host():
+        yield
 
 
 @pytest.fixture
