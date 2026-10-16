@@ -120,6 +120,19 @@
     dest: "{{ instance_path }}/values.yaml"
     mode: "0644"
 
+# While MediaWiki uses root it reads MYSQL_PASSWORD, so the Secret's
+# WIKI_DB_PASSWORD is unused until an upgrade moves MediaWiki to its own
+# account, which keeps the key's value. Root's own password must not be it.
+- name: Generate a password for MediaWiki's own account
+  ansible.builtin.include_tasks: _resolve_password.yml
+  vars:
+    _rp_input: "{{ '' if _wiki_db_user == 'root' else _wikidbpass }}"
+
+- name: Choose the Secret's password for MediaWiki's own account
+  ansible.builtin.set_fact:
+    _k8s_wikidbpass: "{{ _resolved_password }}"
+  no_log: true
+
 # The pods must get the key .env holds, which keeps one supplied with -e.
 - name: Apply K8s secrets
   ansible.builtin.include_role:
@@ -127,6 +140,7 @@
     tasks_from: k8s_apply_secrets.yml
   vars:
     _k8s_namespace: "canasta-{{ id }}"
+    _wikidbpass: "{{ _k8s_wikidbpass }}"
     _mw_secret_key: >-
       {{ _k8s_env_for_values.variables.MW_SECRET_KEY
          if (_k8s_env_for_values.variables.MW_SECRET_KEY | default('') | trim | length > 0)
