@@ -1,11 +1,14 @@
 #!/bin/sh
 # Make MediaWiki's database account match .env, inside the db container.
 #
-# Run as root in the bundled db container (or pod), fed on stdin, with the
-# wiki database set as arguments:
+# Run with the wiki database set as arguments, either as root in the bundled
+# db container, fed on stdin:
 #   sh -s -- <db> [<db>...] < ensure_wiki_db_account.sh
-# It reads WIKI_DB_USER, WIKI_DB_PASSWORD and MYSQL_ROOT_PASSWORD from the
-# container's environment, so no secret is on a command line.
+# or in a container beside it with DB_HOST naming the database server, which
+# it then reaches over TCP (the Kubernetes web pod's ensure-db-account init
+# container). It reads WIKI_DB_USER, WIKI_DB_PASSWORD and
+# MYSQL_ROOT_PASSWORD from the container's environment, so no secret is on a
+# command line.
 #
 # The account '<user>'@'%' gets ALL PRIVILEGES on exactly the named
 # databases and nothing else. Grants on databases no longer named are
@@ -41,7 +44,17 @@ for db in "$@"; do
     esac
 done
 
-root() { MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mariadb -u root "$@"; }
+# client <password> <mariadb args...>
+client() {
+    pw_=$1
+    shift
+    if [ -n "${DB_HOST:-}" ]; then
+        MYSQL_PWD="$pw_" mariadb -h "$DB_HOST" "$@"
+    else
+        MYSQL_PWD="$pw_" mariadb "$@"
+    fi
+}
+root() { client "$MYSQL_ROOT_PASSWORD" -u root "$@"; }
 sql_string() { printf '%s' "$1" | sed "s/\\\\/\\\\\\\\/g; s/'/''/g"; }
 grant_pattern() { printf '%s' "$1" | sed 's/[_%]/\\&/g'; }
 
@@ -77,7 +90,7 @@ existing=$(root -N -e "SHOW DATABASES")
 # install.php runs), so a missing one is not an error.
 for db in "$@"; do
     if printf '%s\n' "$existing" | grep -qx -- "$db"; then
-        MYSQL_PWD="$WIKI_DB_PASSWORD" mariadb -u "$user" -N -e "SELECT 1" "$db" >/dev/null
+        client "$WIKI_DB_PASSWORD" -u "$user" -N -e "SELECT 1" "$db" >/dev/null
     fi
 done
 

@@ -22,6 +22,11 @@ canasta_known_keys:
     description: >-
       Password of MediaWiki's own database account; setting it changes the
       account's password at the restart
+  - name: WIKI_DB_USER
+    group: Database
+    description: >-
+      Database account MediaWiki connects as, set by create and upgrade;
+      to keep MediaWiki on root, set CANASTA_DB_ROOT_ACCOUNT instead
   - name: CANASTA_DB_ROOT_ACCOUNT
     group: Database
     description: >-

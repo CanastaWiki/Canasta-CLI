@@ -15,6 +15,15 @@
     {{ canasta_root }}/roles/config/tasks/_remove_gitops_vars.yml
   when: not (instance_is_k8s | bool)
 
+# Unsetting WIKI_DB_USER puts MediaWiki back on root, which this host's vars
+# must say for the deploy to follow.
+- name: Record MediaWiki's database account in this host's vars (Kubernetes)
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/sync_wiki_db_user_var.yml
+  when:
+    - instance_is_k8s | bool
+    - keys.split() | intersect(['CANASTA_DB_ROOT_ACCOUNT', 'WIKI_DB_USER']) | length > 0
+
 - name: Warn that a K8s gitops config change needs a push to be durable
   ansible.builtin.debug:
     msg: >-

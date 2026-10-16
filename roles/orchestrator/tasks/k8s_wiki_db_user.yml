@@ -1,0 +1,43 @@
+---
+# The database account MediaWiki connects with on a Kubernetes instance, as
+# .env says: WIKI_DB_USER, or root when it is unset, when the database is
+# external (the chart then connects as externalDatabase.user), or when
+# CANASTA_DB_ROOT_ACCOUNT=true keeps MediaWiki on the administrator account.
+# That opt-out also puts WIKI_DB_USER back to root, as the Compose start
+# does, so clearing it later leaves the instance on root until an upgrade
+# moves it again.
+#
+# Input: instance_path
+# Output: _k8s_wiki_db_user
+
+- name: Read MediaWiki's database account settings
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _kwdu_env
+  no_log: true  # registers the whole .env, including passwords
+
+- name: Choose MediaWiki's database account
+  ansible.builtin.set_fact:
+    _kwdu_external: >-
+      {{ (_kwdu_env.variables.USE_EXTERNAL_DB | default('false') | string | lower) == 'true' }}
+    _kwdu_keep_root: >-
+      {{ (_kwdu_env.variables.CANASTA_DB_ROOT_ACCOUNT | default('false') | string | lower) == 'true' }}
+    _kwdu_env_user: "{{ _kwdu_env.variables.WIKI_DB_USER | default('', true) | trim }}"
+
+- name: Record MediaWiki's database account
+  ansible.builtin.set_fact:
+    _k8s_wiki_db_user: >-
+      {{ 'root' if (_kwdu_external | bool or _kwdu_keep_root | bool)
+         else (_kwdu_env_user or 'root') }}
+
+- name: Put MediaWiki back on the administrator account
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: WIKI_DB_USER
+    value: root
+  when:
+    - _kwdu_keep_root | bool
+    - not (_kwdu_external | bool)
+    - _kwdu_env_user not in ['', 'root']
