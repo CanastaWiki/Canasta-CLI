@@ -225,8 +225,18 @@
     state: absent
   register: _composer_local
 
-- name: "Install composer state (--no-dev)"
+# A stopped web container runs composer when it starts, which the start
+# below does on Compose.
+- name: Check whether web is running for the composer refresh
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: check_running.yml
   when: _composer_paths | length > 0
+
+- name: "Install composer state (--no-dev)"
+  when:
+    - _composer_paths | length > 0
+    - _container_running | bool
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: web
@@ -258,6 +268,7 @@
 - name: "Warn if composer refresh failed after removal"
   when:
     - _composer_paths | length > 0
+    - _container_running | bool
     - exec_result.rc | default(1) != 0
   vars:
     _composer_failed_reason: >-
