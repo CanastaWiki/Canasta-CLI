@@ -24,10 +24,31 @@
       - label: Settings file
         path: "{{ wiki_settings | default('') }}"
 
+- name: Read the instance's ports from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _add_port_env
+  no_log: true  # registers the whole .env, including passwords
+
+# MediaWiki matches the request's host:port against wikis.yaml, and every
+# wiki on the instance is served on the instance's port, so a URL given
+# without a port gets the one create puts on the main wiki's URL.
 - name: Parse URL into domain and path
+  vars:
+    _add_http_only: >-
+      {{ _add_port_env.variables.CADDY_AUTO_HTTPS | default('on') | lower == 'off' }}
+    _add_port: >-
+      {{ _add_port_env.variables.HTTP_PORT | default('80')
+         if (_add_http_only | bool)
+         else _add_port_env.variables.HTTPS_PORT | default('443') }}
+    _add_host: "{{ url | regex_replace('/.*$', '') }}"
   ansible.builtin.set_fact:
     _add_domain: >-
-      {{ url | regex_replace('/.*$', '') }}
+      {{ _add_host
+         if (_add_host is search(':[0-9]+$')
+             or _add_port in ['', (_add_http_only | bool) | ternary('80', '443')])
+         else _add_host ~ ':' ~ _add_port }}
     _add_path: >-
       {{ url | regex_replace('^[^/]*', '')
          | regex_replace('^/', '') }}
@@ -335,7 +356,7 @@
     - name: Add domain if not already present
       ansible.builtin.set_fact:
         _add_new_domains: >-
-          {{ (_add_current_values.domains | default([])) | union([_add_domain | trim]) }}
+          {{ (_add_current_values.domains | default([])) | union([_add_domain | trim | regex_replace(':[0-9]+$', '')]) }}
 
     - name: Update values.yaml with new domains list
       ansible.builtin.copy:

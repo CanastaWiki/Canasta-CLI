@@ -142,16 +142,28 @@
     name: instance_lifecycle
     tasks_from: restart.yml
 
+- name: Check whether the skipped restart left a running instance
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: check_running.yml
+  when:
+    - no_restart | default(false) | bool
+    - not (config_restart_by_caller | default(false) | bool)
+    - not (config_set_caller_reports | default(false) | bool)
+    - not (_config_set_stage_only | bool)
+
 - name: Report settings applied
   when:
     - not (config_set_caller_reports | default(false) | bool)
     - not (_config_set_stage_only | bool)
   ansible.builtin.debug:
     msg: >-
-      Settings updated.{{ (no_restart | default(false) | bool
-      and not (config_restart_by_caller | default(false) | bool))
-      | ternary(' Restart skipped — run `canasta reconcile` to apply
-      the changes to the running instance.', '') }}
+      Settings updated.{% if no_restart | default(false) | bool
+      and not (config_restart_by_caller | default(false) | bool) %}{%
+      if _container_running | default(false) | bool %} Restart skipped — run
+      `canasta reconcile` to apply the changes to the running instance.{%
+      else %} The instance is stopped; the changes take effect when it
+      starts (`canasta start -i {{ instance_id }}`).{% endif %}{% endif %}
 
 # A start reconciles these into values.yaml before it deploys; gitops push
 # does not, so do it here for the push to carry them.

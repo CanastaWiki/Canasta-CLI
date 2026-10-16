@@ -930,6 +930,13 @@ class TestCrowdsecCapiLine:
         line = canasta_crowdsec_capi_line("null", False, "0", now=self.NOW)
         assert line.startswith("not registered")
 
+    def test_kept_refused_credentials_are_not_unregistered(self):
+        line = canasta_crowdsec_capi_line("null", False, "0", now=self.NOW,
+                                          refused=True)
+        assert line.startswith("refusing this engine's credentials or not "
+                               "answering")
+        assert "retries its kept credentials at each engine start" in line
+
     def test_recent_pull_is_active_with_time_and_count(self):
         line = canasta_crowdsec_capi_line(
             self._pull("2026-10-08T03:21:03Z"), True, "23923\n", now=self.NOW)

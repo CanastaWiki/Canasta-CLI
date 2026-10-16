@@ -270,6 +270,19 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/upgrade_rebuild_buildable.yml
 
+# Left by a run whose restart of this instance failed. That run already
+# pointed .env at the new image, so nothing else here would see a change,
+# and the instance would be reported up to date without ever having come
+# up healthy on it.
+- name: Check for an upgrade whose restart failed
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.upgrade-incomplete"
+  register: _upgrade_incomplete_marker
+
+- name: Note whether a previous upgrade is unfinished
+  ansible.builtin.set_fact:
+    _upgrade_incomplete: "{{ _upgrade_incomplete_marker.stat.exists }}"
+
 # A compose-only change (e.g. gaining the crowdsec service), or a chart-only
 # change on Kubernetes, must also trigger a recreate, not just an image bump.
 # A build_from instance pulls nothing, so _images_updated stays false for it;
@@ -283,7 +296,8 @@
       {{ ((_images_updated | bool)
           or (_compose_stack_copy is defined and _compose_stack_copy is changed)
           or (_k8s_chart_changed | default(false) | bool)
-          or (_upgrade_rebuilt_image_changed | bool))
+          or (_upgrade_rebuilt_image_changed | bool)
+          or (_upgrade_incomplete | default(false) | bool))
          and (_upgrade_build_failed_services | default([]) | length) == 0 }}
 
 - name: Reset the restart failure signal for this instance
@@ -322,6 +336,11 @@
         exec_service: web
         exec_command: "touch /var/www/mediawiki/w/LocalSettings.php"
 
+    - name: Clear the unfinished upgrade marker
+      ansible.builtin.file:
+        path: "{{ instance_path }}/.upgrade-incomplete"
+        state: absent
+
     - name: Report instance upgraded
       ansible.builtin.debug:
         msg: "Canasta upgraded successfully!"
@@ -331,6 +350,12 @@
   rescue:
     - name: Record the failed restart
       ansible.builtin.include_tasks: record_restart_failure.yml
+
+    - name: Mark the upgrade unfinished so the next run restarts the instance
+      ansible.builtin.copy:
+        content: ""
+        dest: "{{ instance_path }}/.upgrade-incomplete"
+        mode: "0644"
 
 # After the restart: the instance must be running on the refreshed compose
 # file, which takes MediaWiki's credentials from WIKI_DB_USER /

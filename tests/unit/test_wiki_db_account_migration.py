@@ -153,7 +153,7 @@ class TestSwitchAndRollback:
     ])
     def test_reconcile_advice(self, no_restart, by_caller, advised):
         report = _named(_load(CONFIG_SET), "Report settings applied")
-        variables = {"no_restart": no_restart}
+        variables = {"no_restart": no_restart, "_container_running": True}
         if by_caller:
             variables["config_restart_by_caller"] = True
         msg = _render(report["ansible.builtin.debug"]["msg"], **variables)

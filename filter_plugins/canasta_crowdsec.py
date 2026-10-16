@@ -155,7 +155,7 @@ def canasta_crowdsec_blocklist_breakdown(raw):
 
 
 def canasta_crowdsec_capi_line(last_pull_json, registered, ip_count,
-                               now=None, stale_after_hours=3):
+                               now=None, stale_after_hours=3, refused=False):
     """The ``Central API (community blocklist):`` line for ``crowdsec status``.
 
     ``last_pull_json`` is ``cscli alerts list --origin CAPI -l 1 -o json``:
@@ -168,10 +168,16 @@ def canasta_crowdsec_capi_line(last_pull_json, registered, ip_count,
 
     ``registered`` is whether the engine has Central API credentials;
     ``now`` is an aware datetime, defaulting to the current UTC time.
+    ``refused`` is whether the engine keeps credentials the Central API
+    refused or did not answer, which leaves it running local-only.
     """
     import datetime
     import json
 
+    if refused:
+        return ("refusing this engine's credentials or not answering (no "
+                "community blocklist; the engine runs with its local API "
+                "only and retries its kept credentials at each engine start)")
     if not registered:
         return ("not registered (no community blocklist; auto-registers on "
                 "the next start)")

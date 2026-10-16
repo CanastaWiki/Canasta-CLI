@@ -365,3 +365,122 @@ def test_bouncer_enroll_reports_a_dead_lapi_without_raw_cscli_output():
     fail = tasks[names.index("Fail when the CrowdSec LAPI did not come up")]
     assert "_crowdsec_lapi" not in fail["ansible.builtin.fail"]["msg"]
     assert fail["when"] == "_crowdsec_lapi.rc != 0"
+
+
+# --- status and reload while credentials are kept aside -----------------------
+
+def _play_env(tmp_path, roles=None):
+    base = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_")}
+    env = dict(base, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
+               ANSIBLE_COLLECTIONS_PATH=str(tmp_path / "no-collections"),
+               ANSIBLE_FILTER_PLUGINS=os.path.join(REPO_ROOT, "filter_plugins"))
+    if roles:
+        env["ANSIBLE_ROLES_PATH"] = str(roles)
+    return env
+
+
+def _run_play(tmp_path, play, roles=None):
+    path = tmp_path / "play.yml"
+    path.write_text(yaml.safe_dump(play))
+    playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
+    return subprocess.run([playbook, "-i", "localhost,", str(path)],
+                          capture_output=True, text=True,
+                          env=_play_env(tmp_path, roles), cwd=tmp_path)
+
+
+def _capi_status_line(tmp_path, refused):
+    prefix = tmp_path / "prefix"
+    prefix.write_text(FAKE_PREFIX)
+    prefix.chmod(0o755)
+    if refused:
+        (tmp_path / "refused").touch()
+    with open(os.path.join(ROLES, "crowdsec", "tasks", "status.yml")) as f:
+        tasks = {t.get("name"): t for t in yaml.safe_load(f)}
+    names = [
+        "Check for Central API (community blocklist) credentials",
+        "Check for credentials the Central API refused or did not answer",
+        "Summarize bouncers, Central API, and console state",
+    ]
+    shown = tmp_path / "capi_line.txt"
+    play = [{
+        "hosts": "localhost", "connection": "local", "gather_facts": False,
+        "vars": {"ansible_python_interpreter": sys.executable,
+                 "_cscli_prefix": str(prefix),
+                 "_crowdsec_bouncer_list": [],
+                 "_crowdsec_now": {"stdout": ""},
+                 "_crowdsec_capi_last": {"stdout": "null"},
+                 "_crowdsec_capi_count": {"stdout": "0"},
+                 "_crowdsec_blocklist_lines": ""},
+        "tasks": [tasks[n] for n in names] + [{"ansible.builtin.copy": {
+            "content": "{{ _crowdsec_capi_line }}", "dest": str(shown)}}],
+    }]
+    proc = _run_play(tmp_path, play)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return shown.read_text()
+
+
+class TestStatusWhileRefused:
+    def test_kept_credentials_are_not_reported_as_unregistered(self, tmp_path):
+        line = _capi_status_line(tmp_path, refused=True)
+        assert "not registered" not in line
+        assert "refusing" in line and "not answering" in line
+        assert "retries its kept credentials at each engine start" in line
+
+    def test_engine_without_kept_credentials_is_not_refusing(self, tmp_path):
+        line = _capi_status_line(tmp_path, refused=False)
+        assert line.startswith("registered")
+        assert "refusing" not in line
+
+
+def _run_reload(tmp_path, capi_ok=False, restored=False, refused=False):
+    roles = tmp_path / "roles"
+    cs = roles / "crowdsec" / "tasks"
+    cs.mkdir(parents=True)
+    for name in ("reload.yml", "ensure_capi.yml"):
+        shutil.copy(os.path.join(ROLES, "crowdsec", "tasks", name), cs / name)
+    (cs / "_preflight.yml").write_text(
+        "- ansible.builtin.include_tasks: "
+        "\"{{ canasta_root }}/roles/orchestrator/tasks/"
+        "crowdsec_cscli_prefix.yml\"\n")
+    prefix = tmp_path / "prefix"
+    prefix.write_text(FAKE_PREFIX)
+    prefix.chmod(0o755)
+    orch = roles / "orchestrator" / "tasks"
+    orch.mkdir(parents=True)
+    (orch / "crowdsec_cscli_prefix.yml").write_text(
+        "- ansible.builtin.set_fact:\n    _cscli_prefix: %s\n" % prefix)
+    (orch / "crowdsec_restart_engine.yml").write_text(
+        "- ansible.builtin.debug:\n    msg: engine restarted\n")
+    for flag, name in ((capi_ok, "capi_ok"), (restored, "restored"),
+                       (refused, "refused"), (True, "creds")):
+        if flag:
+            (tmp_path / name).touch()
+    play = [{
+        "hosts": "localhost", "connection": "local", "gather_facts": False,
+        "vars": {"canasta_root": str(tmp_path),
+                 "instance_id": "demo",
+                 "instance_is_k8s": False,
+                 "instance_path": str(tmp_path / "instance"),
+                 "ansible_python_interpreter": sys.executable},
+        "tasks": [{"ansible.builtin.include_role": {
+            "name": "crowdsec", "tasks_from": "reload.yml"}}],
+    }]
+    return _run_play(tmp_path, play, roles)
+
+
+class TestReloadReportsCapi:
+    def test_restored_credentials_are_reported_and_marker_cleared(
+            self, tmp_path):
+        proc = _run_reload(tmp_path, capi_ok=True, restored=True)
+        out = proc.stdout + proc.stderr
+        assert proc.returncode == 0, out
+        assert out.count("community blocklist is restored") == 1, out
+        assert not (tmp_path / "restored").exists()
+        assert "Reloaded the CrowdSec engine" in out
+
+    def test_still_refused_credentials_are_reported(self, tmp_path):
+        proc = _run_reload(tmp_path, refused=True)
+        out = proc.stdout + proc.stderr
+        assert proc.returncode == 0, out
+        assert "runs with its local API only" in out
+        assert "community blocklist is restored" not in out
