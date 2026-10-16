@@ -126,7 +126,7 @@
 - name: Generate a password for MediaWiki's own account
   ansible.builtin.include_tasks: _resolve_password.yml
   vars:
-    _rp_input: "{{ '' if _wikidbpass == _rootdbpass else _wikidbpass }}"
+    _rp_input: "{{ '' if _wiki_db_user == 'root' else _wikidbpass }}"
 
 - name: Choose the Secret's password for MediaWiki's own account
   ansible.builtin.set_fact:

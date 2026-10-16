@@ -26,7 +26,7 @@ def _tasks():
         return yaml.safe_load(f)
 
 
-def _choose(tmp_path, wikidbpass, rootdbpass):
+def _choose(tmp_path, user, wikidbpass, rootdbpass):
     by_name = {t.get("name"): t for t in _tasks()}
     # Outside its role, the helper's relative path needs anchoring.
     generate = dict(by_name[GENERATE], **{"ansible.builtin.include_tasks":
@@ -37,6 +37,7 @@ def _choose(tmp_path, wikidbpass, rootdbpass):
         "hosts": "localhost", "connection": "local", "gather_facts": False,
         "vars": {"ansible_python_interpreter": sys.executable,
                  "canasta_root": REPO_ROOT,
+                 "_wiki_db_user": user,
                  "_wikidbpass": wikidbpass, "_rootdbpass": rootdbpass},
         "tasks": [generate, by_name[CHOOSE],
                   {"ansible.builtin.copy": {
@@ -56,13 +57,17 @@ def _choose(tmp_path, wikidbpass, rootdbpass):
 
 
 def test_root_create_gets_a_password_of_its_own(tmp_path):
-    pw = _choose(tmp_path, "rootpw", "rootpw")
+    pw = _choose(tmp_path, "root", "rootpw", "rootpw")
     assert pw != "rootpw"
     assert len(pw) == 30
 
 
 def test_own_account_create_keeps_its_password(tmp_path):
-    assert _choose(tmp_path, "wikipw", "rootpw") == "wikipw"
+    assert _choose(tmp_path, "mediawiki", "wikipw", "rootpw") == "wikipw"
+
+
+def test_own_account_keeps_a_password_equal_to_roots(tmp_path):
+    assert _choose(tmp_path, "mediawiki", "samepw", "samepw") == "samepw"
 
 
 def test_the_secret_gets_the_chosen_password():
