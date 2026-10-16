@@ -22,7 +22,8 @@ TOOL_VERSIONS = os.path.join(REPO_ROOT, "vars", "tool_versions.yml")
 
 FAKE_HELM_REPOSITORY = """#!/usr/bin/python
 from ansible.module_utils.basic import AnsibleModule
-m = AnsibleModule(argument_spec=dict(name=dict(), repo_url=dict()))
+m = AnsibleModule(argument_spec=dict(name=dict(), repo_url=dict(),
+                                       force_update=dict(type="bool")))
 m.exit_json(changed=False)
 """
 
