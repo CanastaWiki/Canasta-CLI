@@ -3,21 +3,24 @@
 # Input: _k8s_namespace, _k8s_component (default: web)
 # Output: _k8s_pod_name
 
-# items[*], not items[0]: with no Running pod, items[0] makes kubectl itself
-# fail with a jsonpath index error instead of printing nothing.
+# A pod being deleted keeps phase Running while it drains, so each pod is
+# listed with its deletionTimestamp and only one without it is used. With no
+# Running pod, range prints nothing rather than failing like items[0] would.
 - name: "Get running pod for {{ _k8s_component | default('web') }}"
   ansible.builtin.command:
     cmd: >-
       kubectl get pods -n {{ _k8s_namespace }}
       -l app.kubernetes.io/component={{ _k8s_component | default('web') }}
       --field-selector=status.phase=Running
-      -o jsonpath={.items[*].metadata.name}
+      -o 'jsonpath={range .items[*]}{.metadata.name}{" "}{.metadata.deletionTimestamp}{"\n"}{end}'
   register: _k8s_pod_result
   changed_when: false
 
 - name: Set pod name
   ansible.builtin.set_fact:
-    _k8s_pod_name: "{{ _k8s_pod_result.stdout.split() | first | default('') }}"
+    _k8s_pod_name: >-
+      {{ _k8s_pod_result.stdout_lines | map('trim')
+         | select('match', '^[^ ]+$') | first | default('') }}
 
 - name: Fail if no running pod found
   ansible.builtin.fail:

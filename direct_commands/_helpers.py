@@ -1051,6 +1051,22 @@ def _k8s_namespace(instance_id):
     return "canasta-%s" % instance_id
 
 
+# A pod being deleted keeps phase Running while it drains, so each Running
+# pod is listed with its deletionTimestamp and only one without it is used.
+K8S_POD_JSONPATH = ('jsonpath={range .items[*]}{.metadata.name}{" "}'
+                    '{.metadata.deletionTimestamp}{"\\n"}{end}')
+K8S_POD_PICK_SHELL = "awk 'NF==1{print $1; exit}'"
+
+
+def _k8s_first_live_pod(stdout):
+    """The first pod in K8S_POD_JSONPATH output that is not being deleted."""
+    for line in (stdout or "").splitlines():
+        fields = line.split()
+        if len(fields) == 1:
+            return fields[0]
+    return None
+
+
 def _k8s_get_pod(namespace, component="web"):
     """Get the name of a running pod by component label."""
     try:
@@ -1058,11 +1074,12 @@ def _k8s_get_pod(namespace, component="web"):
             ["kubectl", "get", "pods", "-n", namespace,
              "-l", "app.kubernetes.io/component=%s" % component,
              "--field-selector=status.phase=Running",
-             "-o", "jsonpath={.items[0].metadata.name}"],
+             "-o", K8S_POD_JSONPATH],
             capture_output=True, text=True, timeout=10,
         )
-        pod = result.stdout.strip()
-        return pod if result.returncode == 0 and pod else None
+        if result.returncode != 0:
+            return None
+        return _k8s_first_live_pod(result.stdout)
     except (subprocess.TimeoutExpired, OSError):
         return None
 
@@ -1076,7 +1093,7 @@ def _k8s_remote_exec_cmd(inst_id, service, command, forward_stdin=True):
     lookup = (
         "kubectl get pods -n %s -l app.kubernetes.io/component=%s "
         "--field-selector=status.phase=Running "
-        "-o 'jsonpath={.items[0].metadata.name}'" % (ns, service)
+        "-o '%s' | %s" % (ns, service, K8S_POD_JSONPATH, K8S_POD_PICK_SHELL)
     )
     return (
         'pod="$(%s 2>/dev/null)"; '

@@ -55,6 +55,18 @@
     path: "{{ instance_path }}/values-domains.yaml"
   register: _domains_file
 
+# MediaWiki's database account comes from this host's .env, not from
+# values.yaml, which a gitops repo shares between hosts. Applied last, so it
+# wins over any db.wikiUser in the files before it.
+- name: Choose MediaWiki's database account
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_wiki_db_user.yml"
+
+- name: Write MediaWiki's database account override
+  ansible.builtin.copy:
+    content: "{{ {'db': {'wikiUser': _k8s_wiki_db_user}} | to_nice_yaml(indent=2) }}"
+    dest: "{{ instance_path }}/values-db-account.yaml"
+    mode: "0644"
+
 - name: Check for configData values file
   ansible.builtin.stat:
     path: "{{ instance_path }}/values-configdata.yaml"
@@ -83,6 +95,7 @@
         - values.yaml
         - values-configdata.yaml
         - values-sidecars.yaml
+        - values-db-account.yaml
       register: _hd_checksum_values
       failed_when: false
 
@@ -108,7 +121,7 @@
              | selectattr('content', 'defined')
              | map(attribute='content') | map('b64decode') | map('from_yaml')
              | select('mapping') | list
-             | combine }}
+             | combine(recursive=True) }}
       no_log: true
 
 - name: Check for the Secret checksums file
@@ -144,6 +157,7 @@
              | ternary('-f ' ~ instance_path ~ '/values-domains.yaml', '') }}
           {{ (_hd_gitops.stat.exists and _checksums_file.stat.exists)
              | ternary('-f ' ~ instance_path ~ '/values-checksums.yaml', '') }}
+          -f {{ instance_path }}/values-db-account.yaml
           {{ (helm_reset_values | default(true) | bool)
              | ternary('--reset-values', '') }}
           {{ (helm_wait | default(true) | bool)

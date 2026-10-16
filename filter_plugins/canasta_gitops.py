@@ -386,7 +386,7 @@ def canasta_secret_checksums(secrets, values, instance_id):
 
     ``secrets`` is a k8s_info Secret listing, ``values`` the instance's Helm
     values. Returns hashes only, never the values: ``web`` (database
-    password, MediaWiki secret key and the --web app secrets), ``caddy``
+    passwords, MediaWiki secret key and the --web app secrets), ``caddy``
     (the CrowdSec bouncer key and agent password), ``crowdsec`` (the agent
     password the local API registers) and ``sidecars`` (one per sidecar that
     reads app secrets), for the chart to put on each pod template so a
@@ -406,7 +406,16 @@ def canasta_secret_checksums(secrets, values, instance_id):
     # The hashes are committed to git. MediaWiki's random secret key goes
     # into each one, so a guessable app secret can't be recovered from it.
     pepper = [(mw, "MW_SECRET_KEY")]
-    web = pepper + [(db, "MYSQL_PASSWORD")]
+    # With its own account on the bundled database, MediaWiki reads that
+    # account's password, and the web pod's ensure-db-account init container
+    # also reads the root password.
+    db_values = values.get("db") or {}
+    own_account = (db_values.get("enabled", True) is not False
+                   and str(db_values.get("wikiUser") or "root") != "root")
+    if own_account:
+        web = pepper + [(db, "WIKI_DB_PASSWORD"), (db, "MYSQL_ROOT_PASSWORD")]
+    else:
+        web = pepper + [(db, "MYSQL_PASSWORD")]
     web += [(app, key) for key in values.get("appSecretEnv") or []]
     sidecars = {}
     for sidecar in values.get("sidecars") or []:

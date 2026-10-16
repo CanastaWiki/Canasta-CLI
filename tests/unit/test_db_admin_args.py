@@ -14,7 +14,7 @@ DB_ADMIN = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
 
 
-def _db_admin(tmp_path, env_text):
+def _db_admin(tmp_path, env_text, **extra_vars):
     inst = tmp_path / "inst"
     inst.mkdir()
     (inst / ".env").write_text(env_text)
@@ -26,12 +26,14 @@ def _db_admin(tmp_path, env_text):
         "gather_facts": False,
         "vars": {"instance_path": str(inst),
                  "compose_command": "docker compose",
-                 "ansible_python_interpreter": sys.executable},
+                 "ansible_python_interpreter": sys.executable,
+                 **extra_vars},
         "tasks": [
             {"ansible.builtin.include_tasks": DB_ADMIN},
             {"ansible.builtin.copy": {
                 "content": "{{ {'service': _db_admin_service,"
-                           " 'args': _db_admin_args} | to_json }}",
+                           " 'args': _db_admin_args,"
+                           " 'exec': _db_admin_exec} | to_json }}",
                 "dest": str(out)}},
         ],
     }]))
@@ -54,4 +56,20 @@ def _db_admin(tmp_path, env_text):
 ])
 def test_client_arguments(tmp_path, env_text, service, args):
     result = _db_admin(tmp_path, env_text)
-    assert result == {"service": service, "args": args}
+    assert {k: result[k] for k in ("service", "args")} == \
+        {"service": service, "args": args}
+    assert result["exec"].split()[:3] == ["docker", "compose", "exec"]
+
+
+@pytest.mark.parametrize("env_text, target", [
+    ("MYSQL_PASSWORD=pw\n", "statefulset/canasta-inst-db -c db"),
+    ("USE_EXTERNAL_DB=true\nMYSQL_HOST=db.example.com\n",
+     "deployment/canasta-inst-web -c web"),
+])
+def test_kubernetes_runs_in_the_pods(tmp_path, env_text, target):
+    result = _db_admin(tmp_path, env_text, instance_is_k8s=True,
+                       instance_id="inst")
+    assert " ".join(result["exec"].split()) == (
+        "kubectl exec -i -n canasta-inst %s --" % target)
+    # The pod's own environment supplies the password, as on Compose.
+    assert result["service"] == ("web" if "EXTERNAL" in env_text else "db")

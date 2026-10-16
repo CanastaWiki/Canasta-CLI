@@ -1,12 +1,13 @@
 ---
-# Decide where Compose database administration runs and how it logs in.
+# Decide where database administration runs and how it logs in.
 #
 # Bundled database: the db container, as root with its own
 # $MYSQL_ROOT_PASSWORD, so nothing depends on the credentials the web
 # container holds. External database: there is no db container, so the web
-# container, as the operator's MYSQL_USER.
+# container, as the operator's MYSQL_USER. On Kubernetes these are the db
+# StatefulSet's and the web Deployment's pods.
 #
-# Input: instance_path, compose_command
+# Input: instance_path, compose_command; instance_id on Kubernetes
 # Output:
 #   _db_admin_service - the service to run in (db or web)
 #   _db_admin_pwd     - the MYSQL_PWD assignment, and
@@ -37,12 +38,19 @@
          if _db_admin_external | bool
          else '-u root' }}
     _db_admin_exec: >-
+      {% if instance_is_k8s | default(false) | bool -%}
+      kubectl exec -i -n canasta-{{ instance_id }}
+      {{ ('deployment/canasta-' ~ instance_id ~ '-web -c web')
+         if _db_admin_external | bool
+         else ('statefulset/canasta-' ~ instance_id ~ '-db -c db') }} --
+      {%- else -%}
       {{ compose_command }}
       {{ (_db_admin_env.variables.COMPOSE_PROFILES | default(''))
          | split(',') | map('trim') | reject('equalto', '')
          | map('regex_replace', '^', '--profile ') | join(' ')
          if compose_command is search('podman') else '' }}
       exec -T {{ 'web' if _db_admin_external | bool else 'db' }}
+      {%- endif %}
   vars:
     _db_admin_external: >-
       {{ (_db_admin_env.variables.USE_EXTERNAL_DB | default('false'))

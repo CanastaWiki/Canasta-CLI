@@ -89,6 +89,11 @@ varnish:
 db:
   enabled: true
   image: mariadb:11.4
+  # The account MediaWiki connects with. Any account but root is created and
+  # granted the instance's wiki databases (each wiki's own and its declared
+  # extra_databases) by the web pod's ensure-db-account init container, with
+  # its password read from the WIKI_DB_PASSWORD key of the db Secret.
+  wikiUser: root
   storage: 10Gi
   storageClass: ""
   resources:

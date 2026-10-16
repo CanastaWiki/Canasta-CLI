@@ -394,11 +394,13 @@
     - not (_was_running | bool)
     - not (_upgrade_stage_only | bool)
 
+# The database account move restarts or redeploys the instance itself.
 - name: Report already up to date
   ansible.builtin.debug:
     msg: "Already up to date — no restart needed."
   when:
     - not (_restart_needed | bool)
+    - not (_mig_db_redeployed | default(false) | bool)
     - (_upgrade_build_failed_services | default([]) | length) == 0
     - not (_upgrade_stage_only | bool)
 
@@ -479,6 +481,10 @@
           deployed. The instance was stopped, so it was left stopped. Run
           'canasta gitops push -i {{ instance_id }}'; the changes deploy the
           next time it starts.
+          {%- endif %}
+          {%- if _mig_db_staged | default(false) | bool %}
+          The deploy also moves MediaWiki to its own 'mediawiki' database
+          account.
           {%- endif %}
       when: _upgrade_gitops_pending | bool
 

@@ -1,0 +1,56 @@
+---
+# Record the database account MediaWiki uses on this host, as .env says, in
+# the host's Kubernetes gitops vars (wiki_db_user) and re-render its values,
+# so Argo CD deploys it at the next 'canasta gitops push' and sync. The
+# changed files are staged for that push. No-ops on a non-gitops instance
+# and when the vars already say so.
+#
+# Input: instance_path, instance_id
+
+- name: Read MediaWiki's database account
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/k8s_wiki_db_user.yml"
+
+- name: Read this host's gitops identity and vars
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_read_gitops_host.yml"
+
+- name: Decide whether this host's vars need the account
+  ansible.builtin.set_fact:
+    _swdu_change: >-
+      {{ _gitops_host.is_gitops | bool
+         and (_gitops_host.host_vars.wiki_db_user | default('root', true))
+             != _k8s_wiki_db_user }}
+    _swdu_host: "{{ _gitops_host.hostname }}"
+
+- name: Write the account into this host's vars
+  ansible.builtin.copy:
+    content: >-
+      {{ _gitops_host.host_vars
+         | combine({'wiki_db_user': _k8s_wiki_db_user})
+         | to_nice_yaml(indent=2) }}
+    dest: "{{ instance_path }}/hosts/{{ _swdu_host }}/vars.yaml"
+    mode: "0644"
+  when: _swdu_change | bool
+
+- name: Check for the values template
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/values.template.yaml"
+  register: _swdu_template
+
+- name: Re-render this host's values
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/render_kubernetes.yml"
+  when:
+    - _swdu_change | bool
+    - _swdu_template.stat.exists
+
+- name: Stage this host's vars and rendered values
+  ansible.builtin.command:
+    argv:
+      - git
+      - add
+      - --
+      - "hosts/{{ _swdu_host }}/vars.yaml"
+      - "{{ ('hosts/' ~ _swdu_host ~ '/rendered-values.yaml')
+            if _swdu_template.stat.exists else ('hosts/' ~ _swdu_host ~ '/vars.yaml') }}"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when: _swdu_change | bool
