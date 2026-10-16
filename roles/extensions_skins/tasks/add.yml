@@ -45,6 +45,21 @@
   ansible.builtin.set_fact:
     is_gitops: "{{ _git_dir.stat.exists | bool }}"
 
+# The MediaWiki version and the bundled list both come from the web
+# container, so check it up front rather than let the first exec fail.
+- name: Check whether web is running
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: check_running.yml
+
+- name: Refuse when web is not running
+  ansible.builtin.fail:
+    msg: >-
+      Instance '{{ instance_id }}' is not running. Adding {{ _item_type }}
+      reads the MediaWiki version and the bundled {{ _item_type }} from its
+      web container; start it first ('canasta start -i {{ instance_id }}').
+  when: not (_container_running | bool)
+
 - name: "Detect MediaWiki version (for REL1_YY) unless overridden"
   when: mw_version is not defined or mw_version | default('') | trim == ''
   block:

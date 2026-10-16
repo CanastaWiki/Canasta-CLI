@@ -269,8 +269,9 @@ command_groups:
       instance directory — a version-controlled file, like
       `Caddyfile.global`.
 
-      On Kubernetes the engine runs as a sidecar in the Caddy pod and the
-      same subcommands work via `kubectl exec`. Because Caddy always sits
+      On Kubernetes the local API runs in its own pod and an agent in the
+      Caddy pod reads the access log; the same subcommands work via
+      `kubectl exec`. Because Caddy always sits
       behind the in-cluster ingress there, CrowdSec auto-trusts the cluster
       pod CIDRs (override with `CADDY_TRUSTED_PROXY_CIDRS`) so it attributes
       decisions to the real client IP rather than the ingress.
@@ -2187,10 +2188,9 @@ commands:
       Restart the CrowdSec engine to apply pending changes without
       restarting the whole instance. Use it after accepting a console
       enrollment or after editing `config/crowdsec/whitelists.yaml`.
-      On Compose only the engine container bounces, so the Caddy bouncer
-      keeps enforcing its cached decisions throughout; on Kubernetes the
-      engine is a sidecar in the Caddy pod, so the pod rolls and Caddy
-      blips briefly. On Kubernetes, reload first deploys the instance's
+      Only the engine restarts (on Kubernetes, the local API's own pod),
+      so the Caddy bouncer keeps enforcing its cached decisions
+      throughout. On Kubernetes, reload first deploys the instance's
       current config files, so any other pending config edits are applied
       too. Note that community and console blocklists arrive on
       CrowdSec's own pull cycle (about every 2 hours), which a restart does

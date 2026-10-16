@@ -137,12 +137,16 @@
                                       refused=_crowdsec_capi_refused.rc == 0) }}
     # Console blocklists (origin 'lists') are observable; enrollment is not —
     # confirming it needs PAPI. They are additional to the CAPI community
-    # blocklist above, so say that is unaffected or "none" reads as unprotected.
+    # blocklist above, so while that is active say it is unaffected, or "none"
+    # reads as unprotected.
     _crowdsec_console_line: >-
       {{ ('active' ~ _crowdsec_blocklist_lines)
          if (_crowdsec_blocklist_lines | trim) != ''
-         else 'none (optional; the community blocklist above is unaffected) —
-               add more with: canasta crowdsec console-enroll <key>' }}
+         else ('none (optional'
+               ~ ('; the community blocklist above is unaffected'
+                  if _crowdsec_capi_creds.rc == 0
+                     and _crowdsec_capi_refused.rc != 0 else '')
+               ~ ') — add more with: canasta crowdsec console-enroll <key>') }}
 
 - name: Show CrowdSec status
   ansible.builtin.debug:
