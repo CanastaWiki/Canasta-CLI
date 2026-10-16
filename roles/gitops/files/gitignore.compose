@@ -2,3 +2,6 @@
 # Rendered on each host from config/sidecars.yaml and .env (Compose only;
 # Kubernetes tracks it)
 config/settings/global/00-canasta-sidecar-env.php
+
+# Rendered on each start from CANASTA_ENABLE_EDGE (Compose only)
+docker-compose.edge.yml

@@ -154,11 +154,18 @@ services:
     # behaves identically to upstream Caddy otherwise.
     image: ${CANASTA_CADDY_IMAGE:-docker.io/library/caddy:2.10.2-alpine}
     restart: unless-stopped
-    <<: *default-network
+    # A mapping rather than the shared list: podman-compose cannot merge a
+    # list with the mapping docker-compose.edge.yml adds for the edge
+    # network.
+    networks:
+      default: {}
     logging: *default-logging
+    # The profile sync derives the published addresses from HTTP_PORT and
+    # HTTPS_PORT. Behind the edge they are random loopback ports, since the
+    # edge owns 80 and 443.
     ports:
-      - "${HTTP_PORT:-80}:80"
-      - "${HTTPS_PORT:-443}:443"
+      - "${CANASTA_CADDY_HTTP_PUBLISH:-80}:80"
+      - "${CANASTA_CADDY_HTTPS_PUBLISH:-443}:443"
     environment:
       - MW_SITE_FQDN=${MW_SITE_FQDN:-localhost}
       # Consumed by the rendered Caddyfile's crowdsec directive via the

@@ -189,3 +189,11 @@ def test_every_url_varnish_passes_is_dynamic_at_the_edge_or_static():
     assert "req.http.Cookie ~" in recv and "([sS]ession|Token)=" in cfg
     assert "req.http.Authorization" in recv and "req.hdr(authorization)" in cfg
     assert 'req.method != "GET"' in recv and "!METH_GET" in cfg
+
+
+def test_a_backend_with_no_running_server_answers_503_at_once():
+    cfg = edge.render([_inst()])["files"]["haproxy.cfg"]
+    for kind in ("dynamic", "default"):
+        section = cfg.split("backend be_wiki1_%s\n" % kind, 1)[1].split("\n\n", 1)[0]
+        assert section.startswith("    http-request return status 503"), kind
+        assert "if { nbsrv eq 0 }" in section

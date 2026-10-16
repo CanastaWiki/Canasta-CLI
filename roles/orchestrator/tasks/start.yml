@@ -27,10 +27,18 @@
     - name: Render web secret keys to a compose override layer
       ansible.builtin.include_tasks: render_web_env.yml
 
+    - name: Bring the instance's place behind the edge in line
+      ansible.builtin.include_tasks: edge_sync.yml
+
     - name: Check for docker-compose.sidecars.yml
       ansible.builtin.stat:
         path: "{{ instance_path }}/docker-compose.sidecars.yml"
       register: _sidecars_exists
+
+    - name: Check for docker-compose.edge.yml
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/docker-compose.edge.yml"
+      register: _edge_layer_exists
 
     - name: Check for docker-compose.web-env.yml
       ansible.builtin.stat:
@@ -42,15 +50,16 @@
         path: "{{ instance_path }}/docker-compose.override.yml"
       register: _override_exists
 
-    # Layer order: base, then the generated sidecars and web-env layers,
-    # then the user override (so a clash lets the operator's raw override
-    # win), then devmode last.
+    # Layer order: base, then the generated sidecars, web-env and edge
+    # layers, then the user override (so a clash lets the operator's raw
+    # override win), then devmode last.
     - name: Build compose file arguments
       ansible.builtin.set_fact:
         _compose_files: >-
           {{ ['-f', 'docker-compose.yml'] +
              (_sidecars_exists.stat.exists | ternary(['-f', 'docker-compose.sidecars.yml'], [])) +
              (_web_env_exists.stat.exists | ternary(['-f', 'docker-compose.web-env.yml'], [])) +
+             (_edge_layer_exists.stat.exists | ternary(['-f', 'docker-compose.edge.yml'], [])) +
              (_override_exists.stat.exists | ternary(['-f', 'docker-compose.override.yml'], [])) +
              ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
 

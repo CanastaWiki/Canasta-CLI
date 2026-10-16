@@ -340,7 +340,8 @@ def _compose_file_args(path, host, devmode=False, include_sidecars=False):
     layering it into `up -d` would recreate the removed sidecar.
 
     docker-compose.web-env.yml is layered whenever present: every change
-    to its key list re-renders or removes it.
+    to its key list re-renders or removes it, and so is
+    docker-compose.edge.yml, which the edge sync writes or removes.
     """
     def _exists(name):
         full = os.path.join(path, name)
@@ -354,6 +355,8 @@ def _compose_file_args(path, host, devmode=False, include_sidecars=False):
         files.append("docker-compose.sidecars.yml")
     if _exists("docker-compose.web-env.yml"):
         files.append("docker-compose.web-env.yml")
+    if _exists("docker-compose.edge.yml"):
+        files.append("docker-compose.edge.yml")
     if _exists("docker-compose.override.yml"):
         files.append("docker-compose.override.yml")
     if devmode:
@@ -562,6 +565,22 @@ def _reconcile_compose_profiles(env, current):
     return desired
 
 
+def _edge_enabled(env):
+    """Whether the instance sits behind the host's HAProxy edge."""
+    return (env.get("CANASTA_ENABLE_EDGE") or "false").strip().lower() == "true"
+
+
+def _caddy_publish(env):
+    """The addresses the caddy service publishes. Behind the edge, which
+    owns 80 and 443, Caddy gets random loopback ports instead. Mirror
+    sync_compose_profiles.yml."""
+    if _edge_enabled(env):
+        return {"CANASTA_CADDY_HTTP_PUBLISH": "127.0.0.1:",
+                "CANASTA_CADDY_HTTPS_PUBLISH": "127.0.0.1:"}
+    return {"CANASTA_CADDY_HTTP_PUBLISH": env.get("HTTP_PORT") or "80",
+            "CANASTA_CADDY_HTTPS_PUBLISH": env.get("HTTPS_PORT") or "443"}
+
+
 def _sync_compose_profiles(inst):
     """Align COMPOSE_PROFILES (and the CrowdSec Caddy image) in .env with
     the CANASTA_ENABLE_* feature flags.
@@ -612,7 +631,12 @@ def _sync_compose_profiles(inst):
     )
     image_changed = image_managed and current_caddy_image != desired_caddy_image
 
-    if not profiles_changed and not image_changed:
+    publish_changes = {
+        key: value for key, value in _caddy_publish(env).items()
+        if env.get(key, "") != value
+    }
+
+    if not profiles_changed and not image_changed and not publish_changes:
         return env  # No change needed
 
     # Rewrite only the keys that changed, keeping every other line verbatim so
@@ -626,6 +650,8 @@ def _sync_compose_profiles(inst):
         new_lines = _set_env_lines(
             new_lines, "CANASTA_CADDY_IMAGE", desired_caddy_image,
         )
+    for key, value in publish_changes.items():
+        new_lines = _set_env_lines(new_lines, key, value)
     _write_env_content(path, host, "\n".join(new_lines))
 
     # A feature flag flipped off drops its profile from COMPOSE_PROFILES, but

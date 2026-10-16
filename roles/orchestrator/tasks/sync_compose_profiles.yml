@@ -152,6 +152,26 @@
     - _current_caddy_image == '' or _current_caddy_image.startswith(_managed_caddy_prefix)
     - _current_caddy_image != (_plugin_needed | ternary(_plugin_caddy_image, ''))
 
+# The addresses the caddy service publishes. Behind the edge, which owns 80
+# and 443, Caddy gets random loopback ports instead. Match _helpers.py.
+- name: Reconcile the addresses Caddy publishes
+  vars:
+    _edge_on: "{{ _env_profiles.variables.CANASTA_ENABLE_EDGE | default('false', true) | lower == 'true' }}"
+    _publish:
+      CANASTA_CADDY_HTTP_PUBLISH: >-
+        {{ _edge_on | ternary('127.0.0.1:', _env_profiles.variables.HTTP_PORT | default('80', true)) }}
+      CANASTA_CADDY_HTTPS_PUBLISH: >-
+        {{ _edge_on | ternary('127.0.0.1:', _env_profiles.variables.HTTPS_PORT | default('443', true)) }}
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: "{{ item.key }}"
+    value: "{{ item.value }}"
+  loop: "{{ _publish | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when: _env_profiles.variables[item.key] | default('') != item.value
+
 - name: Ensure crowdsec config files exist when the profile is active
   ansible.builtin.include_tasks: ensure_crowdsec_config.yml
   when: "'crowdsec' in _desired_profiles"

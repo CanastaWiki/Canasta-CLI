@@ -24,6 +24,8 @@ import math
 import re
 
 HAPROXY_IMAGE = "docker.io/library/haproxy:3.2.25-alpine"
+# Also the edge's openssl: the HAProxy image has none, and hosts may not.
+ACME_IMAGE = "docker.io/neilpang/acme.sh:3.1.6"
 
 CONFIG_DIR = "/usr/local/etc/haproxy"
 CERT_DIR = CONFIG_DIR + "/certs"
@@ -298,7 +300,12 @@ def _render_cfg(instances, thumbprint):
         server = ("    server caddy caddy-%s:80 resolvers docker "
                   "init-addr last,libc,none check maxconn %%d" % inst["id"])
         for kind, cap in (("dynamic", dynamic_cap), ("default", default_cap)):
-            out += ["", "backend be_%s_%s" % (inst["id"], kind), server % cap]
+            out += ["", "backend be_%s_%s" % (inst["id"], kind),
+                    # A stopped instance's Caddy stops resolving; answer at
+                    # once rather than hold the request for timeout queue.
+                    "    http-request return status 503 content-type text/plain "
+                    "string \"This site is not running.\\n\" if { nbsrv eq 0 }",
+                    server % cap]
             out += ["    %s" % line for line in inst["snippet"]]
     out.append("")
     return "\n".join(out)
