@@ -364,8 +364,20 @@ class TestK8sGetPod:
             "kubectl", "get", "pods", "-n", "canasta-mysite",
             "-l", "app.kubernetes.io/component=db",
             "--field-selector=status.phase=Running",
-            "-o", "jsonpath={.items[0].metadata.name}",
+            "-o", _helpers.K8S_POD_JSONPATH,
         ]
+
+    def test_skips_a_pod_being_deleted(self, monkeypatch):
+        monkeypatch.setattr(
+            _helpers.subprocess, "run", lambda argv, **kw: _Completed(
+                0, "web-old 2026-10-16T01:20:00Z\nweb-new \n"))
+        assert _helpers._k8s_get_pod("canasta-mysite") == "web-new"
+
+    def test_none_when_every_pod_is_being_deleted(self, monkeypatch):
+        monkeypatch.setattr(
+            _helpers.subprocess, "run", lambda argv, **kw: _Completed(
+                0, "web-old 2026-10-16T01:20:00Z\n"))
+        assert _helpers._k8s_get_pod("canasta-mysite") is None
 
     @pytest.mark.parametrize("result", [
         _Completed(0, ""), _Completed(1, "web-abc\n")])
