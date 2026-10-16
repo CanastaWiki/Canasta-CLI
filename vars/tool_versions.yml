@@ -17,3 +17,14 @@ sops_sha256:
 # gitops init includes the sidecar task cross-role, where role defaults are
 # out of scope.
 argocd_sops_sidecar_image: "quay.io/argoproj/argocd:v3.3.9"
+
+# argo-cd Helm chart installed by create on a cluster without Argo CD. Pinned so
+# the images Argo CD pulls change only when this changes. A cluster that
+# already runs Argo CD keeps its installed chart.
+argocd_chart_version: "10.10.5"
+
+# The chart pulls Redis anonymously from ecr-public.aws.com, which rate-limits
+# by source address. Use the same image from mirror.gcr.io; keep the tag equal
+# to the pinned chart's redis.image.tag.
+argocd_redis_image_repository: "mirror.gcr.io/library/redis"
+argocd_redis_image_tag: "8.6.4-alpine"
