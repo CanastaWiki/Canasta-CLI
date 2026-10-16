@@ -148,7 +148,7 @@
 
 {% for _mh in (_media_hosts | default([])) %}
 
-{{ _mh.hostname }} {
+{{ 'http://' if (_http_only | default(false)) else '' }}{{ _mh.hostname }} {
 {% if not (_http_only | default(false)) %}
 {% if _tls_mode | default('acme') == 'internal' %}
     tls internal
