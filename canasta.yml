@@ -14,6 +14,11 @@
   vars:
     canasta_root: "{{ playbook_dir }}"
     canasta_default_image: "ghcr.io/canastawiki/canasta:{{ lookup('file', playbook_dir + '/CANASTA_VERSION') | trim }}"
+    # Wikimedia's edge refuses generic user agents, including git's default,
+    # so requests to Gerrit name the CLI, its version and where to reach it.
+    canasta_user_agent: >-
+      Canasta-CLI/{{ lookup('file', playbook_dir + '/VERSION') | trim }}
+      (https://github.com/CanastaWiki/Canasta-CLI)
     # Templated on every use, so it follows instance_orchestrator wherever
     # that is set. Until it is, create's `orchestrator` extra-var decides.
     instance_is_k8s: >-
@@ -43,12 +48,15 @@
   #      no flag was passed and no registry entry exists yet).
   #      Bound as `_detected_docker_host`.
   #   4. omit — let docker fall back to its compiled-in default.
+  # GIT_HTTP_USER_AGENT covers every git clone, fetch and submodule update,
+  # on the controller and on targets.
   environment:
     DOCKER_HOST: >-
       {{ docker_host
          | default(instance_docker_host | default(''), true)
          | default(_detected_docker_host | default(''), true)
          | default(omit, true) }}
+    GIT_HTTP_USER_AGENT: "{{ canasta_user_agent }}"
 
   pre_tasks:
     # Registry operations must reach the controller's conf.json, never a

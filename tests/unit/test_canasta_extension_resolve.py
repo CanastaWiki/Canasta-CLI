@@ -401,12 +401,14 @@ class TestGerritProjects:
 
         def fake_urlopen(request, timeout):
             seen["url"] = request.full_url
+            seen["agent"] = request.get_header("User-agent")
             return Resp()
         import urllib.request
         monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
         projects = REAL_GERRIT_PROJECTS("Vector")
         assert projects == {"mediawiki/skins/Vector": {"state": "ACTIVE"}}
         assert seen["url"] == "https://gerrit.wikimedia.org/r/projects/?m=Vector&d"
+        assert seen["agent"] == canasta_extension_resolve.USER_AGENT
 
     def test_unreachable_returns_none(self, monkeypatch):
         import urllib.request
@@ -578,3 +580,23 @@ class TestGerritMirrorFallback:
             "OAuth", "extensions", "1.43.2", GERRIT_EXT, None, path, URL)
         assert res["repository"] == GERRIT_EXT
         assert calls == []
+
+
+class TestUserAgent:
+    """Wikimedia's edge refuses generic user agents with a 403."""
+
+    def test_default_names_the_cli_and_its_home(self):
+        agent = canasta_extension_resolve.USER_AGENT
+        assert agent.startswith("Canasta-CLI")
+        assert "(https://github.com/CanastaWiki/Canasta-CLI)" in agent
+
+    def test_the_playbook_agent_replaces_the_default(self, monkeypatch):
+        monkeypatch.setattr(canasta_extension_resolve, "USER_AGENT",
+                            canasta_extension_resolve.USER_AGENT)
+        run_module_with_params(canasta_extension_resolve, {
+            "name": "Foo", "item_type": "extensions", "json_path": None,
+            "json_url": URL, "repository": "https://example.org/foo.git",
+            "branch": "main", "mw_version": "1.43.2",
+            "user_agent": "Canasta-CLI/9.9.9 (https://github.com/CanastaWiki/Canasta-CLI)"})
+        assert canasta_extension_resolve.USER_AGENT == \
+            "Canasta-CLI/9.9.9 (https://github.com/CanastaWiki/Canasta-CLI)"
