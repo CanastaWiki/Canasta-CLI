@@ -2365,7 +2365,9 @@ def _gather_instance_info(inst_id, inst):
         "echo \"$web_ps\" | while IFS='|' read -r cid cstate status; do "
         "case \"$status\" in " + _WEB_STARTING_CASE + ") "
         "echo \"$cid|$(" + restart_count + " \"$cid\" 2>/dev/null)\";; "
-        "esac; done; true"
+        "esac; done; "
+        "echo '%(d)s'; "
+        "grep -h '^CANASTA_ENABLE_EDGE=' %(p)s/.env 2>/dev/null; true"
     ) % {"p": qpath, "d": _SENTINEL, "m": RESTORE_MARKER}
 
     rc, stdout = _ssh_run(host, script)
@@ -2382,6 +2384,7 @@ def _gather_instance_info(inst_id, inst):
     interrupted = (parts[3].strip() == "RESTORE_INTERRUPTED"
                    if len(parts) > 3 else False)
     restart_counts = _remote_restart_counts(parts[4] if len(parts) > 4 else "")
+    edge = _edge_enabled(_env_from_lines(parts[5] if len(parts) > 5 else ""))
 
     wikis = []
     if dir_ok and wikis_raw.strip() != "WIKIS_MISSING":
@@ -2395,7 +2398,11 @@ def _gather_instance_info(inst_id, inst):
               if dir_ok else "NOT FOUND")
 
     return _make_detail(inst_id, host, path, orchestrator, status, wikis,
-                       interrupted)
+                       interrupted, edge=edge)
+
+
+def _env_from_lines(text):
+    return {k: v for k, v, c in _parse_env_entries(text) if not c and k}
 
 
 def _gather_local(inst_id, inst):
@@ -2408,8 +2415,9 @@ def _gather_local(inst_id, inst):
 
     interrupted = dir_exists and os.path.exists(
         os.path.join(path, RESTORE_MARKER))
+    edge = dir_exists and _edge_enabled(_read_env_file(path, host))
     return _make_detail(inst_id, host, path, orchestrator, status, wikis,
-                       interrupted)
+                       interrupted, edge=edge)
 
 
 def _gather_k8s(inst_id, path, host):
@@ -2430,12 +2438,13 @@ def _gather_k8s(inst_id, path, host):
 
 
 def _make_detail(inst_id, host, path, orchestrator, status, wikis,
-                 interrupted_restore=False):
+                 interrupted_restore=False, edge=False):
     return {
         "id": inst_id,
         "host": host,
         "path": path,
-        "orchestrator": orchestrator.upper(),
+        # Behind the host's HAProxy edge, which serves its ports and TLS.
+        "orchestrator": orchestrator.upper() + ("+EDGE" if edge else ""),
         # An interrupted restore leaves the instance running on half-applied
         # config, which otherwise reads here as plain RUNNING.
         "status": ("%s  [RESTORE INTERRUPTED]" % status

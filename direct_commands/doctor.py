@@ -690,7 +690,7 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
             "issues lands on a shared edge node and blocks every visitor "
             "behind it: 'canasta config set CADDY_TRUSTED_PROXIES=cloudflare' "
             "(or imperva, or a comma-separated CIDR list for any other "
-            "proxy). Leave it unset if Caddy is the edge — trusting the "
+            "proxy). Leave it unset if clients connect to this host directly — trusting the "
             "header then would let any client forge its own source IP")
 
     drifted = sorted(
@@ -1069,6 +1069,110 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
             "config/Caddyfile.site and this check will report it as "
             "intended.")
     return lines
+
+
+# --- HAProxy edge -------------------------------------------------------------
+#
+# The edge's own containers, its membership list and acme.sh's certificates,
+# read on the instance's host from the operator's config directory, as the
+# edge module writes them.
+_EDGE_SCRIPT = r"""
+if [ "$(id -u)" = 0 ]; then d=/etc/canasta; else d="${XDG_CONFIG_HOME:-$HOME/.config}/canasta"; fi
+printf '%%sEDGE:%%s\n' '%(delim)s' "$(%(inspect)s ps --filter 'name=^canasta-edge$' --format '{{.Status}}' 2>/dev/null)"
+printf '%%sACME:%%s\n' '%(delim)s' "$(%(inspect)s ps --filter 'name=^canasta-edge-acme$' --format '{{.Status}}' 2>/dev/null)"
+printf '%%sMEMBERS:\n' '%(delim)s'; cat "$d/edge/members.yaml" 2>/dev/null
+printf '%%sCERTS:\n' '%(delim)s'; %(inspect)s exec canasta-edge-acme acme.sh --list --listraw 2>/dev/null
+true
+"""
+
+
+def _parse_edge_probe(stdout):
+    """{'edge': status, 'acme': status, 'members': [ids], 'certs': {host:
+    (ca, renew)}} from the probe output."""
+    probe = {"edge": "", "acme": "", "members": [], "certs": {}}
+    for seg in stdout.split(_helpers._SENTINEL):
+        header, _, body = seg.partition("\n")
+        if header.startswith("EDGE:"):
+            probe["edge"] = header[len("EDGE:"):].strip()
+        elif header.startswith("ACME:"):
+            probe["acme"] = header[len("ACME:"):].strip()
+        elif header.startswith("MEMBERS:"):
+            try:
+                data = yaml.safe_load(body) or {}
+            except yaml.YAMLError:
+                data = {}
+            probe["members"] = [m.get("id") for m in data.get("members") or []]
+        elif header.startswith("CERTS:"):
+            for line in body.splitlines()[1:]:
+                fields = line.split("|")
+                if len(fields) >= 7 and fields[0] and fields[5].strip():
+                    probe["certs"][fields[0]] = (fields[4], fields[6].strip())
+    return probe
+
+
+def _edge_lines_from_probe(inst_id, tls_mode, names, probe):
+    """doctor lines for an instance behind the HAProxy edge."""
+    lines = ["", "HAProxy edge (%s):" % inst_id]
+    if probe["edge"]:
+        lines.append("  edge: running (%s)" % probe["edge"])
+    else:
+        lines.append(
+            "  edge: WARN — not running, so this instance's sites are not "
+            "served. Run 'canasta start -i %s' to start it." % inst_id)
+    if inst_id in probe["members"]:
+        lines.append("  member: yes")
+    else:
+        lines.append(
+            "  member: WARN — not among the edge's instances. Run 'canasta "
+            "restart -i %s' to add it." % inst_id)
+    if tls_mode not in ("acme", "acme-dns"):
+        return lines
+    if probe["acme"]:
+        lines.append("  acme.sh: running (%s)" % probe["acme"])
+    else:
+        lines.append(
+            "  acme.sh: WARN — not running, so Let's Encrypt certificates "
+            "are not renewed. Run 'canasta start -i %s' to start it." % inst_id)
+    for name in names:
+        cert = probe["certs"].get(name)
+        if cert:
+            ca = "staging" if cert[0].endswith("_test") else "production"
+            lines.append("  %s: Let's Encrypt %s, renews %s" % (name, ca, cert[1]))
+        else:
+            lines.append(
+                "  %s: WARN — no Let's Encrypt certificate yet; the edge serves "
+                "its own CA's, which browsers reject. It is requested again at "
+                "each start." % name)
+    return lines
+
+
+def _edge_lines(inst):
+    """doctor lines for the instance's place behind the edge, or [] when it
+    is not behind it."""
+    path = inst.get("path", "")
+    if not path or _helpers._is_k8s(inst):
+        return []
+    if (_helpers._read_env_for(inst, "CANASTA_ENABLE_EDGE") or "").strip().lower() != "true":
+        return []
+    host = inst.get("host") or "localhost"
+    inspect = inst.get("inspectCommand") or "docker"
+    script = _EDGE_SCRIPT % {"delim": _helpers._SENTINEL,
+                             "inspect": _helpers._shell_quote(inspect)}
+    docker_host = inst.get("dockerHost")
+    if docker_host:
+        script = "export DOCKER_HOST=%s\n%s" % (_helpers._shell_quote(docker_host), script)
+    try:
+        if _helpers._is_localhost(host):
+            stdout = subprocess.run(["bash", "-c", script], capture_output=True,
+                                    text=True, timeout=60).stdout
+        else:
+            _, stdout = _helpers._ssh_run(host, script)
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+    tls_mode = (_helpers._read_env_for(inst, "CADDY_TLS_MODE") or "acme").strip().lower()
+    return _edge_lines_from_probe(inst.get("id", "?"), tls_mode,
+                                  _origin_tls_server_names(path, host),
+                                  _parse_edge_probe(stdout))
 
 
 def _origin_tls_server_names(path, host):
@@ -1699,6 +1803,9 @@ def cmd_doctor(args):
             print(line)
 
         for line in _origin_tls_lines(inst):
+            print(line)
+
+        for line in _edge_lines(inst):
             print(line)
 
         for line in _composer_failure_lines(inst):
