@@ -62,19 +62,37 @@ options:
   edge_dir:
     description: Override the edge directory (default <config dir>/edge).
     type: str
+  instances:
+    description: >-
+      With state=plan, the host's instances as dicts of id, path,
+      orchestrator and compose_command.
+    type: list
+    elements: dict
+  compose_command:
+    description: >-
+      With state=import, the compose command that reads the instance's
+      caddy-data volume.
+    type: str
+    default: docker compose
 """
 
+import base64
+import calendar
 import fcntl
+import io
 import ipaddress
 import json
 import os
+import shlex
 import shutil
+import tarfile
 import tempfile
+import time
 
 import yaml
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.canasta_config import get_config_dir
+from ansible.module_utils.canasta_config import get_config_dir, is_k8s_orchestrator
 from ansible.module_utils.canasta_edge_render import (
     ACME_IMAGE, CERT_DIR, CONFIG_DIR, DENY_CIDR_FILE, DENY_UA_FILE, EdgeError,
     HAPROXY_IMAGE, cdn_providers, certificates, instance_from_config, render,
@@ -621,11 +639,14 @@ def acme_listed(run, inspect):
     return listed
 
 
+def _domain_conf(edge_dir, host):
+    return _read(os.path.join(edge_dir, "acme", "%s_ecc" % host, "%s.conf" % host)) or ""
+
+
 def issued_method(edge_dir, host):
     """How acme.sh validates host at renewal: 'stateless' (HTTP-01 answered
     by HAProxy) or a DNS hook such as dns_cf. None when it has no record."""
-    conf = _read(os.path.join(edge_dir, "acme", "%s_ecc" % host, "%s.conf" % host))
-    for line in (conf or "").splitlines():
+    for line in _domain_conf(edge_dir, host).splitlines():
         if line.startswith("Le_Webroot="):
             return line.split("=", 1)[1].strip().strip("'\"")
     return None
@@ -659,6 +680,14 @@ def _issue(run, inspect, edge_dir):
         # An unreadable record is left alone rather than spend a reissue.
         if (current and current[1] and current[0] == ACME_CA_NAMES[staging]
                 and issued_method(edge_dir, host) in (method, None)):
+            # A certificate imported from Caddy has not been deployed by
+            # acme.sh yet, so its renewals would not reach HAProxy.
+            if "Le_DeployHook=" not in _domain_conf(edge_dir, host):
+                rc, out, err = _acme(run, inspect, ["--deploy", "-d", host, "--ecc",
+                                                    "--deploy-hook", "haproxy"],
+                                     env=ACME_DEPLOY_ENV)
+                if rc != 0:
+                    result["unissued"].append({"hostname": host, "reason": _tail(out, err)})
             continue
         if dns:
             args = ["--issue", "--dns", dns["hook"], "-d", host]
@@ -704,27 +733,202 @@ def _issue(run, inspect, edge_dir):
     return result
 
 
+# Where Caddy keeps the certificates each CA issued, in its data volume.
+CADDY_CERT_ROOT = "/data/caddy/certificates"
+CADDY_ISSUER_DIRS = {
+    False: ("acme-v02.api.letsencrypt.org-directory", "acme.zerossl.com-v2-dv90"),
+    True: ("acme-staging-v02.api.letsencrypt.org-directory",),
+}
+ACME_CA_URLS = {False: "https://acme-v02.api.letsencrypt.org/directory",
+                True: "https://acme-staging-v02.api.letsencrypt.org/directory"}
+RENEW_BEFORE = 30 * 86400
+
+
+def _caddy_certificates(run, instance_path, compose_command):
+    """{issuer dir: {hostname: (crt, key)}} from the instance's caddy-data
+    volume, read through compose so the volume's name need not be known."""
+    rc, out, err = run(shlex.split(compose_command) + [
+        "run", "--rm", "--no-deps", "--entrypoint", "sh", "caddy", "-c",
+        "[ -d %s ] && tar -C %s -cf - . | base64 || true"
+        % (CADDY_CERT_ROOT, CADDY_CERT_ROOT)], cwd=instance_path)
+    if rc != 0:
+        raise EdgeError("Could not read Caddy's certificates: %s" % _tail(out, err))
+    found = {}
+    data = base64.b64decode("".join(out.split()) or b"")
+    if not data:
+        return found
+    with tarfile.open(fileobj=io.BytesIO(data)) as archive:
+        for member in archive.getmembers():
+            parts = member.name.lstrip("./").split("/")
+            if len(parts) != 3 or not member.isfile():
+                continue
+            issuer, host, name = parts
+            if name not in ("%s.crt" % host, "%s.key" % host):
+                continue
+            entry = found.setdefault(issuer, {}).setdefault(host, {})
+            entry[name.rsplit(".", 1)[1]] = archive.extractfile(member).read().decode()
+    return found
+
+
+def _cert_dates(run, inspect, edge_dir, pem):
+    """(notBefore, notAfter) of a certificate, as epoch seconds."""
+    rc, out, err = run([inspect, "run", "--rm", "-i", "--entrypoint", "openssl",
+                        ACME_IMAGE, "x509", "-noout", "-startdate", "-enddate"],
+                       data=pem)
+    dates = dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+    if rc != 0 or "notAfter" not in dates:
+        raise EdgeError("Could not read a certificate's dates: %s" % _tail(out, err))
+    return tuple(calendar.timegm(time.strptime(dates[k], "%b %d %H:%M:%S %Y %Z"))
+                 for k in ("notBefore", "notAfter"))
+
+
+def _iso(epoch):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(epoch))
+
+
+def import_caddy_certificates(run, inspect, edge_dir, instance_id, instance_path,
+                              compose_command):
+    """Move the certificates the instance's Caddy holds into the edge.
+
+    Each becomes the edge's PEM for its hostname and an acme.sh record that
+    renews it, so the switch to the edge needs no new certificates. Returns
+    the hostnames imported."""
+    inst = load_instance(instance_id, instance_path)
+    if inst is None or inst["tls_mode"] != "acme":
+        return []
+    held = _caddy_certificates(run, instance_path, compose_command)
+    certs = os.path.join(edge_dir, "conf", "certs")
+    os.makedirs(certs, mode=0o700, exist_ok=True)
+    imported = []
+    for host in inst["hostnames"] + inst["media_hostnames"]:
+        pair = next((held[d][host] for d in CADDY_ISSUER_DIRS[inst["staging_certs"]]
+                     if host in held.get(d, {}) and len(held[d][host]) == 2), None)
+        # acme.sh records hold ECDSA P-256 keys, Caddy's default.
+        if not pair or "BEGIN EC PRIVATE KEY" not in pair["key"]:
+            continue
+        chain = pair["crt"]
+        end = chain.index("-----END CERTIFICATE-----") + len("-----END CERTIFICATE-----")
+        leaf, rest = chain[:end].strip() + "\n", chain[end:].strip() + "\n"
+        not_before, not_after = _cert_dates(run, inspect, edge_dir, leaf)
+        renew = max(not_after - RENEW_BEFORE, int(time.time()))
+        record = os.path.join(edge_dir, "acme", "%s_ecc" % host)
+        os.makedirs(record, mode=0o700, exist_ok=True)
+        for name, content in (("%s.cer" % host, leaf), ("ca.cer", rest),
+                              ("fullchain.cer", chain), ("%s.key" % host, pair["key"])):
+            _write_if_changed(os.path.join(record, name), content, 0o600)
+        conf = {"Le_Domain": host, "Le_Alt": "no", "Le_Webroot": "stateless",
+                "Le_API": ACME_CA_URLS[inst["staging_certs"]], "Le_Keylength": "ec-256",
+                "Le_CertCreateTime": str(not_before), "Le_CertCreateTimeStr": _iso(not_before),
+                "Le_NextRenewTime": str(renew), "Le_NextRenewTimeStr": _iso(renew)}
+        _write_if_changed(os.path.join(record, "%s.conf" % host),
+                          "".join("%s='%s'\n" % kv for kv in conf.items()), 0o600)
+        pem = chain if chain.endswith("\n") else chain + "\n"
+        _write_if_changed(os.path.join(certs, "%s.pem" % host), pem + pair["key"], 0o600)
+        imported.append(host)
+    return imported
+
+
+def _ineligible(instance_id, path, env):
+    """Why an instance cannot move behind the edge, or None if it can."""
+    if (env.get("CADDY_AUTO_HTTPS") or "on").strip().lower() == "off":
+        return "Caddy sits behind another proxy (CADDY_AUTO_HTTPS=off)"
+    if (env.get("HTTP_PORT") or "80").strip() != "80" or \
+            (env.get("HTTPS_PORT") or "443").strip() != "443":
+        return "it serves its own ports (HTTP_PORT/HTTPS_PORT)"
+    try:
+        probe = dict(env, CANASTA_ENABLE_EDGE="true")
+        wikis = (yaml.safe_load(_read(os.path.join(path, "config", "wikis.yaml")) or "")
+                 or {}).get("wikis") or []
+        media = (yaml.safe_load(_read(os.path.join(path, "config", "media-hosts.yaml")) or "")
+                 or {}).get("media_hosts") or []
+        instance_from_config(instance_id, probe, wikis,
+                             [m for m in media if (m.get("hostname") or "").strip()])
+    except EdgeError as exc:
+        return str(exc)
+    return None
+
+
+def _publishes_web_ports(env):
+    if edge_enabled(env):
+        return False
+    https = (env.get("CADDY_AUTO_HTTPS") or "on").strip().lower() != "off"
+    return ((env.get("HTTP_PORT") or "80").strip() == "80"
+            or (https and (env.get("HTTPS_PORT") or "443").strip() == "443"))
+
+
+def plan_conversion(instances):
+    """Decide which of a host's Compose instances move behind the edge.
+
+    instances: [{id, path, orchestrator, compose_command}]; Kubernetes
+    instances are left out. An instance whose .env already
+    sets CANASTA_ENABLE_EDGE keeps its choice. One that can move does, unless
+    an instance staying outside the edge serves 80 or 443 itself, which the
+    edge would collide with; then none on the host move. Returns {convert:
+    [ids], decline: {id: reason}}."""
+    convert, decline, staying = [], {}, []
+    runtimes = set()
+    for inst in instances:
+        if is_k8s_orchestrator(inst.get("orchestrator") or "compose") or \
+                not os.path.isdir(inst["path"]):
+            continue
+        env = read_env(inst["path"])
+        if (env.get("CANASTA_ENABLE_EDGE") or "").strip():
+            if not edge_enabled(env):
+                staying.append((inst["id"], env))
+            continue
+        reason = _ineligible(inst["id"], inst["path"], env)
+        if reason:
+            decline[inst["id"]] = reason
+            staying.append((inst["id"], env))
+        else:
+            convert.append(inst["id"])
+            runtimes.add(inst.get("compose_command") or "")
+    blockers = [i for i, env in staying if _publishes_web_ports(env)]
+    if convert and blockers:
+        reason = ("instance %s on this host serves ports 80/443 itself, and the "
+                  "edge would need them" % ", ".join("'%s'" % b for b in blockers))
+        decline.update({i: reason for i in convert})
+        convert = []
+    if len(runtimes) > 1:
+        reason = "the host's instances use different container runtimes"
+        decline.update({i: reason for i in convert})
+        convert = []
+    return {"convert": convert, "decline": decline}
+
+
 def run_module():
     module = AnsibleModule(
         argument_spec=dict(
-            state=dict(type="str", choices=["sync", "issue"], default="sync"),
+            state=dict(type="str", choices=["sync", "issue", "plan", "import"],
+                       default="sync"),
+            instances=dict(type="list", elements="dict"),
+            compose_command=dict(type="str", default="docker compose"),
             instance_id=dict(type="str"),
             instance_path=dict(type="str"),
             member=dict(type="str", choices=["present", "absent"]),
             inspect_command=dict(type="str", default="docker"),
             edge_dir=dict(type="str"),
         ),
-        required_if=[("state", "sync", ("instance_id", "instance_path"))],
+        required_if=[("state", "sync", ("instance_id", "instance_path")),
+                     ("state", "import", ("instance_id", "instance_path")),
+                     ("state", "plan", ("instances",))],
     )
     params = module.params
     edge_dir = params["edge_dir"] or os.path.join(get_config_dir(), "edge")
 
-    def run(argv, env=None):
-        return module.run_command(argv, environ_update=env or {})
+    def run(argv, env=None, cwd=None, data=None):
+        return module.run_command(argv, environ_update=env or {}, cwd=cwd, data=data)
 
     try:
         if params["state"] == "issue":
             result = issue(run, params["inspect_command"], edge_dir)
+        elif params["state"] == "plan":
+            result = dict(plan_conversion(params["instances"] or []), changed=False)
+        elif params["state"] == "import":
+            imported = _locked(edge_dir, import_caddy_certificates, run,
+                               params["inspect_command"], edge_dir, params["instance_id"],
+                               params["instance_path"], params["compose_command"])
+            result = {"changed": bool(imported), "imported": imported}
         else:
             result = sync(run, params["inspect_command"], edge_dir,
                           params["instance_id"], params["instance_path"],

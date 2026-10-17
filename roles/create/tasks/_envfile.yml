@@ -87,11 +87,24 @@
 # behind an ingress that terminates TLS, so https:// is the correct
 # $wgServer and forcing http:// would make MediaWiki emit http:// links
 # on an https site.
+# The create preflight decided it (Docker Compose only): from the env file
+# if it says, else behind the edge unless the instance cannot be routed by
+# hostname or asks for its own ports.
 - name: Determine whether the instance sits behind the edge
   ansible.builtin.set_fact:
     _behind_edge: >-
       {{ not (instance_is_k8s | default(false) | bool)
-         and _env_for_port.variables.CANASTA_ENABLE_EDGE | default('false', true) | lower == 'true' }}
+         and (create_behind_edge | default(
+               _env_for_port.variables.CANASTA_ENABLE_EDGE | default('false', true) | lower == 'true')
+              | bool) }}
+
+- name: Record whether the instance sits behind the edge
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: CANASTA_ENABLE_EDGE
+    value: "{{ _behind_edge | bool | string | lower }}"
+  when: not (instance_is_k8s | default(false) | bool)
 
 # The edge always terminates TLS, and routes by hostname.
 - name: Refuse --skip-tls behind the edge
@@ -112,7 +125,7 @@
       or leave CANASTA_ENABLE_EDGE unset.
   when:
     - _behind_edge | bool
-    - (domain_name | default('localhost')) is match('^(localhost|.*\\.localhost|[0-9.]+|.*:.*)$')
+    - (domain_name | default('localhost')) is match('^(localhost|.*[.]localhost|[0-9.]+|.*:.*)$')
 
 # Behind the edge every wiki is served at https://<host> on 443.
 - name: Determine which port (if any) to append to the domain

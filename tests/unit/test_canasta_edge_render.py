@@ -284,3 +284,15 @@ def test_extra_hostnames_are_routed_once():
         "one", {}, [{"id": "w", "url": "example.com"}],
         extra_hostnames=["www.example.com", "example.com"])
     assert inst["hostnames"] == ["example.com", "www.example.com"]
+
+
+def test_media_hosts_get_their_own_unthrottled_backend():
+    inst = _inst(media=("images.example.com",), env={"CANASTA_EDGE_MEDIA_MAXCONN": "50"})
+    cfg = edge.render([inst])["files"]["haproxy.cfg"]
+    media = cfg.split("backend be_wiki1_media\n", 1)[1].split("\n\n", 1)[0]
+    assert "track-sc0" not in media and "maxconn 50" in media
+    assert "use_backend be_%[var(txn.inst)]_media if known_site media_host" in cfg
+
+
+def test_no_media_backend_without_media_hosts():
+    assert "be_wiki1_media" not in edge.render([_inst()])["files"]["haproxy.cfg"]

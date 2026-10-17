@@ -137,11 +137,13 @@ canasta_known_keys:
   - name: CADDY_TLS_MODE
     group: Caddy / TLS
     description: >-
-      How Caddy obtains its certificate. "acme" (default) uses Let's Encrypt.
-      "internal" issues from Caddy's own CA and never contacts ACME — correct
-      behind a CDN that terminates public TLS and does not validate the origin
-      certificate. "custom" serves CADDY_TLS_CERT and CADDY_TLS_KEY from
-      config/certs/.
+      How the instance's certificates are obtained, by Caddy or, behind the
+      HAProxy edge, by the edge. "acme" (default) uses Let's Encrypt.
+      "internal" issues from a local CA and never contacts ACME — correct
+      behind a CDN that terminates public TLS and does not validate the
+      origin certificate. "custom" serves CADDY_TLS_CERT and CADDY_TLS_KEY
+      from config/certs/. "acme-dns" (edge only) uses Let's Encrypt with DNS
+      validation through ACME_DNS_PROVIDER.
     default: "acme"
   - name: CADDY_TLS_CERT
     group: Caddy / TLS
@@ -159,16 +161,72 @@ canasta_known_keys:
   - name: CADDY_TRUSTED_PROXIES
     group: Caddy / TLS
     description: >-
-      Recover real client IPs when Caddy is behind a proxy/CDN. Set to
-      "cloudflare" or "imperva", or a comma-separated CIDR list. Unset =
-      Caddy is the edge (default).
+      Recover real client IPs behind a CDN or proxy, in Caddy and at the
+      HAProxy edge. Set to "cloudflare" or "imperva", or a comma-separated
+      CIDR list of proxies whose X-Forwarded-For to trust. Unset = no CDN or
+      proxy in front (default).
+  - name: ACME_DNS_PROVIDER
+    group: Caddy / TLS
+    description: >-
+      DNS provider for CADDY_TLS_MODE=acme-dns. "cloudflare" (default, and
+      the only one so far) uses CLOUDFLARE_API_TOKEN.
+    default: "cloudflare"
+  - name: CLOUDFLARE_API_TOKEN
+    group: Caddy / TLS
+    description: >-
+      Cloudflare API token with DNS edit permission for the instance's zone,
+      used by CADDY_TLS_MODE=acme-dns
+  - name: CLOUDFLARE_ZONE_ID
+    group: Caddy / TLS
+    description: >-
+      Cloudflare zone ID for CADDY_TLS_MODE=acme-dns; keeps the token with
+      the instance's certificates, so instances with different tokens can
+      share the edge
+  - name: CANASTA_ENABLE_EDGE
+    group: HAProxy edge
+    description: >-
+      true puts the instance behind the host's HAProxy edge, which serves
+      ports 80 and 443 for every instance on the host, terminates TLS and
+      throttles scrapers. false leaves Caddy serving the instance's own
+      ports. Set by create and upgrade
+  - name: CANASTA_EDGE_RATE_DYNAMIC
+    group: HAProxy edge
+    description: >-
+      Requests one client may make in 10 seconds that always reach PHP
+      (API, Special pages, logged-in views) before the edge answers 429; 0
+      turns the limit off
+    default: "60"
+  - name: CANASTA_EDGE_RATE_DEFAULT
+    group: HAProxy edge
+    description: >-
+      Page views one client may request in 10 seconds before the edge
+      answers 429; 0 turns the limit off
+    default: "300"
+  - name: CANASTA_EDGE_DYNAMIC_MAXCONN
+    group: HAProxy edge
+    description: >-
+      Concurrent requests that always reach PHP the edge passes to the
+      instance; more wait in a queue. Defaults to 60% of PM_MAX_CHILDREN
+  - name: CANASTA_EDGE_DEFAULT_MAXCONN
+    group: HAProxy edge
+    description: >-
+      Concurrent page views the edge passes to the instance; more wait in a
+      queue. Defaults to 8 times PM_MAX_CHILDREN (2 times without Varnish)
+  - name: CANASTA_EDGE_MEDIA_MAXCONN
+    group: HAProxy edge
+    description: >-
+      Concurrent requests for the instance's media hostnames the edge
+      passes on; more wait in a queue. Media hostnames are not rate-limited
+      per client, since they never reach PHP
+    default: "500"
   - name: CADDY_TRUSTED_PROXY_CIDRS
     group: Caddy / TLS
     description: >-
       Kubernetes only. Comma-separated CIDRs of the in-cluster ingress to
       trust so Caddy reads the real client IP. Defaults to the standard
       private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16); override
-      only for a non-default pod/service CIDR. Ignored on Compose.
+      only for a non-default pod/service CIDR. On Compose, applies behind
+      the HAProxy edge.
 
   - name: CANASTA_IMAGE
     group: Docker Image

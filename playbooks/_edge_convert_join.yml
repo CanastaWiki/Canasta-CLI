@@ -1,0 +1,22 @@
+---
+# Bring one instance's Caddy back up behind the edge. The first instance
+# starts the edge.
+# Input: _edge_inst
+
+- name: Point the facts at the instance
+  ansible.builtin.include_tasks: _edge_instance_facts.yml
+
+- name: Add the instance to the edge
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: edge_sync.yml
+
+- name: Point the facts at the instance's edge layer
+  ansible.builtin.include_tasks: _edge_instance_facts.yml
+
+- name: Start the instance's Caddy behind the edge
+  ansible.builtin.command:
+    cmd: "{{ compose_command }} {{ _edge_caddy_files | join(' ') }} up -d --no-deps caddy"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when: _edge_was_running[instance_id] | default(false) | bool

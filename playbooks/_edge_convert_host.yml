@@ -1,0 +1,111 @@
+---
+# Move a host's eligible Docker Compose instances behind the HAProxy edge.
+# Called once per host from upgrade.yml, before the instances upgrade, so
+# the switch happens for every instance on the host at once: the edge needs
+# 80/443, which each instance's Caddy holds until then.
+# Input: _edge_host_name, _edge_host_instances (the host's Compose
+#        registry entries, as id -> entry items)
+
+- name: Point the connection at the host
+  ansible.builtin.set_fact:
+    _instance_host: "{{ _edge_host_name }}"
+
+- name: Switch connection to the host
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/switch_connection.yml"
+
+- name: Reset the instances to plan for
+  ansible.builtin.set_fact:
+    _edge_plan_input: []
+
+- name: List the host's instances for the plan
+  ansible.builtin.set_fact:
+    _edge_plan_input: >-
+      {{ _edge_plan_input + [{
+           'id': item.key, 'path': item.value.path,
+           'orchestrator': item.value.orchestrator | default('compose'),
+           'compose_command': item.value.composeCommand
+                              | default(_upgrade_default_compose_command)}] }}
+  loop: "{{ _edge_host_instances }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Decide which instances move behind the edge
+  canasta_edge:
+    state: plan
+    instances: "{{ _edge_plan_input }}"
+    inspect_command: "{{ _upgrade_default_inspect_command }}"
+  register: _edge_plan
+
+# An explicit false is not reconsidered at the next upgrade; the operator
+# can move the instance later with `canasta config set CANASTA_ENABLE_EDGE=true`.
+- name: Keep instances outside the edge
+  ansible.builtin.include_tasks: _edge_set_flag.yml
+  loop: "{{ _edge_plan.decline | dict2items }}"
+  loop_control:
+    loop_var: _edge_flag
+    label: "{{ _edge_flag.key }}"
+  vars:
+    _edge_flag_value: "false"
+
+- name: Report instances that stay outside the edge
+  ansible.builtin.debug:
+    msg: >-
+      '{{ item.key }}' stays outside the HAProxy edge: {{ item.value }}.
+  loop: "{{ _edge_plan.decline | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Move instances behind the edge
+  when: _edge_plan.convert | length > 0
+  block:
+    - name: Prepare each instance for the edge
+      ansible.builtin.include_tasks: _edge_convert_prepare.yml
+      loop: "{{ _edge_host_instances | selectattr('key', 'in', _edge_plan.convert) | list }}"
+      loop_control:
+        loop_var: _edge_inst
+        label: "{{ _edge_inst.key }}"
+
+    # From here until each instance rejoins, its sites are down: seconds.
+    - name: Stop each instance's Caddy
+      ansible.builtin.command:
+        cmd: "{{ _edge_inst.value.composeCommand | default(_upgrade_default_compose_command) }} stop caddy"
+        chdir: "{{ _edge_inst.value.path }}"
+      loop: "{{ _edge_host_instances | selectattr('key', 'in', _edge_plan.convert) | list }}"
+      loop_control:
+        loop_var: _edge_inst
+        label: "{{ _edge_inst.key }}"
+      changed_when: true
+
+    - name: Bring each instance up behind the edge
+      ansible.builtin.include_tasks: _edge_convert_join.yml
+      loop: "{{ _edge_host_instances | selectattr('key', 'in', _edge_plan.convert) | list }}"
+      loop_control:
+        loop_var: _edge_inst
+        label: "{{ _edge_inst.key }}"
+
+    - name: Report instances now behind the edge
+      ansible.builtin.debug:
+        msg: >-
+          Moved {{ _edge_plan.convert | join(', ') }} behind the HAProxy edge,
+          which now serves ports 80 and 443 on {{ _edge_host_name }}.
+
+  rescue:
+    - name: Put each instance back in front of its own Caddy
+      ansible.builtin.include_tasks: _edge_convert_revert.yml
+      loop: "{{ _edge_host_instances | selectattr('key', 'in', _edge_plan.convert) | list }}"
+      loop_control:
+        loop_var: _edge_inst
+        label: "{{ _edge_inst.key }}"
+
+    # Reported with the other upgrade failures once every instance has had
+    # its turn; the instances themselves upgrade as before.
+    - name: Record the failed move to the edge
+      ansible.builtin.set_fact:
+        _upgrade_failures: >-
+          {{ _upgrade_failures | default([]) + [
+               'moving ' ~ (_edge_plan.convert | join(', ')) ~ ' behind the HAProxy edge on '
+               ~ _edge_host_name ~ ': '
+               ~ (ansible_failed_result.msg | default('see the task above'))
+               ~ '. They are back on their own Caddy with CANASTA_ENABLE_EDGE=false;'
+               ~ ' unset it with `canasta config unset CANASTA_ENABLE_EDGE` to try'
+               ~ ' again at the next upgrade.'] }}
