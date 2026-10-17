@@ -311,3 +311,12 @@ def test_the_shipped_snippet_template_adds_nothing():
     with open(os.path.join(root, "instance_template", "config", "haproxy-backend.cfg")) as f:
         template = f.read()
     assert _inst(snippet=template)["snippet"] == []
+
+
+def test_the_spoe_message_is_one_the_bouncer_answers():
+    # crowdsecurity/spoa-bouncer ignores any other message name.
+    inst = _inst(env={"CANASTA_ENABLE_CROWDSEC": "true", "CROWDSEC_SPOA_API_KEY": "k"})
+    spoe = edge.render([inst])["files"]["spoe-wiki1.cfg"]
+    assert "spoe-message crowdsec-http-no-body\n" in spoe
+    assert "messages crowdsec-http-no-body\n" in spoe
+    assert "src-ip=src " in spoe

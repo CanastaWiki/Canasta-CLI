@@ -437,14 +437,15 @@ def _render_spoe(inst):
         "    timeout processing 500ms",
         "    use-backend be_%s_crowdsec" % inst["id"],
         "",
-        # The client address is the one the frontend recovered.
-        "spoe-message crowdsec-http",
+        # The client address is the one the frontend recovered. The bouncer
+        # answers only the message names it knows, and ignores others.
+        "spoe-message crowdsec-http-no-body",
         "    args remediation=var(txn.crowdsec.remediation) method=method path=path "
         "query=query version=req.ver headers=req.hdrs url=url ssl=ssl_fc "
         "src-ip=src src-port=src_port",
         "",
         "spoe-group crowdsec-http",
-        "    messages crowdsec-http",
+        "    messages crowdsec-http-no-body",
         "",
     ])
 
