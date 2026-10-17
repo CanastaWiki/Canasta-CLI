@@ -1,0 +1,38 @@
+---
+# Point the per-instance facts at one of the host's instances.
+# Input: _edge_inst (item: key = instance ID, value = registry entry)
+
+- name: Set instance facts
+  ansible.builtin.set_fact:
+    instance_id: "{{ _edge_inst.key }}"
+    instance_path: "{{ _edge_inst.value.path }}"
+    instance_orchestrator: compose
+    instance_devmode: "{{ _edge_inst.value.devMode | default(false) }}"
+    compose_command: >-
+      {{ _edge_inst.value.composeCommand | default(_upgrade_default_compose_command) }}
+    inspect_command: >-
+      {{ _edge_inst.value.inspectCommand | default(_upgrade_default_inspect_command) }}
+
+- name: Check for docker-compose.web-env.yml
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/docker-compose.web-env.yml"
+  register: _edge_web_env
+
+- name: Check for docker-compose.edge.yml
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/docker-compose.edge.yml"
+  register: _edge_layer
+
+- name: Check for docker-compose.override.yml
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/docker-compose.override.yml"
+  register: _edge_override
+
+# The layers that can change the caddy service, in start.yml's order.
+- name: Build the compose file arguments for Caddy
+  ansible.builtin.set_fact:
+    _edge_caddy_files: >-
+      {{ ['-f', 'docker-compose.yml'] +
+         (_edge_web_env.stat.exists | ternary(['-f', 'docker-compose.web-env.yml'], [])) +
+         (_edge_layer.stat.exists | ternary(['-f', 'docker-compose.edge.yml'], [])) +
+         (_edge_override.stat.exists | ternary(['-f', 'docker-compose.override.yml'], [])) }}

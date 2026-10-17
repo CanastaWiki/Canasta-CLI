@@ -45,6 +45,9 @@
     _behind_proxy: >-
       {{ (instance_is_k8s | bool)
          or (_env_caddy.variables.CANASTA_ENABLE_EDGE | default('false', true) | lower == 'true') }}
+    _behind_edge: >-
+      {{ not (instance_is_k8s | bool)
+         and (_env_caddy.variables.CANASTA_ENABLE_EDGE | default('false', true) | lower == 'true') }}
     # CrowdSec enabled (engine runs) vs. active (bouncer enforces). The
     # engine parses the access log as soon as it's enabled, so the K8s
     # real-client-IP trusted-proxy handling keys off _crowdsec_enabled —
@@ -145,19 +148,24 @@
     # CADDY_TRUSTED_PROXY_CIDRS. Empty when Caddy is the edge.
     _proxy_trusted_cidrs: >-
       {{ ((_env_caddy.variables.CADDY_TRUSTED_PROXY_CIDRS
-           | default('10.0.0.0/8,172.16.0.0/12,192.168.0.0/16'))
+           | default('10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7'))
           | split(',') | map('trim') | reject('equalto', '') | list)
          if (_behind_proxy | bool) else [] }}
 
 - name: Normalize trusted-proxy mode
   ansible.builtin.set_fact:
-    _tp_mode: "{{ _tp_raw | lower }}"
-    # Activate trusted-proxy handling when the operator sets
-    # CADDY_TRUSTED_PROXIES, or — behind a proxy — whenever CrowdSec is
+    # Behind the edge, the edge has already recovered the client address
+    # (from a CDN's header or a trusted proxy's X-Forwarded-For, per
+    # CADDY_TRUSTED_PROXIES) and appended it to X-Forwarded-For. Caddy reads
+    # only that, so a client-supplied CDN header is never believed.
+    _tp_mode: "{{ 'edge' if (_behind_edge | bool) else (_tp_raw | lower) }}"
+    # Activate trusted-proxy handling behind the edge, when the operator
+    # sets CADDY_TRUSTED_PROXIES, or — behind a proxy — whenever CrowdSec is
     # enabled, so the engine attributes decisions to the real client IP
     # instead of the proxy's (true even before the bouncer is enrolled).
     _trusted_proxies_enabled: >-
-      {{ (_tp_raw | length) > 0 or (_behind_proxy | bool and _crowdsec_enabled | bool) }}
+      {{ (_behind_edge | bool) or (_tp_raw | length) > 0
+         or (_behind_proxy | bool and _crowdsec_enabled | bool) }}
 
 - name: Resolve trusted-proxy rendering parameters
   ansible.builtin.set_fact:
@@ -174,7 +182,7 @@
     # of their own; their ranges come from the cdn_ranges source.
     _trusted_proxies_cidrs: >-
       {{ _proxy_trusted_cidrs
-         + ([] if _tp_mode in ['cloudflare', 'imperva']
+         + ([] if _tp_mode in ['cloudflare', 'imperva', 'edge']
             else (_tp_raw | split(',') | map('trim') | reject('equalto', '') | list)) }}
     _trusted_proxies_headers: >-
       {{ 'Cf-Connecting-Ip' if _tp_mode == 'cloudflare'

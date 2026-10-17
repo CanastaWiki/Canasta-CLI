@@ -6,6 +6,7 @@ rendered configuration.
 """
 
 import os
+import re
 import shutil
 import subprocess
 
@@ -100,6 +101,12 @@ def _instance(root, name, hosts=("example.com",), env=None, media=(), certs=None
     for name, content in (certs or {}).items():
         (path / "config" / "certs" / name).write_text(content)
     return str(path)
+
+
+@pytest.fixture(autouse=True)
+def _no_host_ipv6(monkeypatch):
+    # The test host's own IPv6 must not change what is rendered.
+    monkeypatch.setattr(mod, "host_has_ipv6", lambda: False)
 
 
 def _sync(run, edge, inst_id, path, member=None):
@@ -215,8 +222,8 @@ def test_custom_certificate_is_assembled_from_the_instance(tmp_path):
 
 def test_missing_custom_certificate_is_refused(tmp_path):
     path = _instance(tmp_path, "one", env={"CADDY_TLS_MODE": "custom"})
-    with pytest.raises(mod.EdgeError, match="origin.crt or origin.key is missing"):
-        _sync(FakeRunner(), tmp_path / "edge", "one", path)
+    result = _sync(FakeRunner(), tmp_path / "edge", "one", path)
+    assert re.search("origin.crt or origin.key is missing", result["error"])
 
 
 def test_media_entries_without_a_hostname_are_skipped(tmp_path):
@@ -236,16 +243,14 @@ def test_media_entries_without_a_hostname_are_skipped(tmp_path):
 def test_an_invalid_render_is_not_installed(tmp_path):
     path = _instance(tmp_path, "one")
     edge = tmp_path / "edge"
-    with pytest.raises(mod.EdgeError, match="bad config"):
-        _sync(FakeRunner(invalid=True), edge, "one", path)
+    assert re.search("bad config", _sync(FakeRunner(invalid=True), edge, "one", path)["error"])
     assert not (edge / "conf" / "haproxy.cfg").exists()
     assert not [n for n in os.listdir(edge) if n.startswith(".stage-")]
 
 
 def test_a_render_error_names_the_instance(tmp_path):
     path = _instance(tmp_path, "one", hosts=("example.com:8443",))
-    with pytest.raises(mod.EdgeError, match="Instance 'one'.*has a port"):
-        _sync(FakeRunner(), tmp_path / "edge", "one", path)
+    assert re.search("Instance 'one'.*has a port", _sync(FakeRunner(), tmp_path / "edge", "one", path)["error"])
 
 
 # --- the real images ---------------------------------------------------------- #
@@ -496,8 +501,7 @@ def test_switching_validation_method_reissues(tmp_path):
 
 def test_acme_dns_needs_a_token(tmp_path):
     path = _instance(tmp_path, "one", env={"CADDY_TLS_MODE": "acme-dns"})
-    with pytest.raises(mod.EdgeError, match="CLOUDFLARE_API_TOKEN is not set"):
-        _sync(FakeRunner(), tmp_path / "edge", "one", path)
+    assert re.search("CLOUDFLARE_API_TOKEN is not set", _sync(FakeRunner(), tmp_path / "edge", "one", path)["error"])
 
 
 def test_different_tokens_without_zone_ids_are_refused(tmp_path):
@@ -506,8 +510,7 @@ def test_different_tokens_without_zone_ids_are_refused(tmp_path):
     two = _instance(tmp_path, "two", hosts=("two.example.org",),
                     env=dict(DNS_ENV, CLOUDFLARE_API_TOKEN="other"))
     _sync(FakeRunner(), edge, "one", one)
-    with pytest.raises(mod.EdgeError, match="Set CLOUDFLARE_ZONE_ID for each"):
-        _sync(FakeRunner(), edge, "two", two)
+    assert re.search("Set CLOUDFLARE_ZONE_ID for each", _sync(FakeRunner(), edge, "two", two)["error"])
 
 
 def test_different_tokens_with_zone_ids_are_fine(tmp_path):
@@ -574,3 +577,268 @@ def test_caddyfile_global_sites_are_routed_and_certified(tmp_path):
     assert "www.example.com.pem" in os.listdir(edge / "conf" / "certs")
     assert result["unrouted_sites"] == [
         {"instance": "one", "address": "*.example.org", "reason": "it is a wildcard"}]
+
+
+# --- moving existing instances behind the edge -------------------------------- #
+
+def _plain(root, name, env=None, hosts=("example.com",)):
+    path = _instance(root, name, hosts=hosts, env=dict({"CANASTA_ENABLE_EDGE": ""}, **(env or {})))
+    with open(os.path.join(path, ".env")) as f:
+        lines = [line for line in f if not line.startswith("CANASTA_ENABLE_EDGE=")]
+    with open(os.path.join(path, ".env"), "w") as f:
+        f.writelines(lines)
+        for key, value in (env or {}).items():
+            f.write("%s=%s\n" % (key, value))
+    return path
+
+
+def _entry(name, path, runtime="docker compose"):
+    return {"id": name, "path": path, "compose_command": runtime}
+
+
+def test_an_instance_on_the_standard_ports_moves(tmp_path):
+    one = _plain(tmp_path, "one")
+    assert mod.plan_conversion([_entry("one", one)]) == {"convert": ["one"], "decline": {}, "skip": {}}
+
+
+@pytest.mark.parametrize("env,hosts,fragment", [
+    ({"CADDY_AUTO_HTTPS": "off"}, ("example.com",), "CADDY_AUTO_HTTPS=off"),
+    ({"HTTPS_PORT": "8443"}, ("example.com:8443",), "its own ports"),
+    ({}, ("localhost",), "localhost"),
+    ({}, ("192.0.2.4",), "IP address"),
+])
+def test_instances_that_cannot_move_say_why(tmp_path, env, hosts, fragment):
+    one = _plain(tmp_path, "one", env=env, hosts=hosts)
+    plan = mod.plan_conversion([_entry("one", one)])
+    assert plan["convert"] == [] and fragment in plan["decline"]["one"]
+
+
+def test_an_explicit_choice_is_kept(tmp_path):
+    on = _plain(tmp_path, "on", env={"CANASTA_ENABLE_EDGE": "true"})
+    off = _plain(tmp_path, "off", env={"CANASTA_ENABLE_EDGE": "false", "HTTP_PORT": "8080",
+                                       "HTTPS_PORT": "8443"}, hosts=("off.example.org:8443",))
+    plan = mod.plan_conversion([_entry("on", on), _entry("off", off)])
+    assert plan == {"convert": [], "decline": {}, "skip": {}}
+
+
+def test_an_instance_staying_on_80_443_blocks_the_host(tmp_path):
+    one = _plain(tmp_path, "one")
+    local = _plain(tmp_path, "local", hosts=("localhost",))
+    plan = mod.plan_conversion([_entry("one", one), _entry("local", local)])
+    assert plan["convert"] == []
+    assert "instance 'local' on this host serves ports 80/443" in plan["skip"]["one"]
+
+
+def test_an_instance_on_other_ports_does_not_block(tmp_path):
+    one = _plain(tmp_path, "one")
+    other = _plain(tmp_path, "other", env={"HTTP_PORT": "8080", "HTTPS_PORT": "8443"},
+                   hosts=("other.example.org:8443",))
+    plan = mod.plan_conversion([_entry("one", one), _entry("other", other)])
+    assert plan["convert"] == ["one"] and "own ports" in plan["decline"]["other"]
+
+
+def test_mixed_runtimes_do_not_move(tmp_path):
+    one = _plain(tmp_path, "one")
+    two = _plain(tmp_path, "two", hosts=("two.example.org",))
+    plan = mod.plan_conversion([_entry("one", one), _entry("two", two, "docker-compose")])
+    assert plan["convert"] == [] and "runtimes" in plan["skip"]["one"]
+    assert "one" not in plan["decline"]
+
+
+def test_podman_instances_stay_off_the_edge_without_a_choice(tmp_path):
+    one = _plain(tmp_path, "one")
+    plan = mod.plan_conversion([_entry("one", one, "podman-compose")])
+    assert plan["convert"] == [] and plan["decline"] == {}
+    assert "rootless Podman" in plan["skip"]["one"]
+
+
+LEAF = "-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----\n"
+CHAIN = LEAF + "-----BEGIN CERTIFICATE-----\nINTERMEDIATE\n-----END CERTIFICATE-----\n"
+EC_KEY = "-----BEGIN EC PRIVATE KEY-----\nKEY\n-----END EC PRIVATE KEY-----\n"
+
+
+class CaddyVolume(FakeRunner):
+    """Serves a caddy-data certificates tree through `compose run`, and
+    certificate dates through `openssl`."""
+
+    def __init__(self, files, **kwargs):
+        super().__init__(**kwargs)
+        self.files = files
+
+    def __call__(self, argv, env=None, cwd=None, data=None):
+        if "run" in argv and "caddy" in argv:
+            import base64
+            import io
+            import tarfile
+            buf = io.BytesIO()
+            with tarfile.open(fileobj=buf, mode="w") as archive:
+                for name, content in self.files.items():
+                    info = tarfile.TarInfo("./" + name)
+                    info.size = len(content.encode())
+                    archive.addfile(info, io.BytesIO(content.encode()))
+            return 0, base64.b64encode(buf.getvalue()).decode(), ""
+        if "x509" in argv:
+            return 0, ("notBefore=Oct 17 03:27:34 2026 GMT\n"
+                       "notAfter=Jan 15 03:27:33 2027 GMT\n"), ""
+        return super().__call__(argv, env)
+
+
+LE = "acme-v02.api.letsencrypt.org-directory"
+
+
+def _import(tmp_path, files, env=None, hosts=("example.com",)):
+    path = _instance(tmp_path, "one", hosts=hosts, env=env)
+    edge = tmp_path / "edge"
+    run = CaddyVolume(files)
+    return path, edge, mod.import_caddy_certificates(
+        run, "docker", str(edge), "one", path, "docker compose")
+
+
+def test_caddy_certificates_become_edge_pems_and_acme_records(tmp_path):
+    _, edge, imported = _import(tmp_path, {
+        "%s/example.com/example.com.crt" % LE: CHAIN,
+        "%s/example.com/example.com.key" % LE: EC_KEY,
+    })
+    assert imported == ["example.com"]
+    assert (edge / "conf" / "certs" / "example.com.pem").read_text() == CHAIN + EC_KEY
+    record = edge / "acme" / "example.com_ecc"
+    assert (record / "example.com.cer").read_text() == LEAF
+    assert "INTERMEDIATE" in (record / "ca.cer").read_text()
+    conf = (record / "example.com.conf").read_text()
+    assert "Le_API='https://acme-v02.api.letsencrypt.org/directory'" in conf
+    assert "Le_Webroot='stateless'" in conf and "Le_Keylength='ec-256'" in conf
+    # Renewal 30 days before notAfter (2027-01-15 03:27:33 UTC).
+    assert "Le_NextRenewTimeStr='2026-12-16T03:27:33Z'" in conf
+
+
+def test_rsa_and_internal_certificates_are_not_imported(tmp_path):
+    rsa = "-----BEGIN RSA PRIVATE KEY-----\nK\n-----END RSA PRIVATE KEY-----\n"
+    _, edge, imported = _import(tmp_path, {
+        "%s/example.com/example.com.crt" % LE: CHAIN,
+        "%s/example.com/example.com.key" % LE: rsa,
+        "local/www.example.com/www.example.com.crt": CHAIN,
+        "local/www.example.com/www.example.com.key": EC_KEY,
+    }, hosts=("example.com", "www.example.com"))
+    assert imported == []
+
+
+def test_a_staging_instance_takes_staging_certificates(tmp_path):
+    stg = "acme-staging-v02.api.letsencrypt.org-directory"
+    _, edge, imported = _import(tmp_path, {
+        "%s/example.com/example.com.crt" % LE: CHAIN,
+        "%s/example.com/example.com.key" % LE: EC_KEY,
+        "%s/example.com/example.com.crt" % stg: CHAIN,
+        "%s/example.com/example.com.key" % stg: EC_KEY,
+    }, env={"CANASTA_STAGING_CERTS": "true"})
+    conf = (edge / "acme" / "example.com_ecc" / "example.com.conf").read_text()
+    assert imported == ["example.com"] and "acme-staging-v02" in conf
+
+
+def test_an_imported_certificate_is_deployed_not_reissued(tmp_path):
+    """acme.sh lists an imported record as issued; the edge deploys it once
+    so acme.sh records its deploy hook for renewals."""
+    edge = tmp_path / "edge"
+    record = edge / "acme" / "example.com_ecc"
+    record.mkdir(parents=True)
+    (record / "example.com.conf").write_text("Le_Webroot='stateless'\n")
+    run = FakeRunner(running=True, listed={"example.com": ("LetsEncrypt.org", True)})
+    _issue(tmp_path, run, one={})
+    assert run.acme_calls("--issue") == []
+    assert len(run.acme_calls("--deploy")) == 1
+
+
+def test_kubernetes_instances_are_left_out_of_the_plan(tmp_path):
+    one = _plain(tmp_path, "one")
+    entry = dict(_entry("one", one), orchestrator="kubernetes")
+    assert mod.plan_conversion([entry]) == {"convert": [], "decline": {}, "skip": {}}
+
+
+# --- IPv6 --------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("has_ipv6", [True, False])
+def test_the_edge_network_has_ipv6_when_the_host_does(tmp_path, monkeypatch, has_ipv6):
+    monkeypatch.setattr(mod, "host_has_ipv6", lambda: has_ipv6)
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(), edge, "one", path)
+    network = yaml.safe_load((edge / "docker-compose.yml").read_text())["networks"]["edge"]
+    assert network.get("enable_ipv6", False) is has_ipv6
+    if has_ipv6:
+        assert network["ipam"]["config"][0]["subnet"].startswith("fd")
+    assert ("bind :::443" in (edge / "conf" / "haproxy.cfg").read_text()) is has_ipv6
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can write anywhere")
+def test_an_instance_the_cli_cannot_write_is_skipped_and_still_blocks(tmp_path):
+    one = _plain(tmp_path, "one")
+    ro = _plain(tmp_path, "ro", hosts=("ro.example.org",))
+    os.chmod(os.path.join(ro, ".env"), 0o444)
+    try:
+        plan = mod.plan_conversion([_entry("one", one), _entry("ro", ro)])
+    finally:
+        os.chmod(os.path.join(ro, ".env"), 0o644)
+    assert plan["convert"] == []
+    assert plan["skip"]["ro"] == "the CLI cannot write to its directory"
+    assert plan["decline"] == {}
+    assert "instance 'ro' on this host serves ports 80/443" in plan["skip"]["one"]
+
+
+def test_certificates_are_made_in_a_directory_under_the_edge(tmp_path):
+    # Under canasta-docker the CLI's own /tmp does not exist on the host,
+    # so every directory a helper container mounts must live in the edge's.
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    run = FakeRunner()
+    _sync(run, edge, "one", path)
+    mounts = [c[i + 1].split(":")[0] for c in run.calls
+              for i, a in enumerate(c) if a == "-v"]
+    assert mounts and all(m.startswith(str(edge)) for m in mounts), mounts
+    assert not [n for n in os.listdir(edge) if n.startswith(".work-")]
+
+
+def test_a_bad_setting_keeps_the_last_good_configuration(tmp_path):
+    one = _instance(tmp_path, "one")
+    two = _instance(tmp_path, "two", hosts=("two.example.org",))
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(), edge, "one", one)
+    _sync(FakeRunner(), edge, "two", two)
+    good = (edge / "conf" / "haproxy.cfg").read_text()
+    with open(os.path.join(two, mod.SNIPPET_FILE), "w") as f:
+        f.write("frontend sneaky\n")
+    result = _sync(FakeRunner(running=True), edge, "one", one)
+    assert "opens a new section" in result["error"]
+    assert result["members"] == ["one", "two"] and result["running"]
+    assert not result["reload"]
+    assert (edge / "conf" / "haproxy.cfg").read_text() == good
+
+
+def _issued_by_dns(tmp_path, domain_conf, account_conf=""):
+    edge = tmp_path / "edge"
+    conf = edge / "acme" / "example.com_ecc"
+    conf.mkdir(parents=True)
+    (conf / "example.com.conf").write_text(
+        "Le_Webroot='dns_cf'\nLe_DeployHook='haproxy,'\n" + domain_conf)
+    (edge / "acme" / "account.conf").write_text(account_conf)
+    return edge
+
+
+def test_a_rotated_token_reaches_renewals_without_a_reissue(tmp_path):
+    edge = _issued_by_dns(tmp_path, "CF_Token='old'\nCF_Zone_ID='z1'\n")
+    run = FakeRunner(running=True, listed={"example.com": ("LetsEncrypt.org", True)})
+    _issue(tmp_path, run, one={"env": dict(DNS_ENV, CLOUDFLARE_ZONE_ID="z2")})
+    assert not run.acme_calls("--issue")
+    conf = (edge / "acme" / "example.com_ecc" / "example.com.conf").read_text()
+    assert "CF_Token='tok-secret'" in conf and "CF_Zone_ID='z2'" in conf
+    assert "'old'" not in conf and "Le_Webroot='dns_cf'" in conf
+
+
+def test_without_a_zone_id_the_account_keeps_the_token(tmp_path):
+    edge = _issued_by_dns(tmp_path, "CF_Token='old'\nCF_Zone_ID='z1'\n",
+                          "SAVED_CF_Token='older'\nACCOUNT_EMAIL=''\n")
+    run = FakeRunner(running=True, listed={"example.com": ("LetsEncrypt.org", True)})
+    _issue(tmp_path, run, one={"env": DNS_ENV})
+    assert not run.acme_calls("--issue")
+    conf = (edge / "acme" / "example.com_ecc" / "example.com.conf").read_text()
+    assert "CF_Token" not in conf and "CF_Zone_ID" not in conf
+    account = (edge / "acme" / "account.conf").read_text()
+    assert "SAVED_CF_Token='tok-secret'" in account and "ACCOUNT_EMAIL=''" in account

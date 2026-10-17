@@ -45,6 +45,9 @@ DEFAULT_FLOOD_FACTOR_NO_VARNISH = 2
 # Idle keep-alive connections count against the process limit as well.
 GLOBAL_MAXCONN_FACTOR = 4
 GLOBAL_MAXCONN_FLOOR = 2000
+# Media hostnames proxy object storage and never reach PHP, so their cap is
+# not tied to PM_MAX_CHILDREN.
+DEFAULT_MEDIA_MAXCONN = 500
 
 # Requests one client may make per RATE_WINDOW to each backend class before
 # getting 429, and the error responses it may draw (scanners probing for
@@ -68,6 +71,7 @@ CDN_HEADERS = {"cloudflare": "CF-Connecting-IP", "imperva": "Incap-Client-IP"}
 LIMIT_KEYS = {
     "dynamic_maxconn": "CANASTA_EDGE_DYNAMIC_MAXCONN",
     "default_maxconn": "CANASTA_EDGE_DEFAULT_MAXCONN",
+    "media_maxconn": "CANASTA_EDGE_MEDIA_MAXCONN",
     "rate_dynamic": "CANASTA_EDGE_RATE_DYNAMIC",
     "rate_default": "CANASTA_EDGE_RATE_DEFAULT",
 }
@@ -281,6 +285,8 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         "limits": {
             "dynamic_maxconn": _limit(env, LIMIT_KEYS["dynamic_maxconn"], instance_id, None, False),
             "default_maxconn": _limit(env, LIMIT_KEYS["default_maxconn"], instance_id, None, False),
+            "media_maxconn": _limit(env, LIMIT_KEYS["media_maxconn"], instance_id,
+                                    DEFAULT_MEDIA_MAXCONN, False),
             "rate_dynamic": _limit(env, LIMIT_KEYS["rate_dynamic"], instance_id,
                                    DEFAULT_RATE_DYNAMIC, True),
             "rate_default": _limit(env, LIMIT_KEYS["rate_default"], instance_id,
@@ -394,7 +400,8 @@ def _client_address_rules(instances):
 
 
 def _backend_rules(inst, kind):
-    """Deny lists, then per-client rate limits, ahead of everything else."""
+    """Deny lists, then per-client rate limits, ahead of everything else.
+    Media requests cost no PHP, so a page with many images is not throttled."""
     out = []
     if inst["deny_cidrs"]:
         out.append("    http-request deny deny_status 403 if { src -f %s }"
@@ -403,6 +410,8 @@ def _backend_rules(inst, kind):
         out.append("    http-request deny deny_status 403 if "
                    "{ req.hdr(user-agent) -m sub -i -f %s }"
                    % _list_path("deny-ua-%s.lst" % inst["id"]))
+    if kind == "media":
+        return out
     rate = inst["limits"]["rate_%s" % kind]
     out += [
         "    stick-table type ipv6 size 100k expire 1m "
@@ -417,9 +426,10 @@ def _backend_rules(inst, kind):
     return out
 
 
-def _render_cfg(instances, thumbprint):
+def _render_cfg(instances, thumbprint, ipv6=False):
     limits = [backend_limits(i) for i in instances]
-    total = sum(d + f for d, f in limits)
+    total = sum(d + f for d, f in limits) + sum(
+        i["limits"]["media_maxconn"] for i in instances if i["media_hostnames"])
     global_maxconn = max(GLOBAL_MAXCONN_FLOOR, GLOBAL_MAXCONN_FACTOR * total)
 
     out = [
@@ -446,20 +456,28 @@ def _render_cfg(instances, thumbprint):
         "    timeout queue 30s",
         "",
         # Instances come and go, so their Caddy addresses are looked up at
-        # run time from Docker's resolver rather than once at startup.
-        "resolvers docker",
-        "    nameserver dns 127.0.0.11:53",
+        # run time rather than once at startup, from the network's resolver,
+        # which differs between Docker and Podman.
+        "resolvers network",
+        "    parse-resolv-conf",
         "    hold valid 10s",
         "",
         "frontend http",
         "    bind :80",
     ]
+    if ipv6:
+        out.append("    bind :::80 v6only")
     out += _acme_rule(thumbprint)
     out += [
         "    http-request redirect scheme https code 301",
         "",
         "frontend https",
         "    bind :443 ssl crt-list %s/crt-list alpn h2,http/1.1" % CONFIG_DIR,
+    ]
+    if ipv6:
+        out.append("    bind :::443 v6only ssl crt-list %s/crt-list alpn h2,http/1.1"
+                   % CONFIG_DIR)
+    out += [
         "    http-request set-header X-Forwarded-Proto https",
     ]
     out += _acme_rule(thumbprint)
@@ -489,6 +507,7 @@ def _render_cfg(instances, thumbprint):
         "    acl dynamic url_param(oldid) -m found",
         "    acl has_action url_param(action) -m found",
         "    acl view_action url_param(action) -m str view",
+        "    use_backend be_%[var(txn.inst)]_media if known_site media_host",
         "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host dynamic",
         "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host !METH_GET",
         "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host has_action !view_action",
@@ -500,9 +519,12 @@ def _render_cfg(instances, thumbprint):
     ]
 
     for inst, (dynamic_cap, default_cap) in zip(instances, limits):
-        server = ("    server caddy caddy-%s:80 resolvers docker "
-                  "init-addr last,libc,none check maxconn %%d" % inst["id"])
-        for kind, cap in (("dynamic", dynamic_cap), ("default", default_cap)):
+        server = ("    server caddy caddy-%s:80 resolvers network "
+                  "resolve-prefer ipv4 init-addr last,libc,none check maxconn %%d" % inst["id"])
+        classes = [("dynamic", dynamic_cap), ("default", default_cap)]
+        if inst["media_hostnames"]:
+            classes.append(("media", inst["limits"]["media_maxconn"]))
+        for kind, cap in classes:
             out += ["", "backend be_%s_%s" % (inst["id"], kind)]
             out += _backend_rules(inst, kind)
             out += [
@@ -542,20 +564,21 @@ def cdn_providers(instances):
                    if i["trusted_proxies"] in CDN_HEADERS})
 
 
-def render(instances, acme_thumbprint=None, cdn_ranges=None):
+def render(instances, acme_thumbprint=None, cdn_ranges=None, ipv6=False):
     """Render the edge's files for the given instances.
 
     cdn_ranges maps each provider cdn_providers() names to its address
-    ranges. Returns {"files": {name: content}, "certificates": [...]}. The
-    files go in the edge's configuration directory; certificates lists the
-    files the crt-list expects in its certs/ directory.
+    ranges. ipv6 adds IPv6 listeners, for an edge network with IPv6.
+    Returns {"files": {name: content}, "certificates": [...]}. The files go
+    in the edge's configuration directory; certificates lists the files the
+    crt-list expects in its certs/ directory.
     """
     instances = sorted(instances, key=lambda i: i["id"])
     _check_unique(instances)
     _check_dns_tokens(instances)
     entries = certificates(instances)
     files = {
-        "haproxy.cfg": _render_cfg(instances, acme_thumbprint),
+        "haproxy.cfg": _render_cfg(instances, acme_thumbprint, ipv6),
         "crt-list": _render_crt_list(entries),
         "hosts.map": _render_hosts_map(instances),
     }

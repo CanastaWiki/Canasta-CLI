@@ -1,0 +1,60 @@
+---
+# Ready one instance for the edge while its Caddy still serves: the flag,
+# the stack files and Caddyfile the edge needs, and its certificates.
+# Input: _edge_inst
+
+- name: Point the facts at the instance
+  ansible.builtin.include_tasks: _edge_instance_facts.yml
+
+# A stopped instance joins the edge but stays stopped. podman-compose's
+# ps takes no service name, so ask the container runtime.
+- name: List the instance's running services
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/list_running_services.yml"
+
+- name: Remember whether the instance's Caddy was running
+  ansible.builtin.set_fact:
+    _edge_was_running: >-
+      {{ _edge_was_running | default({})
+         | combine({instance_id: 'caddy' in (_running_services | default('')).split()}) }}
+
+- name: Turn on CANASTA_ENABLE_EDGE
+  ansible.builtin.include_tasks: _edge_set_flag.yml
+  vars:
+    _edge_flag: "{{ _edge_inst }}"
+    _edge_flag_value: "true"
+
+# The instance upgrades after this pass, but its Caddy rejoins before
+# then, so it needs this release's compose file, whose published ports
+# follow the edge.
+- name: Refresh the stack files
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: write_stack_files.yml
+  vars:
+    stack_files_force: true
+
+- name: Derive the addresses Caddy publishes
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: sync_compose_profiles.yml
+
+- name: Render the Caddyfile for the edge
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: update_config.yml
+
+- name: Move Caddy's certificates to the edge
+  canasta_edge:
+    state: import
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+    compose_command: "{{ compose_command }}"
+    inspect_command: "{{ inspect_command }}"
+  register: _edge_imported
+
+- name: Report the certificates moved to the edge
+  ansible.builtin.debug:
+    msg: >-
+      Moved the certificates for {{ _edge_imported.imported | join(', ') }}
+      from '{{ instance_id }}' to the edge.
+  when: _edge_imported.imported | length > 0

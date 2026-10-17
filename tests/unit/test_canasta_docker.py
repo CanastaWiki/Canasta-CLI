@@ -867,6 +867,41 @@ class TestInstallDockerMode:
         assert "install" not in user_args(argv)
 
 
+class TestInstanceMounts:
+    """Registered instances outside cwd and $HOME are mounted for every
+    command; only upgrade, which writes to each of them, gets them
+    read-write."""
+
+    def _run(self, args, short_tmp):
+        inst = os.path.join(short_tmp, "inst")
+        os.makedirs(inst)
+        config = os.path.join(short_tmp, "config")
+        os.makedirs(config)
+        with open(os.path.join(config, "conf.json"), "w") as f:
+            json.dump({"Instances": {"one": {"path": inst}}}, f)
+        stubs = os.path.join(short_tmp, "bin")
+        os.makedirs(stubs)
+        for name, rc in (("docker", 0), ("curl", 1)):
+            with open(os.path.join(stubs, name), "w") as f:
+                f.write("#!/bin/sh\nexit %d\n" % rc)
+            os.chmod(os.path.join(stubs, name), 0o755)
+        cwd = tempfile.mkdtemp(prefix="cd-cwd-", dir="/tmp")
+        _run_dry_tmpdirs.append(cwd)
+        argv, _ = run_dry(args, cwd=cwd, env={
+            "CANASTA_CONFIG_DIR": config, "HOME": cwd, "CANASTA_CLI_IMAGE": IMAGE_NAME,
+            "PATH": stubs + os.pathsep + os.environ["PATH"]})
+        return argv, inst
+
+    def test_other_commands_get_them_read_only(self, short_tmp):
+        argv, inst = self._run(["list"], short_tmp)
+        assert_volume_mount(argv, inst, inst, ro=True)
+
+    def test_upgrade_gets_them_read_write(self, short_tmp):
+        argv, inst = self._run(["upgrade"], short_tmp)
+        assert "%s:%s:rw" % (inst, inst) in argv
+        assert "%s:%s:ro" % (inst, inst) not in argv
+
+
 class TestUpgradeWithoutReleaseLookup:
     """When the GitHub tags lookup fails (offline, rate-limited), upgrade
     warns and keeps the current image instead of exiting silently."""

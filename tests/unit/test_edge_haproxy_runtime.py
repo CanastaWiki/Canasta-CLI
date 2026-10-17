@@ -50,7 +50,8 @@ def _instances():
             [{"id": "w0", "url": "other.example.org"}]),
         edge.instance_from_config(
             "limited", {"CANASTA_EDGE_RATE_DEFAULT": "3"},
-            [{"id": "w0", "url": "limited.example.org"}]),
+            [{"id": "w0", "url": "limited.example.org"}],
+            [{"hostname": "img.limited.example.org", "bucket": "b", "endpoint": "e"}]),
         edge.instance_from_config(
             "denied", {}, [{"id": "w0", "url": "denied.example.org"}],
             deny_user_agents="# AI crawlers\nGPTBot\n", deny_cidrs="203.0.113.0/24\n"),
@@ -68,7 +69,7 @@ def _stub_backends(cfg):
     after the deny and rate rules, so they still apply."""
     out, backend = [], None
     for line in cfg.splitlines():
-        match = re.match(r"^backend (be_\w+?_(?:dynamic|default))$", line)
+        match = re.match(r"^backend (be_\w+?_(?:dynamic|default|media))$", line)
         if match:
             backend = match.group(1)
         elif line.startswith("backend "):
@@ -189,7 +190,7 @@ def _request(ports, host, path, method="GET", headers=None, tls=True, sni=None):
     ("EXAMPLE.COM", "/wiki/Main_Page", "GET", {}, "be_main_default"),
     ("example.com:443", "/wiki/Main_Page", "GET", {}, "be_main_default"),
     ("www.example.com", "/docs/wiki/Main_Page", "GET", {}, "be_main_default"),
-    ("images.example.com", "/a/ab/Logo.png", "GET", {"Cookie": "wiki_session=abc"}, "be_main_default"),
+    ("images.example.com", "/a/ab/Logo.png", "GET", {"Cookie": "wiki_session=abc"}, "be_main_media"),
     ("other.example.org", "/wiki/Special:Log", "GET", {}, "be_other_dynamic"),
     ("other.example.org", "/wiki/Main_Page", "GET", {}, "be_other_default"),
 ])
@@ -269,3 +270,10 @@ def test_behind_a_cdn_limits_count_the_client_not_the_cdn(edge_ports):
 def test_a_request_body_is_accepted(edge_ports):
     assert _request(edge_ports, "example.com", "/w/index.php", method="POST",
                     headers={"Content-Type": "text/plain"})[0] == 200
+
+
+def test_media_requests_are_not_rate_limited(edge_ports):
+    """A page with many images must not trip the per-client limit."""
+    codes = [_request(edge_ports, "img.limited.example.org", "/thumb/%d.png" % n)[0]
+             for n in range(8)]
+    assert codes == [200] * 8

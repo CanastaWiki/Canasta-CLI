@@ -1,0 +1,40 @@
+---
+# Undo a failed move to the edge for one instance: its Caddy serves its
+# own ports and certificates again.
+# Input: _edge_inst
+
+- name: Point the facts at the instance
+  ansible.builtin.include_tasks: _edge_instance_facts.yml
+
+- name: Turn off CANASTA_ENABLE_EDGE
+  ansible.builtin.include_tasks: _edge_set_flag.yml
+  vars:
+    _edge_flag: "{{ _edge_inst }}"
+    _edge_flag_value: "false"
+
+- name: Derive the addresses Caddy publishes
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: sync_compose_profiles.yml
+
+- name: Take the instance out of the edge
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: edge_sync.yml
+  vars:
+    edge_member: absent
+
+- name: Render the Caddyfile for Caddy's own TLS
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: update_config.yml
+
+- name: Point the facts at the instance without its edge layer
+  ansible.builtin.include_tasks: _edge_instance_facts.yml
+
+- name: Start the instance's Caddy on its own ports
+  ansible.builtin.command:
+    cmd: "{{ compose_command }} {{ _edge_caddy_files | join(' ') }} up -d --no-deps --force-recreate caddy"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when: _edge_was_running[instance_id] | default(false) | bool

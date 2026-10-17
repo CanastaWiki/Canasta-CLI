@@ -47,6 +47,29 @@
         _upgrade_default_compose_command: "{{ compose_command }}"
         _upgrade_default_inspect_command: "{{ inspect_command }}"
 
+    # Before any instance upgrades: on each host, the instances that move
+    # behind the HAProxy edge move together, since the edge needs 80/443.
+    # The plan leaves Kubernetes instances out.
+    - name: Group the instances by host
+      ansible.builtin.set_fact:
+        _edge_hosts: >-
+          {{ _edge_hosts | default({})
+             | combine({(item.value.host | default('localhost', true)): [item]},
+                       list_merge='append') }}
+      loop: "{{ _upgrade_instances.instances | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Move each host's instances behind the edge
+      ansible.builtin.include_tasks: _edge_convert_host.yml
+      loop: "{{ _edge_hosts | default({}) | dict2items }}"
+      loop_control:
+        loop_var: _edge_host
+        label: "{{ _edge_host.key }}"
+      vars:
+        _edge_host_name: "{{ _edge_host.key }}"
+        _edge_host_instances: "{{ _edge_host.value }}"
+
     - name: Upgrade instances
       ansible.builtin.include_tasks: _upgrade_single.yml
       loop: "{{ _upgrade_instances.instances | dict2items }}"

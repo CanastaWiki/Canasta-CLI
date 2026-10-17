@@ -229,12 +229,36 @@
           {{ ((_preflight_port_lines | select('match', '^HTTPS_PORT=') | list)
               + ['HTTPS_PORT=443'])[0].split('=', 1)[1] }}
         # Behind the edge Caddy publishes only loopback ports, and 80/443
-        # belong to the edge.
-        _preflight_behind_edge: >-
-          {{ (_preflight_envfile.content | default('') | b64decode).splitlines()
-             | map('trim') | map('lower') | select('equalto', 'canasta_enable_edge=true')
-             | list | length > 0 }}
+        # belong to the edge. An instance goes behind it unless the env file
+        # says otherwise, or the instance cannot be routed by hostname, or
+        # it asks for its own ports or for Caddy to sit behind another proxy,
+        # or it runs on Podman, whose rootless port forwarding hides client
+        # addresses from the edge's per-client limits.
+        create_behind_edge: >-
+          {{ (_preflight_edge_setting[0] == 'true') if _preflight_edge_setting
+             else not (skip_tls | default(false) | bool)
+                  and not (compose_command | default('docker compose') is search('podman'))
+                  and (domain_name | default('localhost'))
+                      is not match('^(localhost|.*[.]localhost|[0-9.]+|.*:.*)$')
+                  and _preflight_http_port_raw in ['', '80']
+                  and _preflight_https_port_raw in ['', '443']
+                  and _preflight_auto_https != 'off' }}
       vars:
+        _preflight_env_lines: >-
+          {{ (_preflight_envfile.content | default('') | b64decode).splitlines()
+             | map('trim') | list }}
+        _preflight_edge_setting: >-
+          {{ _preflight_env_lines | select('match', '(?i)^CANASTA_ENABLE_EDGE=')
+             | map('regex_replace', '^[^=]*=', '') | map('trim') | map('lower')
+             | reject('equalto', '') | list }}
+        _preflight_http_port_raw: >-
+          {{ ((_preflight_env_lines | select('match', '^HTTP_PORT=') | list) + ['HTTP_PORT='])[0].split('=', 1)[1] | trim }}
+        _preflight_https_port_raw: >-
+          {{ ((_preflight_env_lines | select('match', '^HTTPS_PORT=') | list) + ['HTTPS_PORT='])[0].split('=', 1)[1] | trim }}
+        _preflight_auto_https: >-
+          {{ ((_preflight_env_lines | select('match', '^CADDY_AUTO_HTTPS=') | list)
+              + ['CADDY_AUTO_HTTPS=on'])[0].split('=', 1)[1]
+             | trim | lower }}
         # splitlines(), not split('\n'): a folded scalar hands Jinja a
         # literal backslash-n, so the split would never match and every
         # instance would silently fall back to 80/443.
@@ -313,7 +337,7 @@
           Stop it, or create this instance without CANASTA_ENABLE_EDGE and
           give it its own ports with HTTP_PORT and HTTPS_PORT.
       when:
-        - _preflight_behind_edge | bool
+        - create_behind_edge | bool
         - _preflight_edge_running.stdout | default('') | trim | length == 0
         - (_port80_listener.stdout | default('') ~ _port443_listener.stdout | default('')) | trim | length > 0
         - '"CANASTA_PORT_PROBE_UNAVAILABLE" not in (_port80_listener.stdout | default(""))'
@@ -326,7 +350,7 @@
           CANASTA_ENABLE_EDGE=true, or give it its own ports with HTTP_PORT
           and HTTPS_PORT ('canasta create -e <file>').
       when:
-        - not (_preflight_behind_edge | bool)
+        - not (create_behind_edge | bool)
         - _preflight_edge_running.stdout | default('') | trim | length > 0
         - _preflight_http_port in ['80', '443'] or _preflight_https_port in ['80', '443']
 
@@ -341,7 +365,7 @@
           this instance its own ports by passing an env file that sets
           HTTP_PORT and HTTPS_PORT ('canasta create -e <file>').
       when:
-        - not (_preflight_behind_edge | bool)
+        - not (create_behind_edge | bool)
         - _port80_listener.stdout | default('') | trim | length > 0
         - '"CANASTA_PORT_PROBE_UNAVAILABLE" not in (_port80_listener.stdout | default(""))'
 
@@ -356,7 +380,7 @@
           this instance its own ports by passing an env file that sets
           HTTP_PORT and HTTPS_PORT ('canasta create -e <file>').
       when:
-        - not (_preflight_behind_edge | bool)
+        - not (create_behind_edge | bool)
         - _port443_listener.stdout | default('') | trim | length > 0
         - '"CANASTA_PORT_PROBE_UNAVAILABLE" not in (_port443_listener.stdout | default(""))'
 
