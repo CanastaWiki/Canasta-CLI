@@ -102,6 +102,12 @@ def _instance(root, name, hosts=("example.com",), env=None, media=(), certs=None
     return str(path)
 
 
+@pytest.fixture(autouse=True)
+def _no_host_ipv6(monkeypatch):
+    # The test host's own IPv6 must not change what is rendered.
+    monkeypatch.setattr(mod, "host_has_ipv6", lambda: False)
+
+
 def _sync(run, edge, inst_id, path, member=None):
     return mod.sync(run, "docker", str(edge), inst_id, path, member)
 
@@ -740,3 +746,18 @@ def test_kubernetes_instances_are_left_out_of_the_plan(tmp_path):
     one = _plain(tmp_path, "one")
     entry = dict(_entry("one", one), orchestrator="kubernetes")
     assert mod.plan_conversion([entry]) == {"convert": [], "decline": {}}
+
+
+# --- IPv6 --------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("has_ipv6", [True, False])
+def test_the_edge_network_has_ipv6_when_the_host_does(tmp_path, monkeypatch, has_ipv6):
+    monkeypatch.setattr(mod, "host_has_ipv6", lambda: has_ipv6)
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(), edge, "one", path)
+    network = yaml.safe_load((edge / "docker-compose.yml").read_text())["networks"]["edge"]
+    assert network.get("enable_ipv6", False) is has_ipv6
+    if has_ipv6:
+        assert network["ipam"]["config"][0]["subnet"].startswith("fd")
+    assert ("bind :::443" in (edge / "conf" / "haproxy.cfg").read_text()) is has_ipv6

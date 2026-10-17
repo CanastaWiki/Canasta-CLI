@@ -25,6 +25,15 @@
     force: false
     mode: "0644"
 
+# Comments only until the user adds directives; no-clobber because this
+# runs on upgrade too.
+- name: Create haproxy-backend.cfg from template (no-clobber)
+  ansible.builtin.copy:
+    src: "{{ canasta_root }}/instance_template/config/haproxy-backend.cfg"
+    dest: "{{ instance_path }}/config/haproxy-backend.cfg"
+    force: false
+    mode: "0644"
+
 - name: Generate observability credentials if enabled
   ansible.builtin.include_tasks: ensure_observability_credentials.yml
 

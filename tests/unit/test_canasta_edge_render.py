@@ -296,3 +296,18 @@ def test_media_hosts_get_their_own_unthrottled_backend():
 
 def test_no_media_backend_without_media_hosts():
     assert "be_wiki1_media" not in edge.render([_inst()])["files"]["haproxy.cfg"]
+
+
+def test_ipv6_adds_ipv6_listeners():
+    plain = edge.render(_two(), acme_thumbprint="THUMB")["files"]["haproxy.cfg"]
+    assert ":::" not in plain
+    cfg = edge.render(_two(), acme_thumbprint="THUMB", ipv6=True)["files"]["haproxy.cfg"]
+    assert "    bind :::80 v6only\n" in cfg
+    assert "    bind :::443 v6only ssl crt-list" in cfg
+
+
+def test_the_shipped_snippet_template_adds_nothing():
+    root = os.path.join(os.path.dirname(__file__), "..", "..")
+    with open(os.path.join(root, "instance_template", "config", "haproxy-backend.cfg")) as f:
+        template = f.read()
+    assert _inst(snippet=template)["snippet"] == []

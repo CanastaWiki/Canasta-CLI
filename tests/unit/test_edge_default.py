@@ -84,3 +84,12 @@ def test_upgrade_moves_hosts_before_instances_upgrade():
         names.index("Upgrade instances")
     move = tasks[names.index("Move each host's instances behind the edge")]
     assert move["ansible.builtin.include_tasks"] == "_edge_convert_host.yml"
+
+
+def test_every_instance_gets_the_snippet_file_without_clobbering():
+    with open(os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks", "init_config.yml")) as f:
+        tasks = {t.get("name"): t for t in _walk(yaml.safe_load(f))}
+    copy = tasks["Create haproxy-backend.cfg from template (no-clobber)"]["ansible.builtin.copy"]
+    assert copy["dest"] == "{{ instance_path }}/config/haproxy-backend.cfg"
+    assert copy["force"] is False
+    assert os.path.isfile(os.path.join(REPO_ROOT, "instance_template", "config", "haproxy-backend.cfg"))
