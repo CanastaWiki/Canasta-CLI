@@ -181,7 +181,8 @@ class TestPull:
         reset, restrict, fail = block["block"]
         assert "_restrict_hosts_dir.yml" in restrict[
             "ansible.builtin.include_tasks"]
-        assert reset["ansible.builtin.command"]["cmd"] == (
+        assert reset["ansible.builtin.shell"]["cmd"] == (
+            "umask 022 && "
             "git reset --hard --quiet {{ _pull_prev_commit.stdout }}")
         assert "_gitattributes_missing" in fail["ansible.builtin.fail"]["msg"]
 

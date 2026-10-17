@@ -70,8 +70,8 @@
 # Never leave the repo mid-rebase: roll back to where the pull started so the
 # operator has one clear problem to solve, with local commits intact.
 - name: Abort an incomplete rebase
-  ansible.builtin.command:
-    cmd: "git rebase --abort"
+  ansible.builtin.shell:
+    cmd: "umask 022 && git rebase --abort"
     chdir: "{{ instance_path }}"
   register: _pull_abort
   changed_when: _pull_abort.rc == 0

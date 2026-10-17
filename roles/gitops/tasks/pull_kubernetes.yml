@@ -8,8 +8,8 @@
 # explicit so the outcome does not depend on the host's ambient pull config.
 # Authenticates with the staged deploy key (or --ssh-key), like push.
 - name: Pull values repo
-  ansible.builtin.command:
-    cmd: "git -c commit.gpgsign=false pull --rebase"
+  ansible.builtin.shell:
+    cmd: "umask 022 && git -c commit.gpgsign=false pull --rebase"
     chdir: "{{ instance_path }}"
   environment: "{{ gitops_k8s_git_env }}"
   register: _git_pull

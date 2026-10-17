@@ -101,10 +101,16 @@ def read_wikis(instance_path):
 def write_wikis(instance_path, wikis):
     """Write the wikis list to wikis.yaml."""
     path = wikis_yaml_path(instance_path)
-    os.makedirs(os.path.dirname(path), mode=0o755, exist_ok=True)
+    directory = os.path.dirname(path)
+    if not os.path.isdir(directory):
+        os.makedirs(directory)
+        os.chmod(directory, 0o755)
     data = {"wikis": wikis}
     with open(path, "w") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    # The web container reads it as a different user; the operator's
+    # umask must not decide whether it can.
+    os.chmod(path, 0o644)
 
 
 def build_url(domain, wiki_path=None):

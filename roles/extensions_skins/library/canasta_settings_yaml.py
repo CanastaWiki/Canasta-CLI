@@ -103,7 +103,10 @@ def write_config(path, config):
         if os.path.exists(path):
             os.remove(path)
         return
-    os.makedirs(os.path.dirname(path), mode=0o755, exist_ok=True)
+    directory = os.path.dirname(path)
+    if not os.path.isdir(directory):
+        os.makedirs(directory)
+        os.chmod(directory, 0o755)
     data = {}
     if extensions:
         data["extensions"] = extensions
@@ -112,6 +115,8 @@ def write_config(path, config):
     with open(path, "w") as f:
         f.write(HEADER)
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+    # Read by MediaWiki in the web container, as a different user.
+    os.chmod(path, 0o644)
 
 
 def run_module():

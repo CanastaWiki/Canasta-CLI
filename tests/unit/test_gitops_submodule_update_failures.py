@@ -64,7 +64,7 @@ def git(cwd, *args, check=True):
 
 
 def _run_helper_cmd(cwd):
-    cmd = _helper_task("Update submodules")["ansible.builtin.command"]["cmd"]
+    cmd = _helper_task("Update submodules")["ansible.builtin.shell"]["cmd"]
     return subprocess.run(
         ["bash", "-c", cmd], cwd=cwd, capture_output=True, text=True)
 
@@ -135,7 +135,8 @@ class TestCallers:
             if not filename.endswith(".yml"):
                 continue
             for task in _walk(_load(os.path.join(GITOPS_TASKS, filename))):
-                cmd = str(task.get("ansible.builtin.command", ""))
+                cmd = str(task.get("ansible.builtin.command", "")) + str(
+                    task.get("ansible.builtin.shell", ""))
                 if "git submodule update" not in cmd:
                     continue
                 if filename == "_update_submodules.yml":
@@ -150,6 +151,7 @@ class TestCallers:
         assert any(_includes_helper(t) for t in _walk(tasks))
         assert not any(
             "git submodule update" in str(t.get("ansible.builtin.command", ""))
+            + str(t.get("ansible.builtin.shell", ""))
             for t in _walk(tasks))
 
     @pytest.mark.parametrize("filename", CALLERS)
