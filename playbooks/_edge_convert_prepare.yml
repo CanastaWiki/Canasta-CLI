@@ -15,8 +15,7 @@
   ansible.builtin.set_fact:
     _edge_was_running: >-
       {{ _edge_was_running | default({})
-         | combine({instance_id: 'caddy' in (_running_services | default('')).split('\n')
-                                 | map('trim') | list}) }}
+         | combine({instance_id: 'caddy' in (_running_services | default('')).split()}) }}
 
 - name: Turn on CANASTA_ENABLE_EDGE
   ansible.builtin.include_tasks: _edge_set_flag.yml

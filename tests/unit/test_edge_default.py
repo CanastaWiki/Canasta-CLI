@@ -93,3 +93,30 @@ def test_every_instance_gets_the_snippet_file_without_clobbering():
     assert copy["dest"] == "{{ instance_path }}/config/haproxy-backend.cfg"
     assert copy["force"] is False
     assert os.path.isfile(os.path.join(REPO_ROOT, "instance_template", "config", "haproxy-backend.cfg"))
+
+
+@pytest.mark.parametrize("running,expected", [
+    ("db\nweb\ncaddy\nvarnish", True),
+    ("db\nweb\nvarnish", False),
+    ("", False),
+])
+def test_upgrade_remembers_whether_caddy_was_running(tmp_path, running, expected):
+    with open(os.path.join(REPO_ROOT, "playbooks", "_edge_convert_prepare.yml")) as f:
+        tasks = list(_walk(yaml.safe_load(f)))
+    remember = next(t for t in tasks
+                    if t.get("name") == "Remember whether the instance's Caddy was running")
+    out = tmp_path / "out.json"
+    play = tmp_path / "play.yml"
+    play.write_text(yaml.safe_dump([{
+        "hosts": "localhost", "connection": "local", "gather_facts": False,
+        "vars": {"instance_id": "one", "_running_services": running,
+                 "ansible_python_interpreter": sys.executable},
+        "tasks": [remember, {"ansible.builtin.copy": {
+            "content": "{{ _edge_was_running | to_json }}", "dest": str(out)}}],
+    }]))
+    env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0")
+    playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
+    proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
+                          capture_output=True, text=True, env=env, cwd=tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(out.read_text()) == {"one": expected}
