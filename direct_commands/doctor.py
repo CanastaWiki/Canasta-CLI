@@ -690,7 +690,7 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
             "issues lands on a shared edge node and blocks every visitor "
             "behind it: 'canasta config set CADDY_TRUSTED_PROXIES=cloudflare' "
             "(or imperva, or a comma-separated CIDR list for any other "
-            "proxy). Leave it unset if Caddy is the edge — trusting the "
+            "proxy). Leave it unset if clients connect to this host directly — trusting the "
             "header then would let any client forge its own source IP")
 
     drifted = sorted(
