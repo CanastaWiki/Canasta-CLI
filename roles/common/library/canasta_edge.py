@@ -894,10 +894,11 @@ def plan_conversion(instances):
     instances are left out. An instance whose .env already
     sets CANASTA_ENABLE_EDGE keeps its choice. One that can move does, unless
     an instance staying outside the edge serves 80 or 443 itself, which the
-    edge would collide with; then none on the host move. One whose files the
-    CLI cannot write is skipped without recording a choice, so the next
-    upgrade considers it again. Returns {convert: [ids], decline: {id:
-    reason}, skip: {id: reason}}."""
+    edge would collide with; then none on the host move. Only a reason of
+    the instance's own is recorded as a choice (decline); one held back by
+    the host, or whose files the CLI cannot write, is skipped without one,
+    so the next upgrade considers it again. Returns {convert: [ids],
+    decline: {id: reason}, skip: {id: reason}}."""
     convert, decline, skip, staying = [], {}, {}, []
     runtimes = set()
     for inst in instances:
@@ -924,11 +925,11 @@ def plan_conversion(instances):
     if convert and blockers:
         reason = ("instance %s on this host serves ports 80/443 itself, and the "
                   "edge would need them" % ", ".join("'%s'" % b for b in blockers))
-        decline.update({i: reason for i in convert})
+        skip.update({i: reason for i in convert})
         convert = []
     if len(runtimes) > 1:
         reason = "the host's instances use different container runtimes"
-        decline.update({i: reason for i in convert})
+        skip.update({i: reason for i in convert})
         convert = []
     return {"convert": convert, "decline": decline, "skip": skip}
 

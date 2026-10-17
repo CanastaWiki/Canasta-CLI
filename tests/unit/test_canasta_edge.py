@@ -629,7 +629,7 @@ def test_an_instance_staying_on_80_443_blocks_the_host(tmp_path):
     local = _plain(tmp_path, "local", hosts=("localhost",))
     plan = mod.plan_conversion([_entry("one", one), _entry("local", local)])
     assert plan["convert"] == []
-    assert "instance 'local' on this host serves ports 80/443" in plan["decline"]["one"]
+    assert "instance 'local' on this host serves ports 80/443" in plan["skip"]["one"]
 
 
 def test_an_instance_on_other_ports_does_not_block(tmp_path):
@@ -644,7 +644,8 @@ def test_mixed_runtimes_do_not_move(tmp_path):
     one = _plain(tmp_path, "one")
     two = _plain(tmp_path, "two", hosts=("two.example.org",))
     plan = mod.plan_conversion([_entry("one", one), _entry("two", two, "podman-compose")])
-    assert plan["convert"] == [] and "runtimes" in plan["decline"]["one"]
+    assert plan["convert"] == [] and "runtimes" in plan["skip"]["one"]
+    assert "one" not in plan["decline"]
 
 
 LEAF = "-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----\n"
@@ -773,8 +774,9 @@ def test_an_instance_the_cli_cannot_write_is_skipped_and_still_blocks(tmp_path):
     finally:
         os.chmod(os.path.join(ro, ".env"), 0o644)
     assert plan["convert"] == []
-    assert plan["skip"] == {"ro": "the CLI cannot write to its directory"}
-    assert "instance 'ro' on this host serves ports 80/443" in plan["decline"]["one"]
+    assert plan["skip"]["ro"] == "the CLI cannot write to its directory"
+    assert plan["decline"] == {}
+    assert "instance 'ro' on this host serves ports 80/443" in plan["skip"]["one"]
 
 
 def test_certificates_are_made_in_a_directory_under_the_edge(tmp_path):
