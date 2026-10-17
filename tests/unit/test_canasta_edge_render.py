@@ -304,3 +304,10 @@ def test_ipv6_adds_ipv6_listeners():
     cfg = edge.render(_two(), acme_thumbprint="THUMB", ipv6=True)["files"]["haproxy.cfg"]
     assert "    bind :::80 v6only\n" in cfg
     assert "    bind :::443 v6only ssl crt-list" in cfg
+
+
+def test_the_shipped_snippet_template_adds_nothing():
+    root = os.path.join(os.path.dirname(__file__), "..", "..")
+    with open(os.path.join(root, "instance_template", "config", "haproxy-backend.cfg")) as f:
+        template = f.read()
+    assert _inst(snippet=template)["snippet"] == []
