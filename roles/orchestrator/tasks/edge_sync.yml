@@ -15,13 +15,16 @@
   register: _edge
 
 # start.yml sets edge_defer_errors: it brings the instance up first, routed
-# by the edge's last good configuration, and fails afterwards.
+# by the edge's last good configuration, and fails afterwards. An edge that
+# is not running has no configuration to fall back on.
 - name: Stop on an edge configuration error
   ansible.builtin.fail:
     msg: "{{ _edge.error }}"
   when:
     - _edge.error is defined
-    - not (edge_defer_errors | default(false) | bool)
+    - >-
+      not (edge_defer_errors | default(false) | bool)
+      or not (_edge.running | default(false) | bool)
 
 - name: Report an edge network IPv6 setting the host no longer matches
   ansible.builtin.debug:
@@ -91,6 +94,9 @@
   when:
     - _edge.members | default([]) | length > 0
     - not (_edge.running | default(false) | bool)
+    # Under rootless Podman the listener on 80 and 443 is the edge's own
+    # systemd socket.
+    - not (_edge.sockets_active | default(false) | bool)
 
 - name: Refuse to start the edge while 80 or 443 is taken
   ansible.builtin.fail:
@@ -104,21 +110,23 @@
     - _edge_port_holders is not skipped
     - _edge_port_holders.stdout | default('') | trim | length > 0
 
-# Also when the edge's compose file changed, or acme.sh is not running:
-# `up` creates or recreates only the services that need it.
+# Also when the edge's files changed, or acme.sh is not running: `up`
+# creates or recreates only the services that need it.
 - name: Start the edge
-  ansible.builtin.command:
-    cmd: >-
-      {{ compose_command }} -p canasta-edge up -d
-      {{ '--force-recreate' if (_edge.recreate | default(false) | bool) else '' }}
-    chdir: "{{ _edge.edge_dir }}"
+  canasta_edge:
+    state: start
+    compose_command: "{{ compose_command }}"
+    inspect_command: "{{ inspect_command | default('docker') }}"
+    edge_dir: "{{ _edge.edge_dir }}"
+    recreate: "{{ _edge.recreate | default(false) | bool }}"
+    restart: "{{ _edge.units_changed | default(false) | bool }}"
   register: _edge_up
-  changed_when: true
   when:
     - _edge.members | default([]) | length > 0
     - >-
       not (_edge.running | default(false) | bool)
       or (_edge.compose_changed | default(false) | bool)
+      or (_edge.units_changed | default(false) | bool)
       or not (_edge.acme_running | default(false) | bool)
 
 # The image runs HAProxy in master-worker mode, where USR2 reloads the
@@ -177,12 +185,15 @@
     label: "{{ item.hostname }}"
   when: _edge_issue is not skipped
 
-# -v: the edge's only volume holds its runtime socket.
 - name: Stop the edge when no instance is behind it
-  ansible.builtin.command:
-    cmd: "{{ compose_command }} -p canasta-edge down -v"
-    chdir: "{{ _edge.edge_dir }}"
-  changed_when: true
+  canasta_edge:
+    state: stop
+    compose_command: "{{ compose_command }}"
+    inspect_command: "{{ inspect_command | default('docker') }}"
+    edge_dir: "{{ _edge.edge_dir }}"
   when:
     - _edge.members | default([]) | length == 0
-    - _edge.running | default(false) | bool
+    - >-
+      (_edge.running | default(false) | bool)
+      or (_edge.sockets_active | default(false) | bool)
+      or (_edge.units_present | default(false) | bool)

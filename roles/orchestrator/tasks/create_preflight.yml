@@ -218,8 +218,20 @@
       register: _preflight_envfile
       when: envfile is defined and envfile != ''
 
-    # Rootless Docker's port forwarding, like rootless Podman's, hides
-    # client addresses from the edge.
+    # Under rootless Podman the edge takes its ports from the operator's
+    # systemd user manager, which lingering keeps running.
+    - name: Ask whether the operator's systemd user session answers
+      ansible.builtin.shell:
+        cmd: >-
+          XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+          DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus"
+          systemctl --user show-environment
+      register: _preflight_user_systemd
+      changed_when: false
+      failed_when: false
+      when: compose_command | default('docker compose') is search('podman')
+
+    # Rootless Docker's port forwarding hides client addresses from the edge.
     - name: Ask whether the Docker daemon runs rootless
       ansible.builtin.command:
         argv:
@@ -248,12 +260,14 @@
         # belong to the edge. An instance goes behind it unless the env file
         # says otherwise, or the instance cannot be routed by hostname, or
         # it asks for its own ports or for Caddy to sit behind another proxy,
-        # or it runs on Podman or rootless Docker, whose port forwarding hides
-        # client addresses from the edge's per-client limits.
+        # or it runs on rootless Docker, whose port forwarding hides client
+        # addresses from the edge's per-client limits, or on rootless Podman
+        # without the systemd user session that gives the edge its ports.
         create_behind_edge: >-
           {{ (_preflight_edge_setting[0] == 'true') if _preflight_edge_setting
              else not (skip_tls | default(false) | bool)
-                  and not (compose_command | default('docker compose') is search('podman'))
+                  and (not (compose_command | default('docker compose') is search('podman'))
+                       or (_preflight_user_systemd.rc | default(1)) == 0)
                   and 'name=rootless' not in (_preflight_docker_info.stdout | default(''))
                   and (domain_name | default('localhost'))
                       is not match('^(localhost|.*[.]localhost|[0-9.]+|.*:.*)$')
