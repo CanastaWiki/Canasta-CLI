@@ -93,10 +93,22 @@
 
 # Persist --staging-certs as CANASTA_STAGING_CERTS so all TLS-
 # provisioning paths (Caddy ACME CA for Compose, cert-manager issuer
-# for K8s, config-set cascade) can honor it consistently.
+# for K8s, config-set cascade) can honor it consistently. Without the
+# flag, a value the -e env file set (merged into .env by _envfile.yml)
+# stands, rather than being reset to false.
+- name: Read CANASTA_STAGING_CERTS from the env file
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: CANASTA_STAGING_CERTS
+  register: _settings_staging_certs
+
 - name: Set CANASTA_STAGING_CERTS
   canasta_env:
     path: "{{ instance_path }}/.env"
     state: set
     key: CANASTA_STAGING_CERTS
-    value: "{{ (staging_certs | default(false) | bool) | string | lower }}"
+    value: >-
+      {{ ((staging_certs | default(false) | bool)
+          or (_settings_staging_certs.value | default('', true) | trim | lower == 'true'))
+         | string | lower }}
