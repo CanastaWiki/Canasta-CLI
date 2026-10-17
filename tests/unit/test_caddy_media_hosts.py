@@ -131,6 +131,21 @@ class TestMediaBlocksInheritTheTlsMode:
         assert "tls internal" not in blk
 
 
+class TestMediaBlocksFollowHttpOnly:
+    """Without the http:// scheme Caddy enables automatic HTTPS for the
+    hostname even when the main site is HTTP-only, and redirects port 80 to
+    443 — a loop behind an operator's own TLS-terminating proxy."""
+
+    def test_http_only_prefixes_the_address(self):
+        out = _render(_http_only=True, _media_hosts=[HOST])
+        assert "\nhttp://images.example.com {" in out
+
+    def test_https_leaves_the_address_bare(self):
+        out = _render(_http_only=False, _media_hosts=[HOST])
+        assert "\nimages.example.com {" in out
+        assert "http://images.example.com" not in out
+
+
 class TestMultipleHosts:
     def test_each_declaration_gets_its_own_block(self):
         out = _render(_media_hosts=[
