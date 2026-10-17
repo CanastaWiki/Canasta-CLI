@@ -55,3 +55,11 @@
         tasks_from: bouncer_enroll.yml
       vars:
         bouncer_enroll_auto: true
+
+    - name: Enroll the CrowdSec bouncer for the HAProxy edge
+      ansible.builtin.include_role:
+        name: crowdsec
+        tasks_from: spoa_enroll.yml
+      when:
+        - not (instance_is_k8s | bool)
+        - _autoenroll_env.variables.CANASTA_ENABLE_EDGE | default('false', true) | lower == 'true'

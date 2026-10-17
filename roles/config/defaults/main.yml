@@ -246,6 +246,14 @@ canasta_known_keys:
       Caddy bouncer API key from 'cscli bouncers add'. Optional; the
       bouncer stays dormant (blocks nothing) until it is set.
 
+  - name: CROWDSEC_SPOA_API_KEY
+    group: Security (CrowdSec)
+    description: >-
+      API key of the instance's CrowdSec bouncer at the HAProxy edge, from
+      'cscli bouncers add'. Registered and stored automatically when an
+      instance with CrowdSec is behind the edge; until it is set, the edge
+      does not check this instance's clients with CrowdSec.
+
   - name: CROWDSEC_AGENT_PASSWORD
     group: Security (CrowdSec)
     description: >-

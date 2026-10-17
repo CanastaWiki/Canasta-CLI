@@ -95,7 +95,8 @@ from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.canasta_config import get_config_dir, is_k8s_orchestrator
 from ansible.module_utils.canasta_edge_render import (
     ACME_IMAGE, CERT_DIR, CONFIG_DIR, DENY_CIDR_FILE, DENY_UA_FILE, EdgeError,
-    HAPROXY_IMAGE, cdn_providers, certificates, instance_from_config, render,
+    HAPROXY_IMAGE, SPOA_IMAGE, cdn_providers, certificates, crowdsec_enforced,
+    instance_from_config, render,
 )
 from ansible.module_utils.canasta_caddyfile import site_hostnames
 from ansible.module_utils.urls import open_url
@@ -205,9 +206,26 @@ services:
     labels:
       %(label_id)s: "%(id)s"
       %(label_path)s: "%(path)s"
-networks:
+%(spoa)snetworks:
   %(network)s:
     external: true
+"""
+
+# The instance's CrowdSec bouncer for the edge, on both networks: its LAPI
+# is on the instance's, and the edge asks it on the edge's.
+SPOA_SERVICE = """\
+  crowdsec-spoa:
+    image: %(image)s
+    restart: unless-stopped
+    environment:
+      - CROWDSEC_URL=http://crowdsec:8080/
+      - CROWDSEC_KEY=${CROWDSEC_SPOA_API_KEY:-}
+      - PROMETHEUS_ENABLED=false
+    networks:
+      default: {}
+      %(network)s:
+        aliases:
+          - crowdsec-spoa-%(id)s
 """
 
 
@@ -251,8 +269,9 @@ def edge_enabled(env):
     return (env.get("CANASTA_ENABLE_EDGE") or "false").strip().lower() == "true"
 
 
-def write_layer(instance_path, instance_id, present):
-    """Write or remove the instance's edge layer. Returns True if changed."""
+def write_layer(instance_path, instance_id, present, spoa=False):
+    """Write or remove the instance's edge layer, with its CrowdSec bouncer
+    when spoa. Returns True if changed."""
     path = os.path.join(instance_path, LAYER_FILE)
     if not present:
         if os.path.exists(path):
@@ -262,7 +281,22 @@ def write_layer(instance_path, instance_id, present):
     return _write_if_changed(path, LAYER % {
         "network": NETWORK, "id": instance_id, "path": instance_path,
         "label_id": LABEL_ID, "label_path": LABEL_PATH,
+        "spoa": SPOA_SERVICE % {"image": SPOA_IMAGE, "network": NETWORK,
+                                "id": instance_id} if spoa else "",
     })
+
+
+def remove_stale_spoa(run, inspect, instance_path):
+    """Remove the instance's CrowdSec bouncer for the edge once its layer no
+    longer has it: compose up leaves a service it no longer knows running."""
+    project = os.path.basename(instance_path.rstrip("/")).lower()
+    rc, out, _ = run([inspect, "ps", "-aq",
+                      "--filter", "label=com.docker.compose.project=%s" % project,
+                      "--filter", "label=com.docker.compose.service=crowdsec-spoa"])
+    ids = out.split() if rc == 0 else []
+    if ids:
+        run([inspect, "rm", "-f"] + ids)
+    return bool(ids)
 
 
 def read_members(edge_dir):
@@ -567,7 +601,11 @@ def _sync(run, inspect, edge_dir, instance_id, instance_path, member):
     env = read_env(instance_path)
     if member is None:
         member = "present" if edge_enabled(env) else "absent"
-    result["changed"] |= write_layer(instance_path, instance_id, member == "present")
+    spoa = member == "present" and crowdsec_enforced(env)
+    had_spoa = "crowdsec-spoa:" in (_read(os.path.join(instance_path, LAYER_FILE)) or "")
+    result["changed"] |= write_layer(instance_path, instance_id, member == "present", spoa)
+    if had_spoa and not spoa:
+        result["changed"] |= remove_stale_spoa(run, inspect, instance_path)
 
     if member == "absent" and not os.path.isdir(edge_dir):
         result.update(members=[], running=False)
@@ -642,11 +680,12 @@ def _sync_edge(run, inspect, edge_dir, instance_id, instance_path, member, resul
         validate(run, inspect, edge_dir, rendered["files"])
         for name, content in pending.items():
             _write_if_changed(os.path.join(conf, name), content)
-    # Lists no instance uses any more. A CDN's is kept: it is the fallback
-    # when the CDN's own list cannot be fetched.
+    # Lists and CrowdSec configurations no instance uses any more. A CDN's
+    # list is kept: it is the fallback when the CDN's own cannot be fetched.
     for name in os.listdir(conf):
-        if (name.endswith(".lst") and name not in rendered["files"]
-                and not name.startswith("cdn-")):
+        stale = (name.endswith(".lst") and not name.startswith("cdn-")) or \
+            (name.startswith("spoe-") and name.endswith(".cfg"))
+        if stale and name not in rendered["files"]:
             os.remove(os.path.join(conf, name))
     if pending or certs_changed:
         result["changed"] = True
