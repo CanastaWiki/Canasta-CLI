@@ -20,7 +20,7 @@ COMMON = os.path.join(REPO_ROOT, "roles", "common")
 REWRITE = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks", "rewrite_caddy.yml")
 
 
-def _caddyfile(tmp_path, env_lines):
+def _caddyfile(tmp_path, env_lines, expect_fail=False):
     inst = tmp_path / "inst"
     (inst / "config").mkdir(parents=True)
     (inst / ".env").write_text("".join(line + "\n" for line in env_lines))
@@ -48,6 +48,9 @@ def _caddyfile(tmp_path, env_lines):
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
     proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
                           capture_output=True, text=True, env=env, cwd=tmp_path)
+    if expect_fail:
+        assert proc.returncode != 0, proc.stdout
+        return proc.stdout + proc.stderr
     assert proc.returncode == 0, proc.stdout + proc.stderr
     return (inst / "config" / "Caddyfile").read_text()
 
@@ -84,3 +87,13 @@ def test_without_the_edge_a_cdn_mode_stands_alone(tmp_path):
     out = _caddyfile(tmp_path, ["CADDY_TRUSTED_PROXIES=cloudflare"])
     assert "trusted_proxies cdn_ranges {" in out
     assert "combine" not in out
+
+
+def test_acme_dns_is_refused_without_the_edge(tmp_path):
+    out = _caddyfile(tmp_path, ["CADDY_TLS_MODE=acme-dns"], expect_fail=True)
+    assert "needs CANASTA_ENABLE_EDGE=true" in out
+
+
+def test_acme_dns_behind_the_edge_renders(tmp_path):
+    out = _caddyfile(tmp_path, ["CANASTA_ENABLE_EDGE=true", "CADDY_TLS_MODE=acme-dns"])
+    assert "\nhttp://example.com {" in out

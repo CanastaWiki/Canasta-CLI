@@ -78,9 +78,23 @@
   ansible.builtin.fail:
     msg: >-
       CADDY_TLS_MODE is '{{ _tls_mode }}'. Valid values are 'acme' (default),
-      'internal' and 'custom'. A typo would otherwise fall through to ACME and
-      look like a certificate failure rather than a configuration error.
-  when: _tls_mode not in ['acme', 'internal', 'custom']
+      'internal', 'custom' and, behind the HAProxy edge, 'acme-dns'. A typo
+      would otherwise fall through to ACME and look like a certificate failure
+      rather than a configuration error.
+  when: _tls_mode not in ['acme', 'internal', 'custom', 'acme-dns']
+
+# DNS validation is done by the edge's acme.sh; Caddy's image has no DNS
+# provider plugins.
+- name: Reject acme-dns outside the edge
+  ansible.builtin.fail:
+    msg: >-
+      CADDY_TLS_MODE 'acme-dns' obtains certificates through the HAProxy edge,
+      so it needs CANASTA_ENABLE_EDGE=true. Without the edge, use 'acme',
+      'internal' or 'custom'.
+  when:
+    - _tls_mode == 'acme-dns'
+    - not (instance_is_k8s | bool)
+    - _env_caddy.variables.CANASTA_ENABLE_EDGE | default('false', true) | lower != 'true'
 
 # Caddy exits at startup on a tls path it cannot read, so an absent
 # certificate would fail at the next restart rather than here.

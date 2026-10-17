@@ -197,3 +197,27 @@ def test_a_backend_with_no_running_server_answers_503_at_once():
         section = cfg.split("backend be_wiki1_%s\n" % kind, 1)[1].split("\n\n", 1)[0]
         assert section.startswith("    http-request return status 503"), kind
         assert "if { nbsrv eq 0 }" in section
+
+
+def test_acme_dns_needs_a_supported_provider():
+    with pytest.raises(edge.EdgeError, match="ACME_DNS_PROVIDER is 'route53'"):
+        _inst(env={"CADDY_TLS_MODE": "acme-dns", "ACME_DNS_PROVIDER": "route53",
+                   "CLOUDFLARE_API_TOKEN": "t"})
+
+
+def test_acme_dns_certificates_are_per_hostname_and_carry_no_token():
+    inst = _inst(urls=("example.com", "www.example.com"),
+                 env={"CADDY_TLS_MODE": "acme-dns", "CLOUDFLARE_API_TOKEN": "t0k"})
+    rendered = edge.render([inst])
+    assert [c["file"] for c in rendered["certificates"]] == [
+        "example.com.pem", "www.example.com.pem"]
+    assert not any("t0k" in content for content in rendered["files"].values())
+
+
+def test_the_dns_credentials_are_per_host_under_gitops():
+    import yaml
+    with open(os.path.join(REPO_ROOT, "vars", "secret_classification.yml")) as f:
+        cls = yaml.safe_load(f)
+    for key in ("ACME_DNS_PROVIDER", "CLOUDFLARE_ZONE_ID"):
+        assert key in cls["canasta_host_specific_nonsecret"]
+    assert re.search(cls["canasta_secret_key_pattern"], "CLOUDFLARE_API_TOKEN")
