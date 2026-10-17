@@ -109,8 +109,8 @@
   ansible.builtin.include_tasks: _heal_dangling_submodules.yml
 
 - name: Update and initialize all submodules
-  ansible.builtin.command:
-    cmd: "git submodule update --init --recursive"
+  ansible.builtin.shell:
+    cmd: "umask 022 && git submodule update --init --recursive"
     chdir: "{{ instance_path }}"
   environment: "{{ gitops_git_env }}"
   changed_when: true

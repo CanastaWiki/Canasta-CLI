@@ -53,7 +53,8 @@ def _convert(instance, repo_path, url):
             shutil.rmtree(templar.template(
                 trust_as_template(task["ansible.builtin.file"]["path"])))
         else:
-            cmd = task["ansible.builtin.command"]
+            cmd = (task.get("ansible.builtin.command")
+                   or task["ansible.builtin.shell"])
             result = subprocess.run(
                 templar.template(trust_as_template(cmd["cmd"])), shell=True,
                 cwd=templar.template(trust_as_template(cmd["chdir"])),
