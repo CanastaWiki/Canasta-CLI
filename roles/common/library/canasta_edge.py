@@ -587,6 +587,16 @@ def ensure_account(run, inspect, edge_dir):
     return found[0]
 
 
+def network_ipv6(run, inspect):
+    """Whether the existing edge network has IPv6, or None when there is
+    none."""
+    rc, out, _ = run([inspect, "network", "inspect", NETWORK, "--format",
+                      "{{.EnableIPv6}}"])
+    if rc != 0:
+        return None
+    return out.strip().lower() == "true"
+
+
 def host_has_ipv6():
     """Whether the kernel has IPv6 enabled, so the edge network can use it."""
     try:
@@ -646,7 +656,14 @@ def _sync_edge(run, inspect, edge_dir, instance_id, instance_path, member, resul
     result["changed"] |= write_members(edge_dir, members)
     result["members"] = sorted(members)
     result["running"] = edge_running(run, inspect)
+    # An existing network keeps its IPv6 setting: Compose cannot change it
+    # while instances' Caddy containers are attached. It goes, and comes
+    # back with the host's setting, when no instance is behind the edge.
     ipv6 = host_has_ipv6()
+    existing = network_ipv6(run, inspect)
+    if existing is not None and existing != ipv6:
+        result["network_ipv6_pending"] = ipv6
+        ipv6 = existing
     result["acme_running"] = edge_running(run, inspect, ACME_CONTAINER)
 
     compose_file = os.path.join(edge_dir, "docker-compose.yml")

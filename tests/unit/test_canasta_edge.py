@@ -25,8 +25,10 @@ class FakeRunner:
     an openssl run would, and fails haproxy -c when told to."""
 
     def __init__(self, containers=None, running=False, invalid=False,
-                 listed=None, issue_fails=()):
+                 listed=None, issue_fails=(), network_ipv6=None):
         self.containers = containers or {}
+        # The existing edge network's IPv6 setting; None when there is none.
+        self.network_ipv6 = network_ipv6
         self.running = running
         self.invalid = invalid
         # acme.sh's certificates: {hostname: (CA, issued)}
@@ -61,6 +63,10 @@ class FakeRunner:
             return self._acme(argv[argv.index("acme.sh") + 1:])
         if argv[1] == "exec":
             return 0, "", ""
+        if argv[1:3] == ["network", "inspect"]:
+            if self.network_ipv6 is None:
+                return 1, "", "network canasta-edge not found"
+            return 0, "%s\n" % str(self.network_ipv6).lower(), ""
         if argv[1] == "ps" and "name=^canasta-edge$" in argv:
             return 0, "edgeid\n" if self.running else "", ""
         if argv[1] == "ps" and "name=^canasta-edge-acme$" in argv:
@@ -919,3 +925,22 @@ def test_a_rootless_daemon_is_recognized(options, expected):
         return 0, options + "\n", ""
     assert mod.daemon_rootless(run, "docker", "unix:///run/user/1000/docker.sock") is expected
     assert calls[0][1] == {"DOCKER_HOST": "unix:///run/user/1000/docker.sock"}
+
+
+@pytest.mark.parametrize("host,network", [(True, False), (False, True)])
+def test_an_existing_network_keeps_its_ipv6_setting(tmp_path, monkeypatch, host, network):
+    monkeypatch.setattr(mod, "host_has_ipv6", lambda: host)
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    result = _sync(FakeRunner(network_ipv6=network), edge, "one", path)
+    assert result["network_ipv6_pending"] is host
+    compose = yaml.safe_load((edge / "docker-compose.yml").read_text())
+    assert compose["networks"]["edge"].get("enable_ipv6", False) is network
+    assert ("bind :::443" in (edge / "conf" / "haproxy.cfg").read_text()) is network
+
+
+def test_a_matching_network_reports_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "host_has_ipv6", lambda: True)
+    path = _instance(tmp_path, "one")
+    result = _sync(FakeRunner(network_ipv6=True), tmp_path / "edge", "one", path)
+    assert "network_ipv6_pending" not in result
