@@ -97,7 +97,9 @@
 # `up` creates or recreates only the services that need it.
 - name: Start the edge
   ansible.builtin.command:
-    cmd: "{{ compose_command }} -p canasta-edge up -d"
+    cmd: >-
+      {{ compose_command }} -p canasta-edge up -d
+      {{ '--force-recreate' if (_edge.recreate | default(false) | bool) else '' }}
     chdir: "{{ _edge.edge_dir }}"
   register: _edge_up
   changed_when: true

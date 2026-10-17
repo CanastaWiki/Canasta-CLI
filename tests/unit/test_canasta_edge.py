@@ -842,3 +842,58 @@ def test_without_a_zone_id_the_account_keeps_the_token(tmp_path):
     assert "CF_Token" not in conf and "CF_Zone_ID" not in conf
     account = (edge / "acme" / "account.conf").read_text()
     assert "SAVED_CF_Token='tok-secret'" in account and "ACCOUNT_EMAIL=''" in account
+
+
+# --- CrowdSec at the edge ----------------------------------------------------- #
+
+CROWDSEC_ENV = {"CANASTA_ENABLE_CROWDSEC": "true", "CROWDSEC_SPOA_API_KEY": "spoa-key"}
+
+
+def test_an_enrolled_crowdsec_instance_gets_its_bouncer(tmp_path):
+    path = _instance(tmp_path, "one", env=CROWDSEC_ENV)
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(), edge, "one", path)
+    layer = yaml.safe_load(open(os.path.join(path, mod.LAYER_FILE)).read())
+    spoa = layer["services"]["crowdsec-spoa"]
+    assert spoa["image"] == mod.SPOA_IMAGE
+    assert "CROWDSEC_KEY=${CROWDSEC_SPOA_API_KEY:-}" in spoa["environment"]
+    assert "spoa-key" not in open(os.path.join(path, mod.LAYER_FILE)).read()
+    assert spoa["networks"][mod.NETWORK]["aliases"] == ["crowdsec-spoa-one"]
+    assert "default" in spoa["networks"]
+    cfg = (edge / "conf" / "haproxy.cfg").read_text()
+    assert "filter spoe engine crowdsec-one" in cfg
+    assert "server spoa crowdsec-spoa-one:9000" in cfg
+    assert (edge / "conf" / "spoe-one.cfg").exists()
+
+
+@pytest.mark.parametrize("env", [
+    {"CANASTA_ENABLE_CROWDSEC": "true"},
+    {"CROWDSEC_SPOA_API_KEY": "spoa-key"},
+])
+def test_without_crowdsec_or_its_key_there_is_no_bouncer(tmp_path, env):
+    path = _instance(tmp_path, "one", env=env)
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(), edge, "one", path)
+    assert "crowdsec-spoa" not in open(os.path.join(path, mod.LAYER_FILE)).read()
+    assert "spoe" not in (edge / "conf" / "haproxy.cfg").read_text()
+
+
+def test_turning_crowdsec_off_removes_the_bouncer(tmp_path):
+    path = _instance(tmp_path, "one", env=CROWDSEC_ENV)
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(), edge, "one", path)
+    with open(os.path.join(path, ".env"), "a") as f:
+        f.write("CANASTA_ENABLE_CROWDSEC=false\n")
+    run = FakeRunner()
+    _sync(run, edge, "one", path)
+    assert "crowdsec-spoa" not in open(os.path.join(path, mod.LAYER_FILE)).read()
+    assert [c for c in run.calls if c[1:3] == ["ps", "-aq"]
+            and "label=com.docker.compose.service=crowdsec-spoa" in c]
+    assert not (edge / "conf" / "spoe-one.cfg").exists()
+
+
+def test_a_new_edge_directory_asks_for_recreated_containers(tmp_path):
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    assert _sync(FakeRunner(), edge, "one", path)["recreate"]
+    assert not _sync(FakeRunner(running=True), edge, "one", path)["recreate"]
