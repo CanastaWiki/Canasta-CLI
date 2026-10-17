@@ -47,8 +47,9 @@ def _image_layout(w, item_type, bundled, user, broken=()):
         (links / n).symlink_to(f"../canasta-{item_type}/{n}")
 
 
-def _cmd(t):
-    c = t.get("ansible.builtin.command") or t.get("command") or {}
+def _cmd(t, modules=("ansible.builtin.command", "command",
+                      "ansible.builtin.shell")):
+    c = next((t[m] for m in modules if t.get(m)), {})
     return c.get("cmd", "") if isinstance(c, dict) else str(c)
 
 
@@ -82,7 +83,7 @@ class TestGitopsCommit:
         # 'command' does not invoke a shell, so '&&' chains reach git as
         # pathspecs. Staging and committing must be separate tasks.
         for t in _walk(_load(ADD_ONE)):
-            assert "&&" not in _cmd(t), (
+            assert "&&" not in _cmd(t, ("ansible.builtin.command", "command")), (
                 "command tasks must not chain commands with &&")
 
     def test_stage_and_commit_are_separate_tasks(self):

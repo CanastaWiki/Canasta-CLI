@@ -27,8 +27,10 @@ def _walk(tasks):
 def _commands(name):
     with open(os.path.join(TASKS, name)) as f:
         tasks = yaml.safe_load(f)
-    return [t["ansible.builtin.command"]["cmd"] for t in _walk(tasks)
-            if isinstance(t.get("ansible.builtin.command"), dict)]
+    return [(t.get("ansible.builtin.command")
+             or t.get("ansible.builtin.shell"))["cmd"] for t in _walk(tasks)
+            if isinstance(t.get("ansible.builtin.command")
+                          or t.get("ansible.builtin.shell"), dict)]
 
 
 def test_add_fetches_and_checks_out_the_branch_after_end_of_options():
