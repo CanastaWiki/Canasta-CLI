@@ -334,6 +334,12 @@
     or _caddy_current.stat.checksum != _caddy_render.checksum
   changed_when: true
 
+# cp creates a missing destination with the operator's umask.
+- name: Set the Caddyfile's mode
+  ansible.builtin.file:
+    path: "{{ instance_path }}/config/Caddyfile"
+    mode: "0644"
+
 - name: Remove the Caddyfile staging file
   ansible.builtin.file:
     path: "{{ _caddy_staging.path }}"
