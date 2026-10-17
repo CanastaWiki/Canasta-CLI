@@ -96,6 +96,20 @@ def _consume_block(text, i):
     return text[i + 1:], n  # unbalanced — return the rest
 
 
+def _opens_block(text, i):
+    """text[i] == '{'. Caddy opens a block only with a brace at the end of
+    its line; any other brace in a label starts a placeholder like {$HOST}."""
+    end = text.find("\n", i)
+    rest = text[i + 1:end if end != -1 else len(text)].strip()
+    return not rest or rest.startswith("#")
+
+
+def _skip_placeholder(text, i):
+    """text[i] == '{' starting a placeholder. Return index just past it."""
+    j = text.find("}", i)
+    return j + 1 if j != -1 else len(text)
+
+
 def _parse_top_level(text):
     """Split into (blocks, inter).
 
@@ -126,6 +140,11 @@ def _parse_top_level(text):
             continue
         if c.isspace():
             i += 1
+            continue
+        if c == "{" and not _opens_block(text, i):
+            if sig_start is None:
+                sig_start = i
+            i = _skip_placeholder(text, i)
             continue
         if c == "{":
             label_pos = sig_start if sig_start is not None else i
@@ -190,6 +209,8 @@ def site_hostnames(text):
             _, host, port, _ = _split_address(addr)
             if not host:
                 reason = "it has no hostname"
+            elif "{" in host:
+                reason = "it uses a placeholder"
             elif "*" in host:
                 reason = "it is a wildcard"
             elif port not in ("", "80", "443"):

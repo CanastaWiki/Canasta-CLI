@@ -65,3 +65,22 @@ def test_routed_addresses_become_http():
 
 def test_unrouted_text_is_unchanged():
     assert cf.http_site_addresses(GLOBAL, []) == GLOBAL
+
+
+def test_placeholders_in_addresses_are_part_of_the_address():
+    text = ("{$SITE_HOST}, www.example.com {\n    respond x\n}\n"
+            "{\n    email a@example.com\n}\n")
+    blocks, _ = cf.parse_top_level(text)
+    labels = [b["label"].strip() for b in blocks]
+    assert labels == ["{$SITE_HOST}, www.example.com", ""]
+    assert [b["is_global"] for b in blocks] == [False, True]
+    hosts, skipped = cf.site_hostnames(text)
+    assert hosts == ["www.example.com"]
+    assert skipped == [("{$SITE_HOST}", "it uses a placeholder")]
+    out = cf.http_site_addresses(text, hosts)
+    assert "{$SITE_HOST}, http://www.example.com {" in out
+
+
+def test_a_placeholder_inside_a_host_is_kept_with_it():
+    hosts, skipped = cf.site_hostnames("wiki.{$DOMAIN} {\n    respond x\n}\n")
+    assert hosts == [] and skipped == [("wiki.{$DOMAIN}", "it uses a placeholder")]
