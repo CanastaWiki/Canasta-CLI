@@ -32,7 +32,9 @@ CERT_DIR = CONFIG_DIR + "/certs"
 DEFAULT_CERT = CERT_DIR + "/default.pem"
 STATS_SOCKET = "/var/run/haproxy/admin.sock"
 
-TLS_MODES = ("acme", "internal", "custom")
+TLS_MODES = ("acme", "acme-dns", "internal", "custom")
+# DNS providers acme-dns supports, as acme.sh names their hooks.
+DNS_PROVIDERS = {"cloudflare": "dns_cf"}
 
 DEFAULT_PM_MAX_CHILDREN = 25
 DYNAMIC_SHARE = 0.6
@@ -139,6 +141,24 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet=""):
             "Instance '%s': CADDY_TLS_MODE is '%s'. Valid values are %s."
             % (instance_id, tls_mode, ", ".join("'%s'" % m for m in TLS_MODES)))
 
+    dns = None
+    if tls_mode == "acme-dns":
+        provider = (env.get("ACME_DNS_PROVIDER") or "cloudflare").strip().lower()
+        if provider not in DNS_PROVIDERS:
+            raise EdgeError(
+                "Instance '%s': ACME_DNS_PROVIDER is '%s'. Supported: %s."
+                % (instance_id, provider, ", ".join(sorted(DNS_PROVIDERS))))
+        token = (env.get("CLOUDFLARE_API_TOKEN") or "").strip()
+        if not token:
+            raise EdgeError(
+                "Instance '%s': CADDY_TLS_MODE is 'acme-dns' but "
+                "CLOUDFLARE_API_TOKEN is not set. Set it to a Cloudflare API "
+                "token that can edit the DNS of the instance's zone."
+                % instance_id)
+        dns = {"provider": provider, "hook": DNS_PROVIDERS[provider],
+               "token": token,
+               "zone_id": (env.get("CLOUDFLARE_ZONE_ID") or "").strip()}
+
     raw_children = (env.get("PM_MAX_CHILDREN") or "").strip()
     try:
         pm_max_children = int(raw_children) if raw_children else DEFAULT_PM_MAX_CHILDREN
@@ -154,6 +174,7 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet=""):
         "hostnames": hostnames,
         "media_hostnames": media,
         "tls_mode": tls_mode,
+        "dns": dns,
         "staging_certs": _truthy(env.get("CANASTA_STAGING_CERTS"), False),
         "tls_cert": (env.get("CADDY_TLS_CERT") or "origin.crt").strip(),
         "tls_key": (env.get("CADDY_TLS_KEY") or "origin.key").strip(),
@@ -175,7 +196,7 @@ def backend_limits(instance):
 def certificates(instances):
     """The certificate files the edge serves, one entry per crt-list line.
 
-    acme and internal certificates are one file per hostname. A custom
+    acme, acme-dns and internal certificates are one file per hostname. A custom
     certificate is the instance's own, covering all its hostnames.
     """
     entries = []
@@ -211,6 +232,23 @@ def _check_unique(instances):
                     "each hostname to one instance."
                     % (owners[host], inst["id"], host))
             owners[host] = inst["id"]
+
+
+def _check_dns_tokens(instances):
+    """acme.sh keeps a Cloudflare token with the certificates only when a
+    zone ID comes with it; otherwise one token is saved for the whole edge,
+    and renewals for every instance would use whichever was saved last."""
+    tokens = {}
+    for inst in instances:
+        dns = inst.get("dns")
+        if dns and not dns["zone_id"]:
+            tokens.setdefault(dns["token"], []).append(inst["id"])
+    if len(tokens) > 1:
+        names = sorted(i for ids in tokens.values() for i in ids)
+        raise EdgeError(
+            "Instances %s use acme-dns with different Cloudflare tokens. Set "
+            "CLOUDFLARE_ZONE_ID for each, so the edge keeps every token with "
+            "its own certificates." % ", ".join("'%s'" % n for n in names))
 
 
 def _acme_rule(thumbprint):
@@ -338,6 +376,7 @@ def render(instances, acme_thumbprint=None):
     """
     instances = sorted(instances, key=lambda i: i["id"])
     _check_unique(instances)
+    _check_dns_tokens(instances)
     entries = certificates(instances)
     return {
         "files": {

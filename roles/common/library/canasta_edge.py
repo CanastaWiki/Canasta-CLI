@@ -486,7 +486,7 @@ def _sync(run, inspect, edge_dir, instance_id, instance_path, member):
         return result
 
     thumbprint = None
-    if any(i["tls_mode"] == "acme" for i in instances):
+    if any(i["tls_mode"] in ("acme", "acme-dns") for i in instances):
         thumbprint = ensure_account(run, inspect, edge_dir)
     elif os.path.exists(os.path.join(edge_dir, "acme", "thumbprint")):
         thumbprint = _read(os.path.join(edge_dir, "acme", "thumbprint")).strip()
@@ -510,10 +510,12 @@ def _sync(run, inspect, edge_dir, instance_id, instance_path, member):
 
 
 def _acme(run, inspect, args, env=None):
+    # `-e NAME` takes the value from the exec's own environment, which keeps
+    # tokens off the command line, where any user on the host can read it.
     argv = [inspect, "exec"]
-    for key, value in sorted((env or {}).items()):
-        argv += ["-e", "%s=%s" % (key, value)]
-    return run(argv + [ACME_CONTAINER, "acme.sh"] + args)
+    for key in sorted(env or {}):
+        argv += ["-e", key]
+    return run(argv + [ACME_CONTAINER, "acme.sh"] + args, env=env)
 
 
 def acme_listed(run, inspect):
@@ -529,6 +531,16 @@ def acme_listed(run, inspect):
         if len(fields) >= 6 and fields[0]:
             listed[fields[0]] = (fields[4], bool(fields[5].strip()))
     return listed
+
+
+def issued_method(edge_dir, host):
+    """How acme.sh validates host at renewal: 'stateless' (HTTP-01 answered
+    by HAProxy) or a DNS hook such as dns_cf. None when it has no record."""
+    conf = _read(os.path.join(edge_dir, "acme", "%s_ecc" % host, "%s.conf" % host))
+    for line in (conf or "").splitlines():
+        if line.startswith("Le_Webroot="):
+            return line.split("=", 1)[1].strip().strip("'\"")
+    return None
 
 
 def _tail(out, err):
@@ -547,20 +559,33 @@ def _issue(run, inspect, edge_dir):
     instances = _load_members(edge_dir, read_members(edge_dir))
     wanted = {}
     for inst in instances:
-        if inst["tls_mode"] == "acme":
+        if inst["tls_mode"] in ("acme", "acme-dns"):
             for host in inst["hostnames"] + inst["media_hostnames"]:
-                wanted[host] = inst["staging_certs"]
+                wanted[host] = (inst["staging_certs"], inst["dns"])
     listed = acme_listed(run, inspect)
 
     for host in sorted(wanted):
-        staging = wanted[host]
+        staging, dns = wanted[host]
+        method = dns["hook"] if dns else "stateless"
         current = listed.get(host)
-        if current and current[1] and current[0] == ACME_CA_NAMES[staging]:
+        # An unreadable record is left alone rather than spend a reissue.
+        if (current and current[1] and current[0] == ACME_CA_NAMES[staging]
+                and issued_method(edge_dir, host) in (method, None)):
             continue
-        args = ["--issue", "--stateless", "-d", host, "--server", ACME_SERVERS[staging]]
+        if dns:
+            args = ["--issue", "--dns", dns["hook"], "-d", host]
+            # With a zone ID acme.sh keeps the token with this certificate
+            # rather than for the whole edge.
+            env = {"CF_Token": dns["token"]}
+            if dns["zone_id"]:
+                env["CF_Zone_ID"] = dns["zone_id"]
+        else:
+            args = ["--issue", "--stateless", "-d", host]
+            env = None
+        args += ["--server", ACME_SERVERS[staging]]
         if current:
             args.append("--force")
-        rc, out, err = _acme(run, inspect, args)
+        rc, out, err = _acme(run, inspect, args, env=env)
         if rc != 0:
             result["unissued"].append({"hostname": host, "reason": _tail(out, err)})
             continue
@@ -606,8 +631,8 @@ def run_module():
     params = module.params
     edge_dir = params["edge_dir"] or os.path.join(get_config_dir(), "edge")
 
-    def run(argv):
-        return module.run_command(argv)
+    def run(argv, env=None):
+        return module.run_command(argv, environ_update=env or {})
 
     try:
         if params["state"] == "issue":

@@ -32,6 +32,7 @@ class FakeRunner:
         self.listed = dict(listed or {})
         self.issue_fails = set(issue_fails)
         self.calls = []
+        self.envs = []
 
     def acme_calls(self, word):
         return [c for c in self.calls if c[1] == "exec" and word in c]
@@ -52,8 +53,9 @@ class FakeRunner:
             self.listed.pop(host, None)
         return 0, "", ""
 
-    def __call__(self, argv):
+    def __call__(self, argv, env=None):
         self.calls.append(argv)
+        self.envs.append(env or {})
         if argv[1] == "exec" and "acme.sh" in argv:
             return self._acme(argv[argv.index("acme.sh") + 1:])
         if argv[1] == "exec":
@@ -257,8 +259,9 @@ def _docker_ok():
 
 @pytest.mark.skipif(not _docker_ok(), reason="Docker is not available")
 def test_certificates_and_validation_with_the_pinned_images(tmp_path):
-    def run(argv):
-        proc = subprocess.run(argv, capture_output=True, text=True, env=_DOCKER_ENV)
+    def run(argv, env=None):
+        proc = subprocess.run(argv, capture_output=True, text=True,
+                              env=dict(_DOCKER_ENV, **(env or {})))
         return proc.returncode, proc.stdout, proc.stderr
 
     # internal: acme would register a real Let's Encrypt account.
@@ -350,8 +353,10 @@ def test_each_acme_hostname_is_issued_and_deployed(tmp_path):
     assert issue[-6:] == ["--issue", "--stateless", "-d", "example.com",
                           "--server", "letsencrypt"]
     deploy = run.acme_calls("--deploy")[0]
-    assert "DEPLOY_HAPROXY_HOT_UPDATE=yes" in deploy
-    assert "DEPLOY_HAPROXY_PEM_PATH=%s" % mod.CERT_DIR in deploy
+    env = run.envs[run.calls.index(deploy)]
+    assert "DEPLOY_HAPROXY_HOT_UPDATE" in deploy
+    assert env["DEPLOY_HAPROXY_HOT_UPDATE"] == "yes"
+    assert env["DEPLOY_HAPROXY_PEM_PATH"] == mod.CERT_DIR
     assert not result["reload"]
 
 
@@ -420,13 +425,13 @@ class OwnerProbe(FakeRunner):
         super().__init__(**kwargs)
         self.owner_uid = owner_uid
 
-    def __call__(self, argv):
+    def __call__(self, argv, env=None):
         if "touch" in argv:
             mounts = dict(a.split(":", 1)[::-1] for a in argv if ":/" in a)
             path = os.path.join(mounts["/probe"], ".owner-probe")
             open(path, "w").close()
             self.created = path
-        return super().__call__(argv)
+        return super().__call__(argv, env)
 
 
 def test_helpers_run_as_the_operator_where_container_root_is_host_root(tmp_path, monkeypatch):
@@ -451,3 +456,65 @@ def test_helpers_stay_root_on_a_rootless_runtime(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.os, "stat", lambda p, *a, **k: type(
         "S", (), {"st_uid": uid})() if p.endswith(".owner-probe") else real_stat(p, *a, **k))
     assert mod.helper_user(OwnerProbe(uid), "podman", str(edge)) == "root"
+
+
+# --- acme-dns ------------------------------------------------------------------ #
+
+DNS_ENV = {"CADDY_TLS_MODE": "acme-dns", "CLOUDFLARE_API_TOKEN": "tok-secret"}
+
+
+def test_acme_dns_issues_through_the_cloudflare_hook(tmp_path):
+    run = FakeRunner(running=True)
+    result = _issue(tmp_path, run, one={"env": DNS_ENV})
+    assert result["issued"] == ["example.com"]
+    issue = run.acme_calls("--issue")[0]
+    assert issue[issue.index("--issue"):issue.index("--server")] == [
+        "--issue", "--dns", "dns_cf", "-d", "example.com"]
+    assert run.envs[run.calls.index(issue)] == {"CF_Token": "tok-secret"}
+
+
+def test_the_token_never_reaches_the_command_line(tmp_path):
+    run = FakeRunner(running=True)
+    _issue(tmp_path, run, one={"env": dict(DNS_ENV, CLOUDFLARE_ZONE_ID="z1")})
+    assert not [c for c in run.calls if any("tok-secret" in a for a in c)]
+    issue = run.acme_calls("--issue")[0]
+    assert run.envs[run.calls.index(issue)] == {"CF_Token": "tok-secret",
+                                                "CF_Zone_ID": "z1"}
+
+
+def test_switching_validation_method_reissues(tmp_path):
+    """acme.sh renews by the method it issued with."""
+    run = FakeRunner(running=True, listed={"example.com": ("LetsEncrypt.org", True)})
+    edge = tmp_path / "edge"
+    conf = edge / "acme" / "example.com_ecc"
+    conf.mkdir(parents=True)
+    (conf / "example.com.conf").write_text("Le_Webroot='stateless'\n")
+    result = _issue(tmp_path, run, one={"env": DNS_ENV})
+    assert result["issued"] == ["example.com"]
+    assert "--force" in run.acme_calls("--issue")[0]
+
+
+def test_acme_dns_needs_a_token(tmp_path):
+    path = _instance(tmp_path, "one", env={"CADDY_TLS_MODE": "acme-dns"})
+    with pytest.raises(mod.EdgeError, match="CLOUDFLARE_API_TOKEN is not set"):
+        _sync(FakeRunner(), tmp_path / "edge", "one", path)
+
+
+def test_different_tokens_without_zone_ids_are_refused(tmp_path):
+    edge = tmp_path / "edge"
+    one = _instance(tmp_path, "one", env=DNS_ENV)
+    two = _instance(tmp_path, "two", hosts=("two.example.org",),
+                    env=dict(DNS_ENV, CLOUDFLARE_API_TOKEN="other"))
+    _sync(FakeRunner(), edge, "one", one)
+    with pytest.raises(mod.EdgeError, match="Set CLOUDFLARE_ZONE_ID for each"):
+        _sync(FakeRunner(), edge, "two", two)
+
+
+def test_different_tokens_with_zone_ids_are_fine(tmp_path):
+    edge = tmp_path / "edge"
+    one = _instance(tmp_path, "one", env=dict(DNS_ENV, CLOUDFLARE_ZONE_ID="z1"))
+    two = _instance(tmp_path, "two", hosts=("two.example.org",),
+                    env=dict(DNS_ENV, CLOUDFLARE_API_TOKEN="other",
+                             CLOUDFLARE_ZONE_ID="z2"))
+    _sync(FakeRunner(), edge, "one", one)
+    assert _sync(FakeRunner(), edge, "two", two)["members"] == ["one", "two"]
