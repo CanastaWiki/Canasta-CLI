@@ -809,6 +809,18 @@ class TestCrowdsecStatusBouncersDisplay:
     shows the single live registration plus a count of the duplicates rather
     than listing each one."""
 
+    def test_the_edge_bouncer_family_collapses_too(self):
+        out = canasta_crowdsec_status_bouncers(now=_NOW, bouncers=[
+            _bouncer("canasta-caddy", "2026-06-11T12:01:50Z", "172.18.0.3"),
+            _bouncer("canasta-edge", "2026-06-11T09:00:00Z", "172.18.0.6"),
+            _bouncer("canasta-edge@172.18.0.7", "2026-06-11T12:01:55Z", "172.18.0.7"),
+        ])
+        assert "canasta-caddy — active" in out
+        assert "canasta-edge@172.18.0.7 — active" in out
+        assert "+ 1 stale auto-created duplicate" in out
+        assert "bouncer-enroll" not in out
+        assert "canasta-edge — IP" not in out
+
     def test_empty_and_none_render_none(self):
         assert canasta_crowdsec_status_bouncers([]) == "  (none)"
         assert canasta_crowdsec_status_bouncers(None) == "  (none)"
