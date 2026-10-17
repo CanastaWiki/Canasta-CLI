@@ -71,18 +71,26 @@ def test_behind_the_edge_caddy_serves_http_only(tmp_path, flag):
     assert "tls internal" not in out
 
 
-def test_behind_the_edge_crowdsec_sees_the_client_address(tmp_path):
-    out = _caddyfile(tmp_path, ["CANASTA_ENABLE_EDGE=true",
-                                "CANASTA_ENABLE_CROWDSEC=true"])
-    assert "trusted_proxies static 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16" in out
+EDGE_TRUST = "trusted_proxies static 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 fc00::/7"
 
 
-def test_behind_the_edge_a_cdn_mode_combines_the_edge_and_cdn_ranges(tmp_path):
-    out = _caddyfile(tmp_path, ["CANASTA_ENABLE_EDGE=true",
-                                "CADDY_TRUSTED_PROXIES=cloudflare"])
-    assert "trusted_proxies combine {" in out
-    assert "static 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16" in out
-    assert "provider cloudflare" in out
+@pytest.mark.parametrize("extra", [
+    [],
+    ["CANASTA_ENABLE_CROWDSEC=true"],
+    ["CADDY_TRUSTED_PROXIES=cloudflare"],
+    ["CADDY_TRUSTED_PROXIES=203.0.113.0/24"],
+])
+def test_behind_the_edge_caddy_trusts_only_the_edge_x_forwarded_for(tmp_path, extra):
+    # The edge recovers the client address and appends it to
+    # X-Forwarded-For; Caddy must pass that on to MediaWiki, and must not
+    # read a CDN header a client could set itself.
+    out = _caddyfile(tmp_path, ["CANASTA_ENABLE_EDGE=true"] + extra)
+    assert EDGE_TRUST in out
+    assert "client_ip_headers X-Forwarded-For" in out
+    assert "trusted_proxies_strict" in out
+    assert "header_up X-Forwarded-For {client_ip}" in out
+    assert "Cf-Connecting-Ip" not in out and "combine" not in out
+    assert "203.0.113.0/24" not in out
 
 
 def test_without_the_edge_a_cdn_mode_stands_alone(tmp_path):

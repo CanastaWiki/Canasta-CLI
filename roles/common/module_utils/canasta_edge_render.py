@@ -519,7 +519,7 @@ def _render_cfg(instances, thumbprint, ipv6=False):
 
     for inst, (dynamic_cap, default_cap) in zip(instances, limits):
         server = ("    server caddy caddy-%s:80 resolvers docker "
-                  "init-addr last,libc,none check maxconn %%d" % inst["id"])
+                  "resolve-prefer ipv4 init-addr last,libc,none check maxconn %%d" % inst["id"])
         classes = [("dynamic", dynamic_cap), ("default", default_cap)]
         if inst["media_hostnames"]:
             classes.append(("media", inst["limits"]["media_maxconn"]))
