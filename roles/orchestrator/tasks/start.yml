@@ -29,6 +29,8 @@
 
     - name: Bring the instance's place behind the edge in line
       ansible.builtin.include_tasks: edge_sync.yml
+      vars:
+        edge_defer_errors: true
 
     - name: Check for docker-compose.sidecars.yml
       ansible.builtin.stat:
@@ -664,3 +666,13 @@
 
     - name: Resume Argo CD auto-sync
       ansible.builtin.include_tasks: k8s_resume_argocd_sync.yml
+
+# The instance is up, served by the edge's last good configuration.
+- name: Fail on the edge configuration error
+  ansible.builtin.fail:
+    msg: >-
+      {{ _edge.error }} The HAProxy edge keeps its previous configuration
+      until this is fixed; run 'canasta restart' again afterwards.
+  when:
+    - not (instance_is_k8s | bool)
+    - _edge.error | default('') | length > 0

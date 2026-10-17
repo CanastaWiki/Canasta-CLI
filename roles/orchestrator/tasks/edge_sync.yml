@@ -14,6 +14,15 @@
     inspect_command: "{{ inspect_command | default('docker') }}"
   register: _edge
 
+# start.yml sets edge_defer_errors: it brings the instance up first, routed
+# by the edge's last good configuration, and fails afterwards.
+- name: Stop on an edge configuration error
+  ansible.builtin.fail:
+    msg: "{{ _edge.error }}"
+  when:
+    - _edge.error is defined
+    - not (edge_defer_errors | default(false) | bool)
+
 - name: Report Caddyfile.global sites the edge cannot route
   ansible.builtin.debug:
     msg: >-
@@ -127,6 +136,7 @@
   when:
     - _edge.members | default([]) | length > 0
     - _edge.acme | default(false) | bool
+    - _edge.error is not defined
 
 - name: Reload the edge for certificates no longer from Let's Encrypt
   ansible.builtin.command:

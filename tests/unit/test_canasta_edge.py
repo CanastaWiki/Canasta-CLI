@@ -6,6 +6,7 @@ rendered configuration.
 """
 
 import os
+import re
 import shutil
 import subprocess
 
@@ -221,8 +222,8 @@ def test_custom_certificate_is_assembled_from_the_instance(tmp_path):
 
 def test_missing_custom_certificate_is_refused(tmp_path):
     path = _instance(tmp_path, "one", env={"CADDY_TLS_MODE": "custom"})
-    with pytest.raises(mod.EdgeError, match="origin.crt or origin.key is missing"):
-        _sync(FakeRunner(), tmp_path / "edge", "one", path)
+    result = _sync(FakeRunner(), tmp_path / "edge", "one", path)
+    assert re.search("origin.crt or origin.key is missing", result["error"])
 
 
 def test_media_entries_without_a_hostname_are_skipped(tmp_path):
@@ -242,16 +243,14 @@ def test_media_entries_without_a_hostname_are_skipped(tmp_path):
 def test_an_invalid_render_is_not_installed(tmp_path):
     path = _instance(tmp_path, "one")
     edge = tmp_path / "edge"
-    with pytest.raises(mod.EdgeError, match="bad config"):
-        _sync(FakeRunner(invalid=True), edge, "one", path)
+    assert re.search("bad config", _sync(FakeRunner(invalid=True), edge, "one", path)["error"])
     assert not (edge / "conf" / "haproxy.cfg").exists()
     assert not [n for n in os.listdir(edge) if n.startswith(".stage-")]
 
 
 def test_a_render_error_names_the_instance(tmp_path):
     path = _instance(tmp_path, "one", hosts=("example.com:8443",))
-    with pytest.raises(mod.EdgeError, match="Instance 'one'.*has a port"):
-        _sync(FakeRunner(), tmp_path / "edge", "one", path)
+    assert re.search("Instance 'one'.*has a port", _sync(FakeRunner(), tmp_path / "edge", "one", path)["error"])
 
 
 # --- the real images ---------------------------------------------------------- #
@@ -502,8 +501,7 @@ def test_switching_validation_method_reissues(tmp_path):
 
 def test_acme_dns_needs_a_token(tmp_path):
     path = _instance(tmp_path, "one", env={"CADDY_TLS_MODE": "acme-dns"})
-    with pytest.raises(mod.EdgeError, match="CLOUDFLARE_API_TOKEN is not set"):
-        _sync(FakeRunner(), tmp_path / "edge", "one", path)
+    assert re.search("CLOUDFLARE_API_TOKEN is not set", _sync(FakeRunner(), tmp_path / "edge", "one", path)["error"])
 
 
 def test_different_tokens_without_zone_ids_are_refused(tmp_path):
@@ -512,8 +510,7 @@ def test_different_tokens_without_zone_ids_are_refused(tmp_path):
     two = _instance(tmp_path, "two", hosts=("two.example.org",),
                     env=dict(DNS_ENV, CLOUDFLARE_API_TOKEN="other"))
     _sync(FakeRunner(), edge, "one", one)
-    with pytest.raises(mod.EdgeError, match="Set CLOUDFLARE_ZONE_ID for each"):
-        _sync(FakeRunner(), edge, "two", two)
+    assert re.search("Set CLOUDFLARE_ZONE_ID for each", _sync(FakeRunner(), edge, "two", two)["error"])
 
 
 def test_different_tokens_with_zone_ids_are_fine(tmp_path):
@@ -790,3 +787,19 @@ def test_certificates_are_made_in_a_directory_under_the_edge(tmp_path):
               for i, a in enumerate(c) if a == "-v"]
     assert mounts and all(m.startswith(str(edge)) for m in mounts), mounts
     assert not [n for n in os.listdir(edge) if n.startswith(".work-")]
+
+
+def test_a_bad_setting_keeps_the_last_good_configuration(tmp_path):
+    one = _instance(tmp_path, "one")
+    two = _instance(tmp_path, "two", hosts=("two.example.org",))
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(), edge, "one", one)
+    _sync(FakeRunner(), edge, "two", two)
+    good = (edge / "conf" / "haproxy.cfg").read_text()
+    with open(os.path.join(two, mod.SNIPPET_FILE), "w") as f:
+        f.write("frontend sneaky\n")
+    result = _sync(FakeRunner(running=True), edge, "one", one)
+    assert "opens a new section" in result["error"]
+    assert result["members"] == ["one", "two"] and result["running"]
+    assert not result["reload"]
+    assert (edge / "conf" / "haproxy.cfg").read_text() == good

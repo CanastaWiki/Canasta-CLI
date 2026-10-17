@@ -572,7 +572,21 @@ def _sync(run, inspect, edge_dir, instance_id, instance_path, member):
     if member == "absent" and not os.path.isdir(edge_dir):
         result.update(members=[], running=False)
         return result
+    try:
+        return _sync_edge(run, inspect, edge_dir, instance_id, instance_path,
+                          member, result)
+    except EdgeError as exc:
+        # The edge keeps serving its last good configuration, which still
+        # routes every instance it did; the caller decides when to fail.
+        result.update(error=str(exc), reload=False, acme=False,
+                      compose_changed=False,
+                      members=sorted(read_members(edge_dir)),
+                      running=edge_running(run, inspect),
+                      acme_running=edge_running(run, inspect, ACME_CONTAINER))
+        return result
 
+
+def _sync_edge(run, inspect, edge_dir, instance_id, instance_path, member, result):
     for sub in ("conf/certs", "ca", "acme"):
         os.makedirs(os.path.join(edge_dir, sub), mode=0o700, exist_ok=True)
     os.chmod(os.path.join(edge_dir, "conf"), 0o755)
