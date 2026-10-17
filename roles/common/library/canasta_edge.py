@@ -963,6 +963,11 @@ def plan_conversion(instances):
             skip[inst["id"]] = "the CLI cannot write to its directory"
             staying.append((inst["id"], env))
             continue
+        if "podman" in (inst.get("compose_command") or ""):
+            skip[inst["id"]] = ("rootless Podman hides client addresses from the "
+                                "edge, which would rate-limit all visitors together")
+            staying.append((inst["id"], env))
+            continue
         reason = _ineligible(inst["id"], inst["path"], env)
         if reason:
             decline[inst["id"]] = reason

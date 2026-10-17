@@ -71,6 +71,8 @@ def _decide(tmp_path, env_lines, domain="example.com", **extra):
     (["HTTP_PORT=80", "HTTPS_PORT=443"], "example.com", {}, True),
     (["CANASTA_ENABLE_EDGE=false"], "example.com", {}, False),
     (["CANASTA_ENABLE_EDGE=true", "HTTPS_PORT=8443"], "example.com", {}, True),
+    ([], "example.com", {"compose_command": "podman-compose"}, False),
+    (["CANASTA_ENABLE_EDGE=true"], "example.com", {"compose_command": "podman-compose"}, True),
 ])
 def test_create_decides_whether_to_use_the_edge(tmp_path, env_lines, domain, extra, expected):
     assert _decide(tmp_path, env_lines, domain, **extra) is expected

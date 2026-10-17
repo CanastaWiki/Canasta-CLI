@@ -640,9 +640,16 @@ def test_an_instance_on_other_ports_does_not_block(tmp_path):
 def test_mixed_runtimes_do_not_move(tmp_path):
     one = _plain(tmp_path, "one")
     two = _plain(tmp_path, "two", hosts=("two.example.org",))
-    plan = mod.plan_conversion([_entry("one", one), _entry("two", two, "podman-compose")])
+    plan = mod.plan_conversion([_entry("one", one), _entry("two", two, "docker-compose")])
     assert plan["convert"] == [] and "runtimes" in plan["skip"]["one"]
     assert "one" not in plan["decline"]
+
+
+def test_podman_instances_stay_off_the_edge_without_a_choice(tmp_path):
+    one = _plain(tmp_path, "one")
+    plan = mod.plan_conversion([_entry("one", one, "podman-compose")])
+    assert plan["convert"] == [] and plan["decline"] == {}
+    assert "rootless Podman" in plan["skip"]["one"]
 
 
 LEAF = "-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----\n"
