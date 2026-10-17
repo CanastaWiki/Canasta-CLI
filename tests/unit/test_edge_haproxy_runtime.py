@@ -48,15 +48,36 @@ def _instances():
         edge.instance_from_config(
             "other", {"CADDY_TLS_MODE": "custom"},
             [{"id": "w0", "url": "other.example.org"}]),
+        edge.instance_from_config(
+            "limited", {"CANASTA_EDGE_RATE_DEFAULT": "3"},
+            [{"id": "w0", "url": "limited.example.org"}]),
+        edge.instance_from_config(
+            "denied", {}, [{"id": "w0", "url": "denied.example.org"}],
+            deny_user_agents="# AI crawlers\nGPTBot\n", deny_cidrs="203.0.113.0/24\n"),
+        edge.instance_from_config(
+            "walled", {}, [{"id": "w0", "url": "walled.example.org"}],
+            deny_cidrs="0.0.0.0/0\n::/0\n"),
+        edge.instance_from_config(
+            "cdn", {"CADDY_TRUSTED_PROXIES": "cloudflare", "CANASTA_EDGE_RATE_DEFAULT": "3"},
+            [{"id": "w0", "url": "cdn.example.org"}]),
     ]
 
 
 def _stub_backends(cfg):
-    return re.sub(
-        r"^backend (be_\w+?_(?:dynamic|default))\n",
-        lambda m: 'backend %s\n    http-request return status 200 '
-                  'content-type text/plain string "%s"\n' % (m.group(1), m.group(1)),
-        cfg, flags=re.M)
+    """Answer with the backend's name where its Caddy would be reached:
+    after the deny and rate rules, so they still apply."""
+    out, backend = [], None
+    for line in cfg.splitlines():
+        match = re.match(r"^backend (be_\w+?_(?:dynamic|default))$", line)
+        if match:
+            backend = match.group(1)
+        elif line.startswith("backend "):
+            backend = None
+        if backend and "if { nbsrv eq 0 }" in line:
+            out.append('    http-request return status 200 content-type text/plain '
+                       'string "%s"' % backend)
+        out.append(line)
+    return "\n".join(out) + "\n"
 
 
 def _self_signed(path, common_name):
@@ -80,7 +101,8 @@ def _port(container, inner):
 @pytest.fixture(scope="module")
 def edge_ports(tmp_path_factory):
     conf = tmp_path_factory.mktemp("edge")
-    rendered = edge.render(_instances(), acme_thumbprint="THUMB")
+    rendered = edge.render(_instances(), acme_thumbprint="THUMB",
+                           cdn_ranges={"cloudflare": ["0.0.0.0/0", "::/0"]})
     for name, content in rendered["files"].items():
         if name == "haproxy.cfg":
             content = _stub_backends(content)
@@ -209,3 +231,41 @@ def test_certificate_is_chosen_by_sni(edge_ports, sni, expected):
     raw.close()
     cert = x509.load_der_x509_certificate(der)
     assert cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value == expected
+
+
+# --- mitigation ------------------------------------------------------------- #
+
+def test_a_client_over_its_rate_is_refused(edge_ports):
+    codes = [_request(edge_ports, "limited.example.org", "/wiki/P%d" % n)[0]
+             for n in range(5)]
+    assert codes[:3] == [200, 200, 200] and codes[-1] == 429
+
+
+def test_denied_user_agents_match_anywhere_in_the_header(edge_ports):
+    ua = "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.1)"
+    assert _request(edge_ports, "denied.example.org", "/", headers={"User-Agent": ua})[0] == 403
+    assert _request(edge_ports, "denied.example.org", "/",
+                    headers={"User-Agent": "Mozilla/5.0 Firefox/130.0"})[0] == 200
+
+
+def test_denied_ranges_are_refused(edge_ports):
+    assert _request(edge_ports, "walled.example.org", "/")[0] == 403
+
+
+def test_deny_lists_are_per_instance(edge_ports):
+    ua = "GPTBot/1.1"
+    assert _request(edge_ports, "example.com", "/wiki/Main_Page",
+                    headers={"User-Agent": ua})[0] == 200
+
+
+def test_behind_a_cdn_limits_count_the_client_not_the_cdn(edge_ports):
+    first = [_request(edge_ports, "cdn.example.org", "/wiki/A%d" % n,
+                      headers={"CF-Connecting-IP": "198.51.100.7"})[0] for n in range(5)]
+    other = _request(edge_ports, "cdn.example.org", "/wiki/B",
+                     headers={"CF-Connecting-IP": "198.51.100.8"})[0]
+    assert first[-1] == 429 and other == 200
+
+
+def test_a_request_body_is_accepted(edge_ports):
+    assert _request(edge_ports, "example.com", "/w/index.php", method="POST",
+                    headers={"Content-Type": "text/plain"})[0] == 200

@@ -195,8 +195,11 @@ def test_a_backend_with_no_running_server_answers_503_at_once():
     cfg = edge.render([_inst()])["files"]["haproxy.cfg"]
     for kind in ("dynamic", "default"):
         section = cfg.split("backend be_wiki1_%s\n" % kind, 1)[1].split("\n\n", 1)[0]
-        assert section.startswith("    http-request return status 503"), kind
-        assert "if { nbsrv eq 0 }" in section
+        lines = section.splitlines()
+        nbsrv = next(i for i, l in enumerate(lines) if "if { nbsrv eq 0 }" in l)
+        server = next(i for i, l in enumerate(lines) if l.strip().startswith("server "))
+        assert lines[nbsrv].startswith("    http-request return status 503"), kind
+        assert nbsrv < server
 
 
 def test_acme_dns_needs_a_supported_provider():
@@ -221,3 +224,56 @@ def test_the_dns_credentials_are_per_host_under_gitops():
     for key in ("ACME_DNS_PROVIDER", "CLOUDFLARE_ZONE_ID"):
         assert key in cls["canasta_host_specific_nonsecret"]
     assert re.search(cls["canasta_secret_key_pattern"], "CLOUDFLARE_API_TOKEN")
+
+
+# --- mitigation ----------------------------------------------------------------- #
+
+def test_rate_limits_follow_the_instance_settings():
+    inst = _inst(env={"CANASTA_EDGE_RATE_DYNAMIC": "10", "CANASTA_EDGE_RATE_DEFAULT": "0"})
+    cfg = edge.render([inst])["files"]["haproxy.cfg"]
+    dynamic = cfg.split("backend be_wiki1_dynamic\n", 1)[1].split("\n\n", 1)[0]
+    default = cfg.split("backend be_wiki1_default\n", 1)[1].split("\n\n", 1)[0]
+    assert "sc0_http_req_rate gt 10" in dynamic
+    assert "sc0_http_req_rate" not in default
+    assert "sc0_http_err_rate gt %d" % edge.DEFAULT_ERROR_RATE in default
+
+
+def test_maxconn_can_be_overridden():
+    inst = _inst(env={"CANASTA_EDGE_DYNAMIC_MAXCONN": "4", "CANASTA_EDGE_DEFAULT_MAXCONN": "40"})
+    assert edge.backend_limits(inst) == (4, 40)
+
+
+@pytest.mark.parametrize("key,value", [
+    ("CANASTA_EDGE_RATE_DYNAMIC", "-1"), ("CANASTA_EDGE_RATE_DEFAULT", "lots"),
+    ("CANASTA_EDGE_DYNAMIC_MAXCONN", "0"),
+])
+def test_bad_limits_are_refused(key, value):
+    with pytest.raises(edge.EdgeError, match=key):
+        _inst(env={key: value})
+
+
+def test_a_bad_deny_range_names_its_line():
+    with pytest.raises(edge.EdgeError, match="edge-deny-cidrs.list line 3, '10.0.0.300'"):
+        edge.instance_from_config("one", {}, [{"id": "w", "url": "example.com"}],
+                                  deny_cidrs="# ok\n192.0.2.0/24\n10.0.0.300\n")
+
+
+def test_a_trusted_cidr_list_trusts_the_last_forwarded_address():
+    inst = _inst(env={"CADDY_TRUSTED_PROXIES": "10.1.0.0/16, 192.0.2.4"})
+    rendered = edge.render([inst])
+    assert rendered["files"]["trusted-wiki1.lst"] == "10.1.0.0/16\n192.0.2.4/32\n"
+    assert "req.hdr_ip(X-Forwarded-For,-1)" in rendered["files"]["haproxy.cfg"]
+
+
+def test_a_cdn_needs_its_ranges():
+    inst = _inst(env={"CADDY_TRUSTED_PROXIES": "imperva"})
+    with pytest.raises(edge.EdgeError, match="No address ranges for imperva"):
+        edge.render([inst])
+    cfg = edge.render([inst], cdn_ranges={"imperva": ["192.0.2.0/24"]})["files"]
+    assert "req.hdr_ip(Incap-Client-IP) if { var(txn.inst) -m str wiki1 }" in cfg["haproxy.cfg"]
+    assert cfg["cdn-imperva.lst"] == "192.0.2.0/24\n"
+
+
+def test_uploads_skip_the_body_wait():
+    cfg = edge.render([_inst()])["files"]["haproxy.cfg"]
+    assert "http-request wait-for-body time 5s at-least 2m if !upload" in cfg
