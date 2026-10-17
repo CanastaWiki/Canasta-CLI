@@ -601,7 +601,7 @@ def _entry(name, path, runtime="docker compose"):
 
 def test_an_instance_on_the_standard_ports_moves(tmp_path):
     one = _plain(tmp_path, "one")
-    assert mod.plan_conversion([_entry("one", one)]) == {"convert": ["one"], "decline": {}}
+    assert mod.plan_conversion([_entry("one", one)]) == {"convert": ["one"], "decline": {}, "skip": {}}
 
 
 @pytest.mark.parametrize("env,hosts,fragment", [
@@ -621,7 +621,7 @@ def test_an_explicit_choice_is_kept(tmp_path):
     off = _plain(tmp_path, "off", env={"CANASTA_ENABLE_EDGE": "false", "HTTP_PORT": "8080",
                                        "HTTPS_PORT": "8443"}, hosts=("off.example.org:8443",))
     plan = mod.plan_conversion([_entry("on", on), _entry("off", off)])
-    assert plan == {"convert": [], "decline": {}}
+    assert plan == {"convert": [], "decline": {}, "skip": {}}
 
 
 def test_an_instance_staying_on_80_443_blocks_the_host(tmp_path):
@@ -745,7 +745,7 @@ def test_an_imported_certificate_is_deployed_not_reissued(tmp_path):
 def test_kubernetes_instances_are_left_out_of_the_plan(tmp_path):
     one = _plain(tmp_path, "one")
     entry = dict(_entry("one", one), orchestrator="kubernetes")
-    assert mod.plan_conversion([entry]) == {"convert": [], "decline": {}}
+    assert mod.plan_conversion([entry]) == {"convert": [], "decline": {}, "skip": {}}
 
 
 # --- IPv6 --------------------------------------------------------------------- #
@@ -761,3 +761,30 @@ def test_the_edge_network_has_ipv6_when_the_host_does(tmp_path, monkeypatch, has
     if has_ipv6:
         assert network["ipam"]["config"][0]["subnet"].startswith("fd")
     assert ("bind :::443" in (edge / "conf" / "haproxy.cfg").read_text()) is has_ipv6
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can write anywhere")
+def test_an_instance_the_cli_cannot_write_is_skipped_and_still_blocks(tmp_path):
+    one = _plain(tmp_path, "one")
+    ro = _plain(tmp_path, "ro", hosts=("ro.example.org",))
+    os.chmod(os.path.join(ro, ".env"), 0o444)
+    try:
+        plan = mod.plan_conversion([_entry("one", one), _entry("ro", ro)])
+    finally:
+        os.chmod(os.path.join(ro, ".env"), 0o644)
+    assert plan["convert"] == []
+    assert plan["skip"] == {"ro": "the CLI cannot write to its directory"}
+    assert "instance 'ro' on this host serves ports 80/443" in plan["decline"]["one"]
+
+
+def test_certificates_are_made_in_a_directory_under_the_edge(tmp_path):
+    # Under canasta-docker the CLI's own /tmp does not exist on the host,
+    # so every directory a helper container mounts must live in the edge's.
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    run = FakeRunner()
+    _sync(run, edge, "one", path)
+    mounts = [c[i + 1].split(":")[0] for c in run.calls
+              for i, a in enumerate(c) if a == "-v"]
+    assert mounts and all(m.startswith(str(edge)) for m in mounts), mounts
+    assert not [n for n in os.listdir(edge) if n.startswith(".work-")]

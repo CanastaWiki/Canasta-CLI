@@ -454,7 +454,9 @@ def ensure_certificates(run, inspect, edge_dir, certificates, instances):
         wanted.insert(0, ("default.pem", ["default"]))
     if wanted:
         ca_missing = not os.path.exists(os.path.join(ca, "ca.crt"))
-        work = tempfile.mkdtemp(prefix="canasta-edge-")
+        # Under the edge directory, which is the same path on the host when
+        # the CLI itself runs in a container; its own /tmp is not.
+        work = tempfile.mkdtemp(prefix=".work-", dir=edge_dir)
         try:
             rc, _, err = run([
                 inspect, "run", "--rm", "--user", helper_user(run, inspect, edge_dir),
@@ -871,6 +873,12 @@ def _ineligible(instance_id, path, env):
     return None
 
 
+def _writable(path):
+    env_file = os.path.join(path, ".env")
+    return os.access(path, os.W_OK) and (
+        not os.path.exists(env_file) or os.access(env_file, os.W_OK))
+
+
 def _publishes_web_ports(env):
     if edge_enabled(env):
         return False
@@ -886,9 +894,11 @@ def plan_conversion(instances):
     instances are left out. An instance whose .env already
     sets CANASTA_ENABLE_EDGE keeps its choice. One that can move does, unless
     an instance staying outside the edge serves 80 or 443 itself, which the
-    edge would collide with; then none on the host move. Returns {convert:
-    [ids], decline: {id: reason}}."""
-    convert, decline, staying = [], {}, []
+    edge would collide with; then none on the host move. One whose files the
+    CLI cannot write is skipped without recording a choice, so the next
+    upgrade considers it again. Returns {convert: [ids], decline: {id:
+    reason}, skip: {id: reason}}."""
+    convert, decline, skip, staying = [], {}, {}, []
     runtimes = set()
     for inst in instances:
         if is_k8s_orchestrator(inst.get("orchestrator") or "compose") or \
@@ -898,6 +908,10 @@ def plan_conversion(instances):
         if (env.get("CANASTA_ENABLE_EDGE") or "").strip():
             if not edge_enabled(env):
                 staying.append((inst["id"], env))
+            continue
+        if not _writable(inst["path"]):
+            skip[inst["id"]] = "the CLI cannot write to its directory"
+            staying.append((inst["id"], env))
             continue
         reason = _ineligible(inst["id"], inst["path"], env)
         if reason:
@@ -916,7 +930,7 @@ def plan_conversion(instances):
         reason = "the host's instances use different container runtimes"
         decline.update({i: reason for i in convert})
         convert = []
-    return {"convert": convert, "decline": decline}
+    return {"convert": convert, "decline": decline, "skip": skip}
 
 
 def run_module():

@@ -55,6 +55,15 @@
   loop_control:
     label: "{{ item.key }}"
 
+- name: Report instances left for the next upgrade
+  ansible.builtin.debug:
+    msg: >-
+      '{{ item.key }}' stays outside the HAProxy edge for now: {{ item.value }}.
+      The next upgrade considers it again.
+  loop: "{{ _edge_plan.skip | default({}) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
 - name: Move instances behind the edge
   when: _edge_plan.convert | length > 0
   block:
