@@ -805,8 +805,9 @@ def _instance_consistency_lines(inst):
 # means renewal is failing.
 _TLS_RENEWAL_FLOOR_DAYS = 14
 
-# Caddy's fallback when it cannot obtain a public certificate.
-_TLS_INTERNAL_ISSUER_MARKERS = ("caddy local authority",)
+# Caddy's fallback when it cannot obtain a public certificate, and the CA
+# the HAProxy edge signs its own certificates with.
+_TLS_INTERNAL_ISSUER_MARKERS = ("caddy local authority", "canasta edge ca")
 
 # Let's Encrypt's staging CA marks every issuer CN this way, e.g.
 # "(STAGING) Artificial Amaranth YE1". Staging certificates are valid and
@@ -939,8 +940,10 @@ def _is_self_signed(issuer, subject):
 
 def _origin_tls_lines_from_entries(inst_id, entries, now,
                                    tls_internal=False, k8s=False,
-                                   cert_manager=None):
-    """doctor lines for the probed certificates."""
+                                   cert_manager=None, edge=False):
+    """doctor lines for the probed certificates. With `edge`, the HAProxy
+    edge served them, and `tls_internal` means CADDY_TLS_MODE=internal."""
+    ca = "the edge's internal CA" if edge else "Caddy internal CA"
     title = ["", "Origin TLS (%s):" % inst_id]
     if entries is None:
         return title + [
@@ -969,16 +972,17 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
             # Internal-CA certificates last 12 hours, so the expiry checks
             # below would warn about a local name on every run.
             lines.append(
-                "  %s: OK (Caddy internal CA — expected for a name with no "
-                "public certificate)" % name)
+                "  %s: OK (%s — expected for a name with no "
+                "public certificate)" % (name, ca))
             continue
         if internal and tls_internal:
             # `tls internal` is configured, so Caddy never contacts ACME.
             # An internal certificate is the requested outcome, not a
             # silent fallback.
             lines.append(
-                "  %s: OK (Caddy internal CA — 'tls internal' is configured "
-                "for this instance)" % name)
+                "  %s: OK (%s — %s is configured for this instance)"
+                % (name, ca, "CADDY_TLS_MODE=internal" if edge
+                   else "'tls internal'"))
             continue
         if internal:
             fallback_names.append(name)
@@ -1043,7 +1047,14 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
             lines.append(
                 "  %s: OK (expires in %d days, issuer %s)"
                 % (name, days, issuer or "unknown"))
-    if fallback_names:
+    if fallback_names and edge:
+        lines.append(
+            "  %s: WARN — served by the edge's internal CA, not a publicly "
+            "trusted certificate. The edge has no Let's Encrypt certificate "
+            "for these names. If the internal CA is what you want, set "
+            "CADDY_TLS_MODE=internal and this check will report it as "
+            "intended." % ", ".join(fallback_names))
+    elif fallback_names:
         lines.append(
             "  %s: WARN — served by Caddy's internal CA, not a publicly "
             "trusted certificate." % ", ".join(fallback_names))
@@ -1218,8 +1229,11 @@ def _origin_tls_lines(inst):
         return []
     host = inst.get("host") or "localhost"
     is_k8s = _helpers._is_k8s(inst)
-    if is_k8s:
-        # The ingress controller terminates TLS, not Caddy.
+    edge = not is_k8s and (
+        _helpers._read_env_for(inst, "CANASTA_ENABLE_EDGE") or "false"
+    ).strip().lower() == "true"
+    if is_k8s or edge:
+        # The ingress controller, or the HAProxy edge, terminates TLS.
         port = "443"
     else:
         if (_helpers._read_env_for(inst, "CADDY_AUTO_HTTPS") or "on").lower() \
@@ -1252,11 +1266,17 @@ def _origin_tls_lines(inst):
         return []
     if not stdout.strip():
         return []
+    if edge:
+        tls_internal = (_helpers._read_env_for(inst, "CADDY_TLS_MODE")
+                        or "acme").strip().lower() == "internal"
+    else:
+        tls_internal = _parse_tls_internal(stdout)
     return _origin_tls_lines_from_entries(
         inst.get("id", "?"), _parse_origin_tls(stdout),
         datetime.datetime.now(datetime.timezone.utc),
-        tls_internal=_parse_tls_internal(stdout), k8s=is_k8s,
-        cert_manager=_parse_cert_manager(stdout) if is_k8s else None)
+        tls_internal=tls_internal, k8s=is_k8s,
+        cert_manager=_parse_cert_manager(stdout) if is_k8s else None,
+        edge=edge)
 
 
 # --- Kubernetes config drift ------------------------------------------------

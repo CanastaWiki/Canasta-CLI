@@ -2266,10 +2266,14 @@ def _probe_wiki_local(url, instance_path):
         return _fetch_is_mediawiki(url)
 
     env = _read_env_file(instance_path, "localhost") if instance_path else {}
-    port = (
-        env.get("HTTPS_PORT", "") if parsed.scheme == "https"
-        else env.get("HTTP_PORT", "")
-    )
+    if _edge_enabled(env):
+        # The HAProxy edge serves every wiki on the standard ports.
+        port = "443" if parsed.scheme == "https" else "80"
+    else:
+        port = (
+            env.get("HTTPS_PORT", "") if parsed.scheme == "https"
+            else env.get("HTTP_PORT", "")
+        )
 
     try:
         loopback_port = int(str(port).strip())

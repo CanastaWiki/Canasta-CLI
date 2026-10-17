@@ -287,6 +287,79 @@
             key: MW_SITE_FQDN
             value: "{{ _base_domain }}{{ _port_suffix }}"
 
+# Behind the edge every wiki is served at https://<host> with no port.
+# Leaving the edge puts back the instance's own active port and scheme, as
+# the CADDY_AUTO_HTTPS handler above derives them.
+- name: Apply CANASTA_ENABLE_EDGE side effects
+  when:
+    - _config_key == 'CANASTA_ENABLE_EDGE'
+    - not (instance_is_k8s | bool)
+  block:
+    - name: Reject a non-boolean CANASTA_ENABLE_EDGE
+      ansible.builtin.fail:
+        msg: "CANASTA_ENABLE_EDGE must be 'true' or 'false', not '{{ _config_value }}'."
+      when: _config_value | lower not in ['true', 'false']
+
+    - name: Read the ports and TLS switch from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read_all
+      register: _se_edge_env
+      no_log: true  # registers the whole .env, including passwords
+
+    - name: Compute the scheme and port the wikis are served on
+      vars:
+        _edge_on: "{{ _config_value | lower == 'true' }}"
+        _http_only: >-
+          {{ not _edge_on
+             and _se_edge_env.variables.CADDY_AUTO_HTTPS | default('on', true) | lower == 'off' }}
+      ansible.builtin.set_fact:
+        _active_scheme: "{{ _http_only | ternary('http', 'https') }}"
+        _active_port: >-
+          {{ '443' if _edge_on
+             else _http_only | ternary(
+                 _se_edge_env.variables.HTTP_PORT | default('80', true),
+                 _se_edge_env.variables.HTTPS_PORT | default('443', true)) }}
+        _default_port: "{{ _http_only | ternary('80', '443') }}"
+
+    - name: Read wikis.yaml for the edge change
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: read
+      register: _se_edge_wikis
+
+    - name: Apply wikis.yaml/.env updates for the edge change
+      when: _se_edge_wikis.wikis | length > 0
+      block:
+        - name: Extract domain (strip path and existing port)
+          ansible.builtin.set_fact:
+            _base_domain: "{{ _se_edge_wikis.wikis[0].url | regex_replace('/.*$', '') | regex_replace(':[0-9]+$', '') }}"
+
+        - name: Compute new domain suffix
+          ansible.builtin.set_fact:
+            _port_suffix: "{{ (_active_port == _default_port) | ternary('', ':' + _active_port) }}"
+
+        - name: Update wikis.yaml URLs for the edge change
+          canasta_wikis_yaml:
+            instance_path: "{{ instance_path }}"
+            state: update_port
+            port: "{{ _active_port }}"
+            default_port: "{{ _default_port }}"
+
+        - name: Update MW_SITE_SERVER for the edge change
+          canasta_env:
+            path: "{{ instance_path }}/.env"
+            state: set
+            key: MW_SITE_SERVER
+            value: "{{ _active_scheme }}://{{ _base_domain }}{{ _port_suffix }}"
+
+        - name: Update MW_SITE_FQDN for the edge change
+          canasta_env:
+            path: "{{ instance_path }}/.env"
+            state: set
+            key: MW_SITE_FQDN
+            value: "{{ _base_domain }}{{ _port_suffix }}"
+
 - name: Apply MW_SITE_FQDN side effects
   when: _config_key == 'MW_SITE_FQDN'
   block:
