@@ -890,3 +890,10 @@ def test_turning_crowdsec_off_removes_the_bouncer(tmp_path):
     assert [c for c in run.calls if c[1:3] == ["ps", "-aq"]
             and "label=com.docker.compose.service=crowdsec-spoa" in c]
     assert not (edge / "conf" / "spoe-one.cfg").exists()
+
+
+def test_a_new_edge_directory_asks_for_recreated_containers(tmp_path):
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    assert _sync(FakeRunner(), edge, "one", path)["recreate"]
+    assert not _sync(FakeRunner(running=True), edge, "one", path)["recreate"]

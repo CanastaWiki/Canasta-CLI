@@ -648,8 +648,13 @@ def _sync_edge(run, inspect, edge_dir, instance_id, instance_path, member, resul
     ipv6 = host_has_ipv6()
     result["acme_running"] = edge_running(run, inspect, ACME_CONTAINER)
 
+    compose_file = os.path.join(edge_dir, "docker-compose.yml")
+    # A new edge directory under running edge containers (it was deleted):
+    # they still mount the old one, and an unchanged compose file would not
+    # make `up` replace them.
+    result["recreate"] = not os.path.exists(compose_file)
     result["compose_changed"] = _write_if_changed(
-        os.path.join(edge_dir, "docker-compose.yml"),
+        compose_file,
         EDGE_COMPOSE % {"image": HAPROXY_IMAGE, "container": CONTAINER,
                         "config_dir": CONFIG_DIR, "network": NETWORK,
                         "acme_image": ACME_IMAGE, "acme_container": ACME_CONTAINER,
