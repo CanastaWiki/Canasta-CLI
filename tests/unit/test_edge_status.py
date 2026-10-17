@@ -11,18 +11,18 @@ from direct_commands import _helpers, doctor  # noqa: E402
 S = _helpers._SENTINEL
 
 
-def _probe(edge="Up 2 hours", acme="Up 2 hours", members=("one",), certs=()):
+def _probe(edge="Up 2 hours", acme="Up 2 hours", members=("one",), certs=(), spoa=""):
     rows = ["Main_Domain|KeyLength|SAN_Domains|Profile|CA|Created|Renew"]
     rows += ["%s|ec-256|no||%s|2026-10-17T03:27:34Z|%s" % c for c in certs]
-    return ("%sEDGE:%s\n%sACME:%s\n%sMEMBERS:\nmembers:\n%s%sCERTS:\n%s\n"
-            % (S, edge, S, acme, S,
+    return ("%sEDGE:%s\n%sACME:%s\n%sSPOA:%s\n%sMEMBERS:\nmembers:\n%s%sCERTS:\n%s\n"
+            % (S, edge, S, acme, S, spoa, S,
                "".join("- id: %s\n  path: /srv/%s\n" % (m, m) for m in members),
                S, "\n".join(rows)))
 
 
-def _lines(stdout, tls_mode="acme", names=("example.com",), inst="one"):
+def _lines(stdout, tls_mode="acme", names=("example.com",), inst="one", crowdsec=None):
     return "\n".join(doctor._edge_lines_from_probe(
-        inst, tls_mode, list(names), doctor._parse_edge_probe(stdout)))
+        inst, tls_mode, list(names), doctor._parse_edge_probe(stdout), crowdsec))
 
 
 def test_a_healthy_edge_instance():
@@ -91,6 +91,7 @@ def test_the_probe_script_runs(tmp_path, monkeypatch):
         'case "$*" in\n'
         '  *"name=^canasta-edge\\$"*) echo "Up 5 minutes";;\n'
         '  *"name=^canasta-edge-acme\\$"*) echo "Up 5 minutes";;\n'
+        '  *"service=crowdsec-spoa"*) echo "Up 4 minutes";;\n'
         '  *"--listraw"*) echo "Main_Domain|KeyLength|SAN_Domains|Profile|CA|Created|Renew";'
         ' echo "example.com|ec-256|no||LetsEncrypt.org|2026-10-17T00:00:00Z|2026-12-16T00:00:00Z";;\n'
         "esac\n")
@@ -98,10 +99,19 @@ def test_the_probe_script_runs(tmp_path, monkeypatch):
     edge = tmp_path / "config" / "canasta" / "edge"
     edge.mkdir(parents=True)
     (edge / "members.yaml").write_text("members:\n- id: one\n  path: /srv/one\n")
-    script = doctor._EDGE_SCRIPT % {"delim": S, "inspect": str(fake)}
+    script = doctor._EDGE_SCRIPT % {"delim": S, "inspect": str(fake), "project": "one"}
     env = dict(os.environ, XDG_CONFIG_HOME=str(tmp_path / "config"))
     out = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
                          env=env).stdout
-    lines = _lines(out)
+    lines = _lines(out, crowdsec=True)
     assert "WARN" not in lines, lines
+    assert "CrowdSec bouncer: running (Up 4 minutes)" in lines
     assert "example.com: Let's Encrypt production" in lines
+
+
+def test_the_crowdsec_bouncer_is_reported():
+    assert "CrowdSec" not in _lines(_probe())
+    assert "CrowdSec bouncer: running (Up 1 hour)" in _lines(_probe(spoa="Up 1 hour"), crowdsec=True)
+    down = _lines(_probe(), crowdsec=True)
+    assert "CrowdSec bouncer: WARN — not running" in down and "canasta restart -i one" in down
+    assert "CrowdSec bouncer: WARN — not enrolled yet" in _lines(_probe(), crowdsec=False)

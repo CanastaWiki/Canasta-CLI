@@ -1,0 +1,88 @@
+---
+# Register the instance's CrowdSec bouncer for the HAProxy edge with its
+# engine, store the key, and start the bouncer. Runs after the Caddy
+# bouncer's enrollment, for a Compose instance behind the edge.
+#
+# Unlike the Caddy bouncer, nothing else in the instance reads the key, so
+# storing it needs no restart: the edge sync adds the bouncer to the
+# instance's edge layer and its checks to the edge, and the bouncer starts
+# on its own.
+#
+# Input: instance_id, instance_path, compose_command, _cscli_prefix (from
+# the Caddy bouncer's preflight).
+
+- name: Read the edge bouncer's key from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: CROWDSEC_SPOA_API_KEY
+  register: _spoa_key
+  no_log: true  # holds the bouncer's API key
+
+- name: List registered bouncers for the edge bouncer
+  ansible.builtin.command:
+    cmd: "{{ _cscli_prefix }} cscli bouncers list -o json"
+    chdir: "{{ _cscli_chdir | default(omit) }}"
+  register: _spoa_bouncers
+  changed_when: false
+
+# cscli cannot reveal an existing key, so a registration without a stored
+# key (or a key without a registration, after the engine's data was lost)
+# is replaced.
+- name: Decide whether to enroll the edge bouncer
+  ansible.builtin.set_fact:
+    _spoa_registered: >-
+      {{ 'canasta-edge' in
+         ((((_spoa_bouncers.stdout | trim) or '[]') | from_json or []) | map(attribute='name') | list) }}
+    _spoa_have_key: "{{ _spoa_key.value | default('') | length > 0 }}"
+
+- name: Enroll the edge bouncer
+  when: not (_spoa_registered | bool and _spoa_have_key | bool)
+  block:
+    - name: Revoke the edge bouncer's registration
+      ansible.builtin.command:
+        cmd: "{{ _cscli_prefix }} cscli bouncers delete canasta-edge --ignore-missing"
+        chdir: "{{ _cscli_chdir | default(omit) }}"
+      changed_when: true
+      when: _spoa_registered | bool
+
+    - name: Register the edge bouncer and capture its API key
+      ansible.builtin.command:
+        cmd: "{{ _cscli_prefix }} cscli bouncers add canasta-edge -o raw"
+        chdir: "{{ _cscli_chdir | default(omit) }}"
+      register: _spoa_add
+      changed_when: true
+      no_log: true
+
+    - name: Store the edge bouncer's key
+      ansible.builtin.include_role:
+        name: config
+        tasks_from: set.yml
+      vars:
+        config_settings_override: "CROWDSEC_SPOA_API_KEY={{ _spoa_add.stdout | trim }}"
+        no_restart: true
+        config_restart_by_caller: true
+
+    - name: Add the edge bouncer to the edge
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: edge_sync.yml
+
+    # The bouncer is defined entirely by the edge layer; the base file
+    # gives it the instance's network.
+    - name: Start the edge bouncer
+      ansible.builtin.command:
+        cmd: >-
+          {{ compose_command }} -f docker-compose.yml -f docker-compose.edge.yml
+          up -d --no-deps crowdsec-spoa
+        chdir: "{{ instance_path }}"
+      environment:
+        COMPOSE_IGNORE_ORPHANS: "true"
+      changed_when: true
+
+    - name: Report the edge bouncer enrolled
+      ansible.builtin.debug:
+        msg: >-
+          Registered CrowdSec bouncer 'canasta-edge' for instance
+          '{{ instance_id }}'; the HAProxy edge now refuses clients its
+          engine bans.

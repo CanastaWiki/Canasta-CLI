@@ -1080,6 +1080,7 @@ _EDGE_SCRIPT = r"""
 if [ "$(id -u)" = 0 ]; then d=/etc/canasta; else d="${XDG_CONFIG_HOME:-$HOME/.config}/canasta"; fi
 printf '%%sEDGE:%%s\n' '%(delim)s' "$(%(inspect)s ps --filter 'name=^canasta-edge$' --format '{{.Status}}' 2>/dev/null)"
 printf '%%sACME:%%s\n' '%(delim)s' "$(%(inspect)s ps --filter 'name=^canasta-edge-acme$' --format '{{.Status}}' 2>/dev/null)"
+printf '%%sSPOA:%%s\n' '%(delim)s' "$(%(inspect)s ps --filter 'label=com.docker.compose.project=%(project)s' --filter 'label=com.docker.compose.service=crowdsec-spoa' --format '{{.Status}}' 2>/dev/null)"
 printf '%%sMEMBERS:\n' '%(delim)s'; cat "$d/edge/members.yaml" 2>/dev/null
 printf '%%sCERTS:\n' '%(delim)s'; %(inspect)s exec canasta-edge-acme acme.sh --list --listraw 2>/dev/null
 true
@@ -1089,13 +1090,15 @@ true
 def _parse_edge_probe(stdout):
     """{'edge': status, 'acme': status, 'members': [ids], 'certs': {host:
     (ca, renew)}} from the probe output."""
-    probe = {"edge": "", "acme": "", "members": [], "certs": {}}
+    probe = {"edge": "", "acme": "", "spoa": "", "members": [], "certs": {}}
     for seg in stdout.split(_helpers._SENTINEL):
         header, _, body = seg.partition("\n")
         if header.startswith("EDGE:"):
             probe["edge"] = header[len("EDGE:"):].strip()
         elif header.startswith("ACME:"):
             probe["acme"] = header[len("ACME:"):].strip()
+        elif header.startswith("SPOA:"):
+            probe["spoa"] = header[len("SPOA:"):].strip()
         elif header.startswith("MEMBERS:"):
             try:
                 data = yaml.safe_load(body) or {}
@@ -1110,8 +1113,9 @@ def _parse_edge_probe(stdout):
     return probe
 
 
-def _edge_lines_from_probe(inst_id, tls_mode, names, probe):
-    """doctor lines for an instance behind the HAProxy edge."""
+def _edge_lines_from_probe(inst_id, tls_mode, names, probe, crowdsec=None):
+    """doctor lines for an instance behind the HAProxy edge. crowdsec is
+    None when CrowdSec is off, else whether its edge bouncer is enrolled."""
     lines = ["", "HAProxy edge (%s):" % inst_id]
     if probe["edge"]:
         lines.append("  edge: running (%s)" % probe["edge"])
@@ -1125,6 +1129,8 @@ def _edge_lines_from_probe(inst_id, tls_mode, names, probe):
         lines.append(
             "  member: WARN — not among the edge's instances. Run 'canasta "
             "restart -i %s' to add it." % inst_id)
+    if crowdsec is not None:
+        lines.append(_edge_crowdsec_line(inst_id, crowdsec, probe["spoa"]))
     if tls_mode not in ("acme", "acme-dns"):
         return lines
     if probe["acme"]:
@@ -1146,6 +1152,18 @@ def _edge_lines_from_probe(inst_id, tls_mode, names, probe):
     return lines
 
 
+def _edge_crowdsec_line(inst_id, enrolled, status):
+    if not enrolled:
+        return ("  CrowdSec bouncer: WARN — not enrolled yet, so only Caddy's "
+                "bouncer refuses banned clients. Run 'canasta restart -i %s' "
+                "to enroll it." % inst_id)
+    if status:
+        return "  CrowdSec bouncer: running (%s)" % status
+    return ("  CrowdSec bouncer: WARN — not running, so the edge serves this "
+            "instance's clients without asking CrowdSec; Caddy's bouncer still "
+            "refuses banned ones. Run 'canasta restart -i %s' to start it." % inst_id)
+
+
 def _edge_lines(inst):
     """doctor lines for the instance's place behind the edge, or [] when it
     is not behind it."""
@@ -1156,8 +1174,10 @@ def _edge_lines(inst):
         return []
     host = inst.get("host") or "localhost"
     inspect = inst.get("inspectCommand") or "docker"
+    project = os.path.basename(path.rstrip("/")).lower()
     script = _EDGE_SCRIPT % {"delim": _helpers._SENTINEL,
-                             "inspect": _helpers._shell_quote(inspect)}
+                             "inspect": _helpers._shell_quote(inspect),
+                             "project": project}
     docker_host = inst.get("dockerHost")
     if docker_host:
         script = "export DOCKER_HOST=%s\n%s" % (_helpers._shell_quote(docker_host), script)
@@ -1170,9 +1190,12 @@ def _edge_lines(inst):
     except (subprocess.TimeoutExpired, OSError):
         return []
     tls_mode = (_helpers._read_env_for(inst, "CADDY_TLS_MODE") or "acme").strip().lower()
+    crowdsec = None
+    if (_helpers._read_env_for(inst, "CANASTA_ENABLE_CROWDSEC") or "").strip().lower() == "true":
+        crowdsec = bool((_helpers._read_env_for(inst, "CROWDSEC_SPOA_API_KEY") or "").strip())
     return _edge_lines_from_probe(inst.get("id", "?"), tls_mode,
                                   _origin_tls_server_names(path, host),
-                                  _parse_edge_probe(stdout))
+                                  _parse_edge_probe(stdout), crowdsec)
 
 
 def _origin_tls_server_names(path, host):

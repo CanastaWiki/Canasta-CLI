@@ -31,7 +31,13 @@ def _parse_last_pull(value):
     return when.replace(tzinfo=datetime.timezone.utc)
 
 
-def canasta_crowdsec_status_bouncers(bouncers, family_name="canasta-caddy",
+FAMILY_RESET_HINTS = {
+    "canasta-caddy": " Run 'canasta crowdsec bouncer-enroll' to reset to a "
+                     "single registration.",
+}
+
+
+def canasta_crowdsec_status_bouncers(bouncers, family_name=("canasta-caddy", "canasta-edge"),
                                      now=None, stale_after_seconds=120):
     """Render a de-duplicated 'Bouncers' summary for ``crowdsec status``.
 
@@ -43,7 +49,9 @@ def canasta_crowdsec_status_bouncers(bouncers, family_name="canasta-caddy",
     by re-creating the parent with the same key), so the status command
     collapses the family for display: show the single live registration
     (most-recent ``last_pull``) plus a count of the harmless duplicates. Any
-    non-caddy bouncers are listed verbatim.
+    non-caddy bouncers are listed verbatim. The edge's bouncer
+    (``canasta-edge``) reconnects the same way and is collapsed alike.
+    ``family_name`` is one family or several.
 
     The live registration is "active" only while its last pull is recent.
     The Caddy bouncer pulls every 15 seconds, so a last pull older than
@@ -61,9 +69,28 @@ def canasta_crowdsec_status_bouncers(bouncers, family_name="canasta-caddy",
     if now is None:
         now = datetime.datetime.now(datetime.timezone.utc)
     bouncers = [b for b in (bouncers or []) if isinstance(b, dict)]
-    family = [b for b in bouncers if _is_caddy_family(b, family_name)]
-    others = [b for b in bouncers if not _is_caddy_family(b, family_name)]
+    names = [family_name] if isinstance(family_name, str) else list(family_name)
+    others = [b for b in bouncers if not any(_is_caddy_family(b, n) for n in names)]
 
+    lines = []
+    for name in names:
+        family = [b for b in bouncers if _is_caddy_family(b, name)]
+        if family:
+            lines += _family_lines(family, name, now, stale_after_seconds)
+
+    for b in others:
+        lines.append(
+            "  %s — IP %s, last pull %s" % (
+                b.get("name", "?"),
+                b.get("ip_address") or "?",
+                b.get("last_pull") or "never",
+            )
+        )
+
+    return "\n".join(lines) if lines else "  (none)"
+
+
+def _family_lines(family, family_name, now, stale_after_seconds):
     lines = []
     if family:
         # last_pull is an RFC3339 UTC timestamp; lexicographic max == latest.
@@ -92,20 +119,9 @@ def canasta_crowdsec_status_bouncers(bouncers, family_name="canasta-caddy",
             lines.append(
                 "  + %d stale auto-created duplicate registration(s) from past "
                 "container restarts (harmless — only the newest registration "
-                "above pulls decisions). Run 'canasta crowdsec bouncer-enroll' to "
-                "reset to a single registration." % stale
+                "above pulls decisions).%s" % (stale, FAMILY_RESET_HINTS.get(family_name, ""))
             )
-
-    for b in others:
-        lines.append(
-            "  %s — IP %s, last pull %s" % (
-                b.get("name", "?"),
-                b.get("ip_address") or "?",
-                b.get("last_pull") or "never",
-            )
-        )
-
-    return "\n".join(lines) if lines else "  (none)"
+    return lines
 
 
 def canasta_crowdsec_blocklist_breakdown(raw):
