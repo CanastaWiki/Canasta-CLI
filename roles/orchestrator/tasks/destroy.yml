@@ -210,6 +210,11 @@
       changed_when: true
       ignore_errors: true  # OK if volume doesn't exist
 
+    - name: Take the instance out of the edge
+      ansible.builtin.include_tasks: edge_sync.yml
+      vars:
+        edge_member: absent
+
 - name: Destroy (Kubernetes)
   when: instance_is_k8s | bool
   block:

@@ -1,0 +1,50 @@
+---
+# Bring this instance's place behind the host's HAProxy edge, and the edge
+# itself, in line with CANASTA_ENABLE_EDGE. Runs before the instance's
+# containers start, because its Caddy joins the edge's network.
+#
+# Input: instance_path, instance_id (or id during create)
+# Optional: edge_member (present/absent), to override .env, as delete does.
+
+- name: Render and stage the edge
+  canasta_edge:
+    instance_id: "{{ instance_id | default(id) }}"
+    instance_path: "{{ instance_path }}"
+    member: "{{ edge_member | default(omit) }}"
+    inspect_command: "{{ inspect_command | default('docker') }}"
+  register: _edge
+
+- name: Start the edge
+  ansible.builtin.command:
+    cmd: "{{ compose_command }} -p canasta-edge up -d"
+    chdir: "{{ _edge.edge_dir }}"
+  changed_when: true
+  when:
+    - _edge.members | default([]) | length > 0
+    - not (_edge.running | default(false) | bool)
+
+# The image runs HAProxy in master-worker mode, where USR2 reloads the
+# configuration without dropping connections.
+- name: Reload the edge
+  ansible.builtin.command:
+    argv:
+      - "{{ inspect_command | default('docker') }}"
+      - kill
+      - --signal
+      - USR2
+      - canasta-edge
+  changed_when: true
+  when:
+    - _edge.members | default([]) | length > 0
+    - _edge.running | default(false) | bool
+    - _edge.reload | default(false) | bool
+
+# -v: the edge's only volume holds its runtime socket.
+- name: Stop the edge when no instance is behind it
+  ansible.builtin.command:
+    cmd: "{{ compose_command }} -p canasta-edge down -v"
+    chdir: "{{ _edge.edge_dir }}"
+  changed_when: true
+  when:
+    - _edge.members | default([]) | length == 0
+    - _edge.running | default(false) | bool

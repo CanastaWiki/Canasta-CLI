@@ -3,8 +3,8 @@
 doctor consistency check) and in Ansible
 (roles/orchestrator/tasks/sync_compose_profiles.yml, used by gitops pull and
 config set). Both read their tables from vars/compose_profiles.yml and
-vars/images.yml, and must derive identical COMPOSE_PROFILES and
-CANASTA_CADDY_IMAGE.
+vars/images.yml, and must derive identical COMPOSE_PROFILES,
+CANASTA_CADDY_IMAGE and the addresses Caddy publishes.
 """
 
 import os
@@ -150,6 +150,11 @@ class TestSyncComposeProfilesConsistency:
     "CADDY_TRUSTED_PROXIES=cloudflare\n",
     "CANASTA_CADDY_IMAGE=ghcr.io/canastawiki/canasta-caddy:1.0\n",
     "CADDY_TRUSTED_PROXIES=imperva\nCANASTA_CADDY_IMAGE=example.com/caddy:1\n",
+    "HTTP_PORT=8080\nHTTPS_PORT=8443\n",
+    "HTTP_PORT=\nHTTPS_PORT=\n",
+    "CANASTA_ENABLE_EDGE=true\nHTTP_PORT=8080\n",
+    "CANASTA_ENABLE_EDGE=TRUE\nCANASTA_CADDY_HTTP_PUBLISH=80\n",
+    "CANASTA_ENABLE_EDGE=false\nCANASTA_CADDY_HTTPS_PUBLISH=127.0.0.1:\n",
 ])
 def test_ansible_and_python_derive_the_same_env(tmp_path, env_text):
     env_text = "MW_SITE_SERVER=https://example.com\n" + env_text
@@ -165,3 +170,17 @@ def test_ansible_and_python_derive_the_same_env(tmp_path, env_text):
     assert ansible.get("COMPOSE_PROFILES") == python.get("COMPOSE_PROFILES")
     assert (ansible.get("CANASTA_CADDY_IMAGE", "")
             == python.get("CANASTA_CADDY_IMAGE", ""))
+    for key in ("CANASTA_CADDY_HTTP_PUBLISH", "CANASTA_CADDY_HTTPS_PUBLISH"):
+        assert ansible[key] == python[key], key
+
+
+@pytest.mark.parametrize("env,expected", [
+    ({}, ("80", "443")),
+    ({"HTTP_PORT": "8080", "HTTPS_PORT": "8443"}, ("8080", "8443")),
+    ({"CANASTA_ENABLE_EDGE": "true", "HTTP_PORT": "8080"},
+     ("127.0.0.1:", "127.0.0.1:")),
+])
+def test_caddy_publish(env, expected):
+    publish = _helpers._caddy_publish(env)
+    assert (publish["CANASTA_CADDY_HTTP_PUBLISH"],
+            publish["CANASTA_CADDY_HTTPS_PUBLISH"]) == expected

@@ -227,7 +227,9 @@ def _env_values(content):
 
 # .env keys the CLI re-derives from the feature flags on every start; a
 # difference in them is never an operator edit.
-CLI_DERIVED_ENV_KEYS = ("COMPOSE_PROFILES", "CANASTA_CADDY_IMAGE")
+CLI_DERIVED_ENV_KEYS = ("COMPOSE_PROFILES", "CANASTA_CADDY_IMAGE",
+                        "CANASTA_CADDY_HTTP_PUBLISH",
+                        "CANASTA_CADDY_HTTPS_PUBLISH")
 
 
 def canasta_env_sync_plan(live, template, env_vars, base_template=None,

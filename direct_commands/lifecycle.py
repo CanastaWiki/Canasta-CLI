@@ -28,6 +28,9 @@ def cmd_start(args):
     # which services the profiles imply, and the running check below is
     # only meaningful against the reconciled list.
     env = _helpers._sync_compose_profiles(inst)
+    # Ansible renders the edge and the instance's layer for it.
+    if _helpers._edge_enabled(env or {}):
+        return _helpers.FALLBACK
     _helpers._backfill_db_defaults(inst)
     # Ansible's start re-creates MediaWiki's own database account if the
     # database server lost it; that step has no fast-path copy.

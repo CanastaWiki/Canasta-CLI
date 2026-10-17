@@ -228,6 +228,12 @@
         _preflight_https_port: >-
           {{ ((_preflight_port_lines | select('match', '^HTTPS_PORT=') | list)
               + ['HTTPS_PORT=443'])[0].split('=', 1)[1] }}
+        # Behind the edge Caddy publishes only loopback ports, and 80/443
+        # belong to the edge.
+        _preflight_behind_edge: >-
+          {{ (_preflight_envfile.content | default('') | b64decode).splitlines()
+             | map('trim') | map('lower') | select('equalto', 'canasta_enable_edge=true')
+             | list | length > 0 }}
       vars:
         # splitlines(), not split('\n'): a folded scalar hands Jinja a
         # literal backslash-n, so the split would never match and every
@@ -296,6 +302,7 @@
           this instance its own ports by passing an env file that sets
           HTTP_PORT and HTTPS_PORT ('canasta create -e <file>').
       when:
+        - not (_preflight_behind_edge | bool)
         - _port80_listener.stdout | default('') | trim | length > 0
         - '"CANASTA_PORT_PROBE_UNAVAILABLE" not in (_port80_listener.stdout | default(""))'
 
@@ -310,6 +317,7 @@
           this instance its own ports by passing an env file that sets
           HTTP_PORT and HTTPS_PORT ('canasta create -e <file>').
       when:
+        - not (_preflight_behind_edge | bool)
         - _port443_listener.stdout | default('') | trim | length > 0
         - '"CANASTA_PORT_PROBE_UNAVAILABLE" not in (_port443_listener.stdout | default(""))'
 

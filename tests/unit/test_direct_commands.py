@@ -1926,6 +1926,8 @@ class TestSyncComposeProfiles:
         env_path.write_text(
             "CANASTA_ENABLE_VARNISH=true\n"
             "COMPOSE_PROFILES=varnish,internal-db\n"
+            "CANASTA_CADDY_HTTP_PUBLISH=80\n"
+            "CANASTA_CADDY_HTTPS_PUBLISH=443\n"
         )
         original_mtime = env_path.stat().st_mtime_ns
         direct_commands._sync_compose_profiles(self._inst(tmp_path))
