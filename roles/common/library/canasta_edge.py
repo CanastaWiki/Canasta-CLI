@@ -179,8 +179,19 @@ services:
 networks:
   edge:
     name: %(network)s
-volumes:
+%(ipv6)svolumes:
   run:
+"""
+
+# Without IPv6 on the edge network, Docker hands IPv6 connections to
+# HAProxy through its userland proxy, which replaces the client's address
+# with the network gateway's. A fixed ULA subnet, since older Docker cannot
+# pick one itself.
+IPV6_NETWORK = """\
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: fd63:616e:6173:7461::/64
 """
 
 LAYER = """\
@@ -539,6 +550,15 @@ def ensure_account(run, inspect, edge_dir):
     return found[0]
 
 
+def host_has_ipv6():
+    """Whether the kernel has IPv6 enabled, so the edge network can use it."""
+    try:
+        with open("/proc/sys/net/ipv6/conf/all/disable_ipv6") as f:
+            return f.read().strip() == "0"
+    except OSError:
+        return False
+
+
 def _sync(run, inspect, edge_dir, instance_id, instance_path, member):
     result = {"changed": False, "edge_dir": edge_dir, "reload": False,
               "compose_changed": False, "acme": False}
@@ -571,6 +591,7 @@ def _sync(run, inspect, edge_dir, instance_id, instance_path, member):
     result["changed"] |= write_members(edge_dir, members)
     result["members"] = sorted(members)
     result["running"] = edge_running(run, inspect)
+    ipv6 = host_has_ipv6()
     result["acme_running"] = edge_running(run, inspect, ACME_CONTAINER)
 
     result["compose_changed"] = _write_if_changed(
@@ -579,7 +600,8 @@ def _sync(run, inspect, edge_dir, instance_id, instance_path, member):
                         "config_dir": CONFIG_DIR, "network": NETWORK,
                         "acme_image": ACME_IMAGE, "acme_container": ACME_CONTAINER,
                         "acme_user": helper_user(run, inspect, edge_dir),
-                        "cert_dir": CERT_DIR})
+                        "cert_dir": CERT_DIR,
+                        "ipv6": IPV6_NETWORK if ipv6 else ""})
     result["changed"] |= result["compose_changed"]
     if not instances:
         return result
@@ -593,7 +615,8 @@ def _sync(run, inspect, edge_dir, instance_id, instance_path, member):
     result["acme"] = bool(thumbprint)
 
     rendered = render(instances, acme_thumbprint=thumbprint,
-                      cdn_ranges=cdn_ranges(edge_dir, cdn_providers(instances)))
+                      cdn_ranges=cdn_ranges(edge_dir, cdn_providers(instances)),
+                      ipv6=ipv6)
     certs_changed = ensure_certificates(
         run, inspect, edge_dir, rendered["certificates"], instances)
     conf = os.path.join(edge_dir, "conf")
