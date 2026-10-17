@@ -20,6 +20,7 @@ from __future__ import absolute_import, division, print_function
 
 __metaclass__ = type
 
+import ipaddress
 import math
 import re
 
@@ -44,6 +45,35 @@ DEFAULT_FLOOD_FACTOR_NO_VARNISH = 2
 # Idle keep-alive connections count against the process limit as well.
 GLOBAL_MAXCONN_FACTOR = 4
 GLOBAL_MAXCONN_FLOOR = 2000
+
+# Requests one client may make per RATE_WINDOW to each backend class before
+# getting 429, and the error responses it may draw (scanners probing for
+# paths draw a stream of 404s). Overridable per instance; 0 turns a limit off.
+RATE_WINDOW = "10s"
+DEFAULT_RATE_DYNAMIC = 60
+DEFAULT_RATE_DEFAULT = 300
+DEFAULT_ERROR_RATE = 50
+# How long a request body may take to arrive before the edge gives up, and
+# how much of it is buffered: a slow-sent body would otherwise hold a
+# backend connection. Uploads are exempt.
+BODY_WAIT = "5s"
+BODY_BUFFER = "2m"
+
+# CDNs whose client-address header the edge trusts, from their own address
+# ranges only. CADDY_TRUSTED_PROXIES names one, or lists CIDRs to trust for
+# the last X-Forwarded-For entry.
+CDN_HEADERS = {"cloudflare": "CF-Connecting-IP", "imperva": "Incap-Client-IP"}
+
+# The edge's .env settings an instance can override.
+LIMIT_KEYS = {
+    "dynamic_maxconn": "CANASTA_EDGE_DYNAMIC_MAXCONN",
+    "default_maxconn": "CANASTA_EDGE_DEFAULT_MAXCONN",
+    "rate_dynamic": "CANASTA_EDGE_RATE_DYNAMIC",
+    "rate_default": "CANASTA_EDGE_RATE_DEFAULT",
+}
+
+DENY_UA_FILE = "config/edge-deny-user-agents.list"
+DENY_CIDR_FILE = "config/edge-deny-cidrs.list"
 
 _LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 _IPV4 = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
@@ -107,12 +137,59 @@ def _snippet_lines(snippet, instance_id):
     return lines
 
 
-def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet=""):
+def _list_lines(text):
+    """(line number, entry) for the non-blank, non-comment lines."""
+    for number, raw in enumerate((text or "").splitlines(), 1):
+        line = raw.strip()
+        if line and not line.startswith("#"):
+            yield number, line
+
+
+def _networks(text, instance_id, where):
+    """CIDRs from a list, normalized; raises naming the line of a bad one."""
+    nets = []
+    for number, line in _list_lines(text):
+        try:
+            nets.append(str(ipaddress.ip_network(line, strict=False)))
+        except ValueError:
+            raise EdgeError("Instance '%s': %s line %d, '%s', is not an IP "
+                            "address or CIDR range." % (instance_id, where, number, line))
+    return nets
+
+
+def _user_agents(text, instance_id):
+    agents = []
+    for number, line in _list_lines(text):
+        if any(ord(c) < 32 for c in line):
+            raise EdgeError("Instance '%s': %s line %d holds a control "
+                            "character." % (instance_id, DENY_UA_FILE, number))
+        agents.append(line)
+    return agents
+
+
+def _limit(env, key, instance_id, default, allow_zero):
+    raw = (env.get(key) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        value = -1
+    if value < (0 if allow_zero else 1):
+        raise EdgeError("Instance '%s': %s is '%s', not a %s number."
+                        % (instance_id, key, raw,
+                           "non-negative" if allow_zero else "positive"))
+    return value
+
+
+def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
+                         deny_user_agents="", deny_cidrs=""):
     """Build the edge's view of one instance.
 
     env is the instance's .env as a dict, wikis the parsed wikis.yaml list,
     media_hosts the parsed media-hosts.yaml list, snippet the text of its
-    edge snippet (empty when it has none).
+    edge snippet, and deny_user_agents and deny_cidrs the text of its deny
+    lists (each empty when it has none).
     """
     if not _INSTANCE_ID.match(instance_id or ""):
         raise EdgeError("'%s' is not a valid instance ID." % instance_id)
@@ -169,6 +246,16 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet=""):
             "Instance '%s': PM_MAX_CHILDREN is '%s', not a positive number."
             % (instance_id, raw_children))
 
+    trusted = (env.get("CADDY_TRUSTED_PROXIES") or "").strip()
+    if trusted.lower() in CDN_HEADERS:
+        trusted_proxies, trusted_cidrs = trusted.lower(), []
+    elif trusted:
+        trusted_proxies = "cidrs"
+        trusted_cidrs = _networks(trusted.replace(",", "\n"), instance_id,
+                                  "CADDY_TRUSTED_PROXIES entry")
+    else:
+        trusted_proxies, trusted_cidrs = None, []
+
     return {
         "id": instance_id,
         "hostnames": hostnames,
@@ -181,6 +268,18 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet=""):
         "pm_max_children": pm_max_children,
         "varnish": _truthy(env.get("CANASTA_ENABLE_VARNISH"), True),
         "snippet": _snippet_lines(snippet, instance_id),
+        "trusted_proxies": trusted_proxies,
+        "trusted_cidrs": trusted_cidrs,
+        "deny_user_agents": _user_agents(deny_user_agents, instance_id),
+        "deny_cidrs": _networks(deny_cidrs, instance_id, DENY_CIDR_FILE),
+        "limits": {
+            "dynamic_maxconn": _limit(env, LIMIT_KEYS["dynamic_maxconn"], instance_id, None, False),
+            "default_maxconn": _limit(env, LIMIT_KEYS["default_maxconn"], instance_id, None, False),
+            "rate_dynamic": _limit(env, LIMIT_KEYS["rate_dynamic"], instance_id,
+                                   DEFAULT_RATE_DYNAMIC, True),
+            "rate_default": _limit(env, LIMIT_KEYS["rate_default"], instance_id,
+                                   DEFAULT_RATE_DEFAULT, True),
+        },
     }
 
 
@@ -190,7 +289,9 @@ def backend_limits(instance):
     dynamic = max(1, int(math.ceil(children * DYNAMIC_SHARE)))
     factor = (DEFAULT_FLOOD_FACTOR if instance["varnish"]
               else DEFAULT_FLOOD_FACTOR_NO_VARNISH)
-    return dynamic, children * factor
+    overrides = instance.get("limits") or {}
+    return (overrides.get("dynamic_maxconn") or dynamic,
+            overrides.get("default_maxconn") or children * factor)
 
 
 def certificates(instances):
@@ -261,6 +362,55 @@ def _acme_rule(thumbprint):
     ]
 
 
+def _list_path(name):
+    return "%s/%s" % (CONFIG_DIR, name)
+
+
+def _client_address_rules(instances):
+    """Behind a CDN the edge's peer is the CDN, so per-client limits would
+    throttle the CDN itself. For an instance that names its CDN, take the
+    client address from the CDN's header, on requests from the CDN's own
+    ranges only."""
+    out = []
+    for inst in instances:
+        mode = inst["trusted_proxies"]
+        if not mode:
+            continue
+        own = "{ var(txn.inst) -m str %s }" % inst["id"]
+        if mode == "cidrs":
+            out.append("    http-request set-src req.hdr_ip(X-Forwarded-For,-1) "
+                       "if %s { src -f %s }"
+                       % (own, _list_path("trusted-%s.lst" % inst["id"])))
+        else:
+            out.append("    http-request set-src req.hdr_ip(%s) if %s { src -f %s }"
+                       % (CDN_HEADERS[mode], own, _list_path("cdn-%s.lst" % mode)))
+    return out
+
+
+def _backend_rules(inst, kind):
+    """Deny lists, then per-client rate limits, ahead of everything else."""
+    out = []
+    if inst["deny_cidrs"]:
+        out.append("    http-request deny deny_status 403 if { src -f %s }"
+                   % _list_path("deny-cidr-%s.lst" % inst["id"]))
+    if inst["deny_user_agents"]:
+        out.append("    http-request deny deny_status 403 if "
+                   "{ req.hdr(user-agent) -m sub -i -f %s }"
+                   % _list_path("deny-ua-%s.lst" % inst["id"]))
+    rate = inst["limits"]["rate_%s" % kind]
+    out += [
+        "    stick-table type ipv6 size 100k expire 1m "
+        "store http_req_rate(%s),http_err_rate(%s)" % (RATE_WINDOW, RATE_WINDOW),
+        "    http-request track-sc0 src",
+    ]
+    if rate:
+        out.append("    http-request deny deny_status 429 if { sc0_http_req_rate gt %d }"
+                   % rate)
+    out.append("    http-request deny deny_status 429 if { sc0_http_err_rate gt %d }"
+               % DEFAULT_ERROR_RATE)
+    return out
+
+
 def _render_cfg(instances, thumbprint):
     limits = [backend_limits(i) for i in instances]
     total = sum(d + f for d, f in limits)
@@ -311,6 +461,13 @@ def _render_cfg(instances, thumbprint):
         "    http-request set-var(txn.site) req.hdr(host),lower,field(1,:),map(%s/hosts.map)"
         % CONFIG_DIR,
         "    http-request set-var(txn.inst) var(txn.site),field(1,/)",
+    ]
+    out += _client_address_rules(instances)
+    out += [
+        "    acl upload path_sub -i Special:Upload",
+        "    acl upload url_param(action) -m str upload",
+        "    http-request wait-for-body time %s at-least %s if !upload"
+        % (BODY_WAIT, BODY_BUFFER),
         "    acl known_site var(txn.inst) -m found",
         "    acl media_host var(txn.site),field(2,/) -m str media",
         # The requests Varnish passes to MediaWiki on every request, plus
@@ -340,12 +497,14 @@ def _render_cfg(instances, thumbprint):
         server = ("    server caddy caddy-%s:80 resolvers docker "
                   "init-addr last,libc,none check maxconn %%d" % inst["id"])
         for kind, cap in (("dynamic", dynamic_cap), ("default", default_cap)):
-            out += ["", "backend be_%s_%s" % (inst["id"], kind),
-                    # A stopped instance's Caddy stops resolving; answer at
-                    # once rather than hold the request for timeout queue.
-                    "    http-request return status 503 content-type text/plain "
-                    "string \"This site is not running.\\n\" if { nbsrv eq 0 }",
-                    server % cap]
+            out += ["", "backend be_%s_%s" % (inst["id"], kind)]
+            out += _backend_rules(inst, kind)
+            out += [
+                # A stopped instance's Caddy stops resolving; answer at
+                # once rather than hold the request for timeout queue.
+                "    http-request return status 503 content-type text/plain "
+                "string \"This site is not running.\\n\" if { nbsrv eq 0 }",
+                server % cap]
             out += ["    %s" % line for line in inst["snippet"]]
     out.append("")
     return "\n".join(out)
@@ -367,22 +526,43 @@ def _render_hosts_map(instances):
     return "\n".join(lines) + "\n"
 
 
-def render(instances, acme_thumbprint=None):
+def _lines(entries):
+    return "".join("%s\n" % e for e in entries)
+
+
+def cdn_providers(instances):
+    """The CDNs whose address ranges the render needs."""
+    return sorted({i["trusted_proxies"] for i in instances
+                   if i["trusted_proxies"] in CDN_HEADERS})
+
+
+def render(instances, acme_thumbprint=None, cdn_ranges=None):
     """Render the edge's files for the given instances.
 
-    Returns {"files": {name: content}, "certificates": [...]}. The files go
-    in the edge's configuration directory; certificates lists the files the
-    crt-list expects in its certs/ directory.
+    cdn_ranges maps each provider cdn_providers() names to its address
+    ranges. Returns {"files": {name: content}, "certificates": [...]}. The
+    files go in the edge's configuration directory; certificates lists the
+    files the crt-list expects in its certs/ directory.
     """
     instances = sorted(instances, key=lambda i: i["id"])
     _check_unique(instances)
     _check_dns_tokens(instances)
     entries = certificates(instances)
-    return {
-        "files": {
-            "haproxy.cfg": _render_cfg(instances, acme_thumbprint),
-            "crt-list": _render_crt_list(entries),
-            "hosts.map": _render_hosts_map(instances),
-        },
-        "certificates": entries,
+    files = {
+        "haproxy.cfg": _render_cfg(instances, acme_thumbprint),
+        "crt-list": _render_crt_list(entries),
+        "hosts.map": _render_hosts_map(instances),
     }
+    for provider in cdn_providers(instances):
+        ranges = (cdn_ranges or {}).get(provider)
+        if not ranges:
+            raise EdgeError("No address ranges for %s, which "
+                            "CADDY_TRUSTED_PROXIES names." % provider)
+        files["cdn-%s.lst" % provider] = _lines(ranges)
+    for inst in instances:
+        for name, entries_ in (("trusted-%s.lst", inst["trusted_cidrs"]),
+                               ("deny-cidr-%s.lst", inst["deny_cidrs"]),
+                               ("deny-ua-%s.lst", inst["deny_user_agents"])):
+            if entries_:
+                files[name % inst["id"]] = _lines(entries_)
+    return {"files": files, "certificates": entries}

@@ -65,6 +65,8 @@ options:
 """
 
 import fcntl
+import ipaddress
+import json
 import os
 import shutil
 import tempfile
@@ -74,9 +76,10 @@ import yaml
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.canasta_config import get_config_dir
 from ansible.module_utils.canasta_edge_render import (
-    ACME_IMAGE, CERT_DIR, CONFIG_DIR, EdgeError, HAPROXY_IMAGE,
-    instance_from_config, render,
+    ACME_IMAGE, CERT_DIR, CONFIG_DIR, DENY_CIDR_FILE, DENY_UA_FILE, EdgeError,
+    HAPROXY_IMAGE, cdn_providers, certificates, instance_from_config, render,
 )
+from ansible.module_utils.urls import open_url
 
 NETWORK = "canasta-edge"
 CONTAINER = "canasta-edge"
@@ -101,6 +104,28 @@ ACME_DEPLOY_ENV = {
     "DEPLOY_HAPROXY_PEM_PATH": CERT_DIR,
     "DEPLOY_HAPROXY_HOT_UPDATE": "yes",
     "DEPLOY_HAPROXY_STATS_SOCKET": "UNIX:/var/run/haproxy/admin.sock",
+}
+
+# Where each CDN publishes its address ranges, and the ranges as of this
+# release, used when the host cannot reach the source and has no earlier copy.
+CDN_SOURCES = {
+    "cloudflare": ("https://www.cloudflare.com/ips-v4", "https://www.cloudflare.com/ips-v6"),
+    "imperva": ("https://my.imperva.com/api/integration/v1/ips",),
+}
+BUNDLED_CDN_RANGES = {
+    "cloudflare": [
+        "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
+        "141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",
+        "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+        "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+        "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32", "2405:b500::/32",
+        "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
+    ],
+    "imperva": [
+        "199.83.128.0/21", "198.143.32.0/19", "149.126.72.0/21", "103.28.248.0/22",
+        "185.11.124.0/22", "192.230.64.0/18", "45.64.64.0/22", "107.154.0.0/16",
+        "45.60.0.0/16", "45.223.0.0/16", "131.125.128.0/17", "2a02:e980::/29",
+    ],
 }
 
 EDGE_COMPOSE = """\
@@ -259,7 +284,10 @@ def load_instance(instance_id, path):
     # empty hostname.
     media = [m for m in media if (m.get("hostname") or "").strip()]
     snippet = _read(os.path.join(path, SNIPPET_FILE)) or ""
-    inst = instance_from_config(instance_id, env, wikis, media, snippet)
+    inst = instance_from_config(
+        instance_id, env, wikis, media, snippet,
+        deny_user_agents=_read(os.path.join(path, DENY_UA_FILE)) or "",
+        deny_cidrs=_read(os.path.join(path, DENY_CIDR_FILE)) or "")
     inst["path"] = path
     return inst
 
@@ -290,6 +318,46 @@ def helper_user(run, inspect, edge_dir):
                  "--entrypoint", "rm", ACME_IMAGE, "-f", "/probe/.owner-probe"])
     _write_if_changed(cached, user + "\n")
     return user
+
+
+def _fetch(url):
+    """The response body, or None. Imperva answers a POST with JSON."""
+    try:
+        if "imperva" in url:
+            body = open_url(url, method="POST", data="resp_format=json",
+                            timeout=5).read().decode()
+            data = json.loads(body)
+            return "\n".join(data.get("ipRanges", []) + data.get("ipv6Ranges", []))
+        return open_url(url, timeout=5).read().decode()
+    except Exception:  # noqa: BLE001 - any failure falls back to a known list
+        return None
+
+
+def _valid_ranges(text):
+    ranges = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            ranges.append(str(ipaddress.ip_network(line, strict=False)))
+        except ValueError:
+            return []
+    return ranges
+
+
+def cdn_ranges(edge_dir, providers):
+    """Each CDN's current address ranges: fetched from its source, else the
+    copy the edge already serves, else the list bundled with this release."""
+    result = {}
+    for provider in providers:
+        fetched = [_fetch(url) for url in CDN_SOURCES[provider]]
+        ranges = [] if None in fetched else _valid_ranges("\n".join(fetched))
+        if not ranges:
+            ranges = _valid_ranges(_read(os.path.join(
+                edge_dir, "conf", "cdn-%s.lst" % provider)))
+        result[provider] = ranges or BUNDLED_CDN_RANGES[provider]
+    return result
 
 
 def _openssl_script(entries, ca_missing):
@@ -493,7 +561,8 @@ def _sync(run, inspect, edge_dir, instance_id, instance_path, member):
     # Certificates acme.sh issued earlier may still need removing.
     result["acme"] = bool(thumbprint)
 
-    rendered = render(instances, acme_thumbprint=thumbprint)
+    rendered = render(instances, acme_thumbprint=thumbprint,
+                      cdn_ranges=cdn_ranges(edge_dir, cdn_providers(instances)))
     certs_changed = ensure_certificates(
         run, inspect, edge_dir, rendered["certificates"], instances)
     conf = os.path.join(edge_dir, "conf")
@@ -503,6 +572,12 @@ def _sync(run, inspect, edge_dir, instance_id, instance_path, member):
         validate(run, inspect, edge_dir, rendered["files"])
         for name, content in pending.items():
             _write_if_changed(os.path.join(conf, name), content)
+    # Lists no instance uses any more. A CDN's is kept: it is the fallback
+    # when the CDN's own list cannot be fetched.
+    for name in os.listdir(conf):
+        if (name.endswith(".lst") and name not in rendered["files"]
+                and not name.startswith("cdn-")):
+            os.remove(os.path.join(conf, name))
     if pending or certs_changed:
         result["changed"] = True
         result["reload"] = True
@@ -612,7 +687,7 @@ def _issue(run, inspect, edge_dir):
             result["reload"] = True
     if result["reload"] and instances:
         ensure_certificates(run, inspect, edge_dir,
-                            render(instances)["certificates"], instances)
+                            certificates(instances), instances)
     return result
 
 

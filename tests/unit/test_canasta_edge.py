@@ -518,3 +518,43 @@ def test_different_tokens_with_zone_ids_are_fine(tmp_path):
                              CLOUDFLARE_ZONE_ID="z2"))
     _sync(FakeRunner(), edge, "one", one)
     assert _sync(FakeRunner(), edge, "two", two)["members"] == ["one", "two"]
+
+
+# --- mitigation inputs -------------------------------------------------------- #
+
+def test_deny_lists_are_read_from_the_instance(tmp_path):
+    path = _instance(tmp_path, "one")
+    with open(os.path.join(path, "config", "edge-deny-user-agents.list"), "w") as f:
+        f.write("# crawlers\nGPTBot\n")
+    with open(os.path.join(path, "config", "edge-deny-cidrs.list"), "w") as f:
+        f.write("203.0.113.0/24\n")
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(), edge, "one", path)
+    assert (edge / "conf" / "deny-ua-one.lst").read_text() == "GPTBot\n"
+    assert (edge / "conf" / "deny-cidr-one.lst").read_text() == "203.0.113.0/24\n"
+    os.remove(os.path.join(path, "config", "edge-deny-user-agents.list"))
+    _sync(FakeRunner(running=True), edge, "one", path)
+    assert not (edge / "conf" / "deny-ua-one.lst").exists()
+
+
+def test_cdn_ranges_are_fetched(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "_fetch", lambda url: "192.0.2.0/24" if "v4" in url
+                        else "2001:db8::/32")
+    path = _instance(tmp_path, "one", env={"CADDY_TRUSTED_PROXIES": "cloudflare"})
+    _sync(FakeRunner(), tmp_path / "edge", "one", path)
+    assert (tmp_path / "edge" / "conf" / "cdn-cloudflare.lst").read_text() == (
+        "192.0.2.0/24\n2001:db8::/32\n")
+
+
+def test_unreachable_cdn_ranges_fall_back_to_the_last_copy(tmp_path, monkeypatch):
+    edge = tmp_path / "edge"
+    (edge / "conf").mkdir(parents=True)
+    (edge / "conf" / "cdn-cloudflare.lst").write_text("192.0.2.0/24\n")
+    monkeypatch.setattr(mod, "_fetch", lambda url: None)
+    assert mod.cdn_ranges(str(edge), ["cloudflare"]) == {"cloudflare": ["192.0.2.0/24"]}
+
+
+def test_without_a_copy_the_bundled_ranges_are_used(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "_fetch", lambda url: "<html>not a list</html>")
+    ranges = mod.cdn_ranges(str(tmp_path), ["imperva"])["imperva"]
+    assert ranges == mod.BUNDLED_CDN_RANGES["imperva"]
