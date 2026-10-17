@@ -220,6 +220,18 @@
     # re-evaluated.
     _caddyfile_global_content: "{{ _caddy_global_raw.content | default('') | b64decode | caddy_unsafe }}"
 
+# Behind the HAProxy edge, which routes these names and holds their
+# certificates, the user's site blocks are served over plain HTTP too.
+- name: Serve the user's sites over HTTP behind the edge
+  ansible.builtin.set_fact:
+    _caddyfile_global_content: >-
+      {{ _caddyfile_global_content
+         | caddy_http_site_addresses(_caddyfile_global_content | caddy_site_hostnames)
+         | caddy_unsafe }}
+  when:
+    - not (instance_is_k8s | bool)
+    - _env_caddy.variables.CANASTA_ENABLE_EDGE | default('false', true) | lower == 'true'
+
 # Object-storage-backed media hostnames. Absent file = none declared.
 - name: Stat media-hosts.yaml
   ansible.builtin.stat:

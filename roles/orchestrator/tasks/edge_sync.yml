@@ -14,6 +14,17 @@
     inspect_command: "{{ inspect_command | default('docker') }}"
   register: _edge
 
+- name: Report Caddyfile.global sites the edge cannot route
+  ansible.builtin.debug:
+    msg: >-
+      config/Caddyfile.global of instance '{{ item.instance }}' has a site
+      address the HAProxy edge cannot route by hostname: '{{ item.address }}'
+      ({{ item.reason }}). The edge does not serve it, and Caddy cannot obtain
+      a certificate for it behind the edge.
+  loop: "{{ _edge.unrouted_sites | default([]) }}"
+  loop_control:
+    label: "{{ item.instance }}: {{ item.address }}"
+
 # Checked here rather than left to `up`, whose port conflict reads as a raw
 # Docker error.
 - name: Read the addresses this instance's Caddy publishes

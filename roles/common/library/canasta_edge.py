@@ -79,6 +79,7 @@ from ansible.module_utils.canasta_edge_render import (
     ACME_IMAGE, CERT_DIR, CONFIG_DIR, DENY_CIDR_FILE, DENY_UA_FILE, EdgeError,
     HAPROXY_IMAGE, cdn_providers, certificates, instance_from_config, render,
 )
+from ansible.module_utils.canasta_caddyfile import site_hostnames
 from ansible.module_utils.urls import open_url
 
 NETWORK = "canasta-edge"
@@ -270,6 +271,12 @@ def edge_running(run, inspect, container=CONTAINER):
     return rc == 0 and bool(out.strip())
 
 
+def global_sites(path):
+    """(hostnames, skipped) for the site blocks in the instance's
+    Caddyfile.global, which its Caddy serves besides the wikis."""
+    return site_hostnames(_read(os.path.join(path, "config", "Caddyfile.global")) or "")
+
+
 def load_instance(instance_id, path):
     """The renderer's view of an instance, or None when it is not (or no
     longer) behind the edge."""
@@ -287,7 +294,8 @@ def load_instance(instance_id, path):
     inst = instance_from_config(
         instance_id, env, wikis, media, snippet,
         deny_user_agents=_read(os.path.join(path, DENY_UA_FILE)) or "",
-        deny_cidrs=_read(os.path.join(path, DENY_CIDR_FILE)) or "")
+        deny_cidrs=_read(os.path.join(path, DENY_CIDR_FILE)) or "",
+        extra_hostnames=global_sites(path)[0])
     inst["path"] = path
     return inst
 
@@ -537,6 +545,11 @@ def _sync(run, inspect, edge_dir, instance_id, instance_path, member):
 
     instances = _load_members(edge_dir, members)
     members = {i["id"]: i["path"] for i in instances}
+    # Site addresses the edge cannot route by name stay with Caddy, which
+    # can no longer obtain certificates for them behind the edge.
+    result["unrouted_sites"] = [
+        {"instance": i["id"], "address": addr, "reason": reason}
+        for i in instances for addr, reason in global_sites(i["path"])[1]]
     result["changed"] |= write_members(edge_dir, members)
     result["members"] = sorted(members)
     result["running"] = edge_running(run, inspect)

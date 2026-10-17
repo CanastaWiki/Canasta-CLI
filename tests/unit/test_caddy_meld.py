@@ -215,3 +215,10 @@ class TestExplicitHttpHosts:
         assert caddy_explicit_http_hosts("{\n    debug\n}\n") == []
         assert caddy_explicit_http_hosts("") == []
         assert caddy_explicit_http_hosts(None) == []
+
+
+def test_a_placeholder_address_is_not_a_global_block():
+    text = "{$SITE_HOST} {\n    respond x\n}\n{\n    debug\n}\n"
+    assert _count_global_blocks(text) == 1
+    out = meld_caddy_global_blocks(text)
+    assert out.index("debug") < out.index("{$SITE_HOST} {")

@@ -277,3 +277,10 @@ def test_a_cdn_needs_its_ranges():
 def test_uploads_skip_the_body_wait():
     cfg = edge.render([_inst()])["files"]["haproxy.cfg"]
     assert "http-request wait-for-body time 5s at-least 2m if !upload" in cfg
+
+
+def test_extra_hostnames_are_routed_once():
+    inst = edge.instance_from_config(
+        "one", {}, [{"id": "w", "url": "example.com"}],
+        extra_hostnames=["www.example.com", "example.com"])
+    assert inst["hostnames"] == ["example.com", "www.example.com"]
