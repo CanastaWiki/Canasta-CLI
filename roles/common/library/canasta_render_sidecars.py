@@ -88,9 +88,10 @@ def read_web_secret_names(instance_path):
             | read_names(instance_path, os.path.join("config", "secrets-web")))
 
 
-def write_or_remove(path, content, check_mode):
+def write_or_remove(path, content, check_mode, mode=None):
     """Write content, or remove the file when content is None. Idempotent:
-    returns True only when the file actually changed."""
+    returns True only when the file actually changed. A given mode is
+    applied to the file whether or not its content changed."""
     if content is None:
         if os.path.exists(path):
             if not check_mode:
@@ -101,12 +102,12 @@ def write_or_remove(path, content, check_mode):
     if os.path.exists(path):
         with open(path) as handle:
             existing = handle.read()
-    if existing == content:
-        return False
-    if not check_mode:
+    if existing != content and not check_mode:
         with open(path, "w") as handle:
             handle.write(content)
-    return True
+    if mode is not None and not check_mode:
+        os.chmod(path, mode)
+    return existing != content
 
 
 def run_module():
@@ -163,7 +164,10 @@ def run_module():
         bridge_dir = os.path.dirname(bridge_dest)
         if not os.path.exists(bridge_dir):
             os.makedirs(bridge_dir)
-    bridge_changed = write_or_remove(bridge_dest, bridge, module.check_mode)
+            os.chmod(bridge_dir, 0o755)
+    # Read by MediaWiki in the web container, as a different user.
+    bridge_changed = write_or_remove(bridge_dest, bridge, module.check_mode,
+                                     mode=0o644)
     if bridge_changed and bridge is not None:
         module.warn(
             "Sidecar env bridge written to "

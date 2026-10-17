@@ -67,8 +67,8 @@
 # host's ambient pull.rebase / pull.ff config, so it could abort on divergence
 # with nothing but git's own hints; --rebase is explicit and always applies.
 - name: Pull from remote
-  ansible.builtin.command:
-    cmd: "git -c commit.gpgsign=false pull --rebase"
+  ansible.builtin.shell:
+    cmd: "umask 022 && git -c commit.gpgsign=false pull --rebase"
     chdir: "{{ instance_path }}"
   environment: "{{ gitops_git_env }}"
   register: _pull_result
@@ -104,8 +104,8 @@
   when: _gitattributes_missing | length > 0
   block:
     - name: Roll back to the pre-pull commit
-      ansible.builtin.command:
-        cmd: "git reset --hard --quiet {{ _pull_prev_commit.stdout }}"
+      ansible.builtin.shell:
+        cmd: "umask 022 && git reset --hard --quiet {{ _pull_prev_commit.stdout }}"
         chdir: "{{ instance_path }}"
       changed_when: true
 

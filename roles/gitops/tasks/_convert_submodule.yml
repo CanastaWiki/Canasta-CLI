@@ -44,14 +44,14 @@
       failed_when: false
 
     - name: Add as submodule
-      ansible.builtin.command:
-        cmd: "git submodule add {{ _sub_url.stdout | trim }} {{ _sub_relpath }}"
+      ansible.builtin.shell:
+        cmd: "umask 022 && git submodule add {{ _sub_url.stdout | trim | quote }} {{ _sub_relpath | quote }}"
         chdir: "{{ instance_path }}"
       changed_when: true
 
     - name: Checkout original commit hash
-      ansible.builtin.command:
-        cmd: "git checkout {{ _sub_hash.stdout | trim }}"
+      ansible.builtin.shell:
+        cmd: "umask 022 && git checkout {{ _sub_hash.stdout | trim | quote }}"
         chdir: "{{ _repo_path }}"
       changed_when: true
 

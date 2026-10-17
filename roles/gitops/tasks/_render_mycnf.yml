@@ -148,6 +148,12 @@
             or _mycnf_current.stat.checksum != _mycnf_render.checksum
           changed_when: true
 
+        # cp creates a missing destination with the operator's umask.
+        - name: Set my.cnf's mode
+          ansible.builtin.file:
+            path: "{{ instance_path }}/my.cnf"
+            mode: "0644"
+
         - name: Remove the my.cnf staging file
           ansible.builtin.file:
             path: "{{ _mycnf_staging.path }}"

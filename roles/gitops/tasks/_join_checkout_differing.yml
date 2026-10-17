@@ -21,8 +21,8 @@
   changed_when: false
 
 - name: Check out only the differing files (decrypted via git-crypt)
-  ansible.builtin.command:
-    cmd: "git checkout HEAD -- {{ item | quote }}"
+  ansible.builtin.shell:
+    cmd: "umask 022 && git checkout HEAD -- {{ item | quote }}"
     chdir: "{{ instance_path }}"
   loop: "{{ _join_diff.stdout_lines }}"
   register: _join_checkout

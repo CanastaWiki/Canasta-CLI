@@ -122,6 +122,7 @@
     dest: "{{ instance_path }}/"
     force: false
     mode: "0644"
+    directory_mode: "0755"
 
 - name: Report directory creation
   ansible.builtin.debug:
