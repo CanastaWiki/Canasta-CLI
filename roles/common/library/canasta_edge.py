@@ -682,6 +682,39 @@ def _domain_conf(edge_dir, host):
     return _read(os.path.join(edge_dir, "acme", "%s_ecc" % host, "%s.conf" % host)) or ""
 
 
+def _set_conf(path, key, value):
+    """Set (or, with value None, remove) one KEY='value' line of an acme.sh
+    conf file, as acme.sh's own _setopt writes them. Returns whether it
+    changed."""
+    text = _read(path)
+    if text is None:
+        return False
+    lines = [l for l in text.splitlines() if not l.startswith(key + "=")]
+    if value is not None:
+        lines.append("%s='%s'" % (key, value))
+    new = "\n".join(lines) + "\n"
+    if new == text:
+        return False
+    with open(path, "w") as f:
+        f.write(new)
+    return True
+
+
+def refresh_dns_credentials(edge_dir, host, dns):
+    """Bring the Cloudflare token and zone ID acme.sh saved for host's
+    renewals in line with the instance's, so a rotated token reaches them.
+    acme.sh keeps them with the certificate when a zone ID is set and for
+    the whole account otherwise; the certificate's own copy wins."""
+    conf = os.path.join(edge_dir, "acme", "%s_ecc" % host, "%s.conf" % host)
+    if dns["zone_id"]:
+        changed = _set_conf(conf, "CF_Token", dns["token"])
+        return _set_conf(conf, "CF_Zone_ID", dns["zone_id"]) or changed
+    changed = _set_conf(conf, "CF_Token", None)
+    changed = _set_conf(conf, "CF_Zone_ID", None) or changed
+    account = os.path.join(edge_dir, "acme", "account.conf")
+    return _set_conf(account, "SAVED_CF_Token", dns["token"]) or changed
+
+
 def issued_method(edge_dir, host):
     """How acme.sh validates host at renewal: 'stateless' (HTTP-01 answered
     by HAProxy) or a DNS hook such as dns_cf. None when it has no record."""
@@ -719,6 +752,8 @@ def _issue(run, inspect, edge_dir):
         # An unreadable record is left alone rather than spend a reissue.
         if (current and current[1] and current[0] == ACME_CA_NAMES[staging]
                 and issued_method(edge_dir, host) in (method, None)):
+            if dns and refresh_dns_credentials(edge_dir, host, dns):
+                result["changed"] = True
             # A certificate imported from Caddy has not been deployed by
             # acme.sh yet, so its renewals would not reach HAProxy.
             if "Le_DeployHook=" not in _domain_conf(edge_dir, host):

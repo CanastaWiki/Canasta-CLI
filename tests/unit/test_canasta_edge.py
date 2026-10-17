@@ -803,3 +803,35 @@ def test_a_bad_setting_keeps_the_last_good_configuration(tmp_path):
     assert result["members"] == ["one", "two"] and result["running"]
     assert not result["reload"]
     assert (edge / "conf" / "haproxy.cfg").read_text() == good
+
+
+def _issued_by_dns(tmp_path, domain_conf, account_conf=""):
+    edge = tmp_path / "edge"
+    conf = edge / "acme" / "example.com_ecc"
+    conf.mkdir(parents=True)
+    (conf / "example.com.conf").write_text(
+        "Le_Webroot='dns_cf'\nLe_DeployHook='haproxy,'\n" + domain_conf)
+    (edge / "acme" / "account.conf").write_text(account_conf)
+    return edge
+
+
+def test_a_rotated_token_reaches_renewals_without_a_reissue(tmp_path):
+    edge = _issued_by_dns(tmp_path, "CF_Token='old'\nCF_Zone_ID='z1'\n")
+    run = FakeRunner(running=True, listed={"example.com": ("LetsEncrypt.org", True)})
+    _issue(tmp_path, run, one={"env": dict(DNS_ENV, CLOUDFLARE_ZONE_ID="z2")})
+    assert not run.acme_calls("--issue")
+    conf = (edge / "acme" / "example.com_ecc" / "example.com.conf").read_text()
+    assert "CF_Token='tok-secret'" in conf and "CF_Zone_ID='z2'" in conf
+    assert "'old'" not in conf and "Le_Webroot='dns_cf'" in conf
+
+
+def test_without_a_zone_id_the_account_keeps_the_token(tmp_path):
+    edge = _issued_by_dns(tmp_path, "CF_Token='old'\nCF_Zone_ID='z1'\n",
+                          "SAVED_CF_Token='older'\nACCOUNT_EMAIL=''\n")
+    run = FakeRunner(running=True, listed={"example.com": ("LetsEncrypt.org", True)})
+    _issue(tmp_path, run, one={"env": DNS_ENV})
+    assert not run.acme_calls("--issue")
+    conf = (edge / "acme" / "example.com_ecc" / "example.com.conf").read_text()
+    assert "CF_Token" not in conf and "CF_Zone_ID" not in conf
+    account = (edge / "acme" / "account.conf").read_text()
+    assert "SAVED_CF_Token='tok-secret'" in account and "ACCOUNT_EMAIL=''" in account
