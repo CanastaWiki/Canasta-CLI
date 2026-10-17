@@ -73,14 +73,20 @@
     - _edge_port_holders is not skipped
     - _edge_port_holders.stdout | default('') | trim | length > 0
 
+# Also when the edge's compose file changed, or acme.sh is not running:
+# `up` creates or recreates only the services that need it.
 - name: Start the edge
   ansible.builtin.command:
     cmd: "{{ compose_command }} -p canasta-edge up -d"
     chdir: "{{ _edge.edge_dir }}"
+  register: _edge_up
   changed_when: true
   when:
     - _edge.members | default([]) | length > 0
-    - not (_edge.running | default(false) | bool)
+    - >-
+      not (_edge.running | default(false) | bool)
+      or (_edge.compose_changed | default(false) | bool)
+      or not (_edge.acme_running | default(false) | bool)
 
 # The image runs HAProxy in master-worker mode, where USR2 reloads the
 # configuration without dropping connections.
@@ -97,6 +103,45 @@
     - _edge.members | default([]) | length > 0
     - _edge.running | default(false) | bool
     - _edge.reload | default(false) | bool
+    - _edge_up is skipped
+
+# HAProxy answers the challenges, so this needs the edge serving the
+# hostnames first. acme.sh installs what it obtains over the stats socket,
+# without a reload.
+- name: Obtain the edge's Let's Encrypt certificates
+  canasta_edge:
+    state: issue
+    inspect_command: "{{ inspect_command | default('docker') }}"
+  register: _edge_issue
+  when:
+    - _edge.members | default([]) | length > 0
+    - _edge.acme | default(false) | bool
+
+- name: Reload the edge for certificates no longer from Let's Encrypt
+  ansible.builtin.command:
+    argv:
+      - "{{ inspect_command | default('docker') }}"
+      - kill
+      - --signal
+      - USR2
+      - canasta-edge
+  changed_when: true
+  when:
+    - _edge_issue is not skipped
+    - _edge_issue.reload | default(false) | bool
+
+- name: Report certificates Let's Encrypt did not issue
+  ansible.builtin.debug:
+    msg: >-
+      Let's Encrypt did not issue a certificate for {{ item.hostname }}
+      ({{ item.reason }}). The edge keeps serving it a certificate from its
+      own CA, which browsers do not trust, and retries at the next start and
+      every renewal run. Check that {{ item.hostname }} resolves to this host
+      and that port 80 reaches it.
+  loop: "{{ _edge_issue.unissued | default([]) }}"
+  loop_control:
+    label: "{{ item.hostname }}"
+  when: _edge_issue is not skipped
 
 # -v: the edge's only volume holds its runtime socket.
 - name: Stop the edge when no instance is behind it

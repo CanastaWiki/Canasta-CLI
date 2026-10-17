@@ -234,7 +234,9 @@ def _render_cfg(instances, thumbprint):
         "global",
         "    log stdout format raw local0",
         "    maxconn %d" % global_maxconn,
-        "    stats socket %s mode 660 level admin expose-fd listeners" % STATS_SOCKET,
+        # Only the edge's own containers mount the socket's volume; acme.sh
+        # may run as the operator rather than root to install certificates.
+        "    stats socket %s mode 666 level admin expose-fd listeners" % STATS_SOCKET,
         "    ssl-default-bind-options ssl-min-ver TLSv1.2 no-tls-tickets",
         "",
         "defaults",

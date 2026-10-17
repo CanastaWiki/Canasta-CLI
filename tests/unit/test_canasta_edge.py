@@ -23,16 +23,47 @@ class FakeRunner:
     """Records argv; answers ps/inspect from `containers`, creates the files
     an openssl run would, and fails haproxy -c when told to."""
 
-    def __init__(self, containers=None, running=False, invalid=False):
+    def __init__(self, containers=None, running=False, invalid=False,
+                 listed=None, issue_fails=()):
         self.containers = containers or {}
         self.running = running
         self.invalid = invalid
+        # acme.sh's certificates: {hostname: (CA, issued)}
+        self.listed = dict(listed or {})
+        self.issue_fails = set(issue_fails)
         self.calls = []
+
+    def acme_calls(self, word):
+        return [c for c in self.calls if c[1] == "exec" and word in c]
+
+    def _acme(self, args):
+        if args[0] == "--list":
+            rows = ["Main_Domain|KeyLength|SAN_Domains|Profile|CA|Created|Renew"]
+            rows += ["%s|ec-256|no||%s|%s|" % (h, ca, "2026-10-17" if done else "")
+                     for h, (ca, done) in self.listed.items()]
+            return 0, "\n".join(rows) + "\n", ""
+        host = args[args.index("-d") + 1]
+        if args[0] == "--issue":
+            if host in self.issue_fails:
+                return 1, "", "Verify error: Invalid response from http://%s" % host
+            staging = args[args.index("--server") + 1] == "letsencrypt_test"
+            self.listed[host] = (mod.ACME_CA_NAMES[staging], True)
+        if args[0] == "--remove":
+            self.listed.pop(host, None)
+        return 0, "", ""
 
     def __call__(self, argv):
         self.calls.append(argv)
+        if argv[1] == "exec" and "acme.sh" in argv:
+            return self._acme(argv[argv.index("acme.sh") + 1:])
+        if argv[1] == "exec":
+            return 0, "", ""
         if argv[1] == "ps" and "name=^canasta-edge$" in argv:
             return 0, "edgeid\n" if self.running else "", ""
+        if argv[1] == "ps" and "name=^canasta-edge-acme$" in argv:
+            return 0, "acmeid\n" if self.running else "", ""
+        if argv[1] == "run" and "--register-account" in argv[-1]:
+            return 0, "", "[x] ACCOUNT_THUMBPRINT='THUMB123'\n" * 2
         if argv[1] == "ps":
             return 0, "".join("%s\n" % c for c in self.containers), ""
         if argv[1] == "inspect":
@@ -230,10 +261,13 @@ def test_certificates_and_validation_with_the_pinned_images(tmp_path):
         proc = subprocess.run(argv, capture_output=True, text=True, env=_DOCKER_ENV)
         return proc.returncode, proc.stdout, proc.stderr
 
+    # internal: acme would register a real Let's Encrypt account.
     path = _instance(tmp_path, "one", hosts=("example.com", "www.example.com"),
-                     media=("images.example.com",))
+                     media=("images.example.com",),
+                     env={"CADDY_TLS_MODE": "internal"})
     edge = tmp_path / "edge"
     result = _sync(run, edge, "one", path)
+    assert not (edge / "acme" / "thumbprint").exists()
     assert result["members"] == ["one"]
     certs = edge / "conf" / "certs"
     out = subprocess.run(
@@ -265,3 +299,155 @@ def test_sync_holds_a_lock_beside_the_edge(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "_sync", spy)
     _sync(FakeRunner(), tmp_path / "edge", "one", path)
     assert held == [True]
+
+
+# --- Let's Encrypt through acme.sh ------------------------------------------ #
+
+def test_an_acme_instance_registers_the_account_and_answers_challenges(tmp_path):
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    result = _sync(FakeRunner(), edge, "one", path)
+    assert result["acme"]
+    assert (edge / "acme" / "thumbprint").read_text() == "THUMB123\n"
+    assert "THUMB123" in (edge / "conf" / "haproxy.cfg").read_text()
+    compose = yaml.safe_load((edge / "docker-compose.yml").read_text())
+    acme = compose["services"]["acme"]
+    assert acme["container_name"] == mod.ACME_CONTAINER
+    assert "./conf/certs:%s" % mod.CERT_DIR in acme["volumes"]
+
+
+def test_the_account_is_registered_once(tmp_path):
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(), edge, "one", path)
+    run = FakeRunner(running=True)
+    _sync(run, edge, "one", path)
+    assert not [c for c in run.calls if "--register-account" in c[-1]]
+
+
+def test_an_internal_only_edge_never_contacts_lets_encrypt(tmp_path):
+    path = _instance(tmp_path, "one", env={"CADDY_TLS_MODE": "internal"})
+    run = FakeRunner()
+    result = _sync(run, tmp_path / "edge", "one", path)
+    assert not result["acme"]
+    assert not [c for c in run.calls if "--register-account" in c[-1]]
+    assert "acme-challenge" not in (tmp_path / "edge" / "conf" / "haproxy.cfg").read_text()
+
+
+def _issue(tmp_path, run, **instances):
+    edge = tmp_path / "edge"
+    for name, kwargs in instances.items():
+        _sync(FakeRunner(running=True), edge, name, _instance(tmp_path, name, **kwargs))
+    return mod.issue(run, "docker", str(edge))
+
+
+def test_each_acme_hostname_is_issued_and_deployed(tmp_path):
+    run = FakeRunner(running=True)
+    result = _issue(tmp_path, run, one={"hosts": ("example.com",),
+                                        "media": ("images.example.com",)})
+    assert result["issued"] == ["example.com", "images.example.com"]
+    issue = run.acme_calls("--issue")[0]
+    assert issue[-6:] == ["--issue", "--stateless", "-d", "example.com",
+                          "--server", "letsencrypt"]
+    deploy = run.acme_calls("--deploy")[0]
+    assert "DEPLOY_HAPROXY_HOT_UPDATE=yes" in deploy
+    assert "DEPLOY_HAPROXY_PEM_PATH=%s" % mod.CERT_DIR in deploy
+    assert not result["reload"]
+
+
+def test_staging_hostnames_use_the_staging_ca(tmp_path):
+    run = FakeRunner(running=True)
+    _issue(tmp_path, run, one={"env": {"CANASTA_STAGING_CERTS": "true"}})
+    assert run.acme_calls("--issue")[0][-1] == "letsencrypt_test"
+
+
+def test_an_issued_certificate_is_not_requested_again(tmp_path):
+    run = FakeRunner(running=True, listed={"example.com": ("LetsEncrypt.org", True)})
+    result = _issue(tmp_path, run, one={})
+    assert result["issued"] == [] and run.acme_calls("--issue") == []
+
+
+def test_leaving_staging_reissues_from_the_production_ca(tmp_path):
+    run = FakeRunner(running=True,
+                     listed={"example.com": ("LetsEncrypt.org_test", True)})
+    result = _issue(tmp_path, run, one={})
+    assert result["issued"] == ["example.com"]
+    issue = run.acme_calls("--issue")[0]
+    assert "--force" in issue and "letsencrypt" == issue[issue.index("--server") + 1]
+
+
+def test_a_failed_first_issuance_is_retried(tmp_path):
+    run = FakeRunner(running=True, listed={"example.com": ("LetsEncrypt.org", False)})
+    result = _issue(tmp_path, run, one={})
+    assert result["issued"] == ["example.com"]
+
+
+def test_a_failure_is_reported_without_failing(tmp_path):
+    run = FakeRunner(running=True, issue_fails={"example.com"})
+    result = _issue(tmp_path, run, one={})
+    assert result["issued"] == []
+    assert result["unissued"][0]["hostname"] == "example.com"
+    assert "Invalid response" in result["unissued"][0]["reason"]
+    assert run.acme_calls("--deploy") == []
+
+
+def test_a_hostname_gone_from_lets_encrypt_is_removed_and_replaced(tmp_path):
+    """A hostname switched to internal keeps being served, but from the
+    edge's CA: its Let's Encrypt PEM is replaced and HAProxy reloaded."""
+    run = FakeRunner(running=True, listed={"example.com": ("LetsEncrypt.org", True),
+                                           "old.example.org": ("LetsEncrypt.org", True)})
+    result = _issue(tmp_path, run, one={"env": {"CADDY_TLS_MODE": "internal"}})
+    assert result["removed"] == ["example.com", "old.example.org"]
+    assert result["reload"]
+    assert run.runs("openssl")
+
+
+def test_results_avoid_keys_ansible_reserves(tmp_path):
+    """Ansible reads failed, skipped and the like on a registered result as
+    its own, so a module result must not use them for data."""
+    reserved = {"failed", "skipped", "unreachable", "rc", "msg", "results"}
+    path = _instance(tmp_path, "one")
+    synced = _sync(FakeRunner(), tmp_path / "edge", "one", path)
+    issued = mod.issue(FakeRunner(running=True, issue_fails={"example.com"}),
+                       "docker", str(tmp_path / "edge"))
+    assert not reserved & (set(synced) | set(issued))
+
+
+class OwnerProbe(FakeRunner):
+    """Creates the probe file, owned as a rootful or rootless runtime would."""
+
+    def __init__(self, owner_uid, **kwargs):
+        super().__init__(**kwargs)
+        self.owner_uid = owner_uid
+
+    def __call__(self, argv):
+        if "touch" in argv:
+            mounts = dict(a.split(":", 1)[::-1] for a in argv if ":/" in a)
+            path = os.path.join(mounts["/probe"], ".owner-probe")
+            open(path, "w").close()
+            self.created = path
+        return super().__call__(argv)
+
+
+def test_helpers_run_as_the_operator_where_container_root_is_host_root(tmp_path, monkeypatch):
+    edge = tmp_path / "edge"
+    edge.mkdir()
+    real_stat = os.stat
+    monkeypatch.setattr(mod.os, "getuid", lambda: 1000)
+    monkeypatch.setattr(mod.os, "getgid", lambda: 1000)
+    monkeypatch.setattr(mod.os, "stat", lambda p, *a, **k: type(
+        "S", (), {"st_uid": 0})() if p.endswith(".owner-probe") else real_stat(p, *a, **k))
+    assert mod.helper_user(OwnerProbe(0), "docker", str(edge)) == "1000:1000"
+    assert (edge / ".helper-user").read_text() == "1000:1000\n"
+    assert mod.helper_user(FakeRunner(), "docker", str(edge)) == "1000:1000"
+
+
+def test_helpers_stay_root_on_a_rootless_runtime(tmp_path, monkeypatch):
+    edge = tmp_path / "edge"
+    edge.mkdir()
+    uid = os.getuid() or 1000
+    monkeypatch.setattr(mod.os, "getuid", lambda: uid)
+    real_stat = os.stat
+    monkeypatch.setattr(mod.os, "stat", lambda p, *a, **k: type(
+        "S", (), {"st_uid": uid})() if p.endswith(".owner-probe") else real_stat(p, *a, **k))
+    assert mod.helper_user(OwnerProbe(uid), "podman", str(edge)) == "root"
