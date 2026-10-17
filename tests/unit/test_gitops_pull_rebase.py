@@ -59,7 +59,8 @@ def _tasks(name, _seen=None):
 def _cmds(tasks):
     out = []
     for t in tasks:
-        c = t.get("ansible.builtin.command") or t.get("command") or {}
+        c = (t.get("ansible.builtin.command") or t.get("command")
+             or t.get("ansible.builtin.shell") or {})
         if isinstance(c, dict) and c.get("cmd"):
             out.append((t, c["cmd"]))
     return out

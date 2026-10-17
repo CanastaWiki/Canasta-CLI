@@ -41,6 +41,7 @@
         dest: "{{ instance_path }}/config/logstash/"
         force: false
         mode: "0644"
+        directory_mode: "0755"
 
     - name: Copy observable-init script
       ansible.builtin.copy:
@@ -48,6 +49,7 @@
         dest: "{{ instance_path }}/scripts/"
         force: false
         mode: "0755"
+        directory_mode: "0755"
 
 - name: Write Kubernetes stack files
   when: instance_is_k8s | bool

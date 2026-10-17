@@ -41,7 +41,8 @@ def test_pull_and_join_pass_the_git_env_to_submodule_updates():
 def test_fix_submodules_passes_the_git_env():
     updates = [t for t in _tasks("fix_submodules.yml")
                if "submodule update" in str(
-                   (t.get("ansible.builtin.command") or {}).get("cmd", ""))]
+                   (t.get("ansible.builtin.command")
+                    or t.get("ansible.builtin.shell") or {}).get("cmd", ""))]
     assert updates
     for t in updates:
         assert t.get("environment") == "{{ gitops_git_env }}", t.get("name")

@@ -5,8 +5,8 @@
 # Requires: instance_path. Optional: submodule_git_env (environment for git).
 
 - name: Update submodules
-  ansible.builtin.command:
-    cmd: "git submodule update --init --recursive"
+  ansible.builtin.shell:
+    cmd: "umask 022 && git submodule update --init --recursive"
     chdir: "{{ instance_path }}"
   environment: "{{ submodule_git_env | default({}) }}"
   register: _submodule_update
