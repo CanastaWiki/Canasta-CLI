@@ -6,20 +6,17 @@
 - name: Point the facts at the instance
   ansible.builtin.include_tasks: _edge_instance_facts.yml
 
-# A stopped instance joins the edge but stays stopped.
-- name: Check whether the instance's Caddy is running
-  ansible.builtin.command:
-    cmd: "{{ compose_command }} ps -q caddy"
-    chdir: "{{ instance_path }}"
-  register: _edge_caddy_ps
-  changed_when: false
-  failed_when: false
+# A stopped instance joins the edge but stays stopped. podman-compose's
+# ps takes no service name, so ask the container runtime.
+- name: List the instance's running services
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/list_running_services.yml"
 
 - name: Remember whether the instance's Caddy was running
   ansible.builtin.set_fact:
     _edge_was_running: >-
       {{ _edge_was_running | default({})
-         | combine({instance_id: (_edge_caddy_ps.stdout | default('') | trim | length > 0)}) }}
+         | combine({instance_id: 'caddy' in (_running_services | default('')).split('\n')
+                                 | map('trim') | list}) }}
 
 - name: Turn on CANASTA_ENABLE_EDGE
   ansible.builtin.include_tasks: _edge_set_flag.yml
