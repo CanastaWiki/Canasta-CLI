@@ -572,7 +572,21 @@ def _sync(run, inspect, edge_dir, instance_id, instance_path, member):
     if member == "absent" and not os.path.isdir(edge_dir):
         result.update(members=[], running=False)
         return result
+    try:
+        return _sync_edge(run, inspect, edge_dir, instance_id, instance_path,
+                          member, result)
+    except EdgeError as exc:
+        # The edge keeps serving its last good configuration, which still
+        # routes every instance it did; the caller decides when to fail.
+        result.update(error=str(exc), reload=False, acme=False,
+                      compose_changed=False,
+                      members=sorted(read_members(edge_dir)),
+                      running=edge_running(run, inspect),
+                      acme_running=edge_running(run, inspect, ACME_CONTAINER))
+        return result
 
+
+def _sync_edge(run, inspect, edge_dir, instance_id, instance_path, member, result):
     for sub in ("conf/certs", "ca", "acme"):
         os.makedirs(os.path.join(edge_dir, sub), mode=0o700, exist_ok=True)
     os.chmod(os.path.join(edge_dir, "conf"), 0o755)
@@ -668,6 +682,39 @@ def _domain_conf(edge_dir, host):
     return _read(os.path.join(edge_dir, "acme", "%s_ecc" % host, "%s.conf" % host)) or ""
 
 
+def _set_conf(path, key, value):
+    """Set (or, with value None, remove) one KEY='value' line of an acme.sh
+    conf file, as acme.sh's own _setopt writes them. Returns whether it
+    changed."""
+    text = _read(path)
+    if text is None:
+        return False
+    lines = [l for l in text.splitlines() if not l.startswith(key + "=")]
+    if value is not None:
+        lines.append("%s='%s'" % (key, value))
+    new = "\n".join(lines) + "\n"
+    if new == text:
+        return False
+    with open(path, "w") as f:
+        f.write(new)
+    return True
+
+
+def refresh_dns_credentials(edge_dir, host, dns):
+    """Bring the Cloudflare token and zone ID acme.sh saved for host's
+    renewals in line with the instance's, so a rotated token reaches them.
+    acme.sh keeps them with the certificate when a zone ID is set and for
+    the whole account otherwise; the certificate's own copy wins."""
+    conf = os.path.join(edge_dir, "acme", "%s_ecc" % host, "%s.conf" % host)
+    if dns["zone_id"]:
+        changed = _set_conf(conf, "CF_Token", dns["token"])
+        return _set_conf(conf, "CF_Zone_ID", dns["zone_id"]) or changed
+    changed = _set_conf(conf, "CF_Token", None)
+    changed = _set_conf(conf, "CF_Zone_ID", None) or changed
+    account = os.path.join(edge_dir, "acme", "account.conf")
+    return _set_conf(account, "SAVED_CF_Token", dns["token"]) or changed
+
+
 def issued_method(edge_dir, host):
     """How acme.sh validates host at renewal: 'stateless' (HTTP-01 answered
     by HAProxy) or a DNS hook such as dns_cf. None when it has no record."""
@@ -705,6 +752,8 @@ def _issue(run, inspect, edge_dir):
         # An unreadable record is left alone rather than spend a reissue.
         if (current and current[1] and current[0] == ACME_CA_NAMES[staging]
                 and issued_method(edge_dir, host) in (method, None)):
+            if dns and refresh_dns_credentials(edge_dir, host, dns):
+                result["changed"] = True
             # A certificate imported from Caddy has not been deployed by
             # acme.sh yet, so its renewals would not reach HAProxy.
             if "Le_DeployHook=" not in _domain_conf(edge_dir, host):
@@ -894,10 +943,11 @@ def plan_conversion(instances):
     instances are left out. An instance whose .env already
     sets CANASTA_ENABLE_EDGE keeps its choice. One that can move does, unless
     an instance staying outside the edge serves 80 or 443 itself, which the
-    edge would collide with; then none on the host move. One whose files the
-    CLI cannot write is skipped without recording a choice, so the next
-    upgrade considers it again. Returns {convert: [ids], decline: {id:
-    reason}, skip: {id: reason}}."""
+    edge would collide with; then none on the host move. Only a reason of
+    the instance's own is recorded as a choice (decline); one held back by
+    the host, or whose files the CLI cannot write, is skipped without one,
+    so the next upgrade considers it again. Returns {convert: [ids],
+    decline: {id: reason}, skip: {id: reason}}."""
     convert, decline, skip, staying = [], {}, {}, []
     runtimes = set()
     for inst in instances:
@@ -913,6 +963,11 @@ def plan_conversion(instances):
             skip[inst["id"]] = "the CLI cannot write to its directory"
             staying.append((inst["id"], env))
             continue
+        if "podman" in (inst.get("compose_command") or ""):
+            skip[inst["id"]] = ("rootless Podman hides client addresses from the "
+                                "edge, which would rate-limit all visitors together")
+            staying.append((inst["id"], env))
+            continue
         reason = _ineligible(inst["id"], inst["path"], env)
         if reason:
             decline[inst["id"]] = reason
@@ -924,11 +979,11 @@ def plan_conversion(instances):
     if convert and blockers:
         reason = ("instance %s on this host serves ports 80/443 itself, and the "
                   "edge would need them" % ", ".join("'%s'" % b for b in blockers))
-        decline.update({i: reason for i in convert})
+        skip.update({i: reason for i in convert})
         convert = []
     if len(runtimes) > 1:
         reason = "the host's instances use different container runtimes"
-        decline.update({i: reason for i in convert})
+        skip.update({i: reason for i in convert})
         convert = []
     return {"convert": convert, "decline": decline, "skip": skip}
 

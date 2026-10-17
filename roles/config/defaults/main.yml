@@ -168,8 +168,8 @@ canasta_known_keys:
   - name: ACME_DNS_PROVIDER
     group: Caddy / TLS
     description: >-
-      DNS provider for CADDY_TLS_MODE=acme-dns. "cloudflare" (default, and
-      the only one so far) uses CLOUDFLARE_API_TOKEN.
+      DNS provider for CADDY_TLS_MODE=acme-dns. The supported provider is
+      "cloudflare" (the default), which uses CLOUDFLARE_API_TOKEN.
     default: "cloudflare"
   - name: CLOUDFLARE_API_TOKEN
     group: Caddy / TLS

@@ -456,9 +456,10 @@ def _render_cfg(instances, thumbprint, ipv6=False):
         "    timeout queue 30s",
         "",
         # Instances come and go, so their Caddy addresses are looked up at
-        # run time from Docker's resolver rather than once at startup.
-        "resolvers docker",
-        "    nameserver dns 127.0.0.11:53",
+        # run time rather than once at startup, from the network's resolver,
+        # which differs between Docker and Podman.
+        "resolvers network",
+        "    parse-resolv-conf",
         "    hold valid 10s",
         "",
         "frontend http",
@@ -518,8 +519,8 @@ def _render_cfg(instances, thumbprint, ipv6=False):
     ]
 
     for inst, (dynamic_cap, default_cap) in zip(instances, limits):
-        server = ("    server caddy caddy-%s:80 resolvers docker "
-                  "init-addr last,libc,none check maxconn %%d" % inst["id"])
+        server = ("    server caddy caddy-%s:80 resolvers network "
+                  "resolve-prefer ipv4 init-addr last,libc,none check maxconn %%d" % inst["id"])
         classes = [("dynamic", dynamic_cap), ("default", default_cap)]
         if inst["media_hostnames"]:
             classes.append(("media", inst["limits"]["media_maxconn"]))
