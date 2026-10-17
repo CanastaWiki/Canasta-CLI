@@ -20,9 +20,11 @@ COMMON = os.path.join(REPO_ROOT, "roles", "common")
 REWRITE = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks", "rewrite_caddy.yml")
 
 
-def _caddyfile(tmp_path, env_lines, expect_fail=False):
+def _caddyfile(tmp_path, env_lines, expect_fail=False, global_text=None):
     inst = tmp_path / "inst"
     (inst / "config").mkdir(parents=True)
+    if global_text is not None:
+        (inst / "config" / "Caddyfile.global").write_text(global_text)
     (inst / ".env").write_text("".join(line + "\n" for line in env_lines))
     (inst / "config" / "wikis.yaml").write_text(yaml.safe_dump(
         {"wikis": [{"id": "main", "url": "example.com", "name": "Main"}]}))
@@ -97,3 +99,16 @@ def test_acme_dns_is_refused_without_the_edge(tmp_path):
 def test_acme_dns_behind_the_edge_renders(tmp_path):
     out = _caddyfile(tmp_path, ["CANASTA_ENABLE_EDGE=true", "CADDY_TLS_MODE=acme-dns"])
     assert "\nhttp://example.com {" in out
+
+
+WWW_REDIRECT = "www.example.com {\n    redir https://example.com{uri} 301\n}\n"
+
+
+def test_behind_the_edge_user_sites_are_served_over_http(tmp_path):
+    out = _caddyfile(tmp_path, ["CANASTA_ENABLE_EDGE=true"], global_text=WWW_REDIRECT)
+    assert "\nhttp://www.example.com {" in out
+
+
+def test_without_the_edge_user_sites_are_left_alone(tmp_path):
+    out = _caddyfile(tmp_path, [], global_text=WWW_REDIRECT)
+    assert "\nwww.example.com {" in out

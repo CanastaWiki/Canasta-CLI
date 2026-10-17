@@ -558,3 +558,19 @@ def test_without_a_copy_the_bundled_ranges_are_used(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "_fetch", lambda url: "<html>not a list</html>")
     ranges = mod.cdn_ranges(str(tmp_path), ["imperva"])["imperva"]
     assert ranges == mod.BUNDLED_CDN_RANGES["imperva"]
+
+
+# --- Caddyfile.global sites ---------------------------------------------------- #
+
+def test_caddyfile_global_sites_are_routed_and_certified(tmp_path):
+    path = _instance(tmp_path, "one", env={"CADDY_TLS_MODE": "internal"})
+    with open(os.path.join(path, "config", "Caddyfile.global"), "w") as f:
+        f.write("{\n    email a@example.com\n}\n"
+                "www.example.com {\n    redir https://example.com{uri}\n}\n"
+                "*.example.org {\n    respond x\n}\n")
+    edge = tmp_path / "edge"
+    result = _sync(FakeRunner(), edge, "one", path)
+    assert "www.example.com one/wiki" in (edge / "conf" / "hosts.map").read_text()
+    assert "www.example.com.pem" in os.listdir(edge / "conf" / "certs")
+    assert result["unrouted_sites"] == [
+        {"instance": "one", "address": "*.example.org", "reason": "it is a wildcard"}]

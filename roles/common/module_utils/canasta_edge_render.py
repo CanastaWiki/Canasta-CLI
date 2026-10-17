@@ -183,13 +183,14 @@ def _limit(env, key, instance_id, default, allow_zero):
 
 
 def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
-                         deny_user_agents="", deny_cidrs=""):
+                         deny_user_agents="", deny_cidrs="", extra_hostnames=()):
     """Build the edge's view of one instance.
 
     env is the instance's .env as a dict, wikis the parsed wikis.yaml list,
     media_hosts the parsed media-hosts.yaml list, snippet the text of its
     edge snippet, and deny_user_agents and deny_cidrs the text of its deny
-    lists (each empty when it has none).
+    lists (each empty when it has none). extra_hostnames are names its own
+    Caddy serves besides its wikis, from site blocks in Caddyfile.global.
     """
     if not _INSTANCE_ID.match(instance_id or ""):
         raise EdgeError("'%s' is not a valid instance ID." % instance_id)
@@ -211,6 +212,11 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
             raise EdgeError(
                 "Instance '%s' declares '%s' more than once." % (instance_id, host))
         media.append(host)
+
+    for name in extra_hostnames or ():
+        host = _hostname(name, instance_id, "Caddyfile.global site")
+        if host not in hostnames and host not in media:
+            hostnames.append(host)
 
     tls_mode = (env.get("CADDY_TLS_MODE") or "acme").strip().lower()
     if tls_mode not in TLS_MODES:
