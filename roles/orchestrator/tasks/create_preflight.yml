@@ -218,6 +218,22 @@
       register: _preflight_envfile
       when: envfile is defined and envfile != ''
 
+    # Rootless Docker's port forwarding, like rootless Podman's, hides
+    # client addresses from the edge.
+    - name: Ask whether the Docker daemon runs rootless
+      ansible.builtin.command:
+        argv:
+          - "{{ inspect_command | default('docker') }}"
+          - info
+          - --format
+          - "{% raw %}{{json .SecurityOptions}}{% endraw %}"
+      environment:
+        DOCKER_HOST: "{{ _preflight_docker_host | default('') }}"
+      register: _preflight_docker_info
+      changed_when: false
+      failed_when: false
+      when: not (compose_command | default('docker compose') is search('podman'))
+
     # Appending the default keeps [0] defined when the envfile is absent
     # or sets neither key, so no branch is needed for the common case.
     - name: Resolve the ports this instance will bind
@@ -232,12 +248,13 @@
         # belong to the edge. An instance goes behind it unless the env file
         # says otherwise, or the instance cannot be routed by hostname, or
         # it asks for its own ports or for Caddy to sit behind another proxy,
-        # or it runs on Podman, whose rootless port forwarding hides client
-        # addresses from the edge's per-client limits.
+        # or it runs on Podman or rootless Docker, whose port forwarding hides
+        # client addresses from the edge's per-client limits.
         create_behind_edge: >-
           {{ (_preflight_edge_setting[0] == 'true') if _preflight_edge_setting
              else not (skip_tls | default(false) | bool)
                   and not (compose_command | default('docker compose') is search('podman'))
+                  and 'name=rootless' not in (_preflight_docker_info.stdout | default(''))
                   and (domain_name | default('localhost'))
                       is not match('^(localhost|.*[.]localhost|[0-9.]+|.*:.*)$')
                   and _preflight_http_port_raw in ['', '80']

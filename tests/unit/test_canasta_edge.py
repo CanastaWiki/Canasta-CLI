@@ -905,6 +905,28 @@ def test_a_new_edge_directory_asks_for_recreated_containers(tmp_path):
     assert not _sync(FakeRunner(running=True), edge, "one", path)["recreate"]
 
 
+def test_rootless_docker_instances_stay_off_the_edge_without_a_choice(tmp_path):
+    one = _plain(tmp_path, "one")
+    entry = dict(_entry("one", one), docker_host="unix:///run/user/1000/docker.sock")
+    plan = mod.plan_conversion([entry], lambda inst: inst["docker_host"].startswith("unix:///run/user/"))
+    assert plan["convert"] == [] and plan["decline"] == {}
+    assert "rootless Docker" in plan["skip"]["one"]
+
+
+@pytest.mark.parametrize("options,expected", [
+    ('["name=seccomp,profile=builtin","name=rootless","name=cgroupns"]', True),
+    ('["name=apparmor,profile=default","name=seccomp,profile=builtin"]', False),
+])
+def test_a_rootless_daemon_is_recognized(options, expected):
+    calls = []
+
+    def run(argv, env=None):
+        calls.append((argv, env))
+        return 0, options + "\n", ""
+    assert mod.daemon_rootless(run, "docker", "unix:///run/user/1000/docker.sock") is expected
+    assert calls[0][1] == {"DOCKER_HOST": "unix:///run/user/1000/docker.sock"}
+
+
 @pytest.mark.parametrize("host,network", [(True, False), (False, True)])
 def test_an_existing_network_keeps_its_ipv6_setting(tmp_path, monkeypatch, host, network):
     monkeypatch.setattr(mod, "host_has_ipv6", lambda: host)
