@@ -865,3 +865,21 @@ class TestInstallDockerMode:
     def test_non_install_commands_are_unaffected(self):
         argv, _ = run_dry(["version"])
         assert "install" not in user_args(argv)
+
+
+class TestUpgradeWithoutReleaseLookup:
+    """When the GitHub tags lookup fails (offline, rate-limited), upgrade
+    warns and keeps the current image instead of exiting silently."""
+
+    def test_upgrade_warns_and_continues(self, short_tmp):
+        stubs = os.path.join(short_tmp, "bin")
+        os.makedirs(stubs)
+        for name, rc in (("docker", 0), ("curl", 1)):
+            with open(os.path.join(stubs, name), "w") as f:
+                f.write("#!/bin/sh\nexit %d\n" % rc)
+            os.chmod(os.path.join(stubs, name), 0o755)
+        argv, stderr = run_dry(["upgrade"], env={
+            "PATH": stubs + os.pathsep + os.environ["PATH"]})
+        assert "could not determine the latest release" in stderr
+        assert IMAGE_NAME in argv
+        assert "upgrade" in user_args(argv)
