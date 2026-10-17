@@ -65,7 +65,8 @@ options:
   instances:
     description: >-
       With state=plan, the host's instances as dicts of id, path,
-      orchestrator and compose_command.
+      orchestrator, compose_command and docker_host (the daemon socket the
+      instance uses, empty for the default).
     type: list
     elements: dict
   compose_command:
@@ -980,7 +981,15 @@ def _publishes_web_ports(env):
             or (https and (env.get("HTTPS_PORT") or "443").strip() == "443"))
 
 
-def plan_conversion(instances):
+def daemon_rootless(run, inspect, docker_host=""):
+    """Whether the Docker daemon at docker_host runs rootless. Its port
+    forwarding then replaces client addresses, as rootless Podman's does."""
+    env = {"DOCKER_HOST": docker_host} if docker_host else None
+    rc, out, _ = run([inspect, "info", "--format", "{{json .SecurityOptions}}"], env=env)
+    return rc == 0 and "name=rootless" in out
+
+
+def plan_conversion(instances, rootless=lambda inst: False):
     """Decide which of a host's Compose instances move behind the edge.
 
     instances: [{id, path, orchestrator, compose_command}]; Kubernetes
@@ -1009,6 +1018,11 @@ def plan_conversion(instances):
             continue
         if "podman" in (inst.get("compose_command") or ""):
             skip[inst["id"]] = ("rootless Podman hides client addresses from the "
+                                "edge, which would rate-limit all visitors together")
+            staying.append((inst["id"], env))
+            continue
+        if rootless(inst):
+            skip[inst["id"]] = ("rootless Docker hides client addresses from the "
                                 "edge, which would rate-limit all visitors together")
             staying.append((inst["id"], env))
             continue
@@ -1059,7 +1073,14 @@ def run_module():
         if params["state"] == "issue":
             result = issue(run, params["inspect_command"], edge_dir)
         elif params["state"] == "plan":
-            result = dict(plan_conversion(params["instances"] or []), changed=False)
+            seen = {}
+
+            def rootless(inst):
+                host = inst.get("docker_host") or ""
+                if host not in seen:
+                    seen[host] = daemon_rootless(run, params["inspect_command"], host)
+                return seen[host]
+            result = dict(plan_conversion(params["instances"] or [], rootless), changed=False)
         elif params["state"] == "import":
             imported = _locked(edge_dir, import_caddy_certificates, run,
                                params["inspect_command"], edge_dir, params["instance_id"],
