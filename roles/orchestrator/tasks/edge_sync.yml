@@ -23,6 +23,17 @@
     - _edge.error is defined
     - not (edge_defer_errors | default(false) | bool)
 
+- name: Report an edge network IPv6 setting the host no longer matches
+  ansible.builtin.debug:
+    msg: >-
+      The host {{ 'now has' if _edge.network_ipv6_pending else 'no longer has' }}
+      IPv6, but the HAProxy edge's network was created
+      {{ 'without' if _edge.network_ipv6_pending else 'with' }} it, and its
+      setting cannot change while instances are attached. The edge keeps the
+      network as it is, and creates it with the new setting once no instance
+      is behind it any more.
+  when: _edge.network_ipv6_pending is defined
+
 - name: Report Caddyfile.global sites the edge cannot route
   ansible.builtin.debug:
     msg: >-
