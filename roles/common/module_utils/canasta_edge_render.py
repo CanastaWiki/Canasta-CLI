@@ -189,6 +189,30 @@ def _limit(env, key, instance_id, default, allow_zero):
     return value
 
 
+def _wiki_server(server, instance_id, where):
+    """(host, port, unnamed) for a wiki URL's host part. unnamed is True for
+    localhost and IP addresses, which the edge cannot route by name; it
+    sends them its port's unmatched traffic instead."""
+    host, _, port = (server or "").strip().lower().rstrip(".").partition(":")
+    if port and not port.isdigit():
+        raise EdgeError("Instance '%s': %s '%s' has an invalid port."
+                        % (instance_id, where, server))
+    port = int(port) if port else None
+    if host == "localhost" or host.endswith(".localhost") or _IPV4.match(host):
+        return host, port, True
+    return _hostname(host, instance_id, where), port, False
+
+
+def _port(env, key, instance_id, default):
+    raw = (env.get(key) or "").strip()
+    if not raw:
+        return default
+    if not raw.isdigit() or not 0 < int(raw) < 65536:
+        raise EdgeError("Instance '%s': %s is '%s', not a port number."
+                        % (instance_id, key, raw))
+    return int(raw)
+
+
 def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
                          deny_user_agents="", deny_cidrs="", extra_hostnames=()):
     """Build the edge's view of one instance.
@@ -202,14 +226,30 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
     if not _INSTANCE_ID.match(instance_id or ""):
         raise EdgeError("'%s' is not a valid instance ID." % instance_id)
 
+    # Served over plain HTTP, behind the operator's own TLS proxy or with
+    # --skip-tls: no HTTPS, no certificates, no redirect.
+    plain = (env.get("CADDY_AUTO_HTTPS") or "on").strip().lower() == "off"
+    http_port = _port(env, "HTTP_PORT", instance_id, 80)
+    https_port = _port(env, "HTTPS_PORT", instance_id, 443)
+    if not plain and http_port == https_port:
+        raise EdgeError("Instance '%s': HTTP_PORT and HTTPS_PORT are both %d."
+                        % (instance_id, http_port))
+    served_port, served_key = (http_port, "HTTP_PORT") if plain else (https_port, "HTTPS_PORT")
+
     hostnames = []
+    unnamed = []
     for wiki in wikis or []:
         server = str(wiki.get("url", "")).split("/", 1)[0]
-        host = _hostname(server, instance_id,
-                         "wiki '%s' URL host" % wiki.get("id", "?"))
-        if host not in hostnames:
-            hostnames.append(host)
-    if not hostnames:
+        where = "wiki '%s' URL host" % wiki.get("id", "?")
+        host, port, is_unnamed = _wiki_server(server, instance_id, where)
+        if port is not None and port != served_port:
+            raise EdgeError(
+                "Instance '%s': %s '%s' has port %d, but %s is %d."
+                % (instance_id, where, server, port, served_key, served_port))
+        names = unnamed if is_unnamed else hostnames
+        if host not in names:
+            names.append(host)
+    if not hostnames and not unnamed:
         raise EdgeError("Instance '%s' has no wikis." % instance_id)
 
     media = []
@@ -272,6 +312,12 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
     return {
         "id": instance_id,
         "hostnames": hostnames,
+        # localhost or IP addresses, reached through its ports' unmatched
+        # traffic.
+        "unnamed": bool(unnamed),
+        "plain": plain,
+        "http_port": http_port,
+        "https_port": https_port,
         "media_hostnames": media,
         "tls_mode": tls_mode,
         "dns": dns,
@@ -319,6 +365,10 @@ def certificates(instances):
     entries = []
     for inst in instances:
         names = inst["hostnames"] + inst["media_hostnames"]
+        # Plain HTTP instances are not served over HTTPS; unnamed ones get
+        # the edge's default certificate.
+        if inst["plain"] or not names:
+            continue
         if inst["tls_mode"] == "custom":
             entries.append({
                 "instance": inst["id"], "mode": "custom",
@@ -342,13 +392,49 @@ def _check_unique(instances):
         if inst["id"] in ids:
             raise EdgeError("Instance ID '%s' appears twice." % inst["id"])
         ids[inst["id"]] = True
-        for host in inst["hostnames"] + inst["media_hostnames"]:
-            if host in owners:
+        for port in _ports_of(inst):
+            for host in inst["hostnames"] + inst["media_hostnames"]:
+                if (host, port) in owners:
+                    raise EdgeError(
+                        "Instances '%s' and '%s' both serve %s on port %d. The "
+                        "edge routes each hostname on a port to one instance."
+                        % (owners[(host, port)], inst["id"], host, port))
+                owners[(host, port)] = inst["id"]
+            if inst["unnamed"]:
+                if ("", port) in owners:
+                    raise EdgeError(
+                        "Instances '%s' and '%s' are both reached by localhost or "
+                        "an IP address on port %d, which the edge cannot tell "
+                        "apart. Give one of them its own HTTP_PORT and HTTPS_PORT."
+                        % (owners[("", port)], inst["id"], port))
+                owners[("", port)] = inst["id"]
+
+
+def check_together(instances):
+    """Raise EdgeError if the instances cannot share one edge."""
+    _check_unique(instances)
+    frontends(instances)
+
+
+def _ports_of(inst):
+    """The ports the edge serves the instance on."""
+    return [inst["http_port"]] if inst["plain"] else [inst["http_port"], inst["https_port"]]
+
+
+def frontends(instances):
+    """[(port, tls)] for every port the edge listens on, in port order. A
+    port carries either plain HTTP (redirects, ACME challenges and plain
+    HTTP instances) or TLS, never both."""
+    roles = {}
+    for inst in instances:
+        for port, tls in ([(inst["http_port"], False)] if inst["plain"]
+                          else [(inst["http_port"], False), (inst["https_port"], True)]):
+            if roles.setdefault(port, tls) != tls:
                 raise EdgeError(
-                    "Instances '%s' and '%s' both serve %s. The edge routes "
-                    "each hostname to one instance."
-                    % (owners[host], inst["id"], host))
-            owners[host] = inst["id"]
+                    "Port %d is both an HTTP port and an HTTPS port of the edge's "
+                    "instances; give them different HTTP_PORT and HTTPS_PORT values."
+                    % port)
+    return sorted(roles.items())
 
 
 def _check_dns_tokens(instances):
@@ -464,6 +550,11 @@ def _backend_rules(inst, kind):
                    % _list_path("deny-ua-%s.lst" % inst["id"]))
     if kind == "media":
         return out
+    # Behind the operator's own proxy with no trusted proxy set, every
+    # request comes from that proxy, and per-client limits would throttle
+    # all visitors together.
+    if inst["plain"] and not inst["trusted_proxies"]:
+        return out
     rate = inst["limits"]["rate_%s" % kind]
     out += [
         "    stick-table type ipv6 size 100k expire 1m "
@@ -478,18 +569,112 @@ def _backend_rules(inst, kind):
     return out
 
 
-def listeners_for(ipv6=False, sockets=False):
-    """The bind addresses of the http and https frontends. With sockets,
-    HAProxy takes the listening sockets systemd passed it, in the order the
-    edge's socket unit lists them: IPv4 80 and 443, then IPv6 80 and 443."""
+def listeners_for(ports, ipv6=False, sockets=False):
+    """{port: bind addresses} for the edge's ports. With sockets, HAProxy
+    takes the listening sockets systemd passed it, in the order the edge's
+    socket unit lists them: each port over IPv4, then each over IPv6."""
+    ports = sorted(ports)
     if sockets:
-        return {"http": ["fd@3"] + (["fd@5"] if ipv6 else []),
-                "https": ["fd@4"] + (["fd@6"] if ipv6 else [])}
-    return {"http": [":80"] + ([":::80 v6only"] if ipv6 else []),
-            "https": [":443"] + ([":::443 v6only"] if ipv6 else [])}
+        return {p: ["fd@%d" % (3 + i)] + (["fd@%d" % (3 + len(ports) + i)] if ipv6 else [])
+                for i, p in enumerate(ports)}
+    return {p: [":%d" % p] + ([":::%d v6only" % p] if ipv6 else []) for p in ports}
+
+
+_ROUTING = [
+    "    acl upload path_sub -i Special:Upload",
+    "    acl upload url_param(action) -m str upload",
+    "    http-request wait-for-body time %s at-least %s if !upload" % (BODY_WAIT, BODY_BUFFER),
+    "    acl known_site var(txn.inst) -m found",
+    "    acl media_host var(txn.site),field(2,/) -m str media",
+    # The requests Varnish passes to MediaWiki on every request, plus
+    # the expensive views it would cache but crawlers request by the
+    # thousand. Images and sitemaps are passed too but are static files.
+    "    acl dynamic path_sub /api.php",
+    "    acl dynamic path_sub /rest.php/",
+    "    acl dynamic req.fhdr(cookie) -m reg ([sS]ession|Token)=",
+    "    acl dynamic req.hdr(authorization) -m found",
+    "    acl dynamic url_sub -i Special:",
+    "    acl dynamic url_sub -i Special%3A",
+    "    acl dynamic url_param(diff) -m found",
+    "    acl dynamic url_param(oldid) -m found",
+    "    acl has_action url_param(action) -m found",
+    "    acl view_action url_param(action) -m str view",
+    "    use_backend be_%[var(txn.inst)]_media if known_site media_host",
+    "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host dynamic",
+    "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host !METH_GET",
+    "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host has_action !view_action",
+    "    use_backend be_%[var(txn.inst)]_default if known_site",
+    "    default_backend be_no_site",
+]
+
+
+def _frontend_name(port, tls):
+    base = "https" if tls else "http"
+    return base if port == (443 if tls else 80) else "%s_%d" % (base, port)
+
+
+def _site_lookup(port):
+    """The site a request is for: its hostname on this port, else the
+    port's unnamed instance."""
+    return [
+        "    http-request set-var(txn.port) str(%d)" % port,
+        "    http-request set-var(txn.site) req.hdr(host),lower,field(1,:),"
+        "concat(@,txn.port),map(%s/hosts.map)" % CONFIG_DIR,
+        "    http-request set-var(txn.site) str(@),concat(,txn.port),map(%s/hosts.map) "
+        "if !{ var(txn.site) -m found }" % CONFIG_DIR,
+        "    http-request set-var(txn.inst) var(txn.site),field(1,/)",
+    ]
+
+
+def _render_frontend(port, tls, instances, thumbprint, binds):
+    # option forwardfor in the frontends, not defaults: the CrowdSec
+    # bouncers' backends speak TCP.
+    out = ["frontend %s" % _frontend_name(port, tls), "    option forwardfor"]
+    if tls:
+        out += ["    bind %s ssl crt-list %s/crt-list alpn h2,http/1.1" % (b, CONFIG_DIR)
+                for b in binds]
+        out += ["    http-request set-header X-Forwarded-Proto https"]
+        out += _acme_rule(thumbprint)
+        out += _site_lookup(port)
+        out += _client_address_rules(instances)
+        return out + _ROUTING
+    out += ["    bind %s" % b for b in binds]
+    out += _acme_rule(thumbprint)
+    plain = [i for i in instances if i["plain"] and i["http_port"] == port]
+    secure = [i for i in instances if not i["plain"] and i["http_port"] == port]
+    elsewhere = [i for i in secure if i["https_port"] != 443]
+    if not plain and not elsewhere:
+        return out + ["    http-request redirect scheme https code 301"]
+    out += _site_lookup(port)
+    # Only a proxy the instance trusts may say the client used HTTPS.
+    for inst in plain:
+        own = "{ var(txn.inst) -m str %s }" % inst["id"]
+        trusted = _trusted_list(inst)
+        out.append("    http-request del-header X-Forwarded-Proto if %s%s"
+                   % (own, " !{ src -f %s }" % trusted if trusted else ""))
+    out += _client_address_rules(plain)
+    for inst in elsewhere:
+        out.append("    http-request redirect location "
+                   "https://%%[req.hdr(host),field(1,:)]:%d%%[pathq] code 301 "
+                   "if { var(txn.inst) -m str %s }" % (inst["https_port"], inst["id"]))
+    if not plain:
+        return out + ["    http-request redirect scheme https code 301"]
+    out += ["    http-request redirect scheme https code 301 if { var(txn.inst) -m str %s }"
+            % i["id"] for i in secure if i["https_port"] == 443]
+    return out + _ROUTING
+
+
+def _trusted_list(inst):
+    mode = inst["trusted_proxies"]
+    if mode == "cidrs":
+        return _list_path("trusted-%s.lst" % inst["id"])
+    if mode:
+        return _list_path("cdn-%s.lst" % mode)
+    return None
 
 
 def _render_cfg(instances, thumbprint, listeners):
+    """listeners maps each port to its bind addresses (listeners_for)."""
     limits = [backend_limits(i) for i in instances]
     total = sum(d + f for d, f in limits) + sum(
         i["limits"]["media_maxconn"] for i in instances if i["media_hostnames"])
@@ -524,58 +709,10 @@ def _render_cfg(instances, thumbprint, listeners):
         "    parse-resolv-conf",
         "    hold valid 10s",
         "",
-        # In the frontends, not defaults: the CrowdSec bouncers' backends
-        # speak TCP.
-        "frontend http",
-        "    option forwardfor",
     ]
-    out += ["    bind %s" % b for b in listeners["http"]]
-    out += _acme_rule(thumbprint)
+    for port, tls in frontends(instances):
+        out += _render_frontend(port, tls, instances, thumbprint, listeners[port]) + [""]
     out += [
-        "    http-request redirect scheme https code 301",
-        "",
-        "frontend https",
-        "    option forwardfor",
-    ]
-    out += ["    bind %s ssl crt-list %s/crt-list alpn h2,http/1.1" % (b, CONFIG_DIR)
-            for b in listeners["https"]]
-    out += [
-        "    http-request set-header X-Forwarded-Proto https",
-    ]
-    out += _acme_rule(thumbprint)
-    out += [
-        "    http-request set-var(txn.site) req.hdr(host),lower,field(1,:),map(%s/hosts.map)"
-        % CONFIG_DIR,
-        "    http-request set-var(txn.inst) var(txn.site),field(1,/)",
-    ]
-    out += _client_address_rules(instances)
-    out += [
-        "    acl upload path_sub -i Special:Upload",
-        "    acl upload url_param(action) -m str upload",
-        "    http-request wait-for-body time %s at-least %s if !upload"
-        % (BODY_WAIT, BODY_BUFFER),
-        "    acl known_site var(txn.inst) -m found",
-        "    acl media_host var(txn.site),field(2,/) -m str media",
-        # The requests Varnish passes to MediaWiki on every request, plus
-        # the expensive views it would cache but crawlers request by the
-        # thousand. Images and sitemaps are passed too but are static files.
-        "    acl dynamic path_sub /api.php",
-        "    acl dynamic path_sub /rest.php/",
-        "    acl dynamic req.fhdr(cookie) -m reg ([sS]ession|Token)=",
-        "    acl dynamic req.hdr(authorization) -m found",
-        "    acl dynamic url_sub -i Special:",
-        "    acl dynamic url_sub -i Special%3A",
-        "    acl dynamic url_param(diff) -m found",
-        "    acl dynamic url_param(oldid) -m found",
-        "    acl has_action url_param(action) -m found",
-        "    acl view_action url_param(action) -m str view",
-        "    use_backend be_%[var(txn.inst)]_media if known_site media_host",
-        "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host dynamic",
-        "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host !METH_GET",
-        "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host has_action !view_action",
-        "    use_backend be_%[var(txn.inst)]_default if known_site",
-        "    default_backend be_no_site",
-        "",
         "backend be_no_site",
         "    http-request return status 404 content-type text/plain string \"No site is served at this address.\\n\"",
     ]
@@ -616,10 +753,14 @@ def _render_crt_list(entries):
 
 
 def _render_hosts_map(instances):
+    """host@port -> instance/kind, and @port for a port's unnamed instance."""
     lines = []
     for inst in instances:
-        lines += ["%s %s/wiki" % (h, inst["id"]) for h in inst["hostnames"]]
-        lines += ["%s %s/media" % (h, inst["id"]) for h in inst["media_hostnames"]]
+        for port in _ports_of(inst):
+            lines += ["%s@%d %s/wiki" % (h, port, inst["id"]) for h in inst["hostnames"]]
+            lines += ["%s@%d %s/media" % (h, port, inst["id"]) for h in inst["media_hostnames"]]
+            if inst["unnamed"]:
+                lines.append("@%d %s/wiki" % (port, inst["id"]))
     return "\n".join(lines) + "\n"
 
 
@@ -639,7 +780,8 @@ def render(instances, acme_thumbprint=None, cdn_ranges=None, ipv6=False, sockets
     cdn_ranges maps each provider cdn_providers() names to its address
     ranges. ipv6 adds IPv6 listeners, for an edge network with IPv6; with
     sockets, the listeners are the sockets systemd passes HAProxy.
-    Returns {"files": {name: content}, "certificates": [...]}. The files go
+    Returns {"files": {name: content}, "certificates": [...], "ports":
+    [the edge's ports]}. The files go
     in the edge's configuration directory; certificates lists the files the
     crt-list expects in its certs/ directory.
     """
@@ -647,8 +789,10 @@ def render(instances, acme_thumbprint=None, cdn_ranges=None, ipv6=False, sockets
     _check_unique(instances)
     _check_dns_tokens(instances)
     entries = certificates(instances)
+    ports = [port for port, _ in frontends(instances)]
     files = {
-        "haproxy.cfg": _render_cfg(instances, acme_thumbprint, listeners_for(ipv6, sockets)),
+        "haproxy.cfg": _render_cfg(instances, acme_thumbprint,
+                                   listeners_for(ports, ipv6, sockets)),
         "crt-list": _render_crt_list(entries),
         "hosts.map": _render_hosts_map(instances),
     }
@@ -666,4 +810,4 @@ def render(instances, acme_thumbprint=None, cdn_ranges=None, ipv6=False, sockets
                 files[name % inst["id"]] = _lines(entries_)
         if inst["crowdsec"]:
             files["spoe-%s.cfg" % inst["id"]] = _render_spoe(inst)
-    return {"files": files, "certificates": entries}
+    return {"files": files, "certificates": entries, "ports": ports}

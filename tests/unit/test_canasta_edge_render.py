@@ -47,10 +47,6 @@ def test_defaults_when_env_is_silent():
 
 
 @pytest.mark.parametrize("url,fragment", [
-    ("example.com:8443", "has a port"),
-    ("localhost", "localhost"),
-    ("wiki.localhost/x", "localhost"),
-    ("192.0.2.10", "IP address"),
     ("*.example.com", "is a wildcard"),
     ("exa_mple.com", "is not a valid hostname"),
 ])
@@ -320,3 +316,78 @@ def test_the_spoe_message_is_one_the_bouncer_answers():
     assert "spoe-message crowdsec-http-no-body\n" in spoe
     assert "messages crowdsec-http-no-body\n" in spoe
     assert "src-ip=src " in spoe
+
+
+# --- ports and plain HTTP ------------------------------------------------------ #
+
+def _cfg(instances):
+    return edge.render(instances, acme_thumbprint="T")
+
+
+def test_an_instance_on_its_own_ports_gets_its_own_frontends():
+    r = _cfg([_inst("one", ("other.example.org:8443",), {"HTTP_PORT": "8080", "HTTPS_PORT": "8443"})])
+    cfg = r["files"]["haproxy.cfg"]
+    assert r["ports"] == [8080, 8443]
+    assert "frontend http_8080\n" in cfg and "frontend https_8443\n" in cfg
+    assert "frontend http\n" not in cfg
+    assert ("http-request redirect location https://%[req.hdr(host),field(1,:)]:8443%[pathq] "
+            "code 301 if { var(txn.inst) -m str one }") in cfg
+    assert "other.example.org@8443 one/wiki" in r["files"]["hosts.map"]
+
+
+def test_a_url_port_must_match_the_instance_port():
+    with pytest.raises(edge.EdgeError, match="has port 9443, but HTTPS_PORT is 8443"):
+        _inst("one", ("example.com:9443",), {"HTTPS_PORT": "8443"})
+
+
+def test_a_plain_http_instance_is_routed_without_https():
+    plain = _inst("plain", ("plain.example.net",),
+                  {"CADDY_AUTO_HTTPS": "off", "CADDY_TRUSTED_PROXIES": "10.0.0.0/8"})
+    secure = _inst("secure", ("example.com",))
+    r = _cfg([plain, secure])
+    cfg = r["files"]["haproxy.cfg"]
+    http = cfg[cfg.index("frontend http\n"):cfg.index("frontend https\n")]
+    assert "use_backend be_%[var(txn.inst)]_default if known_site" in http
+    assert "redirect scheme https code 301 if { var(txn.inst) -m str secure }" in http
+    assert ("del-header X-Forwarded-Proto if { var(txn.inst) -m str plain } "
+            "!{ src -f /usr/local/etc/haproxy/trusted-plain.lst }") in http
+    assert not [c for c in r["certificates"] if c["instance"] == "plain"]
+    assert "plain.example.net@443" not in r["files"]["hosts.map"]
+
+
+def test_plain_http_without_a_trusted_proxy_has_no_per_client_limits():
+    plain = _inst("plain", ("plain.example.net",), {"CADDY_AUTO_HTTPS": "off"})
+    cfg = _cfg([plain])["files"]["haproxy.cfg"]
+    assert "track-sc0" not in cfg
+    assert "del-header X-Forwarded-Proto if { var(txn.inst) -m str plain }\n" in cfg
+
+
+def test_a_localhost_instance_gets_its_ports_unmatched_traffic():
+    r = _cfg([_inst("local", ("localhost:8444",), {"HTTP_PORT": "8081", "HTTPS_PORT": "8444"})])
+    assert "@8444 local/wiki" in r["files"]["hosts.map"]
+    assert "@8081 local/wiki" in r["files"]["hosts.map"]
+    assert not r["certificates"]
+
+
+def test_two_unnamed_instances_cannot_share_a_port():
+    with pytest.raises(edge.EdgeError, match="cannot tell apart"):
+        _cfg([_inst("a", ("localhost",)), _inst("b", ("192.0.2.4",))])
+
+
+def test_a_port_cannot_be_both_http_and_https():
+    with pytest.raises(edge.EdgeError, match="both an HTTP port and an HTTPS port"):
+        _cfg([_inst("a", ("a.example.com:8443",), {"HTTPS_PORT": "8443"}),
+              _inst("b", ("b.example.com:8443",), {"CADDY_AUTO_HTTPS": "off", "HTTP_PORT": "8443"})])
+
+
+def test_the_same_hostname_may_be_served_on_different_ports():
+    r = _cfg([_inst("a", ("example.com",)),
+              _inst("b", ("example.com:8443",), {"HTTP_PORT": "8080", "HTTPS_PORT": "8443"})])
+    hosts = r["files"]["hosts.map"]
+    assert "example.com@443 a/wiki" in hosts and "example.com@8443 b/wiki" in hosts
+
+
+def test_listeners_follow_the_ports():
+    assert edge.listeners_for([443, 80, 8443], ipv6=True, sockets=True) == {
+        80: ["fd@3", "fd@6"], 443: ["fd@4", "fd@7"], 8443: ["fd@5", "fd@8"]}
+    assert edge.listeners_for([80], ipv6=False) == {80: [":80"]}

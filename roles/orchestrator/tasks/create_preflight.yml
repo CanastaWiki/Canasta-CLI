@@ -258,22 +258,15 @@
               + ['HTTPS_PORT=443'])[0].split('=', 1)[1] }}
         # Behind the edge Caddy publishes only loopback ports, and 80/443
         # belong to the edge. An instance goes behind it unless the env file
-        # says otherwise, or the instance cannot be routed by hostname, or
-        # it asks for its own ports or for Caddy to sit behind another proxy,
-        # or it runs on rootless Docker, whose port forwarding hides client
-        # addresses from the edge's per-client limits, or on rootless Podman
-        # without the systemd user session that gives the edge its ports.
+        # says otherwise, or it runs on rootless Docker, whose port
+        # forwarding hides client addresses from the edge's per-client
+        # limits, or on rootless Podman without the systemd user session
+        # that gives the edge its ports.
         create_behind_edge: >-
           {{ (_preflight_edge_setting[0] == 'true') if _preflight_edge_setting
-             else not (skip_tls | default(false) | bool)
-                  and (not (compose_command | default('docker compose') is search('podman'))
-                       or (_preflight_user_systemd.rc | default(1)) == 0)
-                  and 'name=rootless' not in (_preflight_docker_info.stdout | default(''))
-                  and (domain_name | default('localhost'))
-                      is not match('^(localhost|.*[.]localhost|[0-9.]+|.*:.*)$')
-                  and _preflight_http_port_raw in ['', '80']
-                  and _preflight_https_port_raw in ['', '443']
-                  and _preflight_auto_https != 'off' }}
+             else (not (compose_command | default('docker compose') is search('podman'))
+                   or (_preflight_user_systemd.rc | default(1)) == 0)
+                  and 'name=rootless' not in (_preflight_docker_info.stdout | default('')) }}
       vars:
         _preflight_env_lines: >-
           {{ (_preflight_envfile.content | default('') | b64decode).splitlines()
@@ -282,14 +275,6 @@
           {{ _preflight_env_lines | select('match', '(?i)^CANASTA_ENABLE_EDGE=')
              | map('regex_replace', '^[^=]*=', '') | map('trim') | map('lower')
              | reject('equalto', '') | list }}
-        _preflight_http_port_raw: >-
-          {{ ((_preflight_env_lines | select('match', '^HTTP_PORT=') | list) + ['HTTP_PORT='])[0].split('=', 1)[1] | trim }}
-        _preflight_https_port_raw: >-
-          {{ ((_preflight_env_lines | select('match', '^HTTPS_PORT=') | list) + ['HTTPS_PORT='])[0].split('=', 1)[1] | trim }}
-        _preflight_auto_https: >-
-          {{ ((_preflight_env_lines | select('match', '^CADDY_AUTO_HTTPS=') | list)
-              + ['CADDY_AUTO_HTTPS=on'])[0].split('=', 1)[1]
-             | trim | lower }}
         # splitlines(), not split('\n'): a folded scalar hands Jinja a
         # literal backslash-n, so the split would never match and every
         # instance would silently fall back to 80/443.
