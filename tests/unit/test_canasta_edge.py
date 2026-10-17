@@ -244,3 +244,24 @@ def test_certificates_and_validation_with_the_pinned_images(tmp_path):
         capture_output=True, text=True, env=_DOCKER_ENV)
     assert out.returncode == 0, out.stderr
     assert "DNS:www.example.com" in out.stdout
+
+
+def test_sync_holds_a_lock_beside_the_edge(tmp_path, monkeypatch):
+    """Commands for two instances on one host can sync the edge at once."""
+    path = _instance(tmp_path, "one")
+    held = []
+    real = mod._sync
+
+    def spy(*args):
+        lock = str(tmp_path / "edge.lock")
+        with open(lock) as other:
+            try:
+                mod.fcntl.flock(other, mod.fcntl.LOCK_EX | mod.fcntl.LOCK_NB)
+                held.append(False)
+            except BlockingIOError:
+                held.append(True)
+        return real(*args)
+
+    monkeypatch.setattr(mod, "_sync", spy)
+    _sync(FakeRunner(), tmp_path / "edge", "one", path)
+    assert held == [True]

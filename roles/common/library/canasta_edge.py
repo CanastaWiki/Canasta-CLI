@@ -57,6 +57,7 @@ options:
     type: str
 """
 
+import fcntl
 import os
 import shutil
 import tempfile
@@ -331,7 +332,18 @@ def validate(run, inspect, edge_dir, files):
 
 
 def sync(run, inspect, edge_dir, instance_id, instance_path, member):
-    """Bring the edge in line. Returns the facts the caller acts on."""
+    """Bring the edge in line. Returns the facts the caller acts on.
+
+    Instances on one host share the edge, and commands for two of them can
+    run at once, so the whole read-render-write holds a lock on the edge.
+    """
+    os.makedirs(os.path.dirname(edge_dir) or ".", exist_ok=True)
+    with open(edge_dir + ".lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return _sync(run, inspect, edge_dir, instance_id, instance_path, member)
+
+
+def _sync(run, inspect, edge_dir, instance_id, instance_path, member):
     result = {"changed": False, "edge_dir": edge_dir, "reload": False}
     env = read_env(instance_path)
     if member is None:

@@ -291,6 +291,45 @@
         "CANASTA_PORT_PROBE_UNAVAILABLE" in
         (_port80_listener.stdout | default(''))
 
+    - name: Check whether the HAProxy edge is running
+      ansible.builtin.command:
+        argv:
+          - "{{ inspect_command | default('docker') }}"
+          - ps
+          - -q
+          - --filter
+          - name=^canasta-edge$
+      register: _preflight_edge_running
+      changed_when: false
+      failed_when: false
+
+    # Behind the edge, 80/443 may be held only by the edge itself.
+    - name: Fail if 80 or 443 is taken by something other than the edge
+      ansible.builtin.fail:
+        msg: >-
+          Ports 80 and 443 must be free for the HAProxy edge, but something
+          other than the edge is listening:
+          {{ (_port80_listener.stdout ~ ' ' ~ _port443_listener.stdout) | trim }}.
+          Stop it, or create this instance without CANASTA_ENABLE_EDGE and
+          give it its own ports with HTTP_PORT and HTTPS_PORT.
+      when:
+        - _preflight_behind_edge | bool
+        - _preflight_edge_running.stdout | default('') | trim | length == 0
+        - (_port80_listener.stdout | default('') ~ _port443_listener.stdout | default('')) | trim | length > 0
+        - '"CANASTA_PORT_PROBE_UNAVAILABLE" not in (_port80_listener.stdout | default(""))'
+
+    - name: Fail if the HAProxy edge holds this instance's ports
+      ansible.builtin.fail:
+        msg: >-
+          The HAProxy edge on this host holds ports 80 and 443. Put this
+          instance behind it by passing an env file that sets
+          CANASTA_ENABLE_EDGE=true, or give it its own ports with HTTP_PORT
+          and HTTPS_PORT ('canasta create -e <file>').
+      when:
+        - not (_preflight_behind_edge | bool)
+        - _preflight_edge_running.stdout | default('') | trim | length > 0
+        - _preflight_http_port in ['80', '443'] or _preflight_https_port in ['80', '443']
+
     - name: Fail if the HTTP port is already in use
       ansible.builtin.fail:
         msg: >-

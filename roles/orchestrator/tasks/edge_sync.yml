@@ -14,6 +14,65 @@
     inspect_command: "{{ inspect_command | default('docker') }}"
   register: _edge
 
+# Checked here rather than left to `up`, whose port conflict reads as a raw
+# Docker error.
+- name: Read the addresses this instance's Caddy publishes
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _edge_instance_env
+  no_log: true  # registers the whole .env, including passwords
+  when:
+    - (instance_id | default(id)) not in (_edge.members | default([]))
+    - _edge.running | default(false) | bool
+
+- name: Refuse ports the edge owns
+  ansible.builtin.fail:
+    msg: >-
+      This instance publishes port
+      {{ _edge_taken | join(' and ') }}, which the HAProxy edge holds for
+      {{ _edge.members | join(', ') }}. Put the instance behind the edge
+      (CANASTA_ENABLE_EDGE=true), or give it other ports with HTTP_PORT and
+      HTTPS_PORT.
+  vars:
+    _edge_taken: >-
+      {{ [_edge_instance_env.variables.CANASTA_CADDY_HTTP_PUBLISH | default('80', true),
+          _edge_instance_env.variables.CANASTA_CADDY_HTTPS_PUBLISH | default('443', true)]
+         | select('in', ['80', '443']) | list }}
+  when:
+    - _edge_instance_env is not skipped
+    - _edge_taken | length > 0
+
+- name: Find what else listens on 80 and 443
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      if command -v ss >/dev/null 2>&1; then
+        ss -tlnpH 'sport = :80 or sport = :443' 2>/dev/null
+      elif command -v lsof >/dev/null 2>&1; then
+        lsof -nP -iTCP:80 -iTCP:443 -sTCP:LISTEN 2>/dev/null | tail -n +2
+      fi
+  args:
+    executable: /bin/bash
+  register: _edge_port_holders
+  changed_when: false
+  failed_when: false
+  when:
+    - _edge.members | default([]) | length > 0
+    - not (_edge.running | default(false) | bool)
+
+- name: Refuse to start the edge while 80 or 443 is taken
+  ansible.builtin.fail:
+    msg: >-
+      The HAProxy edge needs ports 80 and 443, but something is already
+      listening on them:
+      {{ _edge_port_holders.stdout | trim }}.
+      Stop it, or leave the edge off (CANASTA_ENABLE_EDGE=false) and give
+      this instance its own ports.
+  when:
+    - _edge_port_holders is not skipped
+    - _edge_port_holders.stdout | default('') | trim | length > 0
+
 - name: Start the edge
   ansible.builtin.command:
     cmd: "{{ compose_command }} -p canasta-edge up -d"
