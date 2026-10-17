@@ -401,7 +401,16 @@ except:
 fi
 
 # Mount all instance paths from conf.json (needed for list, upgrade,
-# and any command that reads instance directories).
+# and any command that reads instance directories). Read-only, except for
+# upgrade, which writes to every instance it upgrades.
+ALL_INSTANCES_MODE=ro
+for arg in "$@"; do
+    case "$arg" in
+        -*) continue ;;
+        upgrade) ALL_INSTANCES_MODE=rw ;;
+    esac
+    break
+done
 if [[ -f "$CONF_FILE" ]]; then
     if command -v python3 &>/dev/null; then
         ALL_PATHS=$(python3 -c "
@@ -432,7 +441,7 @@ except:
             *)
                 # Skip if this is the active instance (will be mounted rw below)
                 if [[ "$ipath" != "$INSTANCE_PATH" ]]; then
-                    MOUNTS+=(-v "$ipath":"$ipath":ro)
+                    MOUNTS+=(-v "$ipath":"$ipath":"$ALL_INSTANCES_MODE")
                 fi
                 ;;
         esac
