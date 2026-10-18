@@ -74,6 +74,10 @@ def test_the_probe_script_runs(tmp_path, monkeypatch):
     edge = tmp_path / "config" / "canasta" / "edge"
     edge.mkdir(parents=True)
     (edge / "members.yaml").write_text("members:\n- id: one\n  path: /srv/one\n")
+    (edge / "conf").mkdir()
+    (edge / "conf" / "hosts.map").write_text(
+        "example.com@80 one/wiki\nexample.com@443 one/wiki\n"
+        "img.example.com@443 one/media\n@443 two/wiki\nother.org@443 two/wiki\n")
     script = doctor._EDGE_SCRIPT % {"delim": S, "inspect": str(fake), "project": "one"}
     env = dict(os.environ, XDG_CONFIG_HOME=str(tmp_path / "config"))
     out = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
@@ -82,6 +86,25 @@ def test_the_probe_script_runs(tmp_path, monkeypatch):
     assert "WARN" not in lines, lines
     assert "CrowdSec bouncer: running (Up 4 minutes)" in lines
     assert "example.com: Let's Encrypt production" in lines
+    assert doctor._parse_edge_probe(out)["hosts"] == {
+        "one": ["example.com", "img.example.com"], "two": ["other.org"]}
+
+
+def test_every_name_the_edge_serves_gets_a_certificate_line(monkeypatch):
+    # Media hostnames and Caddyfile.global sites are in the edge's map, and
+    # a localhost wiki has no certificate to report.
+    stdout = _probe(certs=[("example.com", "LetsEncrypt.org", "2026-12-16T03:27:33Z")]) + (
+        "%sHOSTS:\nexample.com@443 one/wiki\nwww.example.com@443 one/wiki\n"
+        "img.example.com@443 one/media\n@443 one/wiki\n" % S)
+    monkeypatch.setattr(doctor._helpers, "_is_localhost", lambda host: True)
+    monkeypatch.setattr(doctor.subprocess, "run",
+                        lambda *a, **k: type("R", (), {"stdout": stdout})())
+    monkeypatch.setattr(doctor._helpers, "_read_env_for", lambda inst, key: None)
+    out = "\n".join(doctor._edge_lines({"id": "one", "path": "/srv/one",
+                                        "orchestrator": "compose"}))
+    assert "example.com: Let's Encrypt production" in out
+    assert "www.example.com: WARN" in out and "img.example.com: WARN" in out
+    assert "localhost" not in out
 
 
 def test_the_crowdsec_bouncer_is_reported():
