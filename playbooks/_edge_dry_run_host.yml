@@ -1,0 +1,30 @@
+---
+# `upgrade --dry-run`: report how a host's instances would move behind the
+# HAProxy edge, without changing anything.
+# Input: _edge_host_name, _edge_host_instances
+
+- name: Decide which instances would move behind the edge
+  ansible.builtin.include_tasks: _edge_plan_host.yml
+
+- name: Report a host the upgrade would refuse
+  ansible.builtin.debug:
+    msg: >-
+      Dry run - would not upgrade {{ _edge_plan.held | join(', ') }} on
+      {{ _edge_host_name }}: {{ _edge_plan.refuse }}
+  when: _edge_plan.refuse is not none
+
+- name: Report the instances that would move behind the edge
+  ansible.builtin.debug:
+    msg: >-
+      Dry run - would move {{ _edge_plan.convert | join(', ') }} on
+      {{ _edge_host_name }} behind the HAProxy edge{% if _edge_plan.rootless %}
+      ({{ _edge_plan.rootless | join(', ') }} on rootless Docker, with no
+      per-client rate limits){% endif %}.
+  when:
+    - _edge_plan.refuse is none
+    - _edge_plan.convert | length > 0
+
+- name: Note the instances a refused host holds back
+  ansible.builtin.set_fact:
+    _edge_refused: "{{ _edge_refused | default([]) + _edge_plan.held }}"
+  when: _edge_plan.refuse is not none

@@ -146,3 +146,52 @@ def test_a_failed_move_is_counted_once(tmp_path):
         "moving fm behind the HAProxy edge on localhost failed; fm is back on"
         " its own Caddy as before the upgrade, and not upgraded. Run the upgrade"
         " again once this is fixed: The rendered edge configuration is invalid."]
+
+
+def _dry_run(tmp_path, instances):
+    play = tmp_path / "play.yml"
+    play.write_text(yaml.safe_dump([{
+        "hosts": "localhost", "connection": "local", "gather_facts": False,
+        "vars": {"ansible_python_interpreter": sys.executable, "canasta_root": REPO_ROOT,
+                 "_edge_host_name": "localhost",
+                 "_edge_host_instances": [{"key": i, "value": {"path": str(p)}}
+                                          for i, p in instances.items()],
+                 "_upgrade_default_compose_command": "docker compose",
+                 "_upgrade_default_inspect_command": "true"},
+        "tasks": [{"ansible.builtin.include_tasks":
+                   os.path.join(REPO_ROOT, "playbooks", "_edge_dry_run_host.yml")}],
+    }]))
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_")}
+    env.update(ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
+               ANSIBLE_HOME=str(tmp_path / "ansible-home"),
+               ANSIBLE_LIBRARY=os.path.join(COMMON, "library"),
+               ANSIBLE_MODULE_UTILS=os.path.join(COMMON, "module_utils"),
+               ANSIBLE_FILTER_PLUGINS=os.path.join(REPO_ROOT, "filter_plugins"))
+    playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
+    proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
+                          capture_output=True, text=True, env=env, cwd=tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return proc.stdout
+
+
+def _instance(tmp_path, name, url):
+    inst = tmp_path / name
+    (inst / "config").mkdir(parents=True)
+    (inst / ".env").write_text("")
+    (inst / "config" / "wikis.yaml").write_text(
+        yaml.safe_dump({"wikis": [{"id": "main", "url": url, "name": "Main"}]}))
+    return inst
+
+
+def test_dry_run_reports_the_instances_that_would_move(tmp_path):
+    out = _dry_run(tmp_path, {"one": _instance(tmp_path, "one", "one.example.com"),
+                              "two": _instance(tmp_path, "two", "two.example.com")})
+    assert "Dry run - would move one, two on localhost behind the HAProxy edge." in out
+    assert not (tmp_path / "one" / "docker-compose.edge.yml").exists()
+
+
+def test_dry_run_reports_a_refused_host(tmp_path):
+    out = _dry_run(tmp_path, {"one": _instance(tmp_path, "one", "same.example.com"),
+                              "two": _instance(tmp_path, "two", "same.example.com")})
+    assert "Dry run - would not upgrade one, two on localhost:" in out
+    assert "both serve same.example.com" in out
