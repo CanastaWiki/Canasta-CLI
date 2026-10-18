@@ -127,8 +127,9 @@
     # Rootless Podman has two prerequisites that are invisible until the
     # instance silently fails: systemd reaps the containers when the
     # session that started them ends unless the user lingers, and
-    # rootlessport cannot bind 80/443 while the unprivileged port floor
-    # sits above them. Both are cheap to check and confusing to diagnose.
+    # the edge's systemd user socket unit (canasta-edge.socket) cannot
+    # bind 80/443 while the unprivileged port floor sits above them.
+    # Both are cheap to check and confusing to diagnose.
     - name: Check rootless Podman prerequisites
       when: compose_command | default('docker compose') is search('podman')
       block:
@@ -171,8 +172,9 @@
               Rootless Podman cannot bind ports 80 and 443 on this host:
               net.ipv4.ip_unprivileged_port_start is
               {{ (_rootless_facts.stdout_lines | default([]))[1] | default('?') }}.
-              Caddy would fail to start with "rootlessport cannot expose
-              privileged port 80". Fix it with
+              The edge's systemd socket unit (canasta-edge.socket) would
+              fail to bind the instance's ports below that floor, so the
+              edge could not start. Fix it with
               'canasta install podman' (or manually:
               'sudo sysctl net.ipv4.ip_unprivileged_port_start=80' and persist
               in /etc/sysctl.d/), or set HTTP_PORT and HTTPS_PORT above
