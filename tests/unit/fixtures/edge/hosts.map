@@ -1,4 +1,8 @@
-example.com main/wiki
-www.example.com main/wiki
-images.example.com main/media
-other.example.org other/wiki
+example.com@80 main/wiki
+www.example.com@80 main/wiki
+images.example.com@80 main/media
+example.com@443 main/wiki
+www.example.com@443 main/wiki
+images.example.com@443 main/media
+other.example.org@80 other/wiki
+other.example.org@443 other/wiki

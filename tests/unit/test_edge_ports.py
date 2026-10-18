@@ -1,9 +1,9 @@
 """Ports and URLs for instances behind the HAProxy edge.
 
-Behind the edge every wiki is served at https://<host> on 443, so nothing
-may put a port on its URLs, and the instance has no ports or TLS switch of
-its own to set. The edge, for its part, owns 80 and 443. The real task files
-run here against temp instances.
+The edge serves each instance on its own HTTP_PORT and HTTPS_PORT, over
+plain HTTP when CADDY_AUTO_HTTPS is off, so wiki URLs keep their ports and
+those keys stay settable. The edge, for its part, owns the ports it serves.
+The real task files run here against temp instances.
 """
 
 import datetime
@@ -125,23 +125,9 @@ def test_a_non_boolean_value_is_refused(tmp_path):
     assert "must be 'true' or 'false'" in out
 
 
-@pytest.mark.parametrize("key", ["HTTP_PORT", "HTTPS_PORT", "CADDY_AUTO_HTTPS"])
-def test_port_and_tls_keys_are_refused_behind_the_edge(tmp_path, key):
-    inst = _instance(tmp_path, {"CANASTA_ENABLE_EDGE": "true"})
-    tasks = _tasks(os.path.join(CONFIG_TASKS, "_validate_key.yml"),
-                   "Read whether the instance is behind the edge",
-                   "Block port and TLS keys behind the edge")
-    out = _play(tmp_path, tasks, {"instance_path": str(inst), "_config_key": key},
-                expect_fail=True)
-    assert "cannot be set on an instance behind the HAProxy" in out
-
-
-def test_port_keys_are_allowed_without_the_edge(tmp_path):
-    inst = _instance(tmp_path, {})
-    tasks = _tasks(os.path.join(CONFIG_TASKS, "_validate_key.yml"),
-                   "Read whether the instance is behind the edge",
-                   "Block port and TLS keys behind the edge")
-    _play(tmp_path, tasks, {"instance_path": str(inst), "_config_key": "HTTP_PORT"})
+def test_port_and_tls_keys_are_not_blocked_behind_the_edge():
+    with open(os.path.join(CONFIG_TASKS, "_validate_key.yml")) as f:
+        assert "behind the edge" not in f.read()
 
 
 # --- create ------------------------------------------------------------------- #
@@ -159,11 +145,18 @@ def _create_domain(tmp_path, env, domain="example.com", **extra):
     return json.loads(out.read_text())
 
 
-def test_create_behind_the_edge_puts_no_port_on_the_url(tmp_path):
+def test_create_behind_the_edge_keeps_the_port(tmp_path):
     result = _create_domain(tmp_path, {"CANASTA_ENABLE_EDGE": "true",
                                        "HTTPS_PORT": "8443"})
-    assert result["domain"].strip() == "example.com"
+    assert result["domain"].strip() == "example.com:8443"
     assert str(result["http_only"]).strip() == "False"
+
+
+def test_create_behind_the_edge_with_skip_tls_is_plain_http(tmp_path):
+    result = _create_domain(tmp_path, {"CANASTA_ENABLE_EDGE": "true", "HTTP_PORT": "8080"},
+                            skip_tls=True)
+    assert result["domain"].strip() == "example.com:8080"
+    assert str(result["http_only"]).strip() == "True"
 
 
 def test_create_without_the_edge_keeps_the_port(tmp_path):
@@ -172,24 +165,13 @@ def test_create_without_the_edge_keeps_the_port(tmp_path):
 
 
 @pytest.mark.parametrize("domain", ["localhost", "wiki.localhost", "192.0.2.4"])
-def test_create_behind_the_edge_refuses_names_it_cannot_route(tmp_path, domain):
-    inst = _instance(tmp_path, {"CANASTA_ENABLE_EDGE": "true"})
-    out = _play(tmp_path, [{"ansible.builtin.include_tasks": ENVFILE}],
-                {"instance_path": str(inst), "domain_name": domain}, expect_fail=True)
-    assert "routes each wiki by its hostname" in out
-
-
-def test_create_behind_the_edge_refuses_skip_tls(tmp_path):
-    inst = _instance(tmp_path, {"CANASTA_ENABLE_EDGE": "true"})
-    out = _play(tmp_path, [{"ansible.builtin.include_tasks": ENVFILE}],
-                {"instance_path": str(inst), "domain_name": "example.com",
-                 "skip_tls": True}, expect_fail=True)
-    assert "--skip-tls cannot be combined" in out
+def test_create_behind_the_edge_accepts_unnamed_hosts(tmp_path, domain):
+    assert _create_domain(tmp_path, {"CANASTA_ENABLE_EDGE": "true"}, domain)["domain"].strip() == domain
 
 
 # --- add ---------------------------------------------------------------------- #
 
-def test_add_behind_the_edge_puts_no_port_on_the_url(tmp_path):
+def test_add_behind_the_edge_keeps_the_port(tmp_path):
     inst = _instance(tmp_path, {"CANASTA_ENABLE_EDGE": "true", "HTTPS_PORT": "8443"})
     out = tmp_path / "out.json"
     tasks = _tasks(ADD, "Read the instance's ports from .env",
@@ -197,7 +179,7 @@ def test_add_behind_the_edge_puts_no_port_on_the_url(tmp_path):
         "ansible.builtin.copy": {"content": "{{ _add_domain | trim }}",
                                  "dest": str(out), "mode": "0644"}}]
     _play(tmp_path, tasks, {"instance_path": str(inst), "url": "docs.example.com"})
-    assert out.read_text() == "docs.example.com"
+    assert out.read_text() == "docs.example.com:8443"
 
 
 # --- who owns 80 and 443 ------------------------------------------------------ #

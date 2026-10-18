@@ -178,7 +178,7 @@ def test_members_found_running_are_kept(tmp_path):
     result = _sync(run, tmp_path / "edge", "one", path)
     assert result["members"] == ["one", "other"]
     hosts = (tmp_path / "edge" / "conf" / "hosts.map").read_text()
-    assert "other.example.org other/wiki" in hosts
+    assert "other.example.org@443 other/wiki" in hosts
 
 
 def test_stale_members_are_dropped(tmp_path):
@@ -240,7 +240,7 @@ def test_media_entries_without_a_hostname_are_skipped(tmp_path):
     with open(media, "w") as f:
         yaml.safe_dump(data, f)
     _sync(FakeRunner(), tmp_path / "edge", "one", path)
-    assert "images.example.com one/media" in (
+    assert "images.example.com@443 one/media" in (
         tmp_path / "edge" / "conf" / "hosts.map").read_text()
 
 
@@ -256,7 +256,8 @@ def test_an_invalid_render_is_not_installed(tmp_path):
 
 def test_a_render_error_names_the_instance(tmp_path):
     path = _instance(tmp_path, "one", hosts=("example.com:8443",))
-    assert re.search("Instance 'one'.*has a port", _sync(FakeRunner(), tmp_path / "edge", "one", path)["error"])
+    result = _sync(FakeRunner(), tmp_path / "edge", "one", path)
+    assert re.search("Instance 'one'.*has port 8443, but HTTPS_PORT is 443", result["error"])
 
 
 # --- the real images ---------------------------------------------------------- #
@@ -579,7 +580,7 @@ def test_caddyfile_global_sites_are_routed_and_certified(tmp_path):
                 "*.example.org {\n    respond x\n}\n")
     edge = tmp_path / "edge"
     result = _sync(FakeRunner(), edge, "one", path)
-    assert "www.example.com one/wiki" in (edge / "conf" / "hosts.map").read_text()
+    assert "www.example.com@443 one/wiki" in (edge / "conf" / "hosts.map").read_text()
     assert "www.example.com.pem" in os.listdir(edge / "conf" / "certs")
     assert result["unrouted_sites"] == [
         {"instance": "one", "address": "*.example.org", "reason": "it is a wildcard"}]
@@ -607,16 +608,33 @@ def test_an_instance_on_the_standard_ports_moves(tmp_path):
     assert mod.plan_conversion([_entry("one", one)]) == {"convert": ["one"], "decline": {}, "skip": {}}
 
 
-@pytest.mark.parametrize("env,hosts,fragment", [
-    ({"CADDY_AUTO_HTTPS": "off"}, ("example.com",), "CADDY_AUTO_HTTPS=off"),
-    ({"HTTPS_PORT": "8443"}, ("example.com:8443",), "its own ports"),
-    ({}, ("localhost",), "localhost"),
-    ({}, ("192.0.2.4",), "IP address"),
+@pytest.mark.parametrize("env,hosts", [
+    ({"CADDY_AUTO_HTTPS": "off"}, ("example.com",)),
+    ({"HTTP_PORT": "8080", "HTTPS_PORT": "8443"}, ("example.com:8443",)),
+    ({}, ("localhost",)),
+    ({}, ("192.0.2.4",)),
 ])
-def test_instances_that_cannot_move_say_why(tmp_path, env, hosts, fragment):
+def test_plain_own_port_and_unnamed_instances_move(tmp_path, env, hosts):
     one = _plain(tmp_path, "one", env=env, hosts=hosts)
+    assert mod.plan_conversion([_entry("one", one)])["convert"] == ["one"]
+
+
+@pytest.mark.parametrize("hosts,fragment", [
+    (("*.example.com",), "is a wildcard"),
+    (("exa_mple.com",), "is not a valid hostname"),
+])
+def test_instances_that_cannot_move_say_why(tmp_path, hosts, fragment):
+    one = _plain(tmp_path, "one", hosts=hosts)
     plan = mod.plan_conversion([_entry("one", one)])
     assert plan["convert"] == [] and fragment in plan["decline"]["one"]
+
+
+def test_instances_that_clash_on_a_port_wait(tmp_path):
+    one = _plain(tmp_path, "one", hosts=("localhost",))
+    two = _plain(tmp_path, "two", hosts=("192.0.2.4",))
+    plan = mod.plan_conversion([_entry("one", one), _entry("two", two)])
+    assert plan["convert"] == [] and plan["decline"] == {}
+    assert "cannot tell apart" in plan["skip"]["one"]
 
 
 def test_an_explicit_choice_is_kept(tmp_path):
@@ -629,18 +647,18 @@ def test_an_explicit_choice_is_kept(tmp_path):
 
 def test_an_instance_staying_on_80_443_blocks_the_host(tmp_path):
     one = _plain(tmp_path, "one")
-    local = _plain(tmp_path, "local", hosts=("localhost",))
-    plan = mod.plan_conversion([_entry("one", one), _entry("local", local)])
+    bad = _plain(tmp_path, "bad", hosts=("exa_mple.com",))
+    plan = mod.plan_conversion([_entry("one", one), _entry("bad", bad)])
     assert plan["convert"] == []
-    assert "instance 'local' on this host serves ports 80/443" in plan["skip"]["one"]
+    assert "instance 'bad' on this host serves ports 80/443" in plan["skip"]["one"]
 
 
-def test_an_instance_on_other_ports_does_not_block(tmp_path):
+def test_an_instance_on_other_ports_moves_too(tmp_path):
     one = _plain(tmp_path, "one")
     other = _plain(tmp_path, "other", env={"HTTP_PORT": "8080", "HTTPS_PORT": "8443"},
                    hosts=("other.example.org:8443",))
     plan = mod.plan_conversion([_entry("one", one), _entry("other", other)])
-    assert plan["convert"] == ["one"] and "own ports" in plan["decline"]["other"]
+    assert sorted(plan["convert"]) == ["one", "other"]
 
 
 def test_mixed_runtimes_do_not_move(tmp_path):
@@ -1060,3 +1078,18 @@ def test_without_instances_no_units_are_written_and_leftovers_are_reported(tmp_p
     assert result["members"] == [] and "units_changed" not in result
     assert result["units_present"]
     assert (user_units / mod.SOCKET_UNIT).read_text() == "left over"
+
+
+def test_the_edge_listens_on_every_instance_port(tmp_path, user_units):
+    own = {"HTTP_PORT": "8080", "HTTPS_PORT": "8443"}
+    path = _instance(tmp_path, "one", hosts=("example.com:8443",), env=own)
+    edge = tmp_path / "edge"
+    result = _sync(FakeRunner(), edge, "one", path)
+    assert result["ports"] == [8080, 8443]
+    compose = yaml.safe_load((edge / "docker-compose.yml").read_text())
+    assert compose["services"]["haproxy"]["ports"] == ["8080:8080", "8443:8443"]
+    podman_edge = tmp_path / "podman-edge"
+    mod.sync(FakeRunner(), "podman", str(podman_edge), "one", path, None)
+    socket = (user_units / mod.SOCKET_UNIT).read_text()
+    assert [line for line in socket.splitlines() if line.startswith("ListenStream=")] == [
+        "ListenStream=0.0.0.0:8080", "ListenStream=0.0.0.0:8443"]

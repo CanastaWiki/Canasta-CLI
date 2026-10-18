@@ -1113,9 +1113,12 @@ def _parse_edge_probe(stdout):
     return probe
 
 
-def _edge_lines_from_probe(inst_id, tls_mode, names, probe, crowdsec=None):
+def _edge_lines_from_probe(inst_id, tls_mode, names, probe, crowdsec=None,
+                           plain=False, trusted=True):
     """doctor lines for an instance behind the HAProxy edge. crowdsec is
-    None when CrowdSec is off, else whether its edge bouncer is enrolled."""
+    None when CrowdSec is off, else whether its edge bouncer is enrolled.
+    plain is an instance served over plain HTTP; trusted, whether
+    CADDY_TRUSTED_PROXIES names the proxy in front of it."""
     lines = ["", "HAProxy edge (%s):" % inst_id]
     if probe["edge"]:
         lines.append("  edge: running (%s)" % probe["edge"])
@@ -1131,6 +1134,15 @@ def _edge_lines_from_probe(inst_id, tls_mode, names, probe, crowdsec=None):
             "restart -i %s' to add it." % inst_id)
     if crowdsec is not None:
         lines.append(_edge_crowdsec_line(inst_id, crowdsec, probe["spoa"]))
+    if plain:
+        if not trusted:
+            lines.append(
+                "  client addresses: WARN — this instance is served over plain HTTP "
+                "behind its own proxy, which CADDY_TRUSTED_PROXIES does not name, so "
+                "MediaWiki and the edge see only that proxy's address and the edge's "
+                "per-client rate limits are off. Set CADDY_TRUSTED_PROXIES to the "
+                "proxy's addresses.")
+        return lines
     if tls_mode not in ("acme", "acme-dns"):
         return lines
     if probe["acme"]:
@@ -1193,9 +1205,11 @@ def _edge_lines(inst):
     crowdsec = None
     if (_helpers._read_env_for(inst, "CANASTA_ENABLE_CROWDSEC") or "").strip().lower() == "true":
         crowdsec = bool((_helpers._read_env_for(inst, "CROWDSEC_SPOA_API_KEY") or "").strip())
+    plain = (_helpers._read_env_for(inst, "CADDY_AUTO_HTTPS") or "on").strip().lower() == "off"
+    trusted = bool((_helpers._read_env_for(inst, "CADDY_TRUSTED_PROXIES") or "").strip())
     return _edge_lines_from_probe(inst.get("id", "?"), tls_mode,
                                   _origin_tls_server_names(path, host),
-                                  _parse_edge_probe(stdout), crowdsec)
+                                  _parse_edge_probe(stdout), crowdsec, plain, trusted)
 
 
 def _origin_tls_server_names(path, host):

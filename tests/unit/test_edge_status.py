@@ -115,3 +115,13 @@ def test_the_crowdsec_bouncer_is_reported():
     down = _lines(_probe(), crowdsec=True)
     assert "CrowdSec bouncer: WARN — not running" in down and "canasta restart -i one" in down
     assert "CrowdSec bouncer: WARN — not enrolled yet" in _lines(_probe(), crowdsec=False)
+
+
+def test_a_plain_http_instance_without_a_trusted_proxy_is_warned():
+    out = "\n".join(doctor._edge_lines_from_probe(
+        "one", "acme", ["example.com"], doctor._parse_edge_probe(_probe()), None, True, False))
+    assert "client addresses: WARN" in out and "CADDY_TRUSTED_PROXIES" in out
+    assert "Let's Encrypt" not in out and "acme.sh" not in out
+    trusted = "\n".join(doctor._edge_lines_from_probe(
+        "one", "acme", ["example.com"], doctor._parse_edge_probe(_probe()), None, True, True))
+    assert "WARN" not in trusted

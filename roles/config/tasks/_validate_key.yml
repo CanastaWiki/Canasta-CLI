@@ -86,31 +86,6 @@
     - instance_is_k8s | bool
     - _config_key == 'CADDY_AUTO_HTTPS'
 
-# Behind the HAProxy edge, the edge owns 80 and 443 and terminates TLS, so
-# the instance has no listening port or TLS switch of its own. Its port side
-# effects would also put a :port on URLs nothing serves.
-- name: Read whether the instance is behind the edge
-  canasta_env:
-    path: "{{ instance_path }}/.env"
-    state: read
-    key: CANASTA_ENABLE_EDGE
-  register: _vk_edge
-  when:
-    - not (instance_is_k8s | bool)
-    - _config_key in ['HTTP_PORT', 'HTTPS_PORT', 'CADDY_AUTO_HTTPS']
-
-- name: Block port and TLS keys behind the edge
-  ansible.builtin.fail:
-    msg: >-
-      '{{ _config_key }}' cannot be set on an instance behind the HAProxy
-      edge (CANASTA_ENABLE_EDGE=true). The edge serves every wiki on ports
-      80 and 443 and terminates TLS. Set CANASTA_ENABLE_EDGE=false first to
-      give the instance its own ports.
-  when:
-    - not (instance_is_k8s | bool)
-    - _config_key in ['HTTP_PORT', 'HTTPS_PORT', 'CADDY_AUTO_HTTPS']
-    - _vk_edge.value | default('false', true) | lower == 'true'
-
 - name: Check if key is recognized
   ansible.builtin.fail:
     msg: >-

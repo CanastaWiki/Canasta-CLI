@@ -96,8 +96,8 @@
     - name: Report instances now behind the edge
       ansible.builtin.debug:
         msg: >-
-          Moved {{ _edge_plan.convert | join(', ') }} behind the HAProxy edge,
-          which now serves ports 80 and 443 on {{ _edge_host_name }}.
+          Moved {{ _edge_plan.convert | join(', ') }} behind the HAProxy edge
+          on {{ _edge_host_name }}, at the same addresses as before.
 
   rescue:
     - name: Put each instance back in front of its own Caddy

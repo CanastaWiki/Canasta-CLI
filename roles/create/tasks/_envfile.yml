@@ -106,35 +106,13 @@
     value: "{{ _behind_edge | bool | string | lower }}"
   when: not (instance_is_k8s | default(false) | bool)
 
-# The edge always terminates TLS, and routes by hostname.
-- name: Refuse --skip-tls behind the edge
-  ansible.builtin.fail:
-    msg: >-
-      --skip-tls cannot be combined with CANASTA_ENABLE_EDGE=true: the
-      HAProxy edge always serves the wiki over HTTPS. For a certificate
-      that needs no public CA, set CADDY_TLS_MODE=internal instead.
-  when:
-    - _behind_edge | bool
-    - skip_tls | default(false) | bool
-
-- name: Refuse a domain the edge cannot route by name
-  ansible.builtin.fail:
-    msg: >-
-      '{{ domain_name | default('localhost') }}' cannot be served behind the
-      HAProxy edge, which routes each wiki by its hostname. Use a hostname,
-      or leave CANASTA_ENABLE_EDGE unset.
-  when:
-    - _behind_edge | bool
-    - (domain_name | default('localhost')) is match('^(localhost|.*[.]localhost|[0-9.]+|.*:.*)$')
-
-# Behind the edge every wiki is served at https://<host> on 443.
+# The edge serves each instance on its own HTTP_PORT and HTTPS_PORT.
 - name: Determine which port (if any) to append to the domain
   ansible.builtin.set_fact:
     _http_only: >-
-      {{ not (_behind_edge | bool)
-         and ((_env_for_port.variables.CADDY_AUTO_HTTPS | default('on') | lower == 'off')
-              or (skip_tls | default(false) | bool)) }}
-    _https_port: "{{ (_behind_edge | bool) | ternary('443', _env_for_port.variables.HTTPS_PORT | default('443')) }}"
+      {{ (_env_for_port.variables.CADDY_AUTO_HTTPS | default('on') | lower == 'off')
+         or (skip_tls | default(false) | bool) }}
+    _https_port: "{{ _env_for_port.variables.HTTPS_PORT | default('443') }}"
     _http_port: "{{ _env_for_port.variables.HTTP_PORT | default('80') }}"
 
 - name: Build domain with port
