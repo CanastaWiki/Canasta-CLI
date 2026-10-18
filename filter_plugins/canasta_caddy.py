@@ -39,6 +39,36 @@ def caddy_unsafe(value):
     return wrap_var(value)
 
 
+def _meld_servers_blocks(body):
+    """Merge `servers` blocks of a global options body that name the same
+    listener address; Caddy rejects two of them."""
+    blocks, inter = _parse_top_level(body)
+    groups = {}
+    for b in blocks:
+        tokens = b["label"].rstrip().rsplit("\n", 1)[-1].split()
+        if tokens and tokens[0] == "servers":
+            groups.setdefault(tuple(tokens[1:]), []).append(b)
+    if all(len(g) < 2 for g in groups.values()):
+        return body
+
+    parts = [inter[0]]
+    for k, b in enumerate(blocks):
+        label = b["label"]
+        cut = label.rstrip().rfind("\n") + 1
+        prefix, line = label[:cut], label[cut:]
+        tokens = line.split()
+        group = groups.get(tuple(tokens[1:])) if tokens and tokens[0] == "servers" else None
+        if group is None or len(group) < 2:
+            parts.append(b["raw"])
+        elif group[0] is b:
+            bodies = [g["body"].rstrip(" \t") for g in group[:-1]] + [group[-1]["body"]]
+            parts.append(prefix + line + "{" + "".join(bodies) + "}")
+        else:
+            parts.append(prefix)
+        parts.append(inter[k + 1])
+    return "".join(parts)
+
+
 def meld_caddy_global_blocks(text):
     """Meld all top-level global options blocks into a single leading block."""
     if not isinstance(text, str):
@@ -51,7 +81,7 @@ def meld_caddy_global_blocks(text):
 
     parts = [inter[0]]
     if has_global:
-        merged = "".join(global_bodies).strip("\n")
+        merged = _meld_servers_blocks("".join(global_bodies)).strip("\n")
         parts.append("\n{\n" + merged + "\n}\n")
     for k, b in enumerate(blocks):
         if not b["is_global"]:
