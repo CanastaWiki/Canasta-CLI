@@ -1084,15 +1084,17 @@ printf '%%sACME:%%s\n' '%(delim)s' "$(%(inspect)s ps --filter 'name=^canasta-edg
 printf '%%sSPOA:%%s\n' '%(delim)s' "$(%(inspect)s ps --filter 'label=com.docker.compose.project=%(project)s' --filter 'label=com.docker.compose.service=crowdsec-spoa' --format '{{.Status}}' 2>/dev/null)"
 printf '%%sDAEMON:%%s\n' '%(delim)s' "$(%(inspect)s info --format '{{json .SecurityOptions}}' 2>/dev/null)"
 printf '%%sMEMBERS:\n' '%(delim)s'; cat "$d/edge/members.yaml" 2>/dev/null
+printf '%%sHOSTS:\n' '%(delim)s'; cat "$d/edge/conf/hosts.map" 2>/dev/null
 printf '%%sCERTS:\n' '%(delim)s'; %(inspect)s exec canasta-edge-acme acme.sh --list --listraw 2>/dev/null
 true
 """
 
 
 def _parse_edge_probe(stdout):
-    """{'edge': status, 'acme': status, 'members': [ids], 'certs': {host:
-    (ca, renew)}} from the probe output."""
-    probe = {"edge": "", "acme": "", "spoa": "", "daemon": "", "members": [], "certs": {}}
+    """{'edge': status, 'acme': status, 'members': [ids], 'hosts': {id:
+    [hostnames]}, 'certs': {host: (ca, renew)}} from the probe output."""
+    probe = {"edge": "", "acme": "", "spoa": "", "daemon": "", "members": [],
+             "hosts": {}, "certs": {}}
     for seg in stdout.split(_helpers._SENTINEL):
         header, _, body = seg.partition("\n")
         if header.startswith("EDGE:"):
@@ -1109,6 +1111,17 @@ def _parse_edge_probe(stdout):
             except yaml.YAMLError:
                 data = {}
             probe["members"] = [m.get("id") for m in data.get("members") or []]
+        elif header.startswith("HOSTS:"):
+            # host@port instance/kind; "@port" lines are a port's instance
+            # reached by localhost or an IP address, which has no certificate.
+            for line in body.splitlines():
+                fields = line.split()
+                if len(fields) != 2 or fields[0].startswith("@"):
+                    continue
+                host, owner = fields[0].rsplit("@", 1)[0], fields[1].split("/", 1)[0]
+                names = probe["hosts"].setdefault(owner, [])
+                if host not in names:
+                    names.append(host)
         elif header.startswith("CERTS:"):
             for line in body.splitlines()[1:]:
                 fields = line.split("|")
@@ -1222,9 +1235,15 @@ def _edge_lines(inst):
     trusted = bool((_helpers._read_env_for(inst, "TRUSTED_PROXIES") or "").strip())
     rates_set = any((_helpers._read_env_for(inst, k) or "").strip()
                     for k in ("CANASTA_EDGE_RATE_DYNAMIC", "CANASTA_EDGE_RATE_DEFAULT"))
-    return _edge_lines_from_probe(inst.get("id", "?"), tls_mode,
-                                  _origin_tls_server_names(path, host),
-                                  _parse_edge_probe(stdout), crowdsec, plain, trusted,
+    probe = _parse_edge_probe(stdout)
+    # The edge's own map holds every name it serves the instance under:
+    # wiki and media hostnames and Caddyfile.global sites.
+    names = probe["hosts"].get(inst.get("id")) or [
+        n for n in _origin_tls_server_names(path, host)
+        if n != "localhost" and not n.endswith(".localhost")
+        and not re.match(r"^[0-9.]+$", n)]
+    return _edge_lines_from_probe(inst.get("id", "?"), tls_mode, names, probe,
+                                  crowdsec, plain, trusted,
                                   "podman" not in os.path.basename(inspect), rates_set)
 
 

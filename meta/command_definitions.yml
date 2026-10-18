@@ -798,9 +798,11 @@ commands:
       directory), also checks that instance: config and runtime
       agreement, whether local config edits have been applied, whether
       CrowdSec is enabled with no TRUSTED_PROXIES set,
-      the certificate the origin is actually serving (expired, or
-      silently reissued by Caddy's internal CA after ACME failed),
-      whether the web container's startup `composer update` failed, and
+      the certificate the origin is actually serving (expired, or not
+      publicly trusted), on Docker Compose the HAProxy edge (whether it,
+      acme.sh and the instance's CrowdSec bouncer are running, whether the
+      instance is among its members, each hostname's certificate, and
+      whether it can see visitors' addresses), whether the web container's startup `composer update` failed, and
       whether the web container is crash-looping or failing its health
       check, with the startup error from its log and how to fix it.
     examples:
@@ -1052,6 +1054,16 @@ commands:
       pulling latest images, running migrations, and restarting containers.
       A restarted instance whose startup `composer update` failed is
       reported with a warning.
+
+      On Docker Compose, upgrade first moves each host's instances behind
+      the HAProxy edge, keeping their hostnames, ports and certificates. A
+      host whose instances the edge cannot all serve is refused with the
+      reason, and none of its instances is upgraded; an instance whose move
+      fails is put back as it was and not upgraded. `--dry-run` shows each
+      host's plan. Upgrade also renames the TLS settings in each `.env`:
+      `CADDY_TLS_MODE` to `TLS_MODE` (`CADDY_AUTO_HTTPS=off` to
+      `TLS_MODE=off`), and `CADDY_TRUSTED_PROXIES`, `CADDY_TLS_CERT` and
+      `CADDY_TLS_KEY` to `TRUSTED_PROXIES`, `TLS_CERT` and `TLS_KEY`.
 
       A Kubernetes instance managed through gitops is not redeployed: Argo CD
       deploys it from its gitops repo. Upgrade stages the refreshed chart and
