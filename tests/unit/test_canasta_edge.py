@@ -25,8 +25,10 @@ class FakeRunner:
     an openssl run would, and fails haproxy -c when told to."""
 
     def __init__(self, containers=None, running=False, invalid=False,
-                 listed=None, issue_fails=(), network_ipv6=None):
+                 listed=None, issue_fails=(), network_ipv6=None, stats_down=0):
         self.containers = containers or {}
+        # How many stats socket checks fail before HAProxy answers.
+        self.stats_down = stats_down
         # The existing edge network's IPv6 setting; None when there is none.
         self.network_ipv6 = network_ipv6
         self.running = running
@@ -61,6 +63,11 @@ class FakeRunner:
         self.envs.append(env or {})
         if argv[1] == "exec" and "acme.sh" in argv:
             return self._acme(argv[argv.index("acme.sh") + 1:])
+        if argv[1] == "exec" and "socat" in argv[-1]:
+            if self.stats_down:
+                self.stats_down -= 1
+                return 1, "", "connect: No such file or directory"
+            return 0, "", ""
         if argv[1] == "exec":
             return 0, "", ""
         if argv[1:3] == ["network", "inspect"]:
@@ -791,6 +798,36 @@ def test_an_imported_certificate_is_deployed_not_reissued(tmp_path):
     _issue(tmp_path, run, one={})
     assert run.acme_calls("--issue") == []
     assert len(run.acme_calls("--deploy")) == 1
+
+
+def _imported(tmp_path, *hosts):
+    for host in hosts:
+        record = tmp_path / "edge" / "acme" / ("%s_ecc" % host)
+        record.mkdir(parents=True)
+        (record / ("%s.conf" % host)).write_text("Le_Webroot='stateless'\n")
+    return {h: ("LetsEncrypt.org", True) for h in hosts}
+
+
+def test_deploys_wait_for_a_starting_haproxy(tmp_path, monkeypatch):
+    # The upgrade starts the edge and deploys the certificates imported from
+    # Caddy at once; HAProxy's stats socket does not answer for a moment.
+    monkeypatch.setattr(mod.time, "sleep", lambda s: None)
+    run = FakeRunner(running=True, listed=_imported(tmp_path, "example.com"), stats_down=2)
+    result = _issue(tmp_path, run, one={})
+    assert len(run.acme_calls("--deploy")) == 1
+    assert result["unregistered"] == [] and result["unissued"] == []
+    assert sum("socat" in c[-1] for c in run.calls if c[1] == "exec") == 3
+
+
+def test_a_silent_haproxy_leaves_imports_unregistered_not_unissued(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod.time, "sleep", lambda s: None)
+    monkeypatch.setattr(mod, "STATS_SOCKET_WAIT", 0)
+    run = FakeRunner(running=True, listed=_imported(tmp_path, "example.com"), stats_down=99)
+    result = _issue(tmp_path, run, one={})
+    assert run.acme_calls("--deploy") == []
+    assert result["unissued"] == []
+    assert result["unregistered"] == [
+        {"hostname": "example.com", "reason": "HAProxy's stats socket did not answer"}]
 
 
 def test_kubernetes_instances_are_left_out_of_the_plan(tmp_path):

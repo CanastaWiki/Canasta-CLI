@@ -1012,10 +1012,44 @@ def issue(run, inspect, edge_dir):
     return _locked(edge_dir, _issue, run, inspect, edge_dir)
 
 
+# How long to wait for HAProxy to answer on its stats socket, which
+# acme.sh's deploy hook talks to, after the edge has just started.
+STATS_SOCKET_WAIT = 60
+
+
+def stats_socket_ready(run, inspect):
+    """Whether HAProxy answers on its stats socket, polled from the acme.sh
+    container as its deploy hook reaches it, for up to STATS_SOCKET_WAIT
+    seconds."""
+    socket = ACME_DEPLOY_ENV["DEPLOY_HAPROXY_STATS_SOCKET"]
+    deadline = time.monotonic() + STATS_SOCKET_WAIT
+    while True:
+        rc, _, _ = run([inspect, "exec", ACME_CONTAINER, "sh", "-c",
+                        "echo 'show info' | socat %s - >/dev/null" % shlex.quote(socket)])
+        if rc == 0:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(1)
+
+
 def _issue(run, inspect, edge_dir):
     result = {"changed": False, "reload": False, "issued": [], "unissued": [],
-              "removed": []}
+              "unregistered": [], "removed": []}
     instances = _load_members(edge_dir, read_members(edge_dir))
+    ready = []
+
+    def deploy(host):
+        """Install a certificate in HAProxy, which also records HAProxy as
+        the destination of its renewals. An edge that has just started
+        cannot take it until its stats socket answers."""
+        if not ready:
+            ready.append(stats_socket_ready(run, inspect))
+        if not ready[0]:
+            return 1, "", "HAProxy's stats socket did not answer"
+        return _acme(run, inspect, ["--deploy", "-d", host, "--ecc",
+                                    "--deploy-hook", "haproxy"], env=ACME_DEPLOY_ENV)
+
     wanted = {}
     for inst in instances:
         if inst["tls_mode"] in ("acme", "acme-dns"):
@@ -1035,11 +1069,10 @@ def _issue(run, inspect, edge_dir):
             # A certificate imported from Caddy has not been deployed by
             # acme.sh yet, so its renewals would not reach HAProxy.
             if "Le_DeployHook=" not in _domain_conf(edge_dir, host):
-                rc, out, err = _acme(run, inspect, ["--deploy", "-d", host, "--ecc",
-                                                    "--deploy-hook", "haproxy"],
-                                     env=ACME_DEPLOY_ENV)
+                rc, out, err = deploy(host)
                 if rc != 0:
-                    result["unissued"].append({"hostname": host, "reason": _tail(out, err)})
+                    result["unregistered"].append({"hostname": host,
+                                                   "reason": _tail(out, err)})
             continue
         if dns:
             args = ["--issue", "--dns", dns["hook"], "-d", host]
@@ -1058,9 +1091,7 @@ def _issue(run, inspect, edge_dir):
         if rc != 0:
             result["unissued"].append({"hostname": host, "reason": _tail(out, err)})
             continue
-        rc, out, err = _acme(run, inspect, ["--deploy", "-d", host, "--ecc",
-                                            "--deploy-hook", "haproxy"],
-                             env=ACME_DEPLOY_ENV)
+        rc, out, err = deploy(host)
         if rc != 0:
             result["unissued"].append({"hostname": host, "reason": _tail(out, err)})
             continue
