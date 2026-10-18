@@ -222,3 +222,39 @@ def test_a_placeholder_address_is_not_a_global_block():
     assert _count_global_blocks(text) == 1
     out = meld_caddy_global_blocks(text)
     assert out.index("debug") < out.index("{$SITE_HOST} {")
+
+
+class TestMeldServers:
+    CLI = (
+        "{\n    servers {\n        client_ip_headers X-Forwarded-For\n"
+        "        trusted_proxies static 10.0.0.0/8\n    }\n"
+        "    order crowdsec first\n}\n"
+    )
+
+    def test_servers_blocks_for_the_same_listener_merge(self):
+        # A user's Caddyfile.global that tunes `servers` must not collide
+        # with the CLI's trusted_proxies block.
+        out = meld_caddy_global_blocks(
+            self.CLI + "{\n\tservers {\n\t\ttimeouts {\n\t\t\tidle 47s\n"
+            "\t\t}\n\t}\n}\nexample.com {\n    respond ok\n}\n"
+        )
+        assert _count_global_blocks(out) == 1
+        assert out.count("servers") == 1
+        assert out.index("trusted_proxies") < out.index("idle 47s")
+        assert "order crowdsec first" in out
+        assert _site_labels(out) == ["example.com"]
+
+    def test_servers_blocks_for_other_listeners_stay_apart(self):
+        out = meld_caddy_global_blocks(
+            self.CLI + "{\n    servers :443 {\n        protocols h1\n    }\n}\n"
+        )
+        assert out.count("servers") == 2
+        assert "servers :443 {" in out
+
+    def test_a_directive_before_a_later_servers_block_is_kept(self):
+        out = meld_caddy_global_blocks(
+            self.CLI + "{\n    email a@example.com\n    servers {\n"
+            "        timeouts {\n            idle 47s\n        }\n    }\n}\n"
+        )
+        assert out.count("servers") == 1
+        assert "email a@example.com" in out and "idle 47s" in out
