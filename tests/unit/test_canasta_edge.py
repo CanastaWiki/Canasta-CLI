@@ -605,7 +605,8 @@ def _entry(name, path, runtime="docker compose"):
 
 def test_an_instance_on_the_standard_ports_moves(tmp_path):
     one = _plain(tmp_path, "one")
-    assert mod.plan_conversion([_entry("one", one)]) == {"convert": ["one"], "decline": {}, "skip": {}}
+    assert mod.plan_conversion([_entry("one", one)]) == {
+        "convert": ["one"], "decline": {}, "skip": {}, "rootless": [], "refuse": None}
 
 
 @pytest.mark.parametrize("env,hosts", [
@@ -642,7 +643,7 @@ def test_an_explicit_choice_is_kept(tmp_path):
     off = _plain(tmp_path, "off", env={"CANASTA_ENABLE_EDGE": "false", "HTTP_PORT": "8080",
                                        "HTTPS_PORT": "8443"}, hosts=("off.example.org:8443",))
     plan = mod.plan_conversion([_entry("on", on), _entry("off", off)])
-    assert plan == {"convert": [], "decline": {}, "skip": {}}
+    assert plan == {"convert": [], "decline": {}, "skip": {}, "rootless": [], "refuse": None}
 
 
 def test_an_instance_staying_on_80_443_blocks_the_host(tmp_path):
@@ -661,12 +662,20 @@ def test_an_instance_on_other_ports_moves_too(tmp_path):
     assert sorted(plan["convert"]) == ["one", "other"]
 
 
-def test_mixed_runtimes_do_not_move(tmp_path):
+def test_a_host_mixing_docker_and_podman_is_refused(tmp_path):
+    one = _plain(tmp_path, "one")
+    two = _plain(tmp_path, "two", hosts=("two.example.org",))
+    plan = mod.plan_conversion([_entry("one", one), _entry("two", two, "podman-compose")])
+    assert plan["convert"] == [] and plan["skip"] == {} and plan["decline"] == {}
+    assert "both Docker and Podman" in plan["refuse"]
+    assert "'one'" in plan["refuse"] and "'two'" in plan["refuse"]
+
+
+def test_two_docker_compose_commands_are_one_runtime(tmp_path):
     one = _plain(tmp_path, "one")
     two = _plain(tmp_path, "two", hosts=("two.example.org",))
     plan = mod.plan_conversion([_entry("one", one), _entry("two", two, "docker-compose")])
-    assert plan["convert"] == [] and "runtimes" in plan["skip"]["one"]
-    assert "one" not in plan["decline"]
+    assert sorted(plan["convert"]) == ["one", "two"] and plan["refuse"] is None
 
 
 def test_podman_instances_move_when_systemd_can_run_the_edge(tmp_path):
@@ -674,7 +683,8 @@ def test_podman_instances_move_when_systemd_can_run_the_edge(tmp_path):
     # Podman reports itself rootless as well; that is not rootless Docker.
     plan = mod.plan_conversion([_entry("one", one, "podman-compose")],
                                rootless=lambda inst: True, podman_ready=lambda: True)
-    assert plan == {"convert": ["one"], "decline": {}, "skip": {}}
+    assert plan == {"convert": ["one"], "decline": {}, "skip": {}, "rootless": [],
+                    "refuse": None}
 
 
 def test_podman_instances_wait_for_a_systemd_user_session(tmp_path):
@@ -782,7 +792,7 @@ def test_an_imported_certificate_is_deployed_not_reissued(tmp_path):
 def test_kubernetes_instances_are_left_out_of_the_plan(tmp_path):
     one = _plain(tmp_path, "one")
     entry = dict(_entry("one", one), orchestrator="kubernetes")
-    assert mod.plan_conversion([entry]) == {"convert": [], "decline": {}, "skip": {}}
+    assert mod.plan_conversion([entry]) == {"convert": [], "decline": {}, "skip": {}, "rootless": [], "refuse": None}
 
 
 # --- IPv6 --------------------------------------------------------------------- #
@@ -931,12 +941,11 @@ def test_a_new_edge_directory_asks_for_recreated_containers(tmp_path):
     assert not _sync(FakeRunner(running=True), edge, "one", path)["recreate"]
 
 
-def test_rootless_docker_instances_stay_off_the_edge_without_a_choice(tmp_path):
+def test_rootless_docker_instances_move_and_are_listed(tmp_path):
     one = _plain(tmp_path, "one")
     entry = dict(_entry("one", one), docker_host="unix:///run/user/1000/docker.sock")
     plan = mod.plan_conversion([entry], lambda inst: inst["docker_host"].startswith("unix:///run/user/"))
-    assert plan["convert"] == [] and plan["decline"] == {}
-    assert "rootless Docker" in plan["skip"]["one"]
+    assert plan["convert"] == ["one"] and plan["rootless"] == ["one"]
 
 
 @pytest.mark.parametrize("options,expected", [

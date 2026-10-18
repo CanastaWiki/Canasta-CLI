@@ -37,6 +37,18 @@
     inspect_command: "{{ _upgrade_default_inspect_command }}"
   register: _edge_plan
 
+# Its instances are not upgraded either: they would come back without a
+# working front door.
+- name: Refuse a host whose instances mix Docker and Podman
+  ansible.builtin.set_fact:
+    _upgrade_failures: >-
+      {{ _upgrade_failures | default([]) + [
+           'not upgrading ' ~ _edge_host_name ~ ': ' ~ _edge_plan.refuse] }}
+    _edge_refused: >-
+      {{ _edge_refused | default([]) + (_edge_host_instances | map(attribute='key') | list) }}
+    _edge_refusals: "{{ _edge_refusals | default(0) | int + 1 }}"
+  when: _edge_plan.refuse is not none
+
 # An explicit false is not reconsidered at the next upgrade; the operator
 # can move the instance later with `canasta config set CANASTA_ENABLE_EDGE=true`.
 - name: Keep instances outside the edge
@@ -55,6 +67,18 @@
   loop: "{{ _edge_plan.decline | dict2items }}"
   loop_control:
     label: "{{ item.key }}"
+
+- name: Warn about instances moving on rootless Docker
+  ansible.builtin.debug:
+    msg: >-
+      '{{ item }}' runs on rootless Docker, whose port forwarding replaces
+      each visitor's address with its own, so MediaWiki, CrowdSec and the
+      HAProxy edge cannot tell visitors apart; the edge applies no
+      per-client rate limits to it. Switch the daemon to an
+      address-preserving port driver (RootlessKit's slirp4netns, or pasta
+      with the implicit driver), then set CANASTA_EDGE_RATE_DYNAMIC and
+      CANASTA_EDGE_RATE_DEFAULT to turn the limits on.
+  loop: "{{ _edge_plan.rootless | default([]) }}"
 
 - name: Report instances left for the next upgrade
   ansible.builtin.debug:

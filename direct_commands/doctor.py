@@ -1081,6 +1081,7 @@ if [ "$(id -u)" = 0 ]; then d=/etc/canasta; else d="${XDG_CONFIG_HOME:-$HOME/.co
 printf '%%sEDGE:%%s\n' '%(delim)s' "$(%(inspect)s ps --filter 'name=^canasta-edge$' --format '{{.Status}}' 2>/dev/null)"
 printf '%%sACME:%%s\n' '%(delim)s' "$(%(inspect)s ps --filter 'name=^canasta-edge-acme$' --format '{{.Status}}' 2>/dev/null)"
 printf '%%sSPOA:%%s\n' '%(delim)s' "$(%(inspect)s ps --filter 'label=com.docker.compose.project=%(project)s' --filter 'label=com.docker.compose.service=crowdsec-spoa' --format '{{.Status}}' 2>/dev/null)"
+printf '%%sDAEMON:%%s\n' '%(delim)s' "$(%(inspect)s info --format '{{json .SecurityOptions}}' 2>/dev/null)"
 printf '%%sMEMBERS:\n' '%(delim)s'; cat "$d/edge/members.yaml" 2>/dev/null
 printf '%%sCERTS:\n' '%(delim)s'; %(inspect)s exec canasta-edge-acme acme.sh --list --listraw 2>/dev/null
 true
@@ -1090,7 +1091,7 @@ true
 def _parse_edge_probe(stdout):
     """{'edge': status, 'acme': status, 'members': [ids], 'certs': {host:
     (ca, renew)}} from the probe output."""
-    probe = {"edge": "", "acme": "", "spoa": "", "members": [], "certs": {}}
+    probe = {"edge": "", "acme": "", "spoa": "", "daemon": "", "members": [], "certs": {}}
     for seg in stdout.split(_helpers._SENTINEL):
         header, _, body = seg.partition("\n")
         if header.startswith("EDGE:"):
@@ -1099,6 +1100,8 @@ def _parse_edge_probe(stdout):
             probe["acme"] = header[len("ACME:"):].strip()
         elif header.startswith("SPOA:"):
             probe["spoa"] = header[len("SPOA:"):].strip()
+        elif header.startswith("DAEMON:"):
+            probe["daemon"] = header[len("DAEMON:"):].strip()
         elif header.startswith("MEMBERS:"):
             try:
                 data = yaml.safe_load(body) or {}
@@ -1114,7 +1117,7 @@ def _parse_edge_probe(stdout):
 
 
 def _edge_lines_from_probe(inst_id, tls_mode, names, probe, crowdsec=None,
-                           plain=False, trusted=True):
+                           plain=False, trusted=True, docker=True, rates_set=False):
     """doctor lines for an instance behind the HAProxy edge. crowdsec is
     None when CrowdSec is off, else whether its edge bouncer is enrolled.
     plain is an instance served over plain HTTP; trusted, whether
@@ -1134,6 +1137,17 @@ def _edge_lines_from_probe(inst_id, tls_mode, names, probe, crowdsec=None,
             "restart -i %s' to add it." % inst_id)
     if crowdsec is not None:
         lines.append(_edge_crowdsec_line(inst_id, crowdsec, probe["spoa"]))
+    # Rootless Podman reports rootless too, but its edge keeps addresses.
+    if docker and "name=rootless" in probe["daemon"]:
+        lines.append(
+            "  client addresses: WARN — this instance runs on rootless Docker, whose "
+            "port forwarding replaces each visitor's address with its own, so "
+            "MediaWiki, CrowdSec and the edge cannot tell visitors apart%s. Switch "
+            "the daemon to an address-preserving port driver (RootlessKit's "
+            "slirp4netns, or pasta with the implicit driver)%s."
+            % ("" if rates_set else ", and the edge applies no per-client rate limits",
+               "" if rates_set else ", then set CANASTA_EDGE_RATE_DYNAMIC and "
+               "CANASTA_EDGE_RATE_DEFAULT to turn the limits on"))
     if plain:
         if not trusted:
             lines.append(
@@ -1207,9 +1221,12 @@ def _edge_lines(inst):
         crowdsec = bool((_helpers._read_env_for(inst, "CROWDSEC_SPOA_API_KEY") or "").strip())
     plain = (_helpers._read_env_for(inst, "CADDY_AUTO_HTTPS") or "on").strip().lower() == "off"
     trusted = bool((_helpers._read_env_for(inst, "CADDY_TRUSTED_PROXIES") or "").strip())
+    rates_set = any((_helpers._read_env_for(inst, k) or "").strip()
+                    for k in ("CANASTA_EDGE_RATE_DYNAMIC", "CANASTA_EDGE_RATE_DEFAULT"))
     return _edge_lines_from_probe(inst.get("id", "?"), tls_mode,
                                   _origin_tls_server_names(path, host),
-                                  _parse_edge_probe(stdout), crowdsec, plain, trusted)
+                                  _parse_edge_probe(stdout), crowdsec, plain, trusted,
+                                  "podman" not in os.path.basename(inspect), rates_set)
 
 
 def _origin_tls_server_names(path, host):

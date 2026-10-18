@@ -895,9 +895,10 @@ def _sync_edge(run, inspect, edge_dir, instance_id, instance_path, member, resul
     # Certificates acme.sh issued earlier may still need removing.
     result["acme"] = bool(thumbprint)
 
+    result["rootless"] = not sockets and daemon_rootless(run, inspect)
     rendered = render(instances, acme_thumbprint=thumbprint,
                       cdn_ranges=cdn_ranges(edge_dir, cdn_providers(instances)),
-                      ipv6=ipv6, sockets=sockets)
+                      ipv6=ipv6, sockets=sockets, rootless=result["rootless"])
     certs_changed = ensure_certificates(
         run, inspect, edge_dir, rendered["certificates"], instances)
     conf = os.path.join(edge_dir, "conf")
@@ -1221,14 +1222,23 @@ def plan_conversion(instances, rootless=lambda inst: False, podman_ready=lambda:
     edge would collide with; then none on the host move. Only a reason of
     the instance's own is recorded as a choice (decline); one held back by
     the host, or whose files the CLI cannot write, is skipped without one,
-    so the next upgrade considers it again. Returns {convert: [ids],
-    decline: {id: reason}, skip: {id: reason}}."""
-    convert, decline, skip, staying = [], {}, {}, []
-    runtimes = set()
-    for inst in instances:
-        if is_k8s_orchestrator(inst.get("orchestrator") or "compose") or \
-                not os.path.isdir(inst["path"]):
-            continue
+    so the next upgrade considers it again. A host whose instances use both
+    Docker and Podman cannot share one edge and is refused as a whole.
+    Returns {convert: [ids], decline: {id: reason}, skip: {id: reason},
+    rootless: [ids moving on rootless Docker], refuse: reason or None}."""
+    convert, decline, skip, staying, on_rootless = [], {}, {}, [], []
+    compose = [i for i in instances
+               if not is_k8s_orchestrator(i.get("orchestrator") or "compose")
+               and os.path.isdir(i["path"])]
+    families = {"podman" if "podman" in (i.get("compose_command") or "") else "docker"
+                for i in compose}
+    if len(families) > 1:
+        return {"convert": [], "decline": {}, "skip": {}, "rootless": [],
+                "refuse": ("its instances use both Docker and Podman, which cannot share "
+                           "one HAProxy edge (%s). Move one runtime's instances to another "
+                           "host, or onto the same runtime, and upgrade again."
+                           % ", ".join("'%s'" % i["id"] for i in compose))}
+    for inst in compose:
         env = read_env(inst["path"])
         if (env.get("CANASTA_ENABLE_EDGE") or "").strip():
             if not edge_enabled(env):
@@ -1245,28 +1255,20 @@ def plan_conversion(instances, rootless=lambda inst: False, podman_ready=lambda:
                                 "lingering for this user ('canasta install podman' does)")
             staying.append((inst["id"], env))
             continue
-        # Rootless Podman reports rootless too, but its edge takes its
-        # sockets from systemd and keeps client addresses.
-        if not podman and rootless(inst):
-            skip[inst["id"]] = ("rootless Docker hides client addresses from the "
-                                "edge, which would rate-limit all visitors together")
-            staying.append((inst["id"], env))
-            continue
         reason = _ineligible(inst["id"], inst["path"], env)
         if reason:
             decline[inst["id"]] = reason
             staying.append((inst["id"], env))
         else:
             convert.append(inst["id"])
-            runtimes.add(inst.get("compose_command") or "")
+            # Rootless Podman reports rootless too, but its edge takes its
+            # sockets from systemd and keeps client addresses.
+            if not podman and rootless(inst):
+                on_rootless.append(inst["id"])
     blockers = [i for i, env in staying if _publishes_web_ports(env)]
     if convert and blockers:
         reason = ("instance %s on this host serves ports 80/443 itself, and the "
                   "edge would need them" % ", ".join("'%s'" % b for b in blockers))
-        skip.update({i: reason for i in convert})
-        convert = []
-    if len(runtimes) > 1:
-        reason = "the host's instances use different container runtimes"
         skip.update({i: reason for i in convert})
         convert = []
     # Each could move on its own; together they must not clash on a port.
@@ -1281,7 +1283,8 @@ def plan_conversion(instances, rootless=lambda inst: False, podman_ready=lambda:
         except EdgeError as exc:
             skip.update({i: str(exc) for i in convert})
             convert = []
-    return {"convert": convert, "decline": decline, "skip": skip}
+    return {"convert": convert, "decline": decline, "skip": skip,
+            "rootless": [i for i in on_rootless if i in convert], "refuse": None}
 
 
 def run_module():
