@@ -38,7 +38,9 @@ def _preflight(tmp_path, **variables):
         "vars": dict(variables, ansible_python_interpreter=sys.executable),
         "tasks": [task],
     }]))
-    env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_")}
+    env.update(ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
+               ANSIBLE_HOME=str(tmp_path / "ansible-home"))
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
     return subprocess.run([playbook, "-i", "localhost,", str(play)],
                           capture_output=True, text=True, env=env, cwd=tmp_path)
@@ -54,7 +56,7 @@ def test_create_refuses_only_podman_without_a_user_session(tmp_path, variables, 
     proc = _preflight(tmp_path, **variables)
     assert (proc.returncode != 0) is refused, proc.stdout
     if refused:
-        assert "systemd user session" in proc.stdout
+        assert "systemd user session" in proc.stdout, proc.stderr
 
 
 def test_upgrade_moves_hosts_before_instances_upgrade():
@@ -95,7 +97,9 @@ def test_upgrade_remembers_whether_caddy_was_running(tmp_path, running, expected
         "tasks": [remember, {"ansible.builtin.copy": {
             "content": "{{ _edge_was_running | to_json }}", "dest": str(out)}}],
     }]))
-    env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_")}
+    env.update(ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
+               ANSIBLE_HOME=str(tmp_path / "ansible-home"))
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
     proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
                           capture_output=True, text=True, env=env, cwd=tmp_path)
