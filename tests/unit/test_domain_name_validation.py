@@ -25,7 +25,7 @@ class TestHostnameHint:
     def test_hint_fires_on_port(self):
         hint = canasta._hostname_hint("example.com:8443")
         assert "HTTP_PORT/HTTPS_PORT" in hint
-        assert "CADDY_AUTO_HTTPS=off" in hint
+        assert "TLS_MODE=off" in hint
 
     def test_hint_fires_on_localhost_port(self):
         assert canasta._hostname_hint("localhost:8443") != ""

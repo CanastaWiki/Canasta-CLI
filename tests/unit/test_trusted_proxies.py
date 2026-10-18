@@ -1,4 +1,4 @@
-"""Tests for CADDY_TRUSTED_PROXIES (real client IP behind a CDN/WAF).
+"""Tests for TRUSTED_PROXIES (real client IP behind a CDN/WAF).
 
 The `cloudflare` and `imperva` modes render a dynamic caddy-cdn-ranges
 source, so Caddy keeps the provider's edge ranges current in-process —
@@ -90,13 +90,13 @@ class TestTrustedProxiesConfigKey:
             _read(os.path.join(REPO_ROOT, "roles", "config", "defaults", "main.yml"))
         )
         names = [e["name"] for e in defaults["canasta_known_keys"]]
-        assert "CADDY_TRUSTED_PROXIES" in names
+        assert "TRUSTED_PROXIES" in names
 
     def test_side_effects_validates_value(self):
         content = _read(os.path.join(
             REPO_ROOT, "roles", "config", "tasks", "_side_effects.yml",
         ))
-        assert "CADDY_TRUSTED_PROXIES" in content
+        assert "TRUSTED_PROXIES" in content
         assert "'cloudflare', 'imperva'" in content
 
 

@@ -95,7 +95,7 @@ def test_the_crowdsec_bouncer_is_reported():
 def test_a_plain_http_instance_without_a_trusted_proxy_is_warned():
     out = "\n".join(doctor._edge_lines_from_probe(
         "one", "acme", ["example.com"], doctor._parse_edge_probe(_probe()), None, True, False))
-    assert "client addresses: WARN" in out and "CADDY_TRUSTED_PROXIES" in out
+    assert "client addresses: WARN" in out and "TRUSTED_PROXIES" in out
     assert "Let's Encrypt" not in out and "acme.sh" not in out
     trusted = "\n".join(doctor._edge_lines_from_probe(
         "one", "acme", ["example.com"], doctor._parse_edge_probe(_probe()), None, True, True))

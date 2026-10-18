@@ -17,6 +17,7 @@ import urllib.parse
 import urllib.request
 
 import canasta_config
+import canasta_env_keys
 import canasta_web_cause
 import yaml
 
@@ -324,9 +325,11 @@ def _write_env_content(path, host, content):
 
 
 def _read_env_file(path, host):
-    """Read and parse a .env file, returning a dict of key=value pairs."""
+    """Read and parse a .env file, returning a dict of key=value pairs,
+    with renamed keys also under their new names."""
     content = _read_env_content(path, host)
-    return {k: v for k, v, c in _parse_env_entries(content) if not c and k}
+    return canasta_env_keys.modernize_values(
+        {k: v for k, v, c in _parse_env_entries(content) if not c and k})
 
 
 def _compose_file_args(path, host, devmode=False, include_sidecars=False):
@@ -594,7 +597,8 @@ def _sync_compose_profiles(inst):
         return {}  # No .env to sync
 
     entries = _parse_env_entries(content)
-    env = {k: v for k, v, c in entries if not c and k}
+    env = canasta_env_keys.modernize_values(
+        {k: v for k, v, c in entries if not c and k})
     managed_names = _MANAGED_PROFILE_NAMES  # for the teardown below
 
     current_raw = env.get("COMPOSE_PROFILES", "")
@@ -610,7 +614,7 @@ def _sync_compose_profiles(inst):
     crowdsec_on = (
         (env.get("CANASTA_ENABLE_CROWDSEC") or "false").strip().lower() == "true"
     )
-    tp_mode = env.get("CADDY_TRUSTED_PROXIES", "").strip().lower()
+    tp_mode = env.get("TRUSTED_PROXIES", "").strip().lower()
     plugin_needed = crowdsec_on or tp_mode in _CADDY_PLUGIN_TRUSTED_PROXY_MODES
     current_caddy_image = env.get("CANASTA_CADDY_IMAGE", "")
     desired_caddy_image = _CADDY_PLUGIN_IMAGE if plugin_needed else ""
@@ -1518,6 +1522,18 @@ _REMOTE_ENV_CACHE = {}
 
 
 def _read_env_for(inst, key):
+    """Read a key from an instance's .env, wherever that instance lives.
+    A renamed key is also found under its old name."""
+    value = _read_env_key_for(inst, key)
+    names = canasta_env_keys.old_names(key)
+    if value is None and names:
+        found = {n: _read_env_key_for(inst, n) for n in names}
+        value = canasta_env_keys.modernize_values(
+            {k: v for k, v in found.items() if v is not None}).get(key)
+    return value
+
+
+def _read_env_key_for(inst, key):
     """Read a key from an instance's .env, wherever that instance lives.
 
     The file sits on the instance's host, so a remote instance has to be

@@ -147,9 +147,9 @@ class TestSyncComposeProfilesConsistency:
     "CANASTA_ENABLE_VARNISH=\nCANASTA_ENABLE_ELASTICSEARCH=true\n",
     "CANASTA_ENABLE_VARNISH=false\nCANASTA_ENABLE_OBSERVABILITY=TRUE\n"
     "USE_EXTERNAL_DB=true\n",
-    "CADDY_TRUSTED_PROXIES=cloudflare\n",
+    "TRUSTED_PROXIES=cloudflare\n",
     "CANASTA_CADDY_IMAGE=ghcr.io/canastawiki/canasta-caddy:1.0\n",
-    "CADDY_TRUSTED_PROXIES=imperva\nCANASTA_CADDY_IMAGE=example.com/caddy:1\n",
+    "TRUSTED_PROXIES=imperva\nCANASTA_CADDY_IMAGE=example.com/caddy:1\n",
     "HTTP_PORT=8080\nHTTPS_PORT=8443\n",
     "HTTP_PORT=\nHTTPS_PORT=\n",
     "CANASTA_CADDY_HTTP_PUBLISH=80\n",

@@ -68,7 +68,7 @@ def _parse(tmp_path, url, env_lines):
     # The reported case: HTTPS on a non-default port.
     ("localhost/w2", ["HTTPS_PORT=8443"], ("localhost:8443", "w2")),
     # HTTP-only instances are served on HTTP_PORT.
-    ("localhost/w2", ["CADDY_AUTO_HTTPS=off", "HTTP_PORT=8081",
+    ("localhost/w2", ["TLS_MODE=off", "HTTP_PORT=8081",
                       "HTTPS_PORT=8443"], ("localhost:8081", "w2")),
     # A farm's other hostnames are served on the same port.
     ("docs.example.com", ["HTTPS_PORT=8443"], ("docs.example.com:8443", "")),
@@ -77,7 +77,7 @@ def _parse(tmp_path, url, env_lines):
     # Default ports are never written into the URL.
     ("localhost/w2", ["HTTPS_PORT=443"], ("localhost", "w2")),
     ("localhost/w2", [], ("localhost", "w2")),
-    ("localhost/w2", ["CADDY_AUTO_HTTPS=off", "HTTP_PORT=80",
+    ("localhost/w2", ["TLS_MODE=off", "HTTP_PORT=80",
                       "HTTPS_PORT=8443"], ("localhost", "w2")),
     ("example.com", ["HTTPS_PORT="], ("example.com", "")),
 ])

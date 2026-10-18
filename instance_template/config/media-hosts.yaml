@@ -12,6 +12,6 @@
 #       bucket: my-wiki-images
 #       endpoint: nyc3.digitaloceanspaces.com
 #
-# The TLS directive comes from CADDY_TLS_MODE in .env; do not set one here.
+# The TLS directive comes from TLS_MODE in .env; do not set one here.
 
 media_hosts: []

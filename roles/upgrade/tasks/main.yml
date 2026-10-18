@@ -61,6 +61,7 @@
     - backfill_hosts_yaml.yml
     - tighten_env_permissions.yml
     - remove_enable_edge.yml
+    - rename_tls_keys.yml
   loop_control:
     loop_var: _migration
 

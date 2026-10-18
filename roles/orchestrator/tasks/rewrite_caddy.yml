@@ -69,7 +69,7 @@
 # built-in static source + X-Forwarded-For (strict, right-to-left).
 - name: Determine trusted-proxy mode
   ansible.builtin.set_fact:
-    _tp_raw: "{{ _env_caddy.variables.CADDY_TRUSTED_PROXIES | default('') | trim }}"
+    _tp_raw: "{{ _env_caddy.variables.TRUSTED_PROXIES | default('') | trim }}"
     # Behind a proxy Caddy must trust the proxy's addresses to recover the
     # real client IP from X-Forwarded-For. Default to the standard private
     # ranges — safe because Caddy is reachable only on the cluster or edge
@@ -85,11 +85,11 @@
   ansible.builtin.set_fact:
     # Behind the edge, the edge has already recovered the client address
     # (from a CDN's header or a trusted proxy's X-Forwarded-For, per
-    # CADDY_TRUSTED_PROXIES) and appended it to X-Forwarded-For. Caddy reads
+    # TRUSTED_PROXIES) and appended it to X-Forwarded-For. Caddy reads
     # only that, so a client-supplied CDN header is never believed.
     _tp_mode: "{{ 'edge' if (_behind_edge | bool) else (_tp_raw | lower) }}"
     # Activate trusted-proxy handling behind the edge, when the operator
-    # sets CADDY_TRUSTED_PROXIES, or whenever CrowdSec is enabled, so the
+    # sets TRUSTED_PROXIES, or whenever CrowdSec is enabled, so the
     # engine attributes decisions to the real client IP instead of the
     # proxy's (true even before the bouncer is enrolled).
     _trusted_proxies_enabled: >-

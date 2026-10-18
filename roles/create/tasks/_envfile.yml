@@ -1,7 +1,7 @@
 ---
 # Custom env file merge + external-DB password override + port
 # detection. Runs BEFORE wikis.yaml is generated because the
-# resolved port (from CADDY_AUTO_HTTPS / HTTP[S]_PORT) determines
+# resolved port (from TLS_MODE / HTTP[S]_PORT) determines
 # the domain string written into wikis.yaml.
 #
 # The external-DB block here also overrides _rootdbpass and
@@ -68,36 +68,35 @@
         _wiki_db_user: "{{ _ext_db_user.value | default('root', true) }}"
       no_log: true
 
-- name: Read HTTPS_PORT and CADDY_AUTO_HTTPS from .env
+# An env file may still use the TLS keys' old names.
+- name: Rename the TLS keys the env file carried
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/rename_tls_keys.yml"
+
+- name: Read HTTPS_PORT and TLS_MODE from .env
   canasta_env:
     path: "{{ instance_path }}/.env"
     state: read_all
   register: _env_for_port
   no_log: true  # registers the whole .env, including passwords
 
-# --skip-tls is folded in here, not read from CADDY_AUTO_HTTPS alone:
-# _settings_files.yml writes CADDY_AUTO_HTTPS=off for the flag, but that
+# --skip-tls is folded in here, not read from TLS_MODE alone:
+# _settings_files.yml writes TLS_MODE=off for the flag, but that
 # runs *after* this file and after _env_update.yml has already derived
 # MW_SITE_SERVER from _http_only. Reading .env only would leave the flag
 # invisible at the point the scheme is chosen, so a --skip-tls instance
 # got an https:// MW_SITE_SERVER while Caddy served plain HTTP.
 #
-# Deliberately not keyed off the orchestrator, even though the same task
-# sets CADDY_AUTO_HTTPS=off for Kubernetes: there Caddy runs http-only
-# behind an ingress that terminates TLS, so https:// is the correct
-# $wgServer and forcing http:// would make MediaWiki emit http:// links
-# on an https site.
 # The edge serves each instance on its own HTTP_PORT and HTTPS_PORT.
 - name: Determine which port (if any) to append to the domain
   ansible.builtin.set_fact:
     _http_only: >-
-      {{ (_env_for_port.variables.CADDY_AUTO_HTTPS | default('on') | lower == 'off')
+      {{ (_env_for_port.variables.TLS_MODE | default('', true) | trim | lower == 'off')
          or (skip_tls | default(false) | bool) }}
     _https_port: "{{ _env_for_port.variables.HTTPS_PORT | default('443') }}"
     _http_port: "{{ _env_for_port.variables.HTTP_PORT | default('80') }}"
 
 - name: Build domain with port
-  # When CADDY_AUTO_HTTPS=off, append HTTP_PORT (if non-standard).
+  # When TLS_MODE=off, append HTTP_PORT (if non-standard).
   # Otherwise, append HTTPS_PORT (if non-standard).
   ansible.builtin.set_fact:
     _domain_with_port: >-

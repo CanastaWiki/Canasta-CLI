@@ -1,7 +1,7 @@
 """Ports and URLs for instances behind the HAProxy edge.
 
 The edge serves each instance on its own HTTP_PORT and HTTPS_PORT, over
-plain HTTP when CADDY_AUTO_HTTPS is off, so wiki URLs keep their ports and
+plain HTTP when TLS_MODE is off, so wiki URLs keep their ports and
 those keys stay settable. The edge, for its part, owns the ports it serves.
 The real task files run here against temp instances.
 """
@@ -154,7 +154,7 @@ def test_doctor_names_the_edge_ca_for_an_internal_certificate():
                 "CN=example.com")]
     out = "\n".join(doctor._origin_tls_lines_from_entries(
         "one", entries, now, tls_internal=True, edge=True))
-    assert "OK (the edge's internal CA — CADDY_TLS_MODE=internal" in out
+    assert "OK (the edge's internal CA — TLS_MODE=internal" in out
 
 
 def test_doctor_warns_when_the_edge_has_no_public_certificate():

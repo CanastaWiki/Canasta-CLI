@@ -13,6 +13,20 @@
     src: "{{ instance_path }}/.gitops-host"
   register: _config_host_raw
 
+# A repository may still name renamed keys the old way; store each setting
+# under the name its env.template uses.
+- name: Read env.template for renamed keys
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/env.template"
+  register: _config_template_raw
+
+- name: Name the settings as env.template does
+  ansible.builtin.set_fact:
+    _config_gitops_settings: >-
+      {{ _config_settings
+         | canasta_env_legacy_settings(_config_template_raw.content | b64decode) }}
+  no_log: true  # settings may hold passwords
+
 # Side effects generate the OpenSearch credentials straight into .env, so
 # they are not in the typed settings. Persist them like typed keys, with the
 # value exactly as .env holds it (the hash is $$-escaped), because the render
@@ -34,7 +48,7 @@
     _gen_items: >-
       {{ _config_env_generated.variables | dict2items
          | selectattr('key', 'in', ['OS_USER', 'OS_PASSWORD', 'OS_PASSWORD_HASH'])
-         | rejectattr('key', 'in', _config_settings | map('regex_replace', '=.*$', '') | list)
+         | rejectattr('key', 'in', _config_gitops_settings | map('regex_replace', '=.*$', '') | list)
          | rejectattr('value', 'equalto', '')
          | list }}
   no_log: true
@@ -46,7 +60,7 @@
 - name: Ensure env.template has placeholders for new credential keys
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/config/tasks/_ensure_env_template_placeholder.yml
-  loop: "{{ _config_settings + _config_generated_settings }}"
+  loop: "{{ _config_gitops_settings + _config_generated_settings }}"
   loop_control:
     loop_var: _ep_setting
     label: "{{ _ep_setting.split('=', 1)[0] }}"
@@ -75,12 +89,12 @@
 - name: Update vars.yaml for each changed key
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/config/tasks/_update_gitops_var.yml
-  loop: "{{ _config_settings + _config_generated_settings }}"
+  loop: "{{ _config_gitops_settings + _config_generated_settings }}"
   loop_control:
     loop_var: _config_setting
     label: "{{ _config_setting.split('=', 1)[0] }}"
 
-# MW_SITE_FQDN / HTTP_PORT / HTTPS_PORT / CADDY_AUTO_HTTPS
+# MW_SITE_FQDN / HTTP_PORT / HTTPS_PORT / TLS_MODE
 # re-derive MW_SITE_FQDN/MW_SITE_SERVER and rewrite wiki URLs in the rendered
 # .env and config/wikis.yaml via _side_effects.yml. Those derived
 # values are not in the typed settings, so the loop above never
@@ -89,7 +103,7 @@
 - name: Propagate domain side effects to gitops vars
   when: >-
     _config_settings | map('regex_replace', '=.*$', '') | list
-    | intersect(['MW_SITE_FQDN', 'HTTP_PORT', 'HTTPS_PORT', 'CADDY_AUTO_HTTPS'])
+    | intersect(['MW_SITE_FQDN', 'HTTP_PORT', 'HTTPS_PORT', 'TLS_MODE'])
     | length > 0
   block:
     - name: Read final .env for derived domain keys

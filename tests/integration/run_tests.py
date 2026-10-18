@@ -103,7 +103,7 @@ class TestInstance:
         self.env_file = os.path.join(self.work_dir, "test.env")
         with open(self.env_file, "w") as f:
             f.write(
-                "HTTP_PORT=%s\nHTTPS_PORT=%s\nCADDY_AUTO_HTTPS=off\n"
+                "HTTP_PORT=%s\nHTTPS_PORT=%s\nTLS_MODE=off\n"
                 % (self.http_port, self.https_port)
             )
 
@@ -251,7 +251,7 @@ def wait_for_wiki_at_path(http_port, api_path="/w/api.php", timeout=300):
             req = urllib.request.Request(api_url)
             # Match the URL stored in wikis.yaml so FarmConfigLoader routes
             # correctly. Tests use non-standard HTTP_PORT with
-            # CADDY_AUTO_HTTPS=off, so wikis.yaml stores localhost:<port>.
+            # TLS_MODE=off, so wikis.yaml stores localhost:<port>.
             req.add_header("Host", "localhost:%s" % http_port)
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read())
@@ -2025,7 +2025,7 @@ def test_config_side_effects(inst):
     )
     wait_for_wiki(inst.http_port)
 
-    # Test instance uses CADDY_AUTO_HTTPS=off, so HTTP_PORT is the active
+    # Test instance uses TLS_MODE=off, so HTTP_PORT is the active
     # port (the one reflected in wikis.yaml and MW_SITE_SERVER).
     new_http_port = "9080"
     print("Setting HTTP_PORT to %s..." % new_http_port)
@@ -2115,21 +2115,21 @@ def test_config_side_effects(inst):
         % (new_http_port, env.get("MW_SITE_SERVER"))
     )
 
-    # CADDY_AUTO_HTTPS toggle side effect: flipping the scheme
+    # TLS_MODE side effect: flipping the scheme
     # should switch the active port that's reflected in wikis.yaml /
     # MW_SITE_SERVER, even though neither HTTP_PORT nor HTTPS_PORT
     # changed.
-    print("Toggling CADDY_AUTO_HTTPS to on (HTTPS_PORT becomes active)...")
+    print("Switching TLS_MODE to acme (HTTPS_PORT becomes active)...")
     inst.run_ok(
         "config", "set", "-i", inst.id,
-        "CADDY_AUTO_HTTPS=on", "--no-restart",
+        "TLS_MODE=acme", "--no-restart",
     )
 
     print("Checking wikis.yaml now references HTTPS_PORT %s..." % inst.https_port)
     with open(wikis_yaml_path) as f:
         wikis_content = f.read()
     assert (":%s" % inst.https_port) in wikis_content, (
-        "wikis.yaml should contain HTTPS_PORT %s after CADDY_AUTO_HTTPS=on:"
+        "wikis.yaml should contain HTTPS_PORT %s after TLS_MODE=acme:"
         "\n%s" % (inst.https_port, wikis_content)
     )
 
@@ -2147,10 +2147,10 @@ def test_config_side_effects(inst):
         % (inst.https_port, env.get("MW_SITE_FQDN"))
     )
 
-    print("Toggling CADDY_AUTO_HTTPS back to off...")
+    print("Switching TLS_MODE back to off...")
     inst.run_ok(
         "config", "set", "-i", inst.id,
-        "CADDY_AUTO_HTTPS=off", "--no-restart",
+        "TLS_MODE=off", "--no-restart",
     )
 
     print("Checking wikis.yaml is back to bare localhost (HTTP_PORT=80)...")
@@ -3485,7 +3485,7 @@ def test_config_set_gitops_port(inst):
     """config set HTTP_PORT must survive a gitops render under reconcile.
 
     Mirrors test_config_set_gitops_domain for a port change. Changing the
-    active port (HTTP_PORT here, since the test env runs CADDY_AUTO_HTTPS=off)
+    active port (HTTP_PORT here, since the test env runs TLS_MODE=off)
     derives MW_SITE_FQDN/MW_SITE_SERVER and rewrites wiki URLs in the rendered
     .env/config/wikis.yaml with the new port suffix. Those derived values plus
     the raw http_port must reach hosts/<host>/vars.yaml, or the next

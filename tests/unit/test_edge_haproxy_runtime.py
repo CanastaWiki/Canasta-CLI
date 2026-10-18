@@ -46,7 +46,7 @@ def _instances():
                          {"id": "w1", "url": "www.example.com/docs"}],
             [{"hostname": "images.example.com", "bucket": "b", "endpoint": "e"}]),
         edge.instance_from_config(
-            "other", {"CADDY_TLS_MODE": "custom"},
+            "other", {"TLS_MODE": "custom"},
             [{"id": "w0", "url": "other.example.org"}]),
         edge.instance_from_config(
             "limited", {"CANASTA_EDGE_RATE_DEFAULT": "3"},
@@ -59,7 +59,7 @@ def _instances():
             "walled", {}, [{"id": "w0", "url": "walled.example.org"}],
             deny_cidrs="0.0.0.0/0\n::/0\n"),
         edge.instance_from_config(
-            "cdn", {"CADDY_TRUSTED_PROXIES": "cloudflare", "CANASTA_EDGE_RATE_DEFAULT": "3"},
+            "cdn", {"TRUSTED_PROXIES": "cloudflare", "CANASTA_EDGE_RATE_DEFAULT": "3"},
             [{"id": "w0", "url": "cdn.example.org"}]),
     ]
 

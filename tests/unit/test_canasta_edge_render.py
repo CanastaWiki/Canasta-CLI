@@ -24,7 +24,7 @@ def _two():
         _inst("main", ("example.com", "example.com/docs", "www.example.com"),
               media=("images.example.com",)),
         _inst("other", ("other.example.org",),
-              {"CADDY_TLS_MODE": "custom", "PM_MAX_CHILDREN": "10",
+              {"TLS_MODE": "custom", "PM_MAX_CHILDREN": "10",
                "CANASTA_ENABLE_VARNISH": "false"},
               snippet="# tighter\nhttp-request deny if { path_beg /private }\n"),
     ]
@@ -61,8 +61,8 @@ def test_media_host_that_is_also_a_wiki_host_is_refused():
 
 
 def test_unknown_tls_mode_is_refused():
-    with pytest.raises(edge.EdgeError, match="CADDY_TLS_MODE is 'acmee'"):
-        _inst(env={"CADDY_TLS_MODE": "acmee"})
+    with pytest.raises(edge.EdgeError, match="TLS_MODE is 'acmee'"):
+        _inst(env={"TLS_MODE": "acmee"})
 
 
 @pytest.mark.parametrize("value", ["0", "-3", "many"])
@@ -200,13 +200,13 @@ def test_a_backend_with_no_running_server_answers_503_at_once():
 
 def test_acme_dns_needs_a_supported_provider():
     with pytest.raises(edge.EdgeError, match="ACME_DNS_PROVIDER is 'route53'"):
-        _inst(env={"CADDY_TLS_MODE": "acme-dns", "ACME_DNS_PROVIDER": "route53",
+        _inst(env={"TLS_MODE": "acme-dns", "ACME_DNS_PROVIDER": "route53",
                    "CLOUDFLARE_API_TOKEN": "t"})
 
 
 def test_acme_dns_certificates_are_per_hostname_and_carry_no_token():
     inst = _inst(urls=("example.com", "www.example.com"),
-                 env={"CADDY_TLS_MODE": "acme-dns", "CLOUDFLARE_API_TOKEN": "t0k"})
+                 env={"TLS_MODE": "acme-dns", "CLOUDFLARE_API_TOKEN": "t0k"})
     rendered = edge.render([inst])
     assert [c["file"] for c in rendered["certificates"]] == [
         "example.com.pem", "www.example.com.pem"]
@@ -255,14 +255,14 @@ def test_a_bad_deny_range_names_its_line():
 
 
 def test_a_trusted_cidr_list_trusts_the_last_forwarded_address():
-    inst = _inst(env={"CADDY_TRUSTED_PROXIES": "10.1.0.0/16, 192.0.2.4"})
+    inst = _inst(env={"TRUSTED_PROXIES": "10.1.0.0/16, 192.0.2.4"})
     rendered = edge.render([inst])
     assert rendered["files"]["trusted-wiki1.lst"] == "10.1.0.0/16\n192.0.2.4/32\n"
     assert "req.hdr_ip(X-Forwarded-For,-1)" in rendered["files"]["haproxy.cfg"]
 
 
 def test_a_cdn_needs_its_ranges():
-    inst = _inst(env={"CADDY_TRUSTED_PROXIES": "imperva"})
+    inst = _inst(env={"TRUSTED_PROXIES": "imperva"})
     with pytest.raises(edge.EdgeError, match="No address ranges for imperva"):
         edge.render([inst])
     cfg = edge.render([inst], cdn_ranges={"imperva": ["192.0.2.0/24"]})["files"]
@@ -342,7 +342,7 @@ def test_a_url_port_must_match_the_instance_port():
 
 def test_a_plain_http_instance_is_routed_without_https():
     plain = _inst("plain", ("plain.example.net",),
-                  {"CADDY_AUTO_HTTPS": "off", "CADDY_TRUSTED_PROXIES": "10.0.0.0/8"})
+                  {"TLS_MODE": "off", "TRUSTED_PROXIES": "10.0.0.0/8"})
     secure = _inst("secure", ("example.com",))
     r = _cfg([plain, secure])
     cfg = r["files"]["haproxy.cfg"]
@@ -356,7 +356,7 @@ def test_a_plain_http_instance_is_routed_without_https():
 
 
 def test_plain_http_without_a_trusted_proxy_has_no_per_client_limits():
-    plain = _inst("plain", ("plain.example.net",), {"CADDY_AUTO_HTTPS": "off"})
+    plain = _inst("plain", ("plain.example.net",), {"TLS_MODE": "off"})
     cfg = _cfg([plain])["files"]["haproxy.cfg"]
     assert "track-sc0" not in cfg
     assert "del-header X-Forwarded-Proto if { var(txn.inst) -m str plain }\n" in cfg
@@ -377,7 +377,7 @@ def test_two_unnamed_instances_cannot_share_a_port():
 def test_a_port_cannot_be_both_http_and_https():
     with pytest.raises(edge.EdgeError, match="both an HTTP port and an HTTPS port"):
         _cfg([_inst("a", ("a.example.com:8443",), {"HTTPS_PORT": "8443"}),
-              _inst("b", ("b.example.com:8443",), {"CADDY_AUTO_HTTPS": "off", "HTTP_PORT": "8443"})])
+              _inst("b", ("b.example.com:8443",), {"TLS_MODE": "off", "HTTP_PORT": "8443"})])
 
 
 def test_the_same_hostname_may_be_served_on_different_ports():

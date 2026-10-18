@@ -154,7 +154,7 @@ def _hostname_hint(value):
         return (
             " Do not include a scheme or port here: pass --domain-name as a "
             "bare hostname (e.g. 'example.com') and set HTTP_PORT/HTTPS_PORT "
-            "(and CADDY_AUTO_HTTPS=off for HTTP-only) in your .env file."
+            "(and TLS_MODE=off for plain HTTP) in your .env file."
         )
     return ""
 

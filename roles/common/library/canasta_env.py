@@ -41,6 +41,7 @@ options:
 import os
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.canasta_env_keys import modernize_values, old_names
 
 
 def parse_env_file(content):
@@ -204,7 +205,10 @@ def run_module():
         content = ""
 
     entries = parse_env_file(content)
-    env_dict = entries_to_dict(entries)
+    file_dict = entries_to_dict(entries)
+    # Readers see renamed keys under their new names, even in a .env
+    # written before the rename.
+    env_dict = modernize_values(file_dict)
     changed = False
     result = {"changed": False}
 
@@ -243,13 +247,16 @@ def run_module():
             if _key_of(line) == key:
                 old_raw = raw_value_of(line)
                 break
-        if old_raw != value:
+        stale = [k for k in old_names(key) if k in file_dict]
+        if old_raw != value or stale:
             changed = True
             try:
                 new_lines = set_line(lines, key, value)
             except ValueError as e:
                 module.fail_json(msg=str(e))
                 return
+            for k in stale:
+                new_lines = unset_lines(new_lines, k)
             if not module.check_mode:
                 new_content = lines_to_content(new_lines)
                 with open(path, "w") as f:
@@ -264,10 +271,11 @@ def run_module():
             return
         lines = parse_env_lines(content)
         for k in keys:
-            if k in env_dict:
-                changed = True
-                lines = unset_lines(lines, k)
-                del env_dict[k]
+            for name in [k] + old_names(k):
+                if name in file_dict:
+                    changed = True
+                    lines = unset_lines(lines, name)
+                    del file_dict[name]
         if changed and not module.check_mode:
             new_content = lines_to_content(lines)
             with open(path, "w") as f:

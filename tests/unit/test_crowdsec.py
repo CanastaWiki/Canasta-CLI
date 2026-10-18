@@ -351,7 +351,7 @@ class TestCrowdsecGitopsDurability:
         for k in (
             "CANASTA_ENABLE_CROWDSEC",
             "CROWDSEC_BOUNCER_API_KEY",
-            "CADDY_TRUSTED_PROXIES",
+            "TRUSTED_PROXIES",
         ):
             assert self._is_placeholder(k), (
                 "%s must classify as secret or host-specific, or it is dropped "
@@ -1518,7 +1518,7 @@ class TestCrowdsecK8sCaddyImageReconcile:
     def test_reconcile_reads_flags_and_picks_plugin_image(self):
         content = self._reconcile()
         assert "CANASTA_ENABLE_CROWDSEC" in content
-        assert "CADDY_TRUSTED_PROXIES" in content
+        assert "TRUSTED_PROXIES" in content
         assert "cloudflare" in content and "imperva" in content
         assert "canasta_caddy_plugin_image" in content
         assert "caddy:2.10.2-alpine" in content
@@ -1645,7 +1645,7 @@ class TestCrowdsecK8sValuesPropagation:
         # CrowdSec or a provider trusted-proxy mode swaps caddy.image to the
         # plugin image on K8s.
         assert "canasta_caddy_plugin_image" in content
-        assert "CADDY_TRUSTED_PROXIES" in content
+        assert "TRUSTED_PROXIES" in content
 
 
 class TestCrowdsecAutoEnroll:

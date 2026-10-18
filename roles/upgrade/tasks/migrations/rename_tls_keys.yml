@@ -1,0 +1,14 @@
+---
+# Migration: the TLS keys configure the HAProxy edge, not Caddy, and lose
+# their CADDY_ prefix. Kubernetes has no edge: its ingress and cert-manager
+# handle TLS, so its CADDY_AUTO_HTTPS=off is dropped rather than renamed.
+
+- name: Drop CADDY_AUTO_HTTPS on Kubernetes
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: unset
+    key: CADDY_AUTO_HTTPS
+  when: instance_is_k8s | bool
+
+- name: Rename the TLS keys
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/rename_tls_keys.yml"

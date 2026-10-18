@@ -54,25 +54,25 @@ def _ensure(tmp_path, template, setting, secret_names=()):
 def test_tls_mode_is_host_specific():
     with open(CLASSIFIER) as f:
         keys = yaml.safe_load(f)["canasta_host_specific_nonsecret"]
-    assert "CADDY_TLS_MODE" in keys
+    assert "TLS_MODE" in keys
 
 
 def test_absent_host_specific_key_gets_a_placeholder(tmp_path):
     lines = _ensure(tmp_path, "MW_SITE_FQDN={{mw_site_fqdn}}\n",
-                    "CADDY_TLS_MODE=internal")
-    assert "CADDY_TLS_MODE={{caddy_tls_mode}}" in lines
+                    "TLS_MODE=internal")
+    assert "TLS_MODE={{tls_mode}}" in lines
 
 
 def test_literal_host_specific_key_stays_literal(tmp_path):
-    lines = _ensure(tmp_path, "CADDY_TLS_MODE=internal\n",
-                    "CADDY_TLS_MODE=acme")
-    assert lines == ["CADDY_TLS_MODE=internal"]
+    lines = _ensure(tmp_path, "TLS_MODE=internal\n",
+                    "TLS_MODE=acme")
+    assert lines == ["TLS_MODE=internal"]
 
 
 def test_existing_placeholder_is_unchanged(tmp_path):
-    lines = _ensure(tmp_path, "CADDY_TLS_MODE={{caddy_tls_mode}}\n",
-                    "CADDY_TLS_MODE=acme")
-    assert lines == ["CADDY_TLS_MODE={{caddy_tls_mode}}"]
+    lines = _ensure(tmp_path, "TLS_MODE={{tls_mode}}\n",
+                    "TLS_MODE=acme")
+    assert lines == ["TLS_MODE={{tls_mode}}"]
 
 
 def test_literal_secret_is_still_moved(tmp_path):

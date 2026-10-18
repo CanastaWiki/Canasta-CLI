@@ -215,7 +215,7 @@ def test_the_last_member_leaving_empties_the_edge(tmp_path):
 # --- certificates ------------------------------------------------------------- #
 
 def test_custom_certificate_is_assembled_from_the_instance(tmp_path):
-    path = _instance(tmp_path, "one", env={"CADDY_TLS_MODE": "custom"},
+    path = _instance(tmp_path, "one", env={"TLS_MODE": "custom"},
                      certs={"origin.crt": "CERT", "origin.key": "KEY\n"})
     edge = tmp_path / "edge"
     _sync(FakeRunner(), edge, "one", path)
@@ -225,7 +225,7 @@ def test_custom_certificate_is_assembled_from_the_instance(tmp_path):
 
 
 def test_missing_custom_certificate_is_refused(tmp_path):
-    path = _instance(tmp_path, "one", env={"CADDY_TLS_MODE": "custom"})
+    path = _instance(tmp_path, "one", env={"TLS_MODE": "custom"})
     result = _sync(FakeRunner(), tmp_path / "edge", "one", path)
     assert re.search("origin.crt or origin.key is missing", result["error"])
 
@@ -277,7 +277,7 @@ def test_certificates_and_validation_with_the_pinned_images(tmp_path):
     # internal: acme would register a real Let's Encrypt account.
     path = _instance(tmp_path, "one", hosts=("example.com", "www.example.com"),
                      media=("images.example.com",),
-                     env={"CADDY_TLS_MODE": "internal"})
+                     env={"TLS_MODE": "internal"})
     edge = tmp_path / "edge"
     result = _sync(run, edge, "one", path)
     assert not (edge / "acme" / "thumbprint").exists()
@@ -339,7 +339,7 @@ def test_the_account_is_registered_once(tmp_path):
 
 
 def test_an_internal_only_edge_never_contacts_lets_encrypt(tmp_path):
-    path = _instance(tmp_path, "one", env={"CADDY_TLS_MODE": "internal"})
+    path = _instance(tmp_path, "one", env={"TLS_MODE": "internal"})
     run = FakeRunner()
     result = _sync(run, tmp_path / "edge", "one", path)
     assert not result["acme"]
@@ -411,7 +411,7 @@ def test_a_hostname_gone_from_lets_encrypt_is_removed_and_replaced(tmp_path):
     edge's CA: its Let's Encrypt PEM is replaced and HAProxy reloaded."""
     run = FakeRunner(running=True, listed={"example.com": ("LetsEncrypt.org", True),
                                            "old.example.org": ("LetsEncrypt.org", True)})
-    result = _issue(tmp_path, run, one={"env": {"CADDY_TLS_MODE": "internal"}})
+    result = _issue(tmp_path, run, one={"env": {"TLS_MODE": "internal"}})
     assert result["removed"] == ["example.com", "old.example.org"]
     assert result["reload"]
     assert run.runs("openssl")
@@ -470,7 +470,7 @@ def test_helpers_stay_root_on_a_rootless_runtime(tmp_path, monkeypatch):
 
 # --- acme-dns ------------------------------------------------------------------ #
 
-DNS_ENV = {"CADDY_TLS_MODE": "acme-dns", "CLOUDFLARE_API_TOKEN": "tok-secret"}
+DNS_ENV = {"TLS_MODE": "acme-dns", "CLOUDFLARE_API_TOKEN": "tok-secret"}
 
 
 def test_acme_dns_issues_through_the_cloudflare_hook(tmp_path):
@@ -505,7 +505,7 @@ def test_switching_validation_method_reissues(tmp_path):
 
 
 def test_acme_dns_needs_a_token(tmp_path):
-    path = _instance(tmp_path, "one", env={"CADDY_TLS_MODE": "acme-dns"})
+    path = _instance(tmp_path, "one", env={"TLS_MODE": "acme-dns"})
     assert re.search("CLOUDFLARE_API_TOKEN is not set", _sync(FakeRunner(), tmp_path / "edge", "one", path)["error"])
 
 
@@ -548,7 +548,7 @@ def test_deny_lists_are_read_from_the_instance(tmp_path):
 def test_cdn_ranges_are_fetched(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "_fetch", lambda url: "192.0.2.0/24" if "v4" in url
                         else "2001:db8::/32")
-    path = _instance(tmp_path, "one", env={"CADDY_TRUSTED_PROXIES": "cloudflare"})
+    path = _instance(tmp_path, "one", env={"TRUSTED_PROXIES": "cloudflare"})
     _sync(FakeRunner(), tmp_path / "edge", "one", path)
     assert (tmp_path / "edge" / "conf" / "cdn-cloudflare.lst").read_text() == (
         "192.0.2.0/24\n2001:db8::/32\n")
@@ -571,7 +571,7 @@ def test_without_a_copy_the_bundled_ranges_are_used(tmp_path, monkeypatch):
 # --- Caddyfile.global sites ---------------------------------------------------- #
 
 def test_caddyfile_global_sites_are_routed_and_certified(tmp_path):
-    path = _instance(tmp_path, "one", env={"CADDY_TLS_MODE": "internal"})
+    path = _instance(tmp_path, "one", env={"TLS_MODE": "internal"})
     with open(os.path.join(path, "config", "Caddyfile.global"), "w") as f:
         f.write("{\n    email a@example.com\n}\n"
                 "www.example.com {\n    redir https://example.com{uri}\n}\n"
@@ -607,7 +607,7 @@ def test_an_instance_on_the_standard_ports_moves(tmp_path):
 
 
 @pytest.mark.parametrize("env,hosts", [
-    ({"CADDY_AUTO_HTTPS": "off"}, ("example.com",)),
+    ({"TLS_MODE": "off"}, ("example.com",)),
     ({"HTTP_PORT": "8080", "HTTPS_PORT": "8443"}, ("example.com:8443",)),
     ({}, ("localhost",)),
     ({}, ("192.0.2.4",)),

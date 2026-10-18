@@ -109,6 +109,7 @@ import yaml
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.canasta_config import get_config_dir, is_k8s_orchestrator
+from ansible.module_utils.canasta_env_keys import modernize_values
 from ansible.module_utils.canasta_edge_render import (
     ACME_IMAGE, CERT_DIR, CONFIG_DIR, DENY_CIDR_FILE, DENY_UA_FILE, EdgeError,
     HAPROXY_IMAGE, SPOA_IMAGE, cdn_providers, certificates, check_together,
@@ -342,7 +343,7 @@ def read_env(instance_path):
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
         env[key.strip()] = value
-    return env
+    return modernize_values(env)
 
 
 def write_layer(instance_path, instance_id, present, spoa=False):
@@ -548,7 +549,7 @@ def ensure_certificates(run, inspect, edge_dir, certificates, instances):
                  _read(os.path.join(src, entry["key"]))]
         if None in parts:
             raise EdgeError(
-                "Instance '%s': CADDY_TLS_MODE is 'custom' but %s or %s is "
+                "Instance '%s': TLS_MODE is 'custom' but %s or %s is "
                 "missing from %s." % (entry["instance"], entry["cert"],
                                       entry["key"], src))
         pem = "".join(p if p.endswith("\n") else p + "\n" for p in parts)

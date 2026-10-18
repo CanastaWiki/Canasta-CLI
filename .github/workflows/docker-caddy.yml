@@ -4,7 +4,7 @@
 # caddy-cdn-ranges).
 #
 # The caddy service runs this image when CrowdSec is enabled or a provider
-# trusted-proxy mode (CADDY_TRUSTED_PROXIES=cloudflare|imperva) is set. It
+# trusted-proxy mode (TRUSTED_PROXIES=cloudflare|imperva) is set. It
 # is versioned by the bundled Caddy release, not the Canasta-CLI VERSION
 # file, so it builds only when its Dockerfile changes or on manual
 # dispatch — independent of the canasta-ansible image pipeline in

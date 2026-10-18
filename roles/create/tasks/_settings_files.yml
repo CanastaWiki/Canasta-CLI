@@ -79,17 +79,17 @@
     mode: "0644"
 
 # --- TLS-related .env keys ---
-# K8s always disables Caddy auto-HTTPS because TLS is handled by the
-# ingress controller (Traefik) + cert-manager, not Caddy.
-- name: Set CADDY_AUTO_HTTPS=off
+# On Kubernetes the ingress and cert-manager handle TLS, so TLS_MODE is
+# not written there.
+- name: Set TLS_MODE=off
   canasta_env:
     path: "{{ instance_path }}/.env"
     state: set
-    key: CADDY_AUTO_HTTPS
+    key: TLS_MODE
     value: "off"
-  when: >-
-    instance_is_k8s | bool
-    or (skip_tls | default(false) | bool)
+  when:
+    - not (instance_is_k8s | bool)
+    - skip_tls | default(false) | bool
 
 # Persist --staging-certs as CANASTA_STAGING_CERTS so all TLS-
 # provisioning paths (Caddy ACME CA for Compose, cert-manager issuer

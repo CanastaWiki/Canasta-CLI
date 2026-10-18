@@ -1,4 +1,4 @@
-"""Guards for CADDY_TLS_MODE — acme, internal and custom origin certificates.
+"""Guards for TLS_MODE — acme, internal and custom origin certificates.
 
 The HAProxy edge obtains and serves every instance's certificates; Caddy is a
 plain internal HTTP server. These tests pin what stays with the instance: the
@@ -69,13 +69,13 @@ class TestSettingsAreDeclared:
 
     def test_all_three_settings_declared(self):
         names = self._names()
-        for key in ("CADDY_TLS_MODE", "CADDY_TLS_CERT", "CADDY_TLS_KEY"):
+        for key in ("TLS_MODE", "TLS_CERT", "TLS_KEY"):
             assert key in names, f"{key} is not declared in config defaults"
 
     def test_mode_defaults_to_acme(self):
         """Anything else would change behaviour for every existing instance."""
         src = _read(CONFIG_DEFAULTS)
-        block = src[src.index("CADDY_TLS_MODE"):]
+        block = src[src.index("TLS_MODE"):]
         assert re.search(r'default:\s*"acme"', block[:600])
 
 

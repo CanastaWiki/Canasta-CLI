@@ -127,61 +127,56 @@ canasta_known_keys:
     group: MediaWiki site
     description: Domain name (e.g., example.com)
 
-  - name: CADDY_AUTO_HTTPS
-    group: Caddy / TLS
-    description: >-
-      Set to "off" to serve the instance over plain HTTP, behind your own
-      TLS-terminating proxy
   - name: CANASTA_STAGING_CERTS
-    group: Caddy / TLS
+    group: TLS
     description: Use Let's Encrypt staging CA (untrusted, but avoids rate limits)
     default: "false"
-  - name: CADDY_TLS_MODE
-    group: Caddy / TLS
+  - name: TLS_MODE
+    group: TLS
     description: >-
-      How the HAProxy edge obtains the instance's certificates. "acme"
-      (default) uses Let's Encrypt.
-      "internal" issues from a local CA and never contacts ACME — correct
-      behind a CDN that terminates public TLS and does not validate the
-      origin certificate. "custom" serves CADDY_TLS_CERT and CADDY_TLS_KEY
-      from config/certs/. "acme-dns" uses Let's Encrypt with DNS
-      validation through ACME_DNS_PROVIDER.
+      How the HAProxy edge serves the instance on Docker Compose. "acme"
+      (default) gets certificates from Let's Encrypt. "acme-dns" uses Let's
+      Encrypt with DNS validation through ACME_DNS_PROVIDER. "internal"
+      issues them from the edge's own CA, for a CDN that does not validate
+      the origin certificate. "custom" serves TLS_CERT and TLS_KEY from
+      config/certs/. "off" serves the instance over plain HTTP on its
+      HTTP_PORT, behind your own TLS-terminating proxy.
     default: "acme"
-  - name: CADDY_TLS_CERT
-    group: Caddy / TLS
+  - name: TLS_CERT
+    group: TLS
     description: >-
-      Certificate filename within config/certs/, used when CADDY_TLS_MODE is
+      Certificate filename within config/certs/, used when TLS_MODE is
       "custom". config/certs/ is gitignored, so a private key placed there
       never reaches the gitops repository.
     default: "origin.crt"
-  - name: CADDY_TLS_KEY
-    group: Caddy / TLS
+  - name: TLS_KEY
+    group: TLS
     description: >-
-      Private key filename within config/certs/, used when CADDY_TLS_MODE is
+      Private key filename within config/certs/, used when TLS_MODE is
       "custom".
     default: "origin.key"
-  - name: CADDY_TRUSTED_PROXIES
-    group: Caddy / TLS
+  - name: TRUSTED_PROXIES
+    group: TLS
     description: >-
-      Recover real client IPs behind a CDN or proxy, at the HAProxy edge.
-      Set to "cloudflare" or "imperva", or a comma-separated
-      CIDR list of proxies whose X-Forwarded-For to trust. Unset = no CDN or
-      proxy in front (default).
+      The CDN or proxy in front of the instance, whose client-address header
+      to trust: "cloudflare", "imperva", or a comma-separated CIDR list of
+      proxies whose X-Forwarded-For to trust. Unset = nothing in front
+      (default).
   - name: ACME_DNS_PROVIDER
-    group: Caddy / TLS
+    group: TLS
     description: >-
-      DNS provider for CADDY_TLS_MODE=acme-dns. The supported provider is
+      DNS provider for TLS_MODE=acme-dns. The supported provider is
       "cloudflare" (the default), which uses CLOUDFLARE_API_TOKEN.
     default: "cloudflare"
   - name: CLOUDFLARE_API_TOKEN
-    group: Caddy / TLS
+    group: TLS
     description: >-
       Cloudflare API token with DNS edit permission for the instance's zone,
-      used by CADDY_TLS_MODE=acme-dns
+      used by TLS_MODE=acme-dns
   - name: CLOUDFLARE_ZONE_ID
-    group: Caddy / TLS
+    group: TLS
     description: >-
-      Cloudflare zone ID for CADDY_TLS_MODE=acme-dns; keeps the token with
+      Cloudflare zone ID for TLS_MODE=acme-dns; keeps the token with
       the instance's certificates, so instances with different tokens can
       share the edge
   - name: CANASTA_EDGE_RATE_DYNAMIC
@@ -215,7 +210,7 @@ canasta_known_keys:
       per client, since they never reach PHP
     default: "500"
   - name: CADDY_TRUSTED_PROXY_CIDRS
-    group: Caddy / TLS
+    group: Caddy
     description: >-
       Kubernetes only. Comma-separated CIDRs of the in-cluster ingress to
       trust so Caddy reads the real client IP. Defaults to the standard
