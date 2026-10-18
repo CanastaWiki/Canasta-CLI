@@ -1,0 +1,37 @@
+---
+# Decide how a host's Docker Compose instances move behind the HAProxy edge.
+# Shared by the move itself and by `upgrade --dry-run`.
+# Input: _edge_host_name, _edge_host_instances (the host's registry entries,
+#        as id -> entry items)
+# Output: _edge_plan (the canasta_edge plan result)
+
+- name: Point the connection at the host
+  ansible.builtin.set_fact:
+    _instance_host: "{{ _edge_host_name }}"
+
+- name: Switch connection to the host
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/switch_connection.yml"
+
+- name: Reset the instances to plan for
+  ansible.builtin.set_fact:
+    _edge_plan_input: []
+
+- name: List the host's instances for the plan
+  ansible.builtin.set_fact:
+    _edge_plan_input: >-
+      {{ _edge_plan_input + [{
+           'id': item.key, 'path': item.value.path,
+           'orchestrator': item.value.orchestrator | default('compose'),
+           'compose_command': item.value.composeCommand
+                              | default(_upgrade_default_compose_command),
+           'docker_host': item.value.dockerHost | default('')}] }}
+  loop: "{{ _edge_host_instances }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Decide which instances move behind the edge
+  canasta_edge:
+    state: plan
+    instances: "{{ _edge_plan_input }}"
+    inspect_command: "{{ _upgrade_default_inspect_command }}"
+  register: _edge_plan
