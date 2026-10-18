@@ -99,15 +99,6 @@ class TestTrustedProxiesConfigKey:
         assert "CADDY_TRUSTED_PROXIES" in content
         assert "'cloudflare', 'imperva'" in content
 
-    def test_rewrite_caddy_drives_dynamic_source(self):
-        content = _read(os.path.join(
-            REPO_ROOT, "roles", "orchestrator", "tasks", "rewrite_caddy.yml",
-        ))
-        assert "CADDY_TRUSTED_PROXIES" in content
-        assert "_tp_dynamic" in content
-        # The repo must not reload a vendored IP list anymore.
-        assert "_ips.yml" not in content
-
 
 class TestTrustedProxiesRendering:
     def test_disabled_emits_no_servers_block(self):
@@ -115,26 +106,6 @@ class TestTrustedProxiesRendering:
         assert "servers {" not in out
         assert "trusted_proxies" not in out
         assert not re.search(r"(?m)^\{\s*$", out)
-
-    def test_cloudflare_uses_dynamic_cdn_ranges(self):
-        out = _render_proxy("cloudflare", "Cf-Connecting-Ip", dynamic=True)
-        assert "client_ip_headers Cf-Connecting-Ip" in out
-        assert "trusted_proxies cdn_ranges" in out
-        assert "provider cloudflare" in out
-        assert "interval 12h" in out
-        # Dynamic, not a hard-coded static list.
-        assert "trusted_proxies static" not in out
-        assert "trusted_proxies_strict" not in out
-
-    def test_imperva_uses_dynamic_cdn_ranges_with_open_api(self):
-        out = _render_proxy("imperva", "Incap-Client-IP", dynamic=True)
-        assert "client_ip_headers Incap-Client-IP" in out
-        assert "trusted_proxies cdn_ranges" in out
-        assert "my.imperva.com/api/integration/v1/ips" in out
-        # JMESPath extraction of the two arrays Imperva's API returns.
-        assert '"ipRanges"' in out
-        assert '"ipv6Ranges"' in out
-        assert "trusted_proxies static" not in out
 
     def test_explicit_cidrs_use_static_xff_and_strict(self):
         out = _render_proxy(
@@ -232,31 +203,6 @@ class TestCaddyPluginImage:
         )
 
 
-class TestPortEightyRedirectServer:
-    def test_redirect_server_is_declared_for_each_name(self):
-        out = _render_proxy_with(
-            _redirect_server_names=["a.example.com", "b.example.com"])
-        assert "http://a.example.com, http://b.example.com {" in out
-        assert "redir https://{host}{uri} 308" in out
-        # Both servers must log to the file CrowdSec reads.
-        assert out.count("output file /var/log/caddy/access.log") == 2
-
-    def test_redirect_server_enforces_crowdsec_when_active(self):
-        out = _render_proxy_with(
-            _redirect_server_names=["a.example.com"], _crowdsec_active=True)
-        redirect_block = out[out.index("http://a.example.com {"):]
-        assert "crowdsec" in redirect_block.split("}")[0]
-
-    def test_no_redirect_server_when_no_names(self):
-        out = _render_proxy_with(_redirect_server_names=[])
-        assert "http://" not in out
-        assert "redir " not in out
-
-    def test_absent_variable_renders_nothing(self):
-        out = _render_proxy("cloudflare", "Cf-Connecting-Ip", dynamic=True)
-        assert "redir " not in out
-
-
 def _redirect_names(http_only, trusted, names, user_global=""):
     """Evaluate rewrite_caddy.yml's real _redirect_server_names expression."""
     tasks = yaml.safe_load(_read(os.path.join(
@@ -276,27 +222,3 @@ def _redirect_names(http_only, trusted, names, user_global=""):
         _caddyfile_global_content=user_global,
     )
     return ast.literal_eval(out.strip())
-
-
-class TestRedirectServerNameSelection:
-    def test_claims_every_wiki_server_name(self):
-        assert _redirect_names(
-            False, True, ["a.example.com", "b.example.com"],
-        ) == ["a.example.com", "b.example.com"]
-
-    def test_empty_without_trusted_proxies(self):
-        # Caddy's built-in redirect already logs the true client IP when
-        # nothing is in front of it.
-        assert _redirect_names(False, False, ["a.example.com"]) == []
-
-    def test_empty_in_plain_http_mode(self):
-        # K8s / CADDY_AUTO_HTTPS=off: there is no redirect to take over.
-        assert _redirect_names(True, True, ["a.example.com"]) == []
-
-    def test_skips_names_the_user_already_serves_over_http(self):
-        # Claiming one twice is "ambiguous site definition" — Caddy refuses to
-        # load the config at all.
-        assert _redirect_names(
-            False, True, ["a.example.com", "b.example.com"],
-            user_global="http://a.example.com {\n    respond ok\n}\n",
-        ) == ["b.example.com"]

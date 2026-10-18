@@ -1,10 +1,10 @@
 ---
 # Bring this instance's place behind the host's HAProxy edge, and the edge
-# itself, in line with CANASTA_ENABLE_EDGE. Runs before the instance's
-# containers start, because its Caddy joins the edge's network.
+# itself, in line. Runs before the instance's containers start, because its
+# Caddy joins the edge's network.
 #
 # Input: instance_path, instance_id (or id during create)
-# Optional: edge_member (present/absent), to override .env, as delete does.
+# Optional: edge_member: absent, to take the instance out, as delete does.
 
 - name: Render and stage the edge
   canasta_edge:
@@ -48,35 +48,6 @@
   loop_control:
     label: "{{ item.instance }}: {{ item.address }}"
 
-# Checked here rather than left to `up`, whose port conflict reads as a raw
-# Docker error.
-- name: Read the addresses this instance's Caddy publishes
-  canasta_env:
-    path: "{{ instance_path }}/.env"
-    state: read_all
-  register: _edge_instance_env
-  no_log: true  # registers the whole .env, including passwords
-  when:
-    - (instance_id | default(id)) not in (_edge.members | default([]))
-    - _edge.running | default(false) | bool
-
-- name: Refuse ports the edge owns
-  ansible.builtin.fail:
-    msg: >-
-      This instance publishes port
-      {{ _edge_taken | join(' and ') }}, which the HAProxy edge holds for
-      {{ _edge.members | join(', ') }}. Put the instance behind the edge
-      (CANASTA_ENABLE_EDGE=true), or give it other ports with HTTP_PORT and
-      HTTPS_PORT.
-  vars:
-    _edge_taken: >-
-      {{ [_edge_instance_env.variables.CANASTA_CADDY_HTTP_PUBLISH | default('80', true),
-          _edge_instance_env.variables.CANASTA_CADDY_HTTPS_PUBLISH | default('443', true)]
-         | select('in', _edge.ports | default([80, 443]) | map('string') | list) | list }}
-  when:
-    - _edge_instance_env is not skipped
-    - _edge_taken | length > 0
-
 - name: Find what else listens on the edge's ports
   ansible.builtin.shell:
     cmd: |
@@ -107,8 +78,8 @@
       {{ _edge.ports | default([80, 443]) | join(', ') }}, but something is
       already listening on them:
       {{ _edge_port_holders.stdout | trim }}.
-      Stop it, or leave the edge off (CANASTA_ENABLE_EDGE=false) and give
-      this instance its own ports.
+      Stop it, or give the instances behind the edge other ports with
+      HTTP_PORT and HTTPS_PORT.
   when:
     - _edge_port_holders is not skipped
     - _edge_port_holders.stdout | default('') | trim | length > 0

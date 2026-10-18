@@ -1,0 +1,10 @@
+---
+# Migration: drop CANASTA_ENABLE_EDGE. Every Compose instance is behind the
+# HAProxy edge, so the setting no longer means anything.
+
+- name: Remove CANASTA_ENABLE_EDGE
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: unset
+    key: CANASTA_ENABLE_EDGE
+  when: _mig.env_present.CANASTA_ENABLE_EDGE | default(false) | bool

@@ -8,66 +8,11 @@ from ._helpers import register
 
 @register("start")
 def cmd_start(args):
-    inst_id, inst = _helpers._resolve_instance(args)
-    if _helpers._is_k8s(inst):
-        # K8s start requires chart copy + helm deploy + config sync;
-        # these are multi-step controller-to-remote operations that
-        # need Ansible.
-        return _helpers.FALLBACK
-    if _helpers._instance_has_sidecars(inst):
-        return _helpers.FALLBACK  # Ansible renders + layers the sidecars.
-    # Check if the instance is already running before attempting start.
-    # podman-compose's `up -d` fails with container name conflicts when
-    # the containers already exist, unlike Docker Compose which treats
-    # them as a no-op.
-    path = inst.get("path", "")
-    host = inst.get("host") or "localhost"
-    docker_host = inst.get("dockerHost")
-    compose_cmd = _helpers._resolve_compose_cmd(inst)
-    # Sync first: a feature flag toggled since the last converge changes
-    # which services the profiles imply, and the running check below is
-    # only meaningful against the reconciled list.
-    env = _helpers._sync_compose_profiles(inst)
-    # Ansible renders the edge and the instance's layer for it.
-    if _helpers._edge_enabled(env or {}):
-        return _helpers.FALLBACK
-    _helpers._backfill_db_defaults(inst)
-    # Ansible's start re-creates MediaWiki's own database account if the
-    # database server lost it; that step has no fast-path copy.
-    if _helpers._uses_wiki_db_account(env):
-        return _helpers.FALLBACK
-    # Nor do its CrowdSec steps: writing the files the crowdsec container
-    # bind-mounts, and enrolling the Caddy bouncer.
-    if _helpers._crowdsec_setup_pending(inst, env):
-        return _helpers.FALLBACK
-    if _helpers._check_running_compose(path, host, docker_host, compose_cmd):
-        missing = _helpers._missing_profile_services(inst, compose_cmd)
-        if not missing:
-            print("Instance '%s' is already running." % inst_id)
-            _helpers._warn_composer_failure(inst_id, inst)
-            return 0
-        print("Starting %s..." % ", ".join(missing))
-    # Before 'up', not after a failure: MariaDB ignores the root-password
-    # variable once its volume holds a database, so compose comes up
-    # clean and only MediaWiki notices it cannot authenticate. Starting
-    # first would leave a wiki serving 500s and report success. Whether
-    # generating a replacement is safe depends on there being no database
-    # to lock out, which the Ansible path decides — hand the broken case
-    # over rather than duplicating that judgement here. The .env read is
-    # free: _sync_compose_profiles just parsed it.
-    if _helpers._missing_db_password(inst, env):
-        return _helpers.FALLBACK
-    rc = _helpers._run_compose(inst_id, inst, ["up", "-d"], quiet=True)
-    if rc != 0:
-        _helpers._dump_compose_failure(inst)
-        return rc
-    rc = _helpers._wait_web_ready(inst_id, inst)
-    if rc == 0:
-        _helpers._rootless_operator_chown(inst)
-        print("Instance '%s' started." % inst_id)
-        # Startup composer has finished once web is ready.
-        _helpers._warn_composer_failure(inst_id, inst)
-    return rc
+    # Ansible starts every instance: K8s needs its chart deployed and
+    # config synced, and every Compose instance's place behind the HAProxy
+    # edge is rendered there.
+    _helpers._resolve_instance(args)
+    return _helpers.FALLBACK
 
 
 @register("stop")

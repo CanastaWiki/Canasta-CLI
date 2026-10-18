@@ -273,20 +273,6 @@ class TestCaddyfileRendering:
         out = _render_caddyfile(_crowdsec_active=False, _backend="web:80")
         assert "reverse_proxy web:80" in out
 
-    def test_staging_and_crowdsec_share_one_global_block(self):
-        """Caddy allows only one global options block. When both staging
-        certs and crowdsec are active, both directives must appear inside
-        a single block."""
-        out = _render_caddyfile(_crowdsec_active=True, _staging_certs=True)
-        assert "acme_ca" in out
-        assert "order crowdsec first" in out
-        # Exactly one global-options opener: a line that is just '{'.
-        openers = re.findall(r"(?m)^\{\s*$", out)
-        assert len(openers) == 1, (
-            "staging + crowdsec must merge into a single global options "
-            "block, got %d" % len(openers)
-        )
-
     def test_user_global_block_inlined_and_melded(self):
         """A global options block in Caddyfile.global is inlined and melded
         with the CLI global block — Caddy permits exactly one."""
@@ -1812,21 +1798,6 @@ class TestCrowdsecK8sTrustedProxy:
         assert "cdn_ranges {" in out
         assert "provider cloudflare" in out
         assert "client_ip_headers Cf-Connecting-Ip" in out
-
-    def test_compose_cdn_still_standalone(self):
-        # Regression: Compose (the edge) keeps cdn_ranges standalone, no combine.
-        out = _render_caddyfile(
-            _crowdsec_active=True,
-            _trusted_proxies_enabled=True,
-            _tp_combine=False,
-            _tp_dynamic=True,
-            _tp_mode="cloudflare",
-            _trusted_proxies_headers="Cf-Connecting-Ip",
-            _trusted_proxies_strict=False,
-            _trusted_proxies_cidrs=[],
-        )
-        assert "trusted_proxies cdn_ranges {" in out
-        assert "combine" not in out
 
 
 BOUNCER_ENROLL = os.path.join(

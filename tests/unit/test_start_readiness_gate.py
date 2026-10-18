@@ -16,7 +16,6 @@ import pytest
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
 
-import direct_commands  # noqa: E402
 from direct_commands import _helpers  # noqa: E402
 
 
@@ -172,27 +171,3 @@ class TestLifecycleGating:
             _helpers, "_run_compose",
             lambda inst_id, inst, action, **kw: events.append(action[0]) or 0)
         return type("Args", (), {"id": "test"})()
-
-    def test_start_returns_the_gates_failure(self, monkeypatch):
-        events = []
-        args = self._inst(monkeypatch, events)
-        monkeypatch.setattr(_helpers, "_wait_web_ready",
-                            lambda i, inst: events.append("wait") or 1)
-        assert direct_commands.cmd_start(args) == 1
-        assert events == ["up", "wait"]
-
-    def test_start_does_not_wait_when_up_failed(self, monkeypatch):
-        events = []
-        monkeypatch.setattr(
-            _helpers, "_resolve_instance", lambda args: ("test", dict(DOCKER)))
-        monkeypatch.setattr(_helpers, "_sync_compose_profiles",
-                            lambda inst: None)
-        monkeypatch.setattr(_helpers, "_run_compose",
-                            lambda inst_id, inst, action, **kw: 1)
-        monkeypatch.setattr(_helpers, "_dump_compose_failure",
-                            lambda inst, **kw: events.append("dump"))
-        monkeypatch.setattr(_helpers, "_wait_web_ready",
-                            lambda i, inst: events.append("wait") or 0)
-        args = type("Args", (), {"id": "test"})()
-        assert direct_commands.cmd_start(args) == 1
-        assert events == ["dump"]

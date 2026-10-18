@@ -74,22 +74,6 @@ class TestStagingCerts:
 
     # --- Compose: rewrite_caddy.yml must read the .env key ---
 
-    def test_rewrite_caddy_reads_staging_certs_env(self):
-        """Compose path: rewrite_caddy.yml must read
-        CANASTA_STAGING_CERTS from .env and expose it as
-        _staging_certs for Caddyfile.j2 rendering."""
-        path = os.path.join(
-            REPO_ROOT, "roles", "orchestrator", "tasks", "rewrite_caddy.yml",
-        )
-        with open(path) as f:
-            content = f.read()
-        assert "CANASTA_STAGING_CERTS" in content, (
-            "rewrite_caddy.yml must read CANASTA_STAGING_CERTS from .env"
-        )
-        assert "_staging_certs" in content, (
-            "rewrite_caddy.yml must expose _staging_certs to the template"
-        )
-
     def test_staging_certs_is_a_known_config_key(self):
         path = os.path.join(
             REPO_ROOT, "roles", "config", "defaults", "main.yml",
@@ -128,18 +112,6 @@ class TestStagingCerts:
         assert "_staging_certs" in content
         assert "letsencrypt-staging" in content
         assert "letsencrypt-prod" in content
-
-    def test_caddyfile_template_emits_acme_ca_for_staging(self):
-        """Compose path: Caddyfile.j2 must emit acme_ca pointing at
-        the staging directory when _staging_certs is true."""
-        path = os.path.join(
-            REPO_ROOT, "roles", "orchestrator", "templates", "Caddyfile.j2",
-        )
-        with open(path) as f:
-            content = f.read()
-        assert "_staging_certs" in content
-        assert "acme_ca" in content
-        assert "acme-staging-v02.api.letsencrypt.org" in content
 
     def test_side_effects_propagates_staging_certs(self):
         """Changing CANASTA_STAGING_CERTS via config set on a K8s
@@ -188,34 +160,6 @@ class TestStagingCerts:
         # typos that a naive string match would miss.
         parsed = yaml.safe_load(out)
         assert parsed["ingress"]["certManager"]["issuer"] == expected_issuer
-
-    @pytest.mark.parametrize("staging,expect_acme_ca", [
-        (True, True),
-        (False, False),
-    ])
-    def test_caddyfile_template_emits_acme_ca_only_for_staging(
-        self, staging, expect_acme_ca,
-    ):
-        path = os.path.join(
-            REPO_ROOT, "roles", "orchestrator", "templates", "Caddyfile.j2",
-        )
-        out = _render_template(
-            path,
-            _site_address="example.com",
-            _backend="varnish:80",
-            _observable=False,
-            _os_user="",
-            _os_password_hash="",
-            _staging_certs=staging,
-        )
-        has_acme_ca = "acme_ca" in out
-        has_staging_url = "acme-staging-v02.api.letsencrypt.org" in out
-        assert has_acme_ca is expect_acme_ca, (
-            "acme_ca directive should %s" %
-            ("appear when staging=true" if staging
-             else "NOT appear when staging=false")
-        )
-        assert has_staging_url is expect_acme_ca
 
     @pytest.mark.parametrize("config_value,expected_issuer", [
         ("true", "letsencrypt-staging"),

@@ -1,11 +1,9 @@
-"""New Compose instances go behind the HAProxy edge by default, and upgrade
-moves existing ones there.
+"""Every Compose instance is behind the HAProxy edge: create puts new ones
+there, and upgrade moves existing ones.
 
-The create preflight decides, since it runs before anything binds ports: an
-instance goes behind the edge unless the -e env file says otherwise, the
-instance cannot be routed by hostname, or the env file asks for its own
-ports or for Caddy to sit behind another proxy. The real preflight task runs
-here against a temp env file.
+Create refuses only what cannot run the edge: rootless Podman without the
+operator's systemd user session, which gives the edge its ports. The real
+preflight task runs here.
 """
 
 import json
@@ -29,61 +27,34 @@ def _walk(tasks):
             yield from _walk(t.get(key))
 
 
-def _decide(tmp_path, env_lines, domain="example.com", **extra):
+def _preflight(tmp_path, **variables):
     with open(PREFLIGHT) as f:
         tasks = list(_walk(yaml.safe_load(f)))
-    names = ("Read the custom env file for port overrides",
-             "Resolve the ports this instance will bind")
-    chosen = [next(t for t in tasks if t.get("name") == n) for n in names]
-    envfile = tmp_path / "custom.env"
-    envfile.write_text("".join(line + "\n" for line in env_lines))
-    out = tmp_path / "out.json"
+    task = next(t for t in tasks
+                if t.get("name") == "Refuse rootless Podman without a systemd user session")
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
-        "hosts": "localhost",
-        "connection": "local",
-        "gather_facts": False,
-        "vars": dict({"envfile": str(envfile), "domain_name": domain,
-                      "ansible_python_interpreter": sys.executable}, **extra),
-        "tasks": chosen + [{"ansible.builtin.copy": {
-            "content": "{{ create_behind_edge | bool | to_json }}", "dest": str(out)}}],
+        "hosts": "localhost", "connection": "local", "gather_facts": False,
+        "vars": dict(variables, ansible_python_interpreter=sys.executable),
+        "tasks": [task],
     }]))
-    env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
-               ANSIBLE_LIBRARY=os.path.join(COMMON, "library"),
-               ANSIBLE_MODULE_UTILS=os.path.join(COMMON, "module_utils"))
+    env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0")
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
-    proc = subprocess.run(
-        [playbook, "-i", "localhost,canasta_controller,", "-l", "localhost", str(play)],
-        capture_output=True, text=True, env=env, cwd=tmp_path)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    return json.loads(out.read_text())
+    return subprocess.run([playbook, "-i", "localhost,", str(play)],
+                          capture_output=True, text=True, env=env, cwd=tmp_path)
 
 
-@pytest.mark.parametrize("env_lines,domain,extra,expected", [
-    ([], "example.com", {}, True),
-    ([], "localhost", {}, True),
-    ([], "wiki.localhost", {}, True),
-    ([], "192.0.2.4", {}, True),
-    ([], "example.com", {"skip_tls": True}, True),
-    (["HTTPS_PORT=8443"], "example.com", {}, True),
-    (["HTTP_PORT=8080"], "example.com", {}, True),
-    (["CADDY_AUTO_HTTPS=off"], "example.com", {}, True),
-    (["HTTP_PORT=80", "HTTPS_PORT=443"], "example.com", {}, True),
-    (["CANASTA_ENABLE_EDGE=false"], "example.com", {}, False),
-    (["CANASTA_ENABLE_EDGE=true", "HTTPS_PORT=8443"], "example.com", {}, True),
-    ([], "example.com", {"compose_command": "podman-compose"}, False),
-    ([], "example.com", {"compose_command": "podman-compose",
-                         "_preflight_user_systemd": {"rc": 0}}, True),
-    ([], "example.com", {"compose_command": "podman-compose",
-                         "_preflight_user_systemd": {"rc": 1}}, False),
-    ([], "example.com", {"_preflight_docker_info": {"stdout": '["name=rootless"]'}}, True),
-    ([], "example.com", {"_preflight_docker_info": {"stdout": '["name=seccomp"]'}}, True),
-    (["CANASTA_ENABLE_EDGE=true"], "example.com",
-     {"_preflight_docker_info": {"stdout": '["name=rootless"]'}}, True),
-    (["CANASTA_ENABLE_EDGE=true"], "example.com", {"compose_command": "podman-compose"}, True),
+@pytest.mark.parametrize("variables,refused", [
+    ({"compose_command": "docker compose"}, False),
+    ({"compose_command": "podman-compose", "_preflight_user_systemd": {"rc": 0}}, False),
+    ({"compose_command": "podman-compose", "_preflight_user_systemd": {"rc": 1}}, True),
+    ({"compose_command": "podman-compose"}, True),
 ])
-def test_create_decides_whether_to_use_the_edge(tmp_path, env_lines, domain, extra, expected):
-    assert _decide(tmp_path, env_lines, domain, **extra) is expected
+def test_create_refuses_only_podman_without_a_user_session(tmp_path, variables, refused):
+    proc = _preflight(tmp_path, **variables)
+    assert (proc.returncode != 0) is refused, proc.stdout
+    if refused:
+        assert "systemd user session" in proc.stdout
 
 
 def test_upgrade_moves_hosts_before_instances_upgrade():

@@ -152,16 +152,13 @@
     - _current_caddy_image == '' or _current_caddy_image.startswith(_managed_caddy_prefix)
     - _current_caddy_image != (_plugin_needed | ternary(_plugin_caddy_image, ''))
 
-# The addresses the caddy service publishes. Behind the edge, which owns 80
-# and 443, Caddy gets random loopback ports instead. Match _helpers.py.
+# The addresses the caddy service publishes: random loopback ports, since
+# the HAProxy edge owns the instance's ports. Match _helpers.py.
 - name: Reconcile the addresses Caddy publishes
   vars:
-    _edge_on: "{{ _env_profiles.variables.CANASTA_ENABLE_EDGE | default('false', true) | lower == 'true' }}"
     _publish:
-      CANASTA_CADDY_HTTP_PUBLISH: >-
-        {{ _edge_on | ternary('127.0.0.1:', _env_profiles.variables.HTTP_PORT | default('80', true)) }}
-      CANASTA_CADDY_HTTPS_PUBLISH: >-
-        {{ _edge_on | ternary('127.0.0.1:', _env_profiles.variables.HTTPS_PORT | default('443', true)) }}
+      CANASTA_CADDY_HTTP_PUBLISH: "127.0.0.1:"
+      CANASTA_CADDY_HTTPS_PUBLISH: "127.0.0.1:"
   canasta_env:
     path: "{{ instance_path }}/.env"
     state: set

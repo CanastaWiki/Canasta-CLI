@@ -35,11 +35,11 @@ canasta_known_keys:
     default: "false"
   - name: HTTP_PORT
     group: Network
-    description: HTTP port
+    description: HTTP port the HAProxy edge serves the instance on
     default: "80"
   - name: HTTPS_PORT
     group: Network
-    description: HTTPS port
+    description: HTTPS port the HAProxy edge serves the instance on
     default: "443"
 
   - name: PHP_UPLOAD_MAX_FILESIZE
@@ -129,7 +129,9 @@ canasta_known_keys:
 
   - name: CADDY_AUTO_HTTPS
     group: Caddy / TLS
-    description: Set to "off" behind a reverse proxy
+    description: >-
+      Set to "off" to serve the instance over plain HTTP, behind your own
+      TLS-terminating proxy
   - name: CANASTA_STAGING_CERTS
     group: Caddy / TLS
     description: Use Let's Encrypt staging CA (untrusted, but avoids rate limits)
@@ -137,12 +139,12 @@ canasta_known_keys:
   - name: CADDY_TLS_MODE
     group: Caddy / TLS
     description: >-
-      How the instance's certificates are obtained, by Caddy or, behind the
-      HAProxy edge, by the edge. "acme" (default) uses Let's Encrypt.
+      How the HAProxy edge obtains the instance's certificates. "acme"
+      (default) uses Let's Encrypt.
       "internal" issues from a local CA and never contacts ACME — correct
       behind a CDN that terminates public TLS and does not validate the
       origin certificate. "custom" serves CADDY_TLS_CERT and CADDY_TLS_KEY
-      from config/certs/. "acme-dns" (edge only) uses Let's Encrypt with DNS
+      from config/certs/. "acme-dns" uses Let's Encrypt with DNS
       validation through ACME_DNS_PROVIDER.
     default: "acme"
   - name: CADDY_TLS_CERT
@@ -161,8 +163,8 @@ canasta_known_keys:
   - name: CADDY_TRUSTED_PROXIES
     group: Caddy / TLS
     description: >-
-      Recover real client IPs behind a CDN or proxy, in Caddy and at the
-      HAProxy edge. Set to "cloudflare" or "imperva", or a comma-separated
+      Recover real client IPs behind a CDN or proxy, at the HAProxy edge.
+      Set to "cloudflare" or "imperva", or a comma-separated
       CIDR list of proxies whose X-Forwarded-For to trust. Unset = no CDN or
       proxy in front (default).
   - name: ACME_DNS_PROVIDER
@@ -182,13 +184,6 @@ canasta_known_keys:
       Cloudflare zone ID for CADDY_TLS_MODE=acme-dns; keeps the token with
       the instance's certificates, so instances with different tokens can
       share the edge
-  - name: CANASTA_ENABLE_EDGE
-    group: HAProxy edge
-    description: >-
-      true puts the instance behind the host's HAProxy edge, which serves
-      ports 80 and 443 for every instance on the host, terminates TLS and
-      throttles scrapers. false leaves Caddy serving the instance's own
-      ports. Set by create and upgrade
   - name: CANASTA_EDGE_RATE_DYNAMIC
     group: HAProxy edge
     description: >-

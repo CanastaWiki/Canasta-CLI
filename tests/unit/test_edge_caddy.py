@@ -57,20 +57,6 @@ def _caddyfile(tmp_path, env_lines, expect_fail=False, global_text=None):
     return (inst / "config" / "Caddyfile").read_text()
 
 
-def test_caddy_is_the_tls_edge_by_default(tmp_path):
-    out = _caddyfile(tmp_path, [])
-    assert "\nexample.com {" in out
-    assert "trusted_proxies" not in out
-
-
-@pytest.mark.parametrize("flag", ["true", "TRUE"])
-def test_behind_the_edge_caddy_serves_http_only(tmp_path, flag):
-    out = _caddyfile(tmp_path, ["CANASTA_ENABLE_EDGE=%s" % flag,
-                                "CADDY_AUTO_HTTPS=on", "CADDY_TLS_MODE=internal"])
-    assert "\nhttp://example.com {" in out
-    assert "tls internal" not in out
-
-
 EDGE_TRUST = "trusted_proxies static 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 fc00::/7"
 
 
@@ -84,7 +70,7 @@ def test_behind_the_edge_caddy_trusts_only_the_edge_x_forwarded_for(tmp_path, ex
     # The edge recovers the client address and appends it to
     # X-Forwarded-For; Caddy must pass that on to MediaWiki, and must not
     # read a CDN header a client could set itself.
-    out = _caddyfile(tmp_path, ["CANASTA_ENABLE_EDGE=true"] + extra)
+    out = _caddyfile(tmp_path, extra)
     assert EDGE_TRUST in out
     assert "client_ip_headers X-Forwarded-For" in out
     assert "trusted_proxies_strict" in out
@@ -93,19 +79,8 @@ def test_behind_the_edge_caddy_trusts_only_the_edge_x_forwarded_for(tmp_path, ex
     assert "203.0.113.0/24" not in out
 
 
-def test_without_the_edge_a_cdn_mode_stands_alone(tmp_path):
-    out = _caddyfile(tmp_path, ["CADDY_TRUSTED_PROXIES=cloudflare"])
-    assert "trusted_proxies cdn_ranges {" in out
-    assert "combine" not in out
-
-
-def test_acme_dns_is_refused_without_the_edge(tmp_path):
-    out = _caddyfile(tmp_path, ["CADDY_TLS_MODE=acme-dns"], expect_fail=True)
-    assert "needs CANASTA_ENABLE_EDGE=true" in out
-
-
 def test_acme_dns_behind_the_edge_renders(tmp_path):
-    out = _caddyfile(tmp_path, ["CANASTA_ENABLE_EDGE=true", "CADDY_TLS_MODE=acme-dns"])
+    out = _caddyfile(tmp_path, ["CADDY_TLS_MODE=acme-dns"])
     assert "\nhttp://example.com {" in out
 
 
@@ -113,10 +88,17 @@ WWW_REDIRECT = "www.example.com {\n    redir https://example.com{uri} 301\n}\n"
 
 
 def test_behind_the_edge_user_sites_are_served_over_http(tmp_path):
-    out = _caddyfile(tmp_path, ["CANASTA_ENABLE_EDGE=true"], global_text=WWW_REDIRECT)
+    out = _caddyfile(tmp_path, [], global_text=WWW_REDIRECT)
     assert "\nhttp://www.example.com {" in out
 
 
-def test_without_the_edge_user_sites_are_left_alone(tmp_path):
-    out = _caddyfile(tmp_path, [], global_text=WWW_REDIRECT)
-    assert "\nwww.example.com {" in out
+@pytest.mark.parametrize("env", [
+    [],
+    ["CADDY_AUTO_HTTPS=on", "CADDY_TLS_MODE=internal"],
+    ["CADDY_TLS_MODE=custom", "CANASTA_STAGING_CERTS=true"],
+])
+def test_caddy_is_always_an_internal_http_server(tmp_path, env):
+    # The edge terminates TLS for every Compose instance.
+    out = _caddyfile(tmp_path, env)
+    assert "\nhttp://example.com {" in out
+    assert "tls " not in out and "acme_ca" not in out and "redir https" not in out

@@ -108,29 +108,6 @@ class TestTheFourNonObviousRequirements:
         assert "tls_server_name images.example.com" not in blk
 
 
-class TestMediaBlocksInheritTheTlsMode:
-    """The point of generating these blocks is that the operator no longer
-    maintains the TLS directive in two files."""
-
-    def test_internal(self):
-        blk = _media_block(_render(_tls_mode="internal", _media_hosts=[HOST]))
-        assert "tls internal" in blk
-
-    def test_custom(self):
-        blk = _media_block(_render(_tls_mode="custom", _media_hosts=[HOST]))
-        assert "tls /etc/caddy/certs/origin.crt /etc/caddy/certs/origin.key" in blk
-
-    def test_acme_emits_nothing(self):
-        blk = _media_block(_render(_tls_mode="acme", _media_hosts=[HOST]))
-        assert not any(l.strip().startswith("tls ") for l in blk.splitlines())
-
-    def test_skipped_on_kubernetes(self):
-        """The ingress terminates TLS there; Caddy serves plain HTTP."""
-        blk = _media_block(
-            _render(_tls_mode="internal", _http_only=True, _media_hosts=[HOST]))
-        assert "tls internal" not in blk
-
-
 class TestMediaBlocksFollowHttpOnly:
     """Without the http:// scheme Caddy enables automatic HTTPS for the
     hostname even when the main site is HTTP-only, and redirects port 80 to
@@ -139,11 +116,6 @@ class TestMediaBlocksFollowHttpOnly:
     def test_http_only_prefixes_the_address(self):
         out = _render(_http_only=True, _media_hosts=[HOST])
         assert "\nhttp://images.example.com {" in out
-
-    def test_https_leaves_the_address_bare(self):
-        out = _render(_http_only=False, _media_hosts=[HOST])
-        assert "\nimages.example.com {" in out
-        assert "http://images.example.com" not in out
 
 
 class TestMultipleHosts:

@@ -75,14 +75,6 @@ ARGS = type("Args", (), {"id": "test"})()
 
 
 class TestStartStopOutput:
-    def test_start_is_quiet_and_reports_started(self, external_db_instance,
-                                                capsys):
-        assert direct_commands.cmd_start(ARGS) == 0
-        out, err = capsys.readouterr()
-        assert "Container" not in out + err
-        assert out.strip().splitlines()[-1] == "Instance 'test' started."
-        assert external_db_instance["call"] == []
-        assert external_db_instance["run"][0][0][-2:] == ["up", "-d"]
 
     def test_stop_is_quiet_and_reports_stopped(self, external_db_instance,
                                                capsys):
@@ -100,22 +92,6 @@ class TestStartStopOutput:
         out, err = capsys.readouterr()
         assert "stopped" not in out
         assert "Container test-web-1  Started" in err
-
-    def test_failed_start_shows_compose_output_and_no_outcome(
-            self, external_db_instance, monkeypatch, capsys):
-        external_db_instance["rc"] = 1
-        monkeypatch.setattr(_helpers, "_dump_compose_failure",
-                            lambda inst, **kw: None)
-        assert direct_commands.cmd_start(ARGS) == 1
-        out, err = capsys.readouterr()
-        assert "started" not in out
-        assert "Container test-web-1  Started" in err
-
-    def test_failed_readiness_gate_reports_no_outcome(
-            self, external_db_instance, monkeypatch, capsys):
-        monkeypatch.setattr(_helpers, "_wait_web_ready", lambda i, inst: 1)
-        assert direct_commands.cmd_start(ARGS) == 1
-        assert "started" not in capsys.readouterr().out
 
 
 BUNDLED_DB_ROOT_ENV = {"MYSQL_PASSWORD": "pw", "WIKI_DB_USER": "root"}
@@ -137,15 +113,6 @@ class TestBundledDatabase:
         out, err = capsys.readouterr()
         assert "Container" not in out + err
         assert out.strip() == "Instance 'test' stopped."
-
-    def test_start_on_root_account_is_quiet_and_reports_started(
-            self, external_db_instance, monkeypatch, capsys):
-        monkeypatch.setattr(_helpers, "_sync_compose_profiles",
-                            lambda inst: dict(BUNDLED_DB_ROOT_ENV))
-        assert direct_commands.cmd_start(ARGS) == 0
-        out, err = capsys.readouterr()
-        assert "Container" not in out + err
-        assert out.strip().splitlines()[-1] == "Instance 'test' started."
 
     def test_start_on_own_account_still_hands_over_to_ansible(
             self, external_db_instance, monkeypatch):

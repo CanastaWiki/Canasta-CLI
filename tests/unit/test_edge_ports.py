@@ -84,46 +84,7 @@ def _tasks(path, *names):
     return [found[n] for n in names]
 
 
-# --- config set CANASTA_ENABLE_EDGE -------------------------------------------- #
-
-def _side_effect(tmp_path, inst, value):
-    return _play(tmp_path, [{"ansible.builtin.include_tasks":
-                             os.path.join(CONFIG_TASKS, "_side_effects.yml")}],
-                 {"instance_path": str(inst), "_config_key": "CANASTA_ENABLE_EDGE",
-                  "_config_value": value})
-
-
-def test_joining_the_edge_drops_the_port(tmp_path):
-    inst = _instance(tmp_path, {"HTTPS_PORT": "8443"}, url="example.com:8443/docs")
-    _side_effect(tmp_path, inst, "true")
-    assert _url(inst) == "example.com/docs"
-    assert _env(inst)["MW_SITE_SERVER"] == "https://example.com"
-    assert _env(inst)["MW_SITE_FQDN"] == "example.com"
-
-
-def test_joining_the_edge_serves_https_even_if_caddy_was_http_only(tmp_path):
-    inst = _instance(tmp_path, {"CADDY_AUTO_HTTPS": "off", "HTTP_PORT": "8080"},
-                     url="example.com:8080")
-    _side_effect(tmp_path, inst, "true")
-    assert _url(inst) == "example.com"
-    assert _env(inst)["MW_SITE_SERVER"] == "https://example.com"
-
-
-def test_leaving_the_edge_restores_the_instance_port(tmp_path):
-    inst = _instance(tmp_path, {"HTTPS_PORT": "8443"})
-    _side_effect(tmp_path, inst, "false")
-    assert _url(inst) == "example.com:8443"
-    assert _env(inst)["MW_SITE_SERVER"] == "https://example.com:8443"
-
-
-def test_a_non_boolean_value_is_refused(tmp_path):
-    inst = _instance(tmp_path, {})
-    out = _play(tmp_path, [{"ansible.builtin.include_tasks":
-                            os.path.join(CONFIG_TASKS, "_side_effects.yml")}],
-                {"instance_path": str(inst), "_config_key": "CANASTA_ENABLE_EDGE",
-                 "_config_value": "yes"}, expect_fail=True)
-    assert "must be 'true' or 'false'" in out
-
+# --- config set ------------------------------------------------------------- #
 
 def test_port_and_tls_keys_are_not_blocked_behind_the_edge():
     with open(os.path.join(CONFIG_TASKS, "_validate_key.yml")) as f:
@@ -146,33 +107,27 @@ def _create_domain(tmp_path, env, domain="example.com", **extra):
 
 
 def test_create_behind_the_edge_keeps_the_port(tmp_path):
-    result = _create_domain(tmp_path, {"CANASTA_ENABLE_EDGE": "true",
-                                       "HTTPS_PORT": "8443"})
+    result = _create_domain(tmp_path, {"HTTPS_PORT": "8443"})
     assert result["domain"].strip() == "example.com:8443"
     assert str(result["http_only"]).strip() == "False"
 
 
 def test_create_behind_the_edge_with_skip_tls_is_plain_http(tmp_path):
-    result = _create_domain(tmp_path, {"CANASTA_ENABLE_EDGE": "true", "HTTP_PORT": "8080"},
+    result = _create_domain(tmp_path, {"HTTP_PORT": "8080"},
                             skip_tls=True)
     assert result["domain"].strip() == "example.com:8080"
     assert str(result["http_only"]).strip() == "True"
 
 
-def test_create_without_the_edge_keeps_the_port(tmp_path):
-    result = _create_domain(tmp_path, {"HTTPS_PORT": "8443"})
-    assert result["domain"].strip() == "example.com:8443"
-
-
 @pytest.mark.parametrize("domain", ["localhost", "wiki.localhost", "192.0.2.4"])
 def test_create_behind_the_edge_accepts_unnamed_hosts(tmp_path, domain):
-    assert _create_domain(tmp_path, {"CANASTA_ENABLE_EDGE": "true"}, domain)["domain"].strip() == domain
+    assert _create_domain(tmp_path, {}, domain)["domain"].strip() == domain
 
 
 # --- add ---------------------------------------------------------------------- #
 
 def test_add_behind_the_edge_keeps_the_port(tmp_path):
-    inst = _instance(tmp_path, {"CANASTA_ENABLE_EDGE": "true", "HTTPS_PORT": "8443"})
+    inst = _instance(tmp_path, {"HTTPS_PORT": "8443"})
     out = tmp_path / "out.json"
     tasks = _tasks(ADD, "Read the instance's ports from .env",
                    "Parse URL into domain and path") + [{
@@ -182,37 +137,15 @@ def test_add_behind_the_edge_keeps_the_port(tmp_path):
     assert out.read_text() == "docs.example.com:8443"
 
 
-# --- who owns 80 and 443 ------------------------------------------------------ #
-
-def _refusal(tmp_path, publish):
-    tasks = _tasks(os.path.join(ORCH_TASKS, "edge_sync.yml"), "Refuse ports the edge owns")
-    return _play(tmp_path, tasks, {
-        "instance_id": "plain",
-        "_edge": {"members": ["one", "two"], "running": True},
-        "_edge_instance_env": {"variables": publish},
-    }, expect_fail=bool(set(publish.values()) & {"80", "443"}))
-
-
-def test_an_instance_outside_the_edge_cannot_publish_its_ports(tmp_path):
-    out = _refusal(tmp_path, {"CANASTA_CADDY_HTTP_PUBLISH": "80",
-                              "CANASTA_CADDY_HTTPS_PUBLISH": "443"})
-    assert "publishes port 80 and 443" in out and "one, two" in out
-
-
-def test_an_instance_outside_the_edge_may_use_other_ports(tmp_path):
-    _refusal(tmp_path, {"CANASTA_CADDY_HTTP_PUBLISH": "8080",
-                        "CANASTA_CADDY_HTTPS_PUBLISH": "8443"})
-
-
 # --- probes and doctor -------------------------------------------------------- #
 
-def test_the_wiki_probe_goes_through_the_edge(tmp_path, monkeypatch):
-    (tmp_path / ".env").write_text("CANASTA_ENABLE_EDGE=true\nHTTPS_PORT=8443\n")
+def test_the_wiki_probe_uses_the_port_the_edge_serves(tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text("HTTPS_PORT=8443\n")
     seen = {}
     monkeypatch.setattr(_helpers, "_fetch_is_mediawiki",
                         lambda url, loopback_port=None: seen.setdefault("port", loopback_port))
     _helpers._probe_wiki_local("https://example.com/w/api.php", str(tmp_path))
-    assert seen["port"] == 443
+    assert seen["port"] == 8443
 
 
 def test_doctor_names_the_edge_ca_for_an_internal_certificate():

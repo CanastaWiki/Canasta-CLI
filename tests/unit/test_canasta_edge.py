@@ -96,7 +96,7 @@ class FakeRunner:
 def _instance(root, name, hosts=("example.com",), env=None, media=(), certs=None):
     path = root / name
     (path / "config" / "certs").mkdir(parents=True)
-    lines = {"CANASTA_ENABLE_EDGE": "true"}
+    lines = {}
     lines.update(env or {})
     (path / ".env").write_text("".join("%s=%s\n" % kv for kv in lines.items()))
     (path / "config" / "wikis.yaml").write_text(yaml.safe_dump(
@@ -137,9 +137,9 @@ def test_layer_joins_the_edge_network_under_an_alias(tmp_path):
 # --- membership --------------------------------------------------------------- #
 
 def test_an_instance_not_behind_the_edge_creates_nothing(tmp_path):
-    path = _instance(tmp_path, "one", env={"CANASTA_ENABLE_EDGE": "false"})
+    path = _instance(tmp_path, "one")
     run = FakeRunner()
-    result = _sync(run, tmp_path / "edge", "one", path)
+    result = _sync(run, tmp_path / "edge", "one", path, member="absent")
     assert result["members"] == []
     assert not (tmp_path / "edge").exists()
     assert run.calls == []
@@ -183,14 +183,12 @@ def test_members_found_running_are_kept(tmp_path):
 
 def test_stale_members_are_dropped(tmp_path):
     gone = str(tmp_path / "gone")
-    off = _instance(tmp_path, "off", hosts=("off.example.org",))
+    other = _instance(tmp_path, "other", hosts=("other.example.org",))
     path = _instance(tmp_path, "one")
     edge = tmp_path / "edge"
     edge.mkdir()
-    mod.write_members(str(edge), {"gone": gone, "off": off})
-    with open(os.path.join(off, ".env"), "w") as f:
-        f.write("CANASTA_ENABLE_EDGE=false\n")
-    assert _sync(FakeRunner(), edge, "one", path)["members"] == ["one"]
+    mod.write_members(str(edge), {"gone": gone, "other": other})
+    assert _sync(FakeRunner(), edge, "one", path)["members"] == ["one", "other"]
 
 
 def test_leaving_removes_the_route_and_the_certificate(tmp_path):
@@ -589,13 +587,12 @@ def test_caddyfile_global_sites_are_routed_and_certified(tmp_path):
 # --- moving existing instances behind the edge -------------------------------- #
 
 def _plain(root, name, env=None, hosts=("example.com",)):
-    path = _instance(root, name, hosts=hosts, env=dict({"CANASTA_ENABLE_EDGE": ""}, **(env or {})))
-    with open(os.path.join(path, ".env")) as f:
-        lines = [line for line in f if not line.startswith("CANASTA_ENABLE_EDGE=")]
-    with open(os.path.join(path, ".env"), "w") as f:
-        f.writelines(lines)
-        for key, value in (env or {}).items():
-            f.write("%s=%s\n" % (key, value))
+    """An instance as the previous release left it: no edge layer."""
+    return _instance(root, name, hosts=hosts, env=env)
+
+
+def _behind(path):
+    mod.write_layer(path, os.path.basename(path), True)
     return path
 
 
@@ -606,7 +603,7 @@ def _entry(name, path, runtime="docker compose"):
 def test_an_instance_on_the_standard_ports_moves(tmp_path):
     one = _plain(tmp_path, "one")
     assert mod.plan_conversion([_entry("one", one)]) == {
-        "convert": ["one"], "decline": {}, "skip": {}, "rootless": [], "refuse": None}
+        "convert": ["one"], "rootless": [], "refuse": None, "held": []}
 
 
 @pytest.mark.parametrize("env,hosts", [
@@ -620,38 +617,30 @@ def test_plain_own_port_and_unnamed_instances_move(tmp_path, env, hosts):
     assert mod.plan_conversion([_entry("one", one)])["convert"] == ["one"]
 
 
+def test_instances_already_behind_the_edge_are_left_alone(tmp_path):
+    one = _behind(_plain(tmp_path, "one"))
+    two = _plain(tmp_path, "two", hosts=("two.example.org",))
+    plan = mod.plan_conversion([_entry("one", one), _entry("two", two)])
+    assert plan["convert"] == ["two"] and plan["refuse"] is None
+
+
 @pytest.mark.parametrize("hosts,fragment", [
     (("*.example.com",), "is a wildcard"),
     (("exa_mple.com",), "is not a valid hostname"),
 ])
-def test_instances_that_cannot_move_say_why(tmp_path, hosts, fragment):
+def test_an_instance_the_edge_cannot_serve_refuses_the_host(tmp_path, hosts, fragment):
     one = _plain(tmp_path, "one", hosts=hosts)
-    plan = mod.plan_conversion([_entry("one", one)])
-    assert plan["convert"] == [] and fragment in plan["decline"]["one"]
+    good = _plain(tmp_path, "good", hosts=("good.example.org",))
+    plan = mod.plan_conversion([_entry("one", one), _entry("good", good)])
+    assert plan["convert"] == [] and fragment in plan["refuse"]
+    assert sorted(plan["held"]) == ["good", "one"]
 
 
-def test_instances_that_clash_on_a_port_wait(tmp_path):
+def test_instances_that_clash_on_a_port_refuse_the_host(tmp_path):
     one = _plain(tmp_path, "one", hosts=("localhost",))
     two = _plain(tmp_path, "two", hosts=("192.0.2.4",))
     plan = mod.plan_conversion([_entry("one", one), _entry("two", two)])
-    assert plan["convert"] == [] and plan["decline"] == {}
-    assert "cannot tell apart" in plan["skip"]["one"]
-
-
-def test_an_explicit_choice_is_kept(tmp_path):
-    on = _plain(tmp_path, "on", env={"CANASTA_ENABLE_EDGE": "true"})
-    off = _plain(tmp_path, "off", env={"CANASTA_ENABLE_EDGE": "false", "HTTP_PORT": "8080",
-                                       "HTTPS_PORT": "8443"}, hosts=("off.example.org:8443",))
-    plan = mod.plan_conversion([_entry("on", on), _entry("off", off)])
-    assert plan == {"convert": [], "decline": {}, "skip": {}, "rootless": [], "refuse": None}
-
-
-def test_an_instance_staying_on_80_443_blocks_the_host(tmp_path):
-    one = _plain(tmp_path, "one")
-    bad = _plain(tmp_path, "bad", hosts=("exa_mple.com",))
-    plan = mod.plan_conversion([_entry("one", one), _entry("bad", bad)])
-    assert plan["convert"] == []
-    assert "instance 'bad' on this host serves ports 80/443" in plan["skip"]["one"]
+    assert plan["convert"] == [] and "cannot tell apart" in plan["refuse"]
 
 
 def test_an_instance_on_other_ports_moves_too(tmp_path):
@@ -666,8 +655,7 @@ def test_a_host_mixing_docker_and_podman_is_refused(tmp_path):
     one = _plain(tmp_path, "one")
     two = _plain(tmp_path, "two", hosts=("two.example.org",))
     plan = mod.plan_conversion([_entry("one", one), _entry("two", two, "podman-compose")])
-    assert plan["convert"] == [] and plan["skip"] == {} and plan["decline"] == {}
-    assert "both Docker and Podman" in plan["refuse"]
+    assert plan["convert"] == [] and "both Docker and Podman" in plan["refuse"]
     assert "'one'" in plan["refuse"] and "'two'" in plan["refuse"]
 
 
@@ -683,15 +671,31 @@ def test_podman_instances_move_when_systemd_can_run_the_edge(tmp_path):
     # Podman reports itself rootless as well; that is not rootless Docker.
     plan = mod.plan_conversion([_entry("one", one, "podman-compose")],
                                rootless=lambda inst: True, podman_ready=lambda: True)
-    assert plan == {"convert": ["one"], "decline": {}, "skip": {}, "rootless": [],
-                    "refuse": None}
+    assert plan == {"convert": ["one"], "rootless": [], "refuse": None, "held": []}
 
 
-def test_podman_instances_wait_for_a_systemd_user_session(tmp_path):
+def test_podman_without_a_systemd_user_session_refuses_the_host(tmp_path):
     one = _plain(tmp_path, "one")
     plan = mod.plan_conversion([_entry("one", one, "podman-compose")], podman_ready=lambda: False)
-    assert plan["convert"] == [] and plan["decline"] == {}
-    assert "systemd user session" in plan["skip"]["one"]
+    assert plan["convert"] == [] and "systemd user session" in plan["refuse"]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can write anywhere")
+def test_an_instance_the_cli_cannot_write_refuses_the_host(tmp_path):
+    one = _plain(tmp_path, "one")
+    os.chmod(os.path.join(one, ".env"), 0o444)
+    try:
+        plan = mod.plan_conversion([_entry("one", one)])
+    finally:
+        os.chmod(os.path.join(one, ".env"), 0o644)
+    assert plan["convert"] == [] and "cannot write to its directory" in plan["refuse"]
+
+
+def test_rootless_docker_instances_move_and_are_listed(tmp_path):
+    one = _plain(tmp_path, "one")
+    entry = dict(_entry("one", one), docker_host="unix:///run/user/1000/docker.sock")
+    plan = mod.plan_conversion([entry], lambda inst: inst["docker_host"].startswith("unix:///run/user/"))
+    assert plan["convert"] == ["one"] and plan["rootless"] == ["one"]
 
 
 LEAF = "-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----\n"
@@ -792,7 +796,7 @@ def test_an_imported_certificate_is_deployed_not_reissued(tmp_path):
 def test_kubernetes_instances_are_left_out_of_the_plan(tmp_path):
     one = _plain(tmp_path, "one")
     entry = dict(_entry("one", one), orchestrator="kubernetes")
-    assert mod.plan_conversion([entry]) == {"convert": [], "decline": {}, "skip": {}, "rootless": [], "refuse": None}
+    assert mod.plan_conversion([entry]) == {"convert": [], "rootless": [], "refuse": None, "held": []}
 
 
 # --- IPv6 --------------------------------------------------------------------- #
@@ -808,21 +812,6 @@ def test_the_edge_network_has_ipv6_when_the_host_does(tmp_path, monkeypatch, has
     if has_ipv6:
         assert network["ipam"]["config"][0]["subnet"].startswith("fd")
     assert ("bind :::443" in (edge / "conf" / "haproxy.cfg").read_text()) is has_ipv6
-
-
-@pytest.mark.skipif(os.geteuid() == 0, reason="root can write anywhere")
-def test_an_instance_the_cli_cannot_write_is_skipped_and_still_blocks(tmp_path):
-    one = _plain(tmp_path, "one")
-    ro = _plain(tmp_path, "ro", hosts=("ro.example.org",))
-    os.chmod(os.path.join(ro, ".env"), 0o444)
-    try:
-        plan = mod.plan_conversion([_entry("one", one), _entry("ro", ro)])
-    finally:
-        os.chmod(os.path.join(ro, ".env"), 0o644)
-    assert plan["convert"] == []
-    assert plan["skip"]["ro"] == "the CLI cannot write to its directory"
-    assert plan["decline"] == {}
-    assert "instance 'ro' on this host serves ports 80/443" in plan["skip"]["one"]
 
 
 def test_certificates_are_made_in_a_directory_under_the_edge(tmp_path):
@@ -939,13 +928,6 @@ def test_a_new_edge_directory_asks_for_recreated_containers(tmp_path):
     edge = tmp_path / "edge"
     assert _sync(FakeRunner(), edge, "one", path)["recreate"]
     assert not _sync(FakeRunner(running=True), edge, "one", path)["recreate"]
-
-
-def test_rootless_docker_instances_move_and_are_listed(tmp_path):
-    one = _plain(tmp_path, "one")
-    entry = dict(_entry("one", one), docker_host="unix:///run/user/1000/docker.sock")
-    plan = mod.plan_conversion([entry], lambda inst: inst["docker_host"].startswith("unix:///run/user/"))
-    assert plan["convert"] == ["one"] and plan["rootless"] == ["one"]
 
 
 @pytest.mark.parametrize("options,expected", [
@@ -1078,12 +1060,12 @@ def test_the_check_runs_without_the_systemd_sockets(tmp_path, user_units):
 
 
 def test_without_instances_no_units_are_written_and_leftovers_are_reported(tmp_path, user_units):
-    path = _instance(tmp_path, "one", env={"CANASTA_ENABLE_EDGE": "false"})
+    path = _instance(tmp_path, "one")
     edge = tmp_path / "edge"
     (edge / "conf").mkdir(parents=True)
     user_units.mkdir(parents=True)
     (user_units / mod.SOCKET_UNIT).write_text("left over")
-    result = mod.sync(FakeRunner(), "podman", str(edge), "one", path, None)
+    result = mod.sync(FakeRunner(), "podman", str(edge), "one", path, "absent")
     assert result["members"] == [] and "units_changed" not in result
     assert result["units_present"]
     assert (user_units / mod.SOCKET_UNIT).read_text() == "left over"

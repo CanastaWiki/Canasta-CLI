@@ -80,7 +80,7 @@
     loop_var: _config_setting
     label: "{{ _config_setting.split('=', 1)[0] }}"
 
-# MW_SITE_FQDN / HTTP_PORT / HTTPS_PORT / CADDY_AUTO_HTTPS / CANASTA_ENABLE_EDGE
+# MW_SITE_FQDN / HTTP_PORT / HTTPS_PORT / CADDY_AUTO_HTTPS
 # re-derive MW_SITE_FQDN/MW_SITE_SERVER and rewrite wiki URLs in the rendered
 # .env and config/wikis.yaml via _side_effects.yml. Those derived
 # values are not in the typed settings, so the loop above never
@@ -89,8 +89,7 @@
 - name: Propagate domain side effects to gitops vars
   when: >-
     _config_settings | map('regex_replace', '=.*$', '') | list
-    | intersect(['MW_SITE_FQDN', 'HTTP_PORT', 'HTTPS_PORT', 'CADDY_AUTO_HTTPS',
-                 'CANASTA_ENABLE_EDGE'])
+    | intersect(['MW_SITE_FQDN', 'HTTP_PORT', 'HTTPS_PORT', 'CADDY_AUTO_HTTPS'])
     | length > 0
   block:
     - name: Read final .env for derived domain keys

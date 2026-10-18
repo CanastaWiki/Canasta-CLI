@@ -39,34 +39,14 @@
 
 # Its instances are not upgraded either: they would come back without a
 # working front door.
-- name: Refuse a host whose instances mix Docker and Podman
+- name: Refuse a host the edge cannot serve yet
   ansible.builtin.set_fact:
     _upgrade_failures: >-
       {{ _upgrade_failures | default([]) + [
            'not upgrading ' ~ _edge_host_name ~ ': ' ~ _edge_plan.refuse] }}
-    _edge_refused: >-
-      {{ _edge_refused | default([]) + (_edge_host_instances | map(attribute='key') | list) }}
+    _edge_refused: "{{ _edge_refused | default([]) + _edge_plan.held }}"
     _edge_refusals: "{{ _edge_refusals | default(0) | int + 1 }}"
   when: _edge_plan.refuse is not none
-
-# An explicit false is not reconsidered at the next upgrade; the operator
-# can move the instance later with `canasta config set CANASTA_ENABLE_EDGE=true`.
-- name: Keep instances outside the edge
-  ansible.builtin.include_tasks: _edge_set_flag.yml
-  loop: "{{ _edge_plan.decline | dict2items }}"
-  loop_control:
-    loop_var: _edge_flag
-    label: "{{ _edge_flag.key }}"
-  vars:
-    _edge_flag_value: "false"
-
-- name: Report instances that stay outside the edge
-  ansible.builtin.debug:
-    msg: >-
-      '{{ item.key }}' stays outside the HAProxy edge: {{ item.value }}.
-  loop: "{{ _edge_plan.decline | dict2items }}"
-  loop_control:
-    label: "{{ item.key }}"
 
 - name: Warn about instances moving on rootless Docker
   ansible.builtin.debug:
@@ -79,15 +59,6 @@
       with the implicit driver), then set CANASTA_EDGE_RATE_DYNAMIC and
       CANASTA_EDGE_RATE_DEFAULT to turn the limits on.
   loop: "{{ _edge_plan.rootless | default([]) }}"
-
-- name: Report instances left for the next upgrade
-  ansible.builtin.debug:
-    msg: >-
-      '{{ item.key }}' stays outside the HAProxy edge for now: {{ item.value }}.
-      The next upgrade considers it again.
-  loop: "{{ _edge_plan.skip | default({}) | dict2items }}"
-  loop_control:
-    label: "{{ item.key }}"
 
 - name: Move instances behind the edge
   when: _edge_plan.convert | length > 0
@@ -123,6 +94,14 @@
           Moved {{ _edge_plan.convert | join(', ') }} behind the HAProxy edge
           on {{ _edge_host_name }}, at the same addresses as before.
 
+    - name: Drop the files kept to undo the move
+      ansible.builtin.file:
+        path: "{{ item.value }}"
+        state: absent
+      loop: "{{ _edge_backups | default({}) | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
   rescue:
     - name: Put each instance back in front of its own Caddy
       ansible.builtin.include_tasks: _edge_convert_revert.yml
@@ -131,8 +110,8 @@
         loop_var: _edge_inst
         label: "{{ _edge_inst.key }}"
 
-    # Reported with the other upgrade failures once every instance has had
-    # its turn; the instances themselves upgrade as before.
+    # Reported with the other upgrade failures; the instances are not
+    # upgraded, since they are back as the previous release left them.
     - name: Record the failed move to the edge
       ansible.builtin.set_fact:
         _upgrade_failures: >-
@@ -140,6 +119,6 @@
                'moving ' ~ (_edge_plan.convert | join(', ')) ~ ' behind the HAProxy edge on '
                ~ _edge_host_name ~ ': '
                ~ (ansible_failed_result.msg | default('see the task above'))
-               ~ '. They are back on their own Caddy with CANASTA_ENABLE_EDGE=false;'
-               ~ ' unset it with `canasta config unset CANASTA_ENABLE_EDGE` to try'
-               ~ ' again at the next upgrade.'] }}
+               ~ '. They are back as before the upgrade, on their own Caddy, and were'
+               ~ ' not upgraded; run the upgrade again once this is fixed.'] }}
+        _edge_refused: "{{ _edge_refused | default([]) + _edge_plan.convert }}"

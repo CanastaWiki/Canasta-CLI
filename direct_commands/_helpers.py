@@ -565,20 +565,12 @@ def _reconcile_compose_profiles(env, current):
     return desired
 
 
-def _edge_enabled(env):
-    """Whether the instance sits behind the host's HAProxy edge."""
-    return (env.get("CANASTA_ENABLE_EDGE") or "false").strip().lower() == "true"
-
-
 def _caddy_publish(env):
-    """The addresses the caddy service publishes. Behind the edge, which
-    owns 80 and 443, Caddy gets random loopback ports instead. Mirror
+    """The addresses the caddy service publishes: random loopback ports,
+    since the HAProxy edge owns the instance's ports. Mirror
     sync_compose_profiles.yml."""
-    if _edge_enabled(env):
-        return {"CANASTA_CADDY_HTTP_PUBLISH": "127.0.0.1:",
-                "CANASTA_CADDY_HTTPS_PUBLISH": "127.0.0.1:"}
-    return {"CANASTA_CADDY_HTTP_PUBLISH": env.get("HTTP_PORT") or "80",
-            "CANASTA_CADDY_HTTPS_PUBLISH": env.get("HTTPS_PORT") or "443"}
+    return {"CANASTA_CADDY_HTTP_PUBLISH": "127.0.0.1:",
+            "CANASTA_CADDY_HTTPS_PUBLISH": "127.0.0.1:"}
 
 
 def _sync_compose_profiles(inst):
@@ -2266,14 +2258,10 @@ def _probe_wiki_local(url, instance_path):
         return _fetch_is_mediawiki(url)
 
     env = _read_env_file(instance_path, "localhost") if instance_path else {}
-    if _edge_enabled(env):
-        # The HAProxy edge serves every wiki on the standard ports.
-        port = "443" if parsed.scheme == "https" else "80"
-    else:
-        port = (
-            env.get("HTTPS_PORT", "") if parsed.scheme == "https"
-            else env.get("HTTP_PORT", "")
-        )
+    port = (
+        env.get("HTTPS_PORT", "") if parsed.scheme == "https"
+        else env.get("HTTP_PORT", "")
+    )
 
     try:
         loopback_port = int(str(port).strip())
@@ -2365,9 +2353,7 @@ def _gather_instance_info(inst_id, inst):
         "echo \"$web_ps\" | while IFS='|' read -r cid cstate status; do "
         "case \"$status\" in " + _WEB_STARTING_CASE + ") "
         "echo \"$cid|$(" + restart_count + " \"$cid\" 2>/dev/null)\";; "
-        "esac; done; "
-        "echo '%(d)s'; "
-        "grep -h '^CANASTA_ENABLE_EDGE=' %(p)s/.env 2>/dev/null; true"
+        "esac; done; true"
     ) % {"p": qpath, "d": _SENTINEL, "m": RESTORE_MARKER}
 
     rc, stdout = _ssh_run(host, script)
@@ -2384,7 +2370,6 @@ def _gather_instance_info(inst_id, inst):
     interrupted = (parts[3].strip() == "RESTORE_INTERRUPTED"
                    if len(parts) > 3 else False)
     restart_counts = _remote_restart_counts(parts[4] if len(parts) > 4 else "")
-    edge = _edge_enabled(_env_from_lines(parts[5] if len(parts) > 5 else ""))
 
     wikis = []
     if dir_ok and wikis_raw.strip() != "WIKIS_MISSING":
@@ -2398,11 +2383,7 @@ def _gather_instance_info(inst_id, inst):
               if dir_ok else "NOT FOUND")
 
     return _make_detail(inst_id, host, path, orchestrator, status, wikis,
-                       interrupted, edge=edge)
-
-
-def _env_from_lines(text):
-    return {k: v for k, v, c in _parse_env_entries(text) if not c and k}
+                       interrupted)
 
 
 def _gather_local(inst_id, inst):
@@ -2415,9 +2396,8 @@ def _gather_local(inst_id, inst):
 
     interrupted = dir_exists and os.path.exists(
         os.path.join(path, RESTORE_MARKER))
-    edge = dir_exists and _edge_enabled(_read_env_file(path, host))
     return _make_detail(inst_id, host, path, orchestrator, status, wikis,
-                       interrupted, edge=edge)
+                       interrupted)
 
 
 def _gather_k8s(inst_id, path, host):
@@ -2438,13 +2418,12 @@ def _gather_k8s(inst_id, path, host):
 
 
 def _make_detail(inst_id, host, path, orchestrator, status, wikis,
-                 interrupted_restore=False, edge=False):
+                 interrupted_restore=False):
     return {
         "id": inst_id,
         "host": host,
         "path": path,
-        # Behind the host's HAProxy edge, which serves its ports and TLS.
-        "orchestrator": orchestrator.upper() + ("+EDGE" if edge else ""),
+        "orchestrator": orchestrator.upper(),
         # An interrupted restore leaves the instance running on half-applied
         # config, which otherwise reads here as plain RUNNING.
         "status": ("%s  [RESTORE INTERRUPTED]" % status
