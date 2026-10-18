@@ -4194,7 +4194,7 @@ def test_crowdsec(inst):
 
     print("Verifying status collapses the duplicates for display...")
     out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
-    assert out.count("— active") == 1, (
+    assert out.count("canasta-caddy — active") == 1, (
         "status should show exactly one active canasta-caddy registration"
     )
     assert "2 stale auto-created duplicate" in out, (
