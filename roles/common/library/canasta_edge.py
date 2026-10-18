@@ -13,7 +13,7 @@ instances behind it, so it can be deleted and rebuilt at any time:
   ca/                  the local CA that signs internal certificates
   acme/                acme.sh's account, certificates and renewal state
 
-An instance is behind the edge when its .env sets CANASTA_ENABLE_EDGE=true.
+Every Compose instance is behind the edge, its front door.
 Its Caddy joins the canasta-edge network through docker-compose.edge.yml,
 which also labels the container with the instance's ID and path; running
 containers carrying those labels are how members managed by another
@@ -55,7 +55,7 @@ options:
   member:
     description: >-
       present adds the instance to the edge, absent removes it (and its
-      layer). Omit to follow CANASTA_ENABLE_EDGE in the instance's .env.
+      layer), as delete does. Defaults to present.
     type: str
     choices: [present, absent]
   inspect_command:
@@ -345,10 +345,6 @@ def read_env(instance_path):
     return env
 
 
-def edge_enabled(env):
-    return (env.get("CANASTA_ENABLE_EDGE") or "false").strip().lower() == "true"
-
-
 def write_layer(instance_path, instance_id, present, spoa=False):
     """Write or remove the instance's edge layer, with its CrowdSec bouncer
     when spoa. Returns True if changed."""
@@ -424,7 +420,7 @@ def load_instance(instance_id, path):
     """The renderer's view of an instance, or None when it is not (or no
     longer) behind the edge."""
     env = read_env(path)
-    if not os.path.isdir(path) or not edge_enabled(env):
+    if not os.path.isdir(path):
         return None
     wikis = (yaml.safe_load(_read(os.path.join(path, "config", "wikis.yaml")) or "")
              or {}).get("wikis") or []
@@ -801,7 +797,7 @@ def _sync(run, inspect, edge_dir, instance_id, instance_path, member):
               "compose_changed": False, "acme": False}
     env = read_env(instance_path)
     if member is None:
-        member = "present" if edge_enabled(env) else "absent"
+        member = "present"
     spoa = member == "present" and crowdsec_enforced(env)
     had_spoa = "crowdsec-spoa:" in (_read(os.path.join(instance_path, LAYER_FILE)) or "")
     result["changed"] |= write_layer(instance_path, instance_id, member == "present", spoa)
@@ -1172,12 +1168,11 @@ def import_caddy_certificates(run, inspect, edge_dir, instance_id, instance_path
 def _edge_view(instance_id, path, env):
     """The renderer's view of an instance as it would be behind the edge;
     raises EdgeError when the edge cannot serve it."""
-    probe = dict(env, CANASTA_ENABLE_EDGE="true")
     wikis = (yaml.safe_load(_read(os.path.join(path, "config", "wikis.yaml")) or "")
              or {}).get("wikis") or []
     media = (yaml.safe_load(_read(os.path.join(path, "config", "media-hosts.yaml")) or "")
              or {}).get("media_hosts") or []
-    return instance_from_config(instance_id, probe, wikis,
+    return instance_from_config(instance_id, env, wikis,
                                 [m for m in media if (m.get("hostname") or "").strip()])
 
 
@@ -1196,14 +1191,6 @@ def _writable(path):
         not os.path.exists(env_file) or os.access(env_file, os.W_OK))
 
 
-def _publishes_web_ports(env):
-    if edge_enabled(env):
-        return False
-    https = (env.get("CADDY_AUTO_HTTPS") or "on").strip().lower() != "off"
-    return ((env.get("HTTP_PORT") or "80").strip() == "80"
-            or (https and (env.get("HTTPS_PORT") or "443").strip() == "443"))
-
-
 def daemon_rootless(run, inspect, docker_host=""):
     """Whether the Docker daemon at docker_host runs rootless. Its port
     forwarding then replaces client addresses, as rootless Podman's does."""
@@ -1212,79 +1199,70 @@ def daemon_rootless(run, inspect, docker_host=""):
     return rc == 0 and "name=rootless" in out
 
 
+def behind_edge(path):
+    """Whether an instance is behind the edge already: its edge layer
+    exists, which only the edge sync writes."""
+    return os.path.exists(os.path.join(path, LAYER_FILE))
+
+
 def plan_conversion(instances, rootless=lambda inst: False, podman_ready=lambda: True):
-    """Decide which of a host's Compose instances move behind the edge.
+    """Decide how a host's Compose instances move behind the edge, which is
+    every Compose instance's front door.
 
     instances: [{id, path, orchestrator, compose_command}]; Kubernetes
-    instances are left out. An instance whose .env already
-    sets CANASTA_ENABLE_EDGE keeps its choice. One that can move does, unless
-    an instance staying outside the edge serves 80 or 443 itself, which the
-    edge would collide with; then none on the host move. Only a reason of
-    the instance's own is recorded as a choice (decline); one held back by
-    the host, or whose files the CLI cannot write, is skipped without one,
-    so the next upgrade considers it again. A host whose instances use both
-    Docker and Podman cannot share one edge and is refused as a whole.
-    Returns {convert: [ids], decline: {id: reason}, skip: {id: reason},
-    rootless: [ids moving on rootless Docker], refuse: reason or None}."""
-    convert, decline, skip, staying, on_rootless = [], {}, {}, [], []
+    instances are left out. Every instance not yet behind the edge moves.
+    If any of them cannot, the host is refused as a whole and none of its
+    instances is upgraded, since none could come back without a front door.
+    Returns {convert: [ids], rootless: [ids moving on rootless Docker],
+    refuse: reason or None, held: [Compose instance ids a refusal holds back]}."""
     compose = [i for i in instances
                if not is_k8s_orchestrator(i.get("orchestrator") or "compose")
                and os.path.isdir(i["path"])]
+    names = ", ".join("'%s'" % i["id"] for i in compose)
+
+    def refuse(reason):
+        return {"convert": [], "rootless": [], "refuse": reason,
+                "held": [i["id"] for i in compose]}
+
     families = {"podman" if "podman" in (i.get("compose_command") or "") else "docker"
                 for i in compose}
     if len(families) > 1:
-        return {"convert": [], "decline": {}, "skip": {}, "rootless": [],
-                "refuse": ("its instances use both Docker and Podman, which cannot share "
-                           "one HAProxy edge (%s). Move one runtime's instances to another "
-                           "host, or onto the same runtime, and upgrade again."
-                           % ", ".join("'%s'" % i["id"] for i in compose))}
+        return refuse("its instances use both Docker and Podman, which cannot share one "
+                      "HAProxy edge (%s). Move one runtime's instances to another host, or "
+                      "onto the same runtime, and upgrade again." % names)
+    convert, on_rootless, problems = [], [], []
     for inst in compose:
+        if behind_edge(inst["path"]):
+            continue
         env = read_env(inst["path"])
-        if (env.get("CANASTA_ENABLE_EDGE") or "").strip():
-            if not edge_enabled(env):
-                staying.append((inst["id"], env))
-            continue
-        if not _writable(inst["path"]):
-            skip[inst["id"]] = "the CLI cannot write to its directory"
-            staying.append((inst["id"], env))
-            continue
         podman = "podman" in (inst.get("compose_command") or "")
-        if podman and not podman_ready():
-            skip[inst["id"]] = ("under rootless Podman the edge needs the operator's "
-                                "systemd user session, which is not running; enable "
-                                "lingering for this user ('canasta install podman' does)")
-            staying.append((inst["id"], env))
-            continue
-        reason = _ineligible(inst["id"], inst["path"], env)
-        if reason:
-            decline[inst["id"]] = reason
-            staying.append((inst["id"], env))
+        if not _writable(inst["path"]):
+            problems.append("'%s': the CLI cannot write to its directory" % inst["id"])
+        elif podman and not podman_ready():
+            problems.append("'%s': under rootless Podman the edge needs the operator's systemd "
+                            "user session, which is not running; enable lingering for this "
+                            "user ('canasta install podman' does)" % inst["id"])
         else:
+            reason = _ineligible(inst["id"], inst["path"], env)
+            if reason:
+                problems.append(reason)
+                continue
             convert.append(inst["id"])
             # Rootless Podman reports rootless too, but its edge takes its
             # sockets from systemd and keeps client addresses.
             if not podman and rootless(inst):
                 on_rootless.append(inst["id"])
-    blockers = [i for i, env in staying if _publishes_web_ports(env)]
-    if convert and blockers:
-        reason = ("instance %s on this host serves ports 80/443 itself, and the "
-                  "edge would need them" % ", ".join("'%s'" % b for b in blockers))
-        skip.update({i: reason for i in convert})
-        convert = []
+    if problems:
+        return refuse("the HAProxy edge cannot serve every instance on it yet: %s. Fix "
+                      "that and upgrade again." % "; ".join(problems))
     # Each could move on its own; together they must not clash on a port.
     if convert:
         try:
-            together = [_edge_view(i["id"], i["path"], read_env(i["path"]))
-                        for i in instances
-                        if i["id"] in convert or (
-                            not is_k8s_orchestrator(i.get("orchestrator") or "compose")
-                            and os.path.isdir(i["path"]) and edge_enabled(read_env(i["path"])))]
-            check_together(together)
+            check_together([_edge_view(i["id"], i["path"], read_env(i["path"]))
+                            for i in compose])
         except EdgeError as exc:
-            skip.update({i: str(exc) for i in convert})
-            convert = []
-    return {"convert": convert, "decline": decline, "skip": skip,
-            "rootless": [i for i in on_rootless if i in convert], "refuse": None}
+            return refuse(str(exc))
+    return {"convert": convert, "rootless": on_rootless, "refuse": None, "held": []}
 
 
 def run_module():

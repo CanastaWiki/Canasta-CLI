@@ -1191,12 +1191,10 @@ def _edge_crowdsec_line(inst_id, enrolled, status):
 
 
 def _edge_lines(inst):
-    """doctor lines for the instance's place behind the edge, or [] when it
-    is not behind it."""
+    """doctor lines for a Compose instance's place behind the edge; [] on
+    Kubernetes."""
     path = inst.get("path", "")
     if not path or _helpers._is_k8s(inst):
-        return []
-    if (_helpers._read_env_for(inst, "CANASTA_ENABLE_EDGE") or "").strip().lower() != "true":
         return []
     host = inst.get("host") or "localhost"
     inspect = inst.get("inspectCommand") or "docker"
@@ -1387,11 +1385,10 @@ def _origin_tls_lines(inst):
         return []
     host = inst.get("host") or "localhost"
     is_k8s = _helpers._is_k8s(inst)
-    edge = not is_k8s and (
-        _helpers._read_env_for(inst, "CANASTA_ENABLE_EDGE") or "false"
-    ).strip().lower() == "true"
-    if is_k8s or edge:
-        # The ingress controller, or the HAProxy edge, terminates TLS.
+    # The ingress controller, or the HAProxy edge on the instance's own
+    # HTTPS port, terminates TLS.
+    edge = not is_k8s
+    if is_k8s:
         port = "443"
     else:
         if (_helpers._read_env_for(inst, "CADDY_AUTO_HTTPS") or "on").lower() \

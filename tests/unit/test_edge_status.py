@@ -1,4 +1,4 @@
-"""What `canasta list` and `canasta doctor` say about the HAProxy edge."""
+"""What `canasta doctor` says about the HAProxy edge."""
 
 import os
 import sys
@@ -53,31 +53,6 @@ def test_staging_is_named():
 def test_internal_mode_skips_acme():
     out = _lines(_probe(acme=""), tls_mode="internal")
     assert "acme.sh" not in out and "Let's Encrypt" not in out
-
-
-def test_list_marks_edge_instances():
-    detail = _helpers._make_detail("one", "localhost", "/srv/one", "compose", "RUNNING", [],
-                                   edge=True)
-    assert detail["orchestrator"] == "COMPOSE+EDGE"
-    plain = _helpers._make_detail("two", "localhost", "/srv/two", "compose", "RUNNING", [])
-    assert plain["orchestrator"] == "COMPOSE"
-
-
-def test_list_reads_the_flag_for_a_local_instance(tmp_path, monkeypatch):
-    (tmp_path / ".env").write_text("CANASTA_ENABLE_EDGE=true\n")
-    monkeypatch.setattr(_helpers, "_web_state", lambda iid, inst: "RUNNING")
-    monkeypatch.setattr(_helpers, "_read_wikis", lambda path, host: [])
-    detail = _helpers._gather_local("one", {"path": str(tmp_path), "host": "localhost"})
-    assert detail["orchestrator"] == "COMPOSE+EDGE"
-
-
-def test_list_reads_the_flag_for_a_remote_instance(monkeypatch):
-    out = (S + "\n").join(["DIR_OK\n", "wikis: []\n", "\n", "\n", "\n",
-                           "CANASTA_ENABLE_EDGE=true\n"])
-    monkeypatch.setattr(_helpers, "_ssh_run", lambda host, script: (0, out))
-    detail = _helpers._gather_instance_info(
-        "one", {"path": "/srv/one", "host": "prod.example.com"})
-    assert detail["orchestrator"] == "COMPOSE+EDGE"
 
 
 def test_the_probe_script_runs(tmp_path, monkeypatch):

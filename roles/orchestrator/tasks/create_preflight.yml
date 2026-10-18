@@ -231,6 +231,17 @@
       failed_when: false
       when: compose_command | default('docker compose') is search('podman')
 
+    - name: Refuse rootless Podman without a systemd user session
+      ansible.builtin.fail:
+        msg: >-
+          Under rootless Podman the HAProxy edge takes the instance's ports from
+          the operator's systemd user session, which is not running. Enable
+          lingering for this user ('canasta install podman' does), then create
+          the instance again.
+      when:
+        - compose_command | default('docker compose') is search('podman')
+        - (_preflight_user_systemd.rc | default(1)) != 0
+
     # One edge serves a host, in one runtime; its network cannot reach
     # containers in the other.
     - name: Look for an edge in the other container runtime
@@ -285,24 +296,12 @@
         _preflight_https_port: >-
           {{ ((_preflight_port_lines | select('match', '^HTTPS_PORT=') | list)
               + ['HTTPS_PORT=443'])[0].split('=', 1)[1] }}
-        # Behind the edge Caddy publishes only loopback ports, and 80/443
-        # belong to the edge. An instance goes behind it unless the env file
-        # says otherwise, or it runs on rootless Podman without the systemd
-        # user session that gives the edge its ports.
-        create_behind_edge: >-
-          {{ (_preflight_edge_setting[0] == 'true') if _preflight_edge_setting
-             else (not (compose_command | default('docker compose') is search('podman'))
-                   or (_preflight_user_systemd.rc | default(1)) == 0) }}
         create_on_rootless_docker: >-
           {{ 'name=rootless' in (_preflight_docker_info.stdout | default('')) }}
       vars:
         _preflight_env_lines: >-
           {{ (_preflight_envfile.content | default('') | b64decode).splitlines()
              | map('trim') | list }}
-        _preflight_edge_setting: >-
-          {{ _preflight_env_lines | select('match', '(?i)^CANASTA_ENABLE_EDGE=')
-             | map('regex_replace', '^[^=]*=', '') | map('trim') | map('lower')
-             | reject('equalto', '') | list }}
         # splitlines(), not split('\n'): a folded scalar hands Jinja a
         # literal backslash-n, so the split would never match and every
         # instance would silently fall back to 80/443.
@@ -371,62 +370,22 @@
       changed_when: false
       failed_when: false
 
-    # Behind the edge, 80/443 may be held only by the edge itself.
-    - name: Fail if 80 or 443 is taken by something other than the edge
+    # The edge, every Compose instance's front door, takes the instance's
+    # ports. A running edge may already hold them; a conflict on a port it
+    # does not hold yet is reported when the edge starts.
+    - name: Fail if the instance's ports are taken
       ansible.builtin.fail:
         msg: >-
-          Ports 80 and 443 must be free for the HAProxy edge, but something
-          other than the edge is listening:
+          Ports {{ _preflight_http_port }} and {{ _preflight_https_port }} must be
+          free for the HAProxy edge, but something is listening:
           {{ (_port80_listener.stdout ~ ' ' ~ _port443_listener.stdout) | trim }}.
-          Stop it, or create this instance without CANASTA_ENABLE_EDGE and
-          give it its own ports with HTTP_PORT and HTTPS_PORT.
+          Stop it, use a different host, or give this instance other ports by
+          passing an env file that sets HTTP_PORT and HTTPS_PORT
+          ('canasta create -e <file>').
       when:
-        - create_behind_edge | bool
         - _preflight_edge_running.stdout | default('') | trim | length == 0
         - (_port80_listener.stdout | default('') ~ _port443_listener.stdout | default('')) | trim | length > 0
         - '"CANASTA_PORT_PROBE_UNAVAILABLE" not in (_port80_listener.stdout | default(""))'
-
-    - name: Fail if the HAProxy edge holds this instance's ports
-      ansible.builtin.fail:
-        msg: >-
-          The HAProxy edge on this host holds ports 80 and 443. Put this
-          instance behind it by passing an env file that sets
-          CANASTA_ENABLE_EDGE=true, or give it its own ports with HTTP_PORT
-          and HTTPS_PORT ('canasta create -e <file>').
-      when:
-        - not (create_behind_edge | bool)
-        - _preflight_edge_running.stdout | default('') | trim | length > 0
-        - _preflight_http_port in ['80', '443'] or _preflight_https_port in ['80', '443']
-
-    - name: Fail if the HTTP port is already in use
-      ansible.builtin.fail:
-        msg: >-
-          Port {{ _preflight_http_port }} is already in use on this host:
-          {{ _port80_listener.stdout | trim }}.
-          `canasta create` (Compose) needs ports {{ _preflight_http_port }}
-          and {{ _preflight_https_port }} free for the caddy service.
-          Stop the conflicting service, use a different host, or give
-          this instance its own ports by passing an env file that sets
-          HTTP_PORT and HTTPS_PORT ('canasta create -e <file>').
-      when:
-        - not (create_behind_edge | bool)
-        - _port80_listener.stdout | default('') | trim | length > 0
-        - '"CANASTA_PORT_PROBE_UNAVAILABLE" not in (_port80_listener.stdout | default(""))'
-
-    - name: Fail if the HTTPS port is already in use
-      ansible.builtin.fail:
-        msg: >-
-          Port {{ _preflight_https_port }} is already in use on this host:
-          {{ _port443_listener.stdout | trim }}.
-          `canasta create` (Compose) needs ports {{ _preflight_http_port }}
-          and {{ _preflight_https_port }} free for the caddy service.
-          Stop the conflicting service, use a different host, or give
-          this instance its own ports by passing an env file that sets
-          HTTP_PORT and HTTPS_PORT ('canasta create -e <file>').
-      when:
-        - not (create_behind_edge | bool)
-        - _port443_listener.stdout | default('') | trim | length > 0
-        - '"CANASTA_PORT_PROBE_UNAVAILABLE" not in (_port443_listener.stdout | default(""))'
 
     - name: Probe whether k3s is running
       ansible.builtin.command:

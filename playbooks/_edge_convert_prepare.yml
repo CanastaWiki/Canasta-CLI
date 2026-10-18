@@ -1,6 +1,6 @@
 ---
-# Ready one instance for the edge while its Caddy still serves: the flag,
-# the stack files and Caddyfile the edge needs, and its certificates.
+# Ready one instance for the edge while its Caddy still serves: the stack
+# files and Caddyfile the edge needs, and its certificates.
 # Input: _edge_inst
 
 - name: Point the facts at the instance
@@ -17,11 +17,27 @@
       {{ _edge_was_running | default({})
          | combine({instance_id: 'caddy' in (_running_services | default('')).split()}) }}
 
-- name: Turn on CANASTA_ENABLE_EDGE
-  ansible.builtin.include_tasks: _edge_set_flag.yml
-  vars:
-    _edge_flag: "{{ _edge_inst }}"
-    _edge_flag_value: "true"
+# This release's Caddy cannot be the front door, so undoing a failed move
+# means putting back the previous release's files. Kept outside the
+# instance directory, which may be a gitops checkout.
+- name: Make a place for the files the move changes
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: "-edge-move-{{ instance_id }}"
+  register: _edge_backup_dir
+
+- name: Keep the files the move changes
+  ansible.builtin.shell:
+    cmd: >-
+      for f in docker-compose.yml .env config/Caddyfile; do
+      [ -e "$f" ] && mkdir -p "{{ _edge_backup_dir.path }}/$(dirname "$f")"
+      && cp -p "$f" "{{ _edge_backup_dir.path }}/$f"; done; true
+    chdir: "{{ instance_path }}"
+  changed_when: true
+
+- name: Remember where the files are kept
+  ansible.builtin.set_fact:
+    _edge_backups: "{{ _edge_backups | default({}) | combine({instance_id: _edge_backup_dir.path}) }}"
 
 # The instance upgrades after this pass, but its Caddy rejoins before
 # then, so it needs this release's compose file, whose published ports

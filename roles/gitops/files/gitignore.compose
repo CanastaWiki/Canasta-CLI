@@ -3,5 +3,5 @@
 # Kubernetes tracks it)
 config/settings/global/00-canasta-sidecar-env.php
 
-# Rendered on each start from CANASTA_ENABLE_EDGE (Compose only)
+# Rendered on each start, joining the HAProxy edge (Compose only)
 docker-compose.edge.yml

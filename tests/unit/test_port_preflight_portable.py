@@ -98,12 +98,12 @@ class TestFailureGateIgnoresTheSentinel:
         return [
             t for t in _tasks()
             if isinstance(t.get("name"), str)
-            and re.match(r"Fail if the HTTPS? port is already in use",
-                         t["name"])
+            and re.match(r"Fail if the instance's ports are taken", t["name"])
         ]
 
-    def test_both_gates_exist(self):
-        assert len(self._fail_tasks()) == 2
+    def test_the_gate_exists(self):
+        # One gate covers both ports: the HAProxy edge needs both.
+        assert len(self._fail_tasks()) == 1
 
     def test_sentinel_does_not_trip_the_failure(self):
         for task in self._fail_tasks():

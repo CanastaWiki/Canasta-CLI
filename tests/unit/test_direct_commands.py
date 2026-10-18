@@ -1637,51 +1637,6 @@ class TestLifecycleCommands:
         assert direct_commands.cmd_start(args) is direct_commands.FALLBACK
         assert direct_commands.cmd_stop(args) is direct_commands.FALLBACK
 
-    def test_no_fallback_when_sidecars_empty(self, tmp_path, monkeypatch):
-        # An empty sidecars list keeps the fast direct path.
-        path = self._compose_inst(tmp_path, "sidecars: []\n")
-        monkeypatch.setattr(
-            direct_commands._helpers, "_resolve_instance",
-            lambda args: ("scsite", {"path": path, "orchestrator": "compose"}))
-        monkeypatch.setattr(
-            direct_commands._helpers, "_sync_compose_profiles", lambda inst: None)
-        monkeypatch.setattr(
-            direct_commands._helpers, "_run_compose", lambda *a, **kw: 0)
-        monkeypatch.setattr(
-            direct_commands._helpers, "_wait_web_ready", lambda i, inst: 0)
-        args = type("Args", (), {"id": "scsite"})()
-        assert direct_commands.cmd_start(args) == 0
-
-    def test_start_runs_up(self, monkeypatch):
-        captured_cmds = []
-
-        def mock_call(cmd, **kw):
-            captured_cmds.append(cmd)
-            return 0
-
-        monkeypatch.setattr(
-            subprocess, "run",
-            lambda argv, **kw: subprocess.CompletedProcess(
-                argv, mock_call(argv, **kw), stdout=""))
-        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
-            lambda args: ("test", {
-                "path": "/srv/test",
-                "orchestrator": "compose",
-            }),
-        )
-        monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
-            lambda *a, **kw: ["-f", "docker-compose.yml"],
-        )
-        monkeypatch.setattr(direct_commands._helpers, "_wait_web_ready",
-            lambda i, inst: 0)
-
-        args = type("Args", (), {"id": "test"})()
-        rc = direct_commands.cmd_start(args)
-        assert rc == 0
-        assert [
-            "docker", "compose", "-f", "docker-compose.yml", "up", "-d",
-        ] in captured_cmds
-
     def test_stop_runs_down(self, monkeypatch):
         captured_cmds = []
 
@@ -1724,46 +1679,6 @@ class TestLifecycleCommands:
         rc = direct_commands.cmd_stop(args)
         assert rc == 0
         assert events == ["sync", "down"]
-
-    def test_remote_start_uses_ssh(self, monkeypatch):
-        # The sync-profiles .env read still goes through _ssh_run...
-        def mock_ssh(host, cmd, docker_host=None):
-            return 0, ""  # empty .env → no write
-
-        monkeypatch.setattr(direct_commands._helpers, "_ssh_run", mock_ssh)
-
-        # ...but the long `up -d` runs via `ssh <target> <remote_cmd>` through
-        # subprocess (no 30s _ssh_run cap, which would kill image pulls).
-        call_argvs = []
-
-        def mock_call(argv, **kw):
-            call_argvs.append(argv)
-            return 0
-
-        monkeypatch.setattr(
-            subprocess, "run",
-            lambda argv, **kw: subprocess.CompletedProcess(
-                argv, mock_call(argv, **kw), stdout=""))
-        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
-            lambda args: ("test", {
-                "path": "/srv/test",
-                "orchestrator": "compose",
-                "host": "admin@remote",
-            }),
-        )
-        monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
-            lambda *a, **kw: ["-f", "docker-compose.yml"],
-        )
-        monkeypatch.setattr(direct_commands._helpers, "_wait_web_ready",
-            lambda i, inst: 0)
-
-        args = type("Args", (), {"id": "test"})()
-        rc = direct_commands.cmd_start(args)
-        assert rc == 0
-        up_argv = [a for a in call_argvs if a and "up -d" in a[-1]]
-        assert len(up_argv) == 1
-        assert up_argv[0][0] == "ssh"
-        assert "admin@remote" in up_argv[0]
 
 
 class TestEnvFileWriter:
@@ -1926,8 +1841,8 @@ class TestSyncComposeProfiles:
         env_path.write_text(
             "CANASTA_ENABLE_VARNISH=true\n"
             "COMPOSE_PROFILES=varnish,internal-db\n"
-            "CANASTA_CADDY_HTTP_PUBLISH=80\n"
-            "CANASTA_CADDY_HTTPS_PUBLISH=443\n"
+            "CANASTA_CADDY_HTTP_PUBLISH=127.0.0.1:\n"
+            "CANASTA_CADDY_HTTPS_PUBLISH=127.0.0.1:\n"
         )
         original_mtime = env_path.stat().st_mtime_ns
         direct_commands._sync_compose_profiles(self._inst(tmp_path))

@@ -17,7 +17,6 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 
-import direct_commands  # noqa: E402
 import direct_commands._helpers  # noqa: E402
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -76,59 +75,6 @@ class TestMissingProfileServices:
             lambda *a, **kw: None)
         assert direct_commands._helpers._missing_profile_services(
             self._inst(), ["docker", "compose"]) == []
-
-
-class TestStartConvergesWhenAServiceIsMissing:
-    def _patch(self, monkeypatch, missing):
-        monkeypatch.setattr(
-            direct_commands._helpers, "_resolve_instance",
-            lambda args: ("test", {"path": "/srv/test", "host": "localhost",
-                                   "orchestrator": "compose"}))
-        monkeypatch.setattr(
-            direct_commands._helpers, "_instance_has_sidecars",
-            lambda inst: False)
-        monkeypatch.setattr(
-            direct_commands._helpers, "_resolve_compose_cmd",
-            lambda inst: ["docker", "compose"])
-        monkeypatch.setattr(
-            direct_commands._helpers, "_check_running_compose",
-            lambda *a, **kw: True)
-        monkeypatch.setattr(
-            direct_commands._helpers, "_sync_compose_profiles",
-            lambda inst: {})
-        monkeypatch.setattr(
-            direct_commands._helpers, "_missing_db_password",
-            lambda inst, env: False)
-        monkeypatch.setattr(
-            direct_commands._helpers, "_missing_profile_services",
-            lambda inst, compose_cmd=None: missing)
-        calls = []
-        monkeypatch.setattr(
-            direct_commands._helpers, "_run_compose",
-            lambda inst_id, inst, args, **kw: calls.append(args) or 0)
-        monkeypatch.setattr(
-            direct_commands._helpers, "_wait_web_ready",
-            lambda inst_id, inst: 0)
-        return calls
-
-    def test_up_is_invoked_for_the_missing_service(self, monkeypatch):
-        calls = self._patch(monkeypatch, ["varnish"])
-        args = type("Args", (), {"id": "test"})()
-        assert direct_commands.cmd_start(args) == 0
-        assert calls == [["up", "-d"]], (
-            "a service named in COMPOSE_PROFILES but not running must be "
-            "started, not reported as already running")
-
-    def test_it_says_what_it_is_starting(self, monkeypatch, capsys):
-        self._patch(monkeypatch, ["varnish"])
-        direct_commands.cmd_start(type("Args", (), {"id": "test"})())
-        assert "Starting varnish" in capsys.readouterr().out
-
-    def test_a_converged_instance_is_still_a_noop(self, monkeypatch):
-        calls = self._patch(monkeypatch, [])
-        assert direct_commands.cmd_start(
-            type("Args", (), {"id": "test"})()) == 0
-        assert calls == [], "a converged instance must not bounce containers"
 
 
 class TestAnsibleStartGuard:

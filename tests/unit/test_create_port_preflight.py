@@ -42,8 +42,8 @@ class TestPortPreflight:
         # 80/443), so the messages name the fact rather than a literal.
         for fact in ("_preflight_http_port", "_preflight_https_port"):
             hits = [t for t in fails
-                    if "is already in use" in str(t.get("ansible.builtin.fail")
-                                                  or t.get("fail"))
+                    if "something is listening" in str(t.get("ansible.builtin.fail")
+                                                       or t.get("fail"))
                     and fact in str(t.get("ansible.builtin.fail")
                                     or t.get("fail"))]
             assert hits, "no hard-fail for %s already in use" % fact

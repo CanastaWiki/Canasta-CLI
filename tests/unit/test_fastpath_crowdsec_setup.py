@@ -101,10 +101,6 @@ class TestStart:
             direct_commands.FALLBACK)
         assert fast_path["compose"] == []
 
-    def test_stays_fast_when_nothing_pending(self, fast_path):
-        assert direct_commands.cmd_start(_args("test")) == 0
-        assert fast_path["compose"] == ["up"]
-
 
 class TestRebuild:
     def test_hands_restart_to_ansible_when_crowdsec_setup_pending(

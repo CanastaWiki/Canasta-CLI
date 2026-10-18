@@ -65,6 +65,7 @@ class TestEnvParsing:
             "CANASTA_IMAGE": False,
             "COMPOSE_PROFILES": False,
             "USE_EXTERNAL_DB": False,
+            "CANASTA_ENABLE_EDGE": False,
         }
         assert result["env"]["MW_SECRET_KEY"] == ""
 

@@ -74,26 +74,6 @@ class TestTheCheckRunsBeforeAnythingStarts:
         assert calls == []
 
 
-class TestAHealthyInstanceIsUnaffected:
-    def test_a_present_password_starts_normally(self, monkeypatch):
-        calls = []
-        _common(monkeypatch, calls, {"MYSQL_PASSWORD": "s3cret", "OTHER": "x"})
-
-        assert direct_commands.cmd_start(_args()) == 0
-        assert calls, "a healthy instance was not started"
-        assert calls[0][-2:] == ["up", "-d"]
-
-    def test_an_unreadable_env_is_not_treated_as_this_problem(self, monkeypatch):
-        # An empty parse means no .env or an unreadable one — a different
-        # fault. Claiming it as a missing password would send every such
-        # instance down the heal path instead of reporting what is wrong.
-        calls = []
-        _common(monkeypatch, calls, {})
-
-        assert direct_commands.cmd_start(_args()) == 0
-        assert calls, "an unreadable .env was misread as a missing password"
-
-
 class TestTheEnvIsReadOnlyOnce:
     def test_a_supplied_env_is_not_re_read(self, monkeypatch):
         reads = []

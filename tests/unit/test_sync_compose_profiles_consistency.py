@@ -152,9 +152,8 @@ class TestSyncComposeProfilesConsistency:
     "CADDY_TRUSTED_PROXIES=imperva\nCANASTA_CADDY_IMAGE=example.com/caddy:1\n",
     "HTTP_PORT=8080\nHTTPS_PORT=8443\n",
     "HTTP_PORT=\nHTTPS_PORT=\n",
-    "CANASTA_ENABLE_EDGE=true\nHTTP_PORT=8080\n",
-    "CANASTA_ENABLE_EDGE=TRUE\nCANASTA_CADDY_HTTP_PUBLISH=80\n",
-    "CANASTA_ENABLE_EDGE=false\nCANASTA_CADDY_HTTPS_PUBLISH=127.0.0.1:\n",
+    "CANASTA_CADDY_HTTP_PUBLISH=80\n",
+    "CANASTA_CADDY_HTTPS_PUBLISH=127.0.0.1:\n",
 ])
 def test_ansible_and_python_derive_the_same_env(tmp_path, env_text):
     env_text = "MW_SITE_SERVER=https://example.com\n" + env_text
@@ -174,11 +173,11 @@ def test_ansible_and_python_derive_the_same_env(tmp_path, env_text):
         assert ansible[key] == python[key], key
 
 
+# The HAProxy edge owns the instance's ports; Caddy only ever publishes
+# random loopback ports.
 @pytest.mark.parametrize("env,expected", [
-    ({}, ("80", "443")),
-    ({"HTTP_PORT": "8080", "HTTPS_PORT": "8443"}, ("8080", "8443")),
-    ({"CANASTA_ENABLE_EDGE": "true", "HTTP_PORT": "8080"},
-     ("127.0.0.1:", "127.0.0.1:")),
+    ({}, ("127.0.0.1:", "127.0.0.1:")),
+    ({"HTTP_PORT": "8080", "HTTPS_PORT": "8443"}, ("127.0.0.1:", "127.0.0.1:")),
 ])
 def test_caddy_publish(env, expected):
     publish = _helpers._caddy_publish(env)

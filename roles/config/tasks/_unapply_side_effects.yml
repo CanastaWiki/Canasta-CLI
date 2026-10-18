@@ -7,9 +7,3 @@
   ansible.builtin.include_tasks: _side_effects.yml
   vars:
     _config_value: "443"
-
-- name: Unapply CANASTA_ENABLE_EDGE (leave the edge)
-  when: _config_key == 'CANASTA_ENABLE_EDGE'
-  ansible.builtin.include_tasks: _side_effects.yml
-  vars:
-    _config_value: "false"

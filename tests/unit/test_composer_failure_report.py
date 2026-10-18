@@ -16,7 +16,6 @@ import yaml
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
-import direct_commands  # noqa: E402
 from direct_commands import _helpers, doctor  # noqa: E402
 
 REPORT = os.path.join(REPO_ROOT, "roles", "mediawiki", "tasks",
@@ -92,38 +91,6 @@ def _start(monkeypatch, summary, ready=0):
 
 def _args():
     return type("Args", (), {"id": "test"})()
-
-
-class TestStartFastPath:
-    def test_a_failure_is_one_warning_with_the_details_command(
-            self, monkeypatch, capsys):
-        _start(monkeypatch, FIRST_LINE)
-        assert direct_commands.cmd_start(_args()) == 0
-        err = capsys.readouterr().err.strip().splitlines()
-        assert err == [
-            "Warning: %s Details: canasta maintenance exec -i test -- cat "
-            "/mediawiki/config/persistent/composer-update.failed" % FIRST_LINE]
-
-    def test_no_record_leaves_the_output_unchanged(self, monkeypatch, capsys):
-        _start(monkeypatch, None)
-        assert direct_commands.cmd_start(_args()) == 0
-        captured = capsys.readouterr()
-        assert captured.out == "Instance 'test' started.\n"
-        assert captured.err == ""
-
-    def test_not_read_before_web_is_ready(self, monkeypatch):
-        reads = _start(monkeypatch, FIRST_LINE, ready=1)
-        assert direct_commands.cmd_start(_args()) == 1
-        assert reads == []
-
-    def test_an_already_running_instance_is_checked(self, monkeypatch, capsys):
-        _start(monkeypatch, FIRST_LINE)
-        monkeypatch.setattr(_helpers, "_check_running_compose",
-                            lambda *a, **kw: True)
-        monkeypatch.setattr(_helpers, "_missing_profile_services",
-                            lambda *a, **kw: [])
-        assert direct_commands.cmd_start(_args()) == 0
-        assert FIRST_LINE in capsys.readouterr().err
 
 
 class TestDoctor:

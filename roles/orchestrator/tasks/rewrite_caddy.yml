@@ -17,37 +17,16 @@
 
 - name: Determine Caddyfile parameters
   ansible.builtin.set_fact:
-    # On K8s the ingress (Traefik), and on Compose the host's HAProxy edge
-    # when CANASTA_ENABLE_EDGE is on, terminates TLS and forwards plain HTTP
-    # to Caddy, so Caddy must serve HTTP-only with no HTTP->HTTPS redirect —
-    # else it loops behind the proxy (sees HTTP, redirects to HTTPS, the proxy
-    # terminates, forwards HTTP, ...). Force http-only there regardless of
-    # CADDY_AUTO_HTTPS, which a cross-orchestrator restore can leave unset/on.
-    # Elsewhere Caddy is the TLS edge and keeps the .env-driven behavior.
-    _http_only: >-
-      {{ (instance_is_k8s | bool)
-         or (_env_caddy.variables.CANASTA_ENABLE_EDGE | default('false', true) | lower == 'true')
-         or (_env_caddy.variables.CADDY_AUTO_HTTPS | default('on') | lower == 'off') }}
     _observable: "{{ _env_caddy.variables.CANASTA_ENABLE_OBSERVABILITY | default('false', true) | lower == 'true' }}"
     _varnish_enabled: "{{ _env_caddy.variables.CANASTA_ENABLE_VARNISH | default('true', true) | lower == 'true' }}"
-    _staging_certs: "{{ _env_caddy.variables.CANASTA_STAGING_CERTS | default('false') | lower == 'true' }}"
-    # canasta_env returns "" for an absent key, which a plain default() does
-    # not replace.
-    _tls_mode: "{{ _env_caddy.variables.CADDY_TLS_MODE | default('acme', true) | lower }}"
-    _tls_cert: "{{ _env_caddy.variables.CADDY_TLS_CERT | default('origin.crt', true) }}"
-    _tls_key: "{{ _env_caddy.variables.CADDY_TLS_KEY | default('origin.key', true) }}"
     _os_user: "{{ _env_caddy.variables.OS_USER | default('admin') }}"
     # .env stores the hash Compose-escaped ($$); Caddy needs the bcrypt text.
     _os_password_hash: "{{ _env_caddy.variables.OS_PASSWORD_HASH | default('') | replace('$$', '$') }}"
     _is_k8s: "{{ instance_is_k8s | bool }}"
-    # Behind the K8s ingress or the Compose edge: Caddy's peer is a proxy on
-    # a private network, never the client.
-    _behind_proxy: >-
-      {{ (instance_is_k8s | bool)
-         or (_env_caddy.variables.CANASTA_ENABLE_EDGE | default('false', true) | lower == 'true') }}
-    _behind_edge: >-
-      {{ not (instance_is_k8s | bool)
-         and (_env_caddy.variables.CANASTA_ENABLE_EDGE | default('false', true) | lower == 'true') }}
+    # The K8s ingress or the Compose HAProxy edge terminates TLS and forwards
+    # plain HTTP, so Caddy serves HTTP only, with no redirect (it would loop),
+    # and its peer is always that proxy, never the client.
+    _behind_edge: "{{ not (instance_is_k8s | bool) }}"
     # CrowdSec enabled (engine runs) vs. active (bouncer enforces). The
     # engine parses the access log as soon as it's enabled, so the K8s
     # real-client-IP trusted-proxy handling keys off _crowdsec_enabled —
@@ -77,67 +56,17 @@
     - _observable | bool
     - _os_password_hash | length == 0
 
-- name: Reject an unrecognised CADDY_TLS_MODE
-  ansible.builtin.fail:
-    msg: >-
-      CADDY_TLS_MODE is '{{ _tls_mode }}'. Valid values are 'acme' (default),
-      'internal', 'custom' and, behind the HAProxy edge, 'acme-dns'. A typo
-      would otherwise fall through to ACME and look like a certificate failure
-      rather than a configuration error.
-  when: _tls_mode not in ['acme', 'internal', 'custom', 'acme-dns']
-
-# DNS validation is done by the edge's acme.sh; Caddy's image has no DNS
-# provider plugins.
-- name: Reject acme-dns outside the edge
-  ansible.builtin.fail:
-    msg: >-
-      CADDY_TLS_MODE 'acme-dns' obtains certificates through the HAProxy edge,
-      so it needs CANASTA_ENABLE_EDGE=true. Without the edge, use 'acme',
-      'internal' or 'custom'.
-  when:
-    - _tls_mode == 'acme-dns'
-    - not (instance_is_k8s | bool)
-    - _env_caddy.variables.CANASTA_ENABLE_EDGE | default('false', true) | lower != 'true'
-
-# Caddy exits at startup on a tls path it cannot read, so an absent
-# certificate would fail at the next restart rather than here.
-- name: Stat the custom certificate and key
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/config/certs/{{ item }}"
-  loop:
-    - "{{ _tls_cert }}"
-    - "{{ _tls_key }}"
-  loop_control:
-    label: "{{ item }}"
-  register: _tls_files
-  when: _tls_mode == 'custom'
-
-- name: Refuse to render a custom TLS Caddyfile without the certificate files
-  ansible.builtin.fail:
-    msg: >-
-      CADDY_TLS_MODE is 'custom' but
-      {{ _tls_files.results | rejectattr('stat.exists') | map(attribute='item') | join(' and ') }}
-      {{ 'is' if (_tls_files.results | rejectattr('stat.exists') | list | length) == 1 else 'are' }}
-      missing from {{ instance_path }}/config/certs/. Caddy would fail to start.
-      Place the certificate and key there, or set CADDY_TLS_MODE back to 'acme'
-      or 'internal'.
-  when:
-    - _tls_mode == 'custom'
-    - _tls_files.results | rejectattr('stat.exists') | list | length > 0
-
 - name: Determine reverse proxy backend
   ansible.builtin.set_fact:
     _backend: "{{ (_varnish_enabled | bool) | ternary('varnish:80', 'web:80') }}"
 
-# Trusted-proxy handling: when Caddy sits behind a CDN/proxy (Cloudflare,
-# Imperva, an LB), recover the real client IP. 'cloudflare'/'imperva' are
-# first-class modes that keep trusted_proxies current IN-PROCESS via the
-# caddy-cdn-ranges plugin (Caddy re-fetches the provider's published edge
-# ranges on an interval, so a long-lived instance never goes stale) and
-# read the provider's dedicated client-IP header. Locking the ranges to
-# the provider is what stops a direct-to-origin client from spoofing the
-# header. Anything else is an explicit comma-separated CIDR list using
-# Caddy's built-in static source + X-Forwarded-For (strict, right-to-left).
+# Trusted-proxy handling: Caddy's peer is always a proxy (the Compose edge
+# or the K8s ingress), whose addresses it trusts to recover the real client
+# IP. On K8s, 'cloudflare'/'imperva' combine the ingress's addresses with
+# the provider's published ranges, kept current in-process by the
+# caddy-cdn-ranges plugin, and read the provider's client-IP header;
+# anything else is an explicit comma-separated CIDR list using Caddy's
+# built-in static source + X-Forwarded-For (strict, right-to-left).
 - name: Determine trusted-proxy mode
   ansible.builtin.set_fact:
     _tp_raw: "{{ _env_caddy.variables.CADDY_TRUSTED_PROXIES | default('') | trim }}"
@@ -145,12 +74,12 @@
     # real client IP from X-Forwarded-For. Default to the standard private
     # ranges — safe because Caddy is reachable only on the cluster or edge
     # network (and, behind the edge, a loopback port); operator override via
-    # CADDY_TRUSTED_PROXY_CIDRS. Empty when Caddy is the edge.
+    # CADDY_TRUSTED_PROXY_CIDRS.
     _proxy_trusted_cidrs: >-
       {{ ((_env_caddy.variables.CADDY_TRUSTED_PROXY_CIDRS
            | default('10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7'))
           | split(',') | map('trim') | reject('equalto', '') | list)
-         if (_behind_proxy | bool) else [] }}
+         }}
 
 - name: Normalize trusted-proxy mode
   ansible.builtin.set_fact:
@@ -160,23 +89,18 @@
     # only that, so a client-supplied CDN header is never believed.
     _tp_mode: "{{ 'edge' if (_behind_edge | bool) else (_tp_raw | lower) }}"
     # Activate trusted-proxy handling behind the edge, when the operator
-    # sets CADDY_TRUSTED_PROXIES, or — behind a proxy — whenever CrowdSec is
-    # enabled, so the engine attributes decisions to the real client IP
-    # instead of the proxy's (true even before the bouncer is enrolled).
+    # sets CADDY_TRUSTED_PROXIES, or whenever CrowdSec is enabled, so the
+    # engine attributes decisions to the real client IP instead of the
+    # proxy's (true even before the bouncer is enrolled).
     _trusted_proxies_enabled: >-
-      {{ (_behind_edge | bool) or (_tp_raw | length) > 0
-         or (_behind_proxy | bool and _crowdsec_enabled | bool) }}
+      {{ (_behind_edge | bool) or (_tp_raw | length) > 0 or (_crowdsec_enabled | bool) }}
 
 - name: Resolve trusted-proxy rendering parameters
   ansible.builtin.set_fact:
-    # cloudflare/imperva -> dynamic cdn_ranges source (needs the plugin
-    # image); anything else -> built-in static source on stock Caddy.
-    _tp_dynamic: "{{ _tp_mode in ['cloudflare', 'imperva'] }}"
-    # Behind a proxy the CDN is NOT Caddy's immediate peer (the proxy is),
-    # so a provider mode must COMBINE the proxy CIDRs with the CDN ranges via
-    # caddy-combine-ip-ranges. When Caddy is the edge, cdn_ranges stands
-    # alone.
-    _tp_combine: "{{ (_behind_proxy | bool) and _tp_mode in ['cloudflare', 'imperva'] }}"
+    # The CDN is not Caddy's immediate peer (the proxy is), so a provider
+    # mode combines the proxy CIDRs with the CDN ranges via
+    # caddy-combine-ip-ranges (needs the plugin image).
+    _tp_combine: "{{ _tp_mode in ['cloudflare', 'imperva'] }}"
     # Static CIDR list = proxy CIDRs + the operator's explicit list
     # (non-provider modes only). Provider modes contribute no static CIDRs
     # of their own; their ranges come from the cdn_ranges source.
@@ -205,7 +129,7 @@
 - name: Build site address
   ansible.builtin.set_fact:
     _site_address: >-
-      {{ _server_names | map('regex_replace', '^(.*)$', ((_http_only | bool) | ternary('http://\1', '\1'))) | join(', ') }}
+      {{ _server_names | map('regex_replace', '^', 'http://') | join(', ') }}
 
 # Caddyfile.global is inlined so its global options block (if any) can be melded
 # with the CLI-managed one — Caddy permits exactly one. Caddyfile.site is
@@ -236,9 +160,7 @@
       {{ _caddyfile_global_content
          | caddy_http_site_addresses(_caddyfile_global_content | caddy_site_hostnames)
          | caddy_unsafe }}
-  when:
-    - not (instance_is_k8s | bool)
-    - _env_caddy.variables.CANASTA_ENABLE_EDGE | default('false', true) | lower == 'true'
+  when: not (instance_is_k8s | bool)
 
 # Object-storage-backed media hostnames. Absent file = none declared.
 - name: Stat media-hosts.yaml
@@ -296,18 +218,6 @@
   when:
     - item.hostname | default('', true) | length > 0
     - _caddyfile_global_content is search('(?m)^\s*' ~ (item.hostname | default('x') | regex_escape) ~ '\s*\{')
-
-# Names the generated redirect server claims from Caddy's automatic one (see
-# Caddyfile.j2). Names the user's Caddyfile.global already serves over http://
-# are left to it — Caddy refuses to load a config that claims one twice.
-- name: Determine port-80 redirect server names
-  ansible.builtin.set_fact:
-    _redirect_server_names: >-
-      {{ (_server_names
-          | reject('in', _caddyfile_global_content | caddy_explicit_http_hosts)
-          | list)
-         if ((not (_http_only | bool)) and (_trusted_proxies_enabled | bool))
-         else [] }}
 
 # Render the template (CLI global block + inlined Caddyfile.global, which may
 # leave two global blocks) and meld them into one on the way out.
