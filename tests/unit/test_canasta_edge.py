@@ -1084,3 +1084,26 @@ def test_the_edge_listens_on_every_instance_port(tmp_path, user_units):
     socket = (user_units / mod.SOCKET_UNIT).read_text()
     assert [line for line in socket.splitlines() if line.startswith("ListenStream=")] == [
         "ListenStream=0.0.0.0:8080", "ListenStream=0.0.0.0:8443"]
+
+
+CAPPED_LOG = {"driver": "json-file", "options": {"max-size": "50m", "max-file": "3"}}
+
+
+def test_the_edge_logs_are_capped_under_docker(tmp_path, user_units):
+    # HAProxy logs every request; an uncapped json-file log fills the disk.
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(), edge, "one", path)
+    services = yaml.safe_load((edge / "docker-compose.yml").read_text())["services"]
+    assert services["haproxy"]["logging"] == CAPPED_LOG
+    assert services["acme"]["logging"] == CAPPED_LOG
+
+
+def test_the_edge_logs_are_capped_under_podman(tmp_path, user_units):
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    mod.sync(FakeRunner(), "podman", str(edge), "one", path, None)
+    services = yaml.safe_load((edge / "docker-compose.yml").read_text())["services"]
+    assert services["acme"]["logging"] == CAPPED_LOG
+    service = (user_units / mod.SERVICE_UNIT).read_text()
+    assert "--log-driver k8s-file --log-opt max-size=50m" in service

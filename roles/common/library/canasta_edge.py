@@ -175,6 +175,12 @@ services:
     # Reads the private keys in conf/certs, which are not world-readable.
     user: root
     restart: unless-stopped
+    # HAProxy logs every request.
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     ports:
 %(ports)s    volumes:
       - ./conf:%(config_dir)s:ro
@@ -189,6 +195,7 @@ services:
     user: "%(acme_user)s"
     command: daemon
     restart: unless-stopped
+    logging: *logging
     volumes:
       - ./acme:/acme.sh
       - ./conf/certs:%(cert_dir)s
@@ -213,6 +220,11 @@ services:
     container_name: %(acme_container)s
     user: "%(acme_user)s"
     command: daemon
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     restart: unless-stopped
     volumes:
       - ./acme:/acme.sh
@@ -255,7 +267,9 @@ After=%(socket)s
 [Service]
 ExecStartPre=-%(podman)s rm -f %(container)s
 # Reads the private keys in conf/certs, which are not world-readable.
+# HAProxy logs every request: keep `podman logs` working, within bounds.
 ExecStart=%(podman)s run --rm --name %(container)s --network %(network)s --user root \\
+    --log-driver k8s-file --log-opt max-size=50m \\
     -v %(conf)s:%(config_dir)s:ro -v %(volume)s:/var/run/haproxy %(image)s
 ExecStop=%(podman)s stop -t 10 %(container)s
 Restart=on-failure
