@@ -250,11 +250,14 @@
     - name: Refuse a second container runtime on the host
       ansible.builtin.fail:
         msg: >-
-          This host's HAProxy edge runs on
+          This host's HAProxy edge runs on {{ _preflight_edge_runtime }}, and
+          this instance would run on the other runtime, whose containers the
+          edge cannot reach. Create it with the same runtime as the host's
+          other instances, or on another host.
+      vars:
+        _preflight_edge_runtime: >-
           {{ 'Docker' if (compose_command | default('docker compose') is search('podman'))
-             else 'Podman' }}, and this instance would run on the other runtime,
-          whose containers the edge cannot reach. Create it with the same
-          runtime as the host's other instances, or on another host.
+             else 'Podman' }}
       when: _preflight_other_edge.stdout | default('') | trim | length > 0
 
     # Rootless Docker's port forwarding hides client addresses from the edge.
