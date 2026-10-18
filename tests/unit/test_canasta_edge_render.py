@@ -399,3 +399,15 @@ def test_rootless_docker_has_no_per_client_limits_unless_set():
     rated = _inst("one", env={"CANASTA_EDGE_RATE_DYNAMIC": "120"})
     assert "track-sc0" in edge.render([rated], rootless=True)["files"]["haproxy.cfg"]
     assert "track-sc0" in edge.render([_inst("one")])["files"]["haproxy.cfg"]
+
+
+def test_private_addresses_are_exempt_from_per_client_limits():
+    cfg = edge.render([_inst("one", ["one.example.com"])])["files"]["haproxy.cfg"]
+    assert ("http-request track-sc0 src if !{ src 10.0.0.0/8 172.16.0.0/12 "
+            "192.168.0.0/16 127.0.0.0/8 ::1 fc00::/7 }") in cfg
+
+
+def test_rootless_docker_limits_apply_to_every_address():
+    inst = _inst("one", ["one.example.com"], env={"CANASTA_EDGE_RATE_DYNAMIC": "60"})
+    cfg = edge.render([inst], rootless=True)["files"]["haproxy.cfg"]
+    assert "    http-request track-sc0 src\n" in cfg
