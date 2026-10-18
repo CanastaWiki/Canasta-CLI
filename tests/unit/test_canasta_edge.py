@@ -56,7 +56,7 @@ class FakeRunner:
             self.listed.pop(host, None)
         return 0, "", ""
 
-    def __call__(self, argv, env=None):
+    def __call__(self, argv, env=None, cwd=None):
         self.calls.append(argv)
         self.envs.append(env or {})
         if argv[1] == "exec" and "acme.sh" in argv:
@@ -436,7 +436,7 @@ class OwnerProbe(FakeRunner):
         super().__init__(**kwargs)
         self.owner_uid = owner_uid
 
-    def __call__(self, argv, env=None):
+    def __call__(self, argv, env=None, cwd=None):
         if "touch" in argv:
             mounts = dict(a.split(":", 1)[::-1] for a in argv if ":/" in a)
             path = os.path.join(mounts["/probe"], ".owner-probe")
@@ -651,11 +651,19 @@ def test_mixed_runtimes_do_not_move(tmp_path):
     assert "one" not in plan["decline"]
 
 
-def test_podman_instances_stay_off_the_edge_without_a_choice(tmp_path):
+def test_podman_instances_move_when_systemd_can_run_the_edge(tmp_path):
     one = _plain(tmp_path, "one")
-    plan = mod.plan_conversion([_entry("one", one, "podman-compose")])
+    # Podman reports itself rootless as well; that is not rootless Docker.
+    plan = mod.plan_conversion([_entry("one", one, "podman-compose")],
+                               rootless=lambda inst: True, podman_ready=lambda: True)
+    assert plan == {"convert": ["one"], "decline": {}, "skip": {}}
+
+
+def test_podman_instances_wait_for_a_systemd_user_session(tmp_path):
+    one = _plain(tmp_path, "one")
+    plan = mod.plan_conversion([_entry("one", one, "podman-compose")], podman_ready=lambda: False)
     assert plan["convert"] == [] and plan["decline"] == {}
-    assert "rootless Podman" in plan["skip"]["one"]
+    assert "systemd user session" in plan["skip"]["one"]
 
 
 LEAF = "-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----\n"
@@ -944,3 +952,111 @@ def test_a_matching_network_reports_nothing(tmp_path, monkeypatch):
     path = _instance(tmp_path, "one")
     result = _sync(FakeRunner(network_ipv6=True), tmp_path / "edge", "one", path)
     assert "network_ipv6_pending" not in result
+
+
+# --- rootless Podman: HAProxy from systemd units ------------------------------ #
+
+@pytest.fixture
+def user_units(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    return tmp_path / "xdg" / "systemd" / "user"
+
+
+def test_under_podman_haproxy_runs_from_systemd_units(tmp_path, user_units):
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    result = mod.sync(FakeRunner(), "podman", str(edge), "one", path, None)
+    assert result["sockets"] and result["units_changed"]
+    compose = yaml.safe_load((edge / "docker-compose.yml").read_text())
+    assert "haproxy" not in compose["services"]
+    assert compose["services"]["acme"]["networks"] == {"edge": {}}
+    assert compose["volumes"]["run"]["name"] == mod.RUN_VOLUME
+    socket = (user_units / mod.SOCKET_UNIT).read_text()
+    assert socket.index("ListenStream=0.0.0.0:80") < socket.index("ListenStream=0.0.0.0:443")
+    assert "[::]" not in socket
+    service = (user_units / mod.SERVICE_UNIT).read_text()
+    assert "--network %s" % mod.NETWORK in service and mod.HAPROXY_IMAGE in service
+    assert "-v %s:%s:ro" % (edge / "conf", mod.CONFIG_DIR) in service
+    assert "-v %s:/var/run/haproxy" % mod.RUN_VOLUME in service
+    cfg = (edge / "conf" / "haproxy.cfg").read_text()
+    assert "    bind fd@3\n" in cfg and "    bind fd@4 ssl crt-list" in cfg
+    assert "bind :80" not in cfg
+
+
+def test_under_podman_with_ipv6_the_socket_unit_listens_on_both(tmp_path, user_units, monkeypatch):
+    monkeypatch.setattr(mod, "host_has_ipv6", lambda: True)
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    mod.sync(FakeRunner(), "podman", str(edge), "one", path, None)
+    socket = (user_units / mod.SOCKET_UNIT).read_text()
+    lines = [line for line in socket.splitlines() if line.startswith("ListenStream=")]
+    assert lines == ["ListenStream=0.0.0.0:80", "ListenStream=0.0.0.0:443",
+                     "ListenStream=[::]:80", "ListenStream=[::]:443"]
+    assert "BindIPv6Only=ipv6-only" in socket
+    cfg = (edge / "conf" / "haproxy.cfg").read_text()
+    assert "bind fd@5\n" in cfg and "bind fd@6 ssl crt-list" in cfg
+
+
+def test_docker_keeps_haproxy_in_compose(tmp_path, user_units):
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    result = _sync(FakeRunner(), edge, "one", path)
+    assert not result["sockets"] and "units_changed" not in result
+    assert "haproxy" in yaml.safe_load((edge / "docker-compose.yml").read_text())["services"]
+    assert not user_units.exists()
+
+
+def test_starting_under_podman_enables_the_socket_and_starts_haproxy(tmp_path, user_units):
+    run = FakeRunner(running=True)
+    mod.start_edge(run, "podman", "podman-compose", str(tmp_path), restart=True)
+    assert run.calls[0][:5] == ["podman-compose", "-p", "canasta-edge", "up", "-d"]
+    systemctl = [c[2:] for c in run.calls if c[:2] == ["systemctl", "--user"]]
+    assert ["enable", "--now", mod.SOCKET_UNIT] in systemctl
+    assert ["restart", mod.SERVICE_UNIT] in systemctl
+    assert all(e.get("XDG_RUNTIME_DIR") for c, e in zip(run.calls, run.envs)
+               if c[:2] == ["systemctl", "--user"])
+
+
+def test_starting_under_docker_uses_compose_only(tmp_path):
+    run = FakeRunner(running=True)
+    mod.start_edge(run, "docker", "docker compose", str(tmp_path), recreate=True)
+    assert run.calls == [["docker", "compose", "-p", "canasta-edge", "up", "-d", "--force-recreate"]]
+
+
+def test_stopping_under_podman_removes_the_units(tmp_path, user_units):
+    user_units.mkdir(parents=True)
+    for unit in (mod.SOCKET_UNIT, mod.SERVICE_UNIT):
+        (user_units / unit).write_text("x")
+    run = FakeRunner()
+    mod.stop_edge(run, "podman", "podman-compose", str(tmp_path))
+    assert ["systemctl", "--user", "disable", "--now", mod.SERVICE_UNIT, mod.SOCKET_UNIT] in run.calls
+    assert not list(user_units.iterdir())
+    assert run.calls[-1] == ["podman-compose", "-p", "canasta-edge", "down", "-v"]
+
+
+def test_the_check_runs_without_the_systemd_sockets(tmp_path, user_units):
+    seen = {}
+
+    class Capture(FakeRunner):
+        def __call__(self, argv, env=None, cwd=None):
+            if argv[1] == "run" and "haproxy" in argv and "-c" in argv:
+                stage = next(a.split(":")[0] for a in argv if a.endswith(":%s:ro" % mod.CONFIG_DIR))
+                seen["cfg"] = open(os.path.join(stage, "haproxy.cfg")).read()
+            return super().__call__(argv, env, cwd)
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    mod.sync(Capture(), "podman", str(edge), "one", path, None)
+    assert "fd@" not in seen["cfg"] and "bind 127.0.0.1:18003" in seen["cfg"]
+    assert "bind fd@3" in (edge / "conf" / "haproxy.cfg").read_text()
+
+
+def test_without_instances_no_units_are_written_and_leftovers_are_reported(tmp_path, user_units):
+    path = _instance(tmp_path, "one", env={"CANASTA_ENABLE_EDGE": "false"})
+    edge = tmp_path / "edge"
+    (edge / "conf").mkdir(parents=True)
+    user_units.mkdir(parents=True)
+    (user_units / mod.SOCKET_UNIT).write_text("left over")
+    result = mod.sync(FakeRunner(), "podman", str(edge), "one", path, None)
+    assert result["members"] == [] and "units_changed" not in result
+    assert result["units_present"]
+    assert (user_units / mod.SOCKET_UNIT).read_text() == "left over"

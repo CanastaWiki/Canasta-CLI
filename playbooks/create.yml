@@ -140,6 +140,29 @@
       register: _create_dir_removal
       ignore_errors: true  # Best-effort cleanup on failure
 
+    # The instance may already have joined the edge, which must not keep
+    # running, holding 80 and 443, with no instance behind it.
+    - name: Take the instance out of the edge on failure
+      block:
+        - name: Take the instance out of the edge
+          ansible.builtin.include_role:
+            name: orchestrator
+            tasks_from: edge_sync.yml
+          vars:
+            edge_member: absent
+          when:
+            - instance_path is defined
+            - not (keep_config | default(false) | bool)
+            - instance_dir_was_created | default(false) | bool
+            - not (instance_is_k8s | bool)
+      rescue:
+        - name: Report that the edge could not be updated
+          ansible.builtin.debug:
+            msg: >-
+              The HAProxy edge could not be updated after the failed create
+              ({{ ansible_failed_result.msg | default('') }}); the next start
+              of any instance on this host brings it in line.
+
     - name: Deregister instance on failure
       canasta_registry:
         id: "{{ id }}"

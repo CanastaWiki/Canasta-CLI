@@ -478,7 +478,18 @@ def _backend_rules(inst, kind):
     return out
 
 
-def _render_cfg(instances, thumbprint, ipv6=False):
+def listeners_for(ipv6=False, sockets=False):
+    """The bind addresses of the http and https frontends. With sockets,
+    HAProxy takes the listening sockets systemd passed it, in the order the
+    edge's socket unit lists them: IPv4 80 and 443, then IPv6 80 and 443."""
+    if sockets:
+        return {"http": ["fd@3"] + (["fd@5"] if ipv6 else []),
+                "https": ["fd@4"] + (["fd@6"] if ipv6 else [])}
+    return {"http": [":80"] + ([":::80 v6only"] if ipv6 else []),
+            "https": [":443"] + ([":::443 v6only"] if ipv6 else [])}
+
+
+def _render_cfg(instances, thumbprint, listeners):
     limits = [backend_limits(i) for i in instances]
     total = sum(d + f for d, f in limits) + sum(
         i["limits"]["media_maxconn"] for i in instances if i["media_hostnames"])
@@ -517,21 +528,17 @@ def _render_cfg(instances, thumbprint, ipv6=False):
         # speak TCP.
         "frontend http",
         "    option forwardfor",
-        "    bind :80",
     ]
-    if ipv6:
-        out.append("    bind :::80 v6only")
+    out += ["    bind %s" % b for b in listeners["http"]]
     out += _acme_rule(thumbprint)
     out += [
         "    http-request redirect scheme https code 301",
         "",
         "frontend https",
         "    option forwardfor",
-        "    bind :443 ssl crt-list %s/crt-list alpn h2,http/1.1" % CONFIG_DIR,
     ]
-    if ipv6:
-        out.append("    bind :::443 v6only ssl crt-list %s/crt-list alpn h2,http/1.1"
-                   % CONFIG_DIR)
+    out += ["    bind %s ssl crt-list %s/crt-list alpn h2,http/1.1" % (b, CONFIG_DIR)
+            for b in listeners["https"]]
     out += [
         "    http-request set-header X-Forwarded-Proto https",
     ]
@@ -626,11 +633,12 @@ def cdn_providers(instances):
                    if i["trusted_proxies"] in CDN_HEADERS})
 
 
-def render(instances, acme_thumbprint=None, cdn_ranges=None, ipv6=False):
+def render(instances, acme_thumbprint=None, cdn_ranges=None, ipv6=False, sockets=False):
     """Render the edge's files for the given instances.
 
     cdn_ranges maps each provider cdn_providers() names to its address
-    ranges. ipv6 adds IPv6 listeners, for an edge network with IPv6.
+    ranges. ipv6 adds IPv6 listeners, for an edge network with IPv6; with
+    sockets, the listeners are the sockets systemd passes HAProxy.
     Returns {"files": {name: content}, "certificates": [...]}. The files go
     in the edge's configuration directory; certificates lists the files the
     crt-list expects in its certs/ directory.
@@ -640,7 +648,7 @@ def render(instances, acme_thumbprint=None, cdn_ranges=None, ipv6=False):
     _check_dns_tokens(instances)
     entries = certificates(instances)
     files = {
-        "haproxy.cfg": _render_cfg(instances, acme_thumbprint, ipv6),
+        "haproxy.cfg": _render_cfg(instances, acme_thumbprint, listeners_for(ipv6, sockets)),
         "crt-list": _render_crt_list(entries),
         "hosts.map": _render_hosts_map(instances),
     }
