@@ -117,8 +117,11 @@
         _upgrade_failures: >-
           {{ _upgrade_failures | default([]) + [
                'moving ' ~ (_edge_plan.convert | join(', ')) ~ ' behind the HAProxy edge on '
-               ~ _edge_host_name ~ ': '
-               ~ (ansible_failed_result.msg | default('see the task above'))
-               ~ '. They are back as before the upgrade, on their own Caddy, and were'
-               ~ ' not upgraded; run the upgrade again once this is fixed.'] }}
+               ~ _edge_host_name ~ ' failed; '
+               ~ (_edge_plan.convert | join(', '))
+               ~ (' is back on its' if _edge_plan.convert | length == 1 else ' are back on their')
+               ~ ' own Caddy as before the upgrade, and not upgraded. Run the upgrade again'
+               ~ ' once this is fixed: '
+               ~ (ansible_failed_result.msg | default('see the task above') | trim)] }}
         _edge_refused: "{{ _edge_refused | default([]) + _edge_plan.convert }}"
+        _edge_refusals: "{{ _edge_refusals | default(0) | int + 1 }}"

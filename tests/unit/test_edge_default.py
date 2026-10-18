@@ -105,3 +105,44 @@ def test_upgrade_remembers_whether_caddy_was_running(tmp_path, running, expected
                           capture_output=True, text=True, env=env, cwd=tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert json.loads(out.read_text()) == {"one": expected}
+
+
+def test_a_failed_move_is_counted_once(tmp_path):
+    # The moved instances are skipped, and the failure that reports them
+    # must not take them off the upgraded count a second time.
+    with open(os.path.join(REPO_ROOT, "playbooks", "_edge_convert_host.yml")) as f:
+        record = next(t for t in _walk(yaml.safe_load(f))
+                      if t.get("name") == "Record the failed move to the edge")
+    with open(UPGRADE) as f:
+        report = next(t for t in _walk(yaml.safe_load(f))
+                      if t.get("name") == "Report upgrade complete")
+    out = tmp_path / "out.json"
+    play = tmp_path / "play.yml"
+    play.write_text(yaml.safe_dump([{
+        "hosts": "localhost", "connection": "local", "gather_facts": False,
+        "vars": {
+            "ansible_python_interpreter": sys.executable,
+            "_upgrade_instances": {"instances": {i: {} for i in ("a", "b", "c", "d", "fm")}},
+            "_edge_plan": {"convert": ["fm"]},
+            "_edge_host_name": "localhost",
+            "ansible_failed_result": {"msg": "The rendered edge configuration is invalid.\n"},
+        },
+        "tasks": [record, dict(report, register="_report"),
+                  {"ansible.builtin.copy": {
+                      "content": "{{ {'msg': _report.msg, 'failures': _upgrade_failures}"
+                                 " | to_json }}",
+                      "dest": str(out)}}],
+    }]))
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_")}
+    env.update(ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
+               ANSIBLE_HOME=str(tmp_path / "ansible-home"))
+    playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
+    proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
+                          capture_output=True, text=True, env=env, cwd=tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(out.read_text())
+    assert result["msg"].startswith("Upgraded 4 instance(s).")
+    assert result["failures"] == [
+        "moving fm behind the HAProxy edge on localhost failed; fm is back on"
+        " its own Caddy as before the upgrade, and not upgraded. Run the upgrade"
+        " again once this is fixed: The rendered edge configuration is invalid."]
