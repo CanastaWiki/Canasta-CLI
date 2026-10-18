@@ -415,20 +415,28 @@ def test_a_failure_is_reported_without_failing(tmp_path):
 
 # acme.sh 3.1.6's stderr for a refused order: Let's Encrypt's problem
 # document as it sent it, then acme.sh's closing lines.
-RATE_LIMITED = """[Sun Oct 18 21:35:44 UTC 2026] Error creating new order. Le_OrderFinalize not found. {
-  "type": "urn:ietf:params:acme:error:rateLimited",
-  "detail": "too many certificates (5) already issued for this exact set of identifiers in the last 168h0m0s, retry after 2026-10-20 14:02:11 UTC: see https://letsencrypt.org/docs/rate-limits/#new-certificates-per-exact-set-of-identifiers",
-  "status": 429
-}
-[Sun Oct 18 21:35:45 UTC 2026] Please add '--debug' or '--log' to see more information.
-[Sun Oct 18 21:35:45 UTC 2026] See: https://github.com/acmesh-official/acme.sh/wiki/How-to-debug-acme.sh
-"""
+RATE_LIMITED = (
+    "[Sun Oct 18 21:35:44 UTC 2026] Error creating new order. "
+    "Le_OrderFinalize not found. {\n"
+    '  "type": "urn:ietf:params:acme:error:rateLimited",\n'
+    '  "detail": "too many certificates (5) already issued for this exact set '
+    "of identifiers in the last 168h0m0s, retry after 2026-10-20 14:02:11 UTC: "
+    "see https://letsencrypt.org/docs/rate-limits/"
+    '#new-certificates-per-exact-set-of-identifiers",\n'
+    '  "status": 429\n'
+    "}\n"
+    "[Sun Oct 18 21:35:45 UTC 2026] Please add '--debug' or '--log' to see more information.\n"
+    "[Sun Oct 18 21:35:45 UTC 2026] See: https://github.com/acmesh-official/acme.sh/wiki/How-to-debug-acme.sh\n"
+)
 
 # A failed challenge, which acme.sh reports by its detail alone.
-CHALLENGE_FAILED = """[Sun Oct 18 21:35:44 UTC 2026] example.com: Invalid status. Verification error details: 203.0.113.7: Fetching http://example.com/.well-known/acme-challenge/abc: Timeout during connect (likely firewall problem)
-[Sun Oct 18 21:35:45 UTC 2026] Please add '--debug' or '--log' to see more information.
-[Sun Oct 18 21:35:45 UTC 2026] See: https://github.com/acmesh-official/acme.sh/wiki/How-to-debug-acme.sh
-"""
+CHALLENGE_FAILED = (
+    "[Sun Oct 18 21:35:44 UTC 2026] example.com: Invalid status. Verification "
+    "error details: 203.0.113.7: Fetching http://example.com/.well-known/"
+    "acme-challenge/abc: Timeout during connect (likely firewall problem)\n"
+    "[Sun Oct 18 21:35:45 UTC 2026] Please add '--debug' or '--log' to see more information.\n"
+    "[Sun Oct 18 21:35:45 UTC 2026] See: https://github.com/acmesh-official/acme.sh/wiki/How-to-debug-acme.sh\n"
+)
 
 
 def test_a_problem_document_gives_its_type_and_detail():
