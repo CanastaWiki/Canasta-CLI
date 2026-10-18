@@ -59,6 +59,9 @@ RATE_WINDOW = "10s"
 DEFAULT_RATE_DYNAMIC = 60
 DEFAULT_RATE_DEFAULT = 300
 DEFAULT_ERROR_RATE = 50
+# Source addresses no per-client rate limit applies to.
+PRIVATE_SOURCES = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8",
+                   "::1", "fc00::/7")
 # How long a request body may take to arrive before the edge gives up, and
 # how much of it is buffered: a slow-sent body would otherwise hold a
 # backend connection. Uploads are exempt.
@@ -561,10 +564,16 @@ def _backend_rules(inst, kind, rootless=False):
     if rootless and not inst["rates_set"]:
         return out
     rate = inst["limits"]["rate_%s" % kind]
+    # A client from the internet arrives with its public address; a private
+    # one is the host itself (a wiki calling its own site through
+    # gateway.docker.internal) or its local network. Under rootless Docker
+    # every client looks private, so there the exemption would undo limits
+    # the operator turned on.
+    exempt = "" if rootless else " if !{ src %s }" % " ".join(PRIVATE_SOURCES)
     out += [
         "    stick-table type ipv6 size 100k expire 1m "
         "store http_req_rate(%s),http_err_rate(%s)" % (RATE_WINDOW, RATE_WINDOW),
-        "    http-request track-sc0 src",
+        "    http-request track-sc0 src%s" % exempt,
     ]
     if rate:
         out.append("    http-request deny deny_status 429 if { sc0_http_req_rate gt %d }"

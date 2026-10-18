@@ -236,10 +236,13 @@ def test_certificate_is_chosen_by_sni(edge_ports, sni, expected):
 
 # --- mitigation ------------------------------------------------------------- #
 
-def test_a_client_over_its_rate_is_refused(edge_ports):
+def test_a_private_address_is_not_rate_limited(edge_ports):
+    # The test client reaches the edge from the Docker network's gateway,
+    # as a wiki calling its own site through gateway.docker.internal does.
+    # A public client over the same rate is refused: see the CDN test below.
     codes = [_request(edge_ports, "limited.example.org", "/wiki/P%d" % n)[0]
              for n in range(5)]
-    assert codes[:3] == [200, 200, 200] and codes[-1] == 429
+    assert codes == [200] * 5
 
 
 def test_denied_user_agents_match_anywhere_in_the_header(edge_ports):
