@@ -391,3 +391,11 @@ def test_listeners_follow_the_ports():
     assert edge.listeners_for([443, 80, 8443], ipv6=True, sockets=True) == {
         80: ["fd@3", "fd@6"], 443: ["fd@4", "fd@7"], 8443: ["fd@5", "fd@8"]}
     assert edge.listeners_for([80], ipv6=False) == {80: [":80"]}
+
+
+def test_rootless_docker_has_no_per_client_limits_unless_set():
+    cfg = edge.render([_inst("one")], rootless=True)["files"]["haproxy.cfg"]
+    assert "track-sc0" not in cfg
+    rated = _inst("one", env={"CANASTA_EDGE_RATE_DYNAMIC": "120"})
+    assert "track-sc0" in edge.render([rated], rootless=True)["files"]["haproxy.cfg"]
+    assert "track-sc0" in edge.render([_inst("one")])["files"]["haproxy.cfg"]

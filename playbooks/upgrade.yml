@@ -72,7 +72,9 @@
 
     - name: Upgrade instances
       ansible.builtin.include_tasks: _upgrade_single.yml
-      loop: "{{ _upgrade_instances.instances | dict2items }}"
+      loop: >-
+        {{ _upgrade_instances.instances | dict2items
+           | rejectattr('key', 'in', _edge_refused | default([])) | list }}
       loop_control:
         loop_var: _inst
         label: "{{ _inst.key }}"
@@ -81,12 +83,16 @@
       ansible.builtin.debug:
         msg: >-
           Upgraded
-          {{ _upgrade_instances.instances | length - (_upgrade_failures | default([]) | length) }}
+          {{ _upgrade_done }}
           instance(s).{% if _upgrade_gitops_staged | default([]) | length > 0 %}
           {{ _upgrade_gitops_staged | length }} of them
           ({{ _upgrade_gitops_staged | join(', ') }}) {{ _upgrade_staged_phrase }}
           only after 'canasta gitops push'.{% endif %}
       vars:
+        # A refused host is one failure but skips each of its instances.
+        _upgrade_done: >-
+          {{ _upgrade_instances.instances | length - (_edge_refused | default([]) | length)
+             - (_upgrade_failures | default([]) | length) + (_edge_refusals | default(0) | int) }}
         _upgrade_staged_phrase: >-
           {{ 'is staged in its gitops repo and deploys'
              if (_upgrade_gitops_staged | default([]) | length) == 1

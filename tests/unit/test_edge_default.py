@@ -76,7 +76,7 @@ def _decide(tmp_path, env_lines, domain="example.com", **extra):
                          "_preflight_user_systemd": {"rc": 0}}, True),
     ([], "example.com", {"compose_command": "podman-compose",
                          "_preflight_user_systemd": {"rc": 1}}, False),
-    ([], "example.com", {"_preflight_docker_info": {"stdout": '["name=rootless"]'}}, False),
+    ([], "example.com", {"_preflight_docker_info": {"stdout": '["name=rootless"]'}}, True),
     ([], "example.com", {"_preflight_docker_info": {"stdout": '["name=seccomp"]'}}, True),
     (["CANASTA_ENABLE_EDGE=true"], "example.com",
      {"_preflight_docker_info": {"stdout": '["name=rootless"]'}}, True),

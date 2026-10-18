@@ -330,6 +330,10 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         "trusted_proxies": trusted_proxies,
         "trusted_cidrs": trusted_cidrs,
         "crowdsec": crowdsec_enforced(env),
+        # The operator set the per-client rates, which then apply even where
+        # client addresses may be lost (rootless Docker).
+        "rates_set": any((env.get(LIMIT_KEYS[k]) or "").strip()
+                         for k in ("rate_dynamic", "rate_default")),
         "deny_user_agents": _user_agents(deny_user_agents, instance_id),
         "deny_cidrs": _networks(deny_cidrs, instance_id, DENY_CIDR_FILE),
         "limits": {
@@ -536,7 +540,7 @@ def _render_spoe(inst):
     ])
 
 
-def _backend_rules(inst, kind):
+def _backend_rules(inst, kind, rootless=False):
     """CrowdSec bans and the deny lists, then per-client rate limits, ahead
     of everything else. Media requests cost no PHP, so a page with many
     images is not throttled."""
@@ -551,9 +555,11 @@ def _backend_rules(inst, kind):
     if kind == "media":
         return out
     # Behind the operator's own proxy with no trusted proxy set, every
-    # request comes from that proxy, and per-client limits would throttle
-    # all visitors together.
+    # request comes from that proxy, and on rootless Docker from its port
+    # forwarder, so per-client limits would throttle all visitors together.
     if inst["plain"] and not inst["trusted_proxies"]:
+        return out
+    if rootless and not inst["rates_set"]:
         return out
     rate = inst["limits"]["rate_%s" % kind]
     out += [
@@ -673,7 +679,7 @@ def _trusted_list(inst):
     return None
 
 
-def _render_cfg(instances, thumbprint, listeners):
+def _render_cfg(instances, thumbprint, listeners, rootless=False):
     """listeners maps each port to its bind addresses (listeners_for)."""
     limits = [backend_limits(i) for i in instances]
     total = sum(d + f for d, f in limits) + sum(
@@ -725,7 +731,7 @@ def _render_cfg(instances, thumbprint, listeners):
             classes.append(("media", inst["limits"]["media_maxconn"]))
         for kind, cap in classes:
             out += ["", "backend be_%s_%s" % (inst["id"], kind)]
-            out += _backend_rules(inst, kind)
+            out += _backend_rules(inst, kind, rootless)
             out += [
                 # A stopped instance's Caddy stops resolving; answer at
                 # once rather than hold the request for timeout queue.
@@ -774,12 +780,15 @@ def cdn_providers(instances):
                    if i["trusted_proxies"] in CDN_HEADERS})
 
 
-def render(instances, acme_thumbprint=None, cdn_ranges=None, ipv6=False, sockets=False):
+def render(instances, acme_thumbprint=None, cdn_ranges=None, ipv6=False, sockets=False,
+           rootless=False):
     """Render the edge's files for the given instances.
 
     cdn_ranges maps each provider cdn_providers() names to its address
     ranges. ipv6 adds IPv6 listeners, for an edge network with IPv6; with
-    sockets, the listeners are the sockets systemd passes HAProxy.
+    sockets, the listeners are the sockets systemd passes HAProxy. rootless
+    is a rootless Docker daemon, whose port forwarding hides client
+    addresses; per-client limits then apply only where the operator set them.
     Returns {"files": {name: content}, "certificates": [...], "ports":
     [the edge's ports]}. The files go
     in the edge's configuration directory; certificates lists the files the
@@ -792,7 +801,7 @@ def render(instances, acme_thumbprint=None, cdn_ranges=None, ipv6=False, sockets
     ports = [port for port, _ in frontends(instances)]
     files = {
         "haproxy.cfg": _render_cfg(instances, acme_thumbprint,
-                                   listeners_for(ports, ipv6, sockets)),
+                                   listeners_for(ports, ipv6, sockets), rootless),
         "crt-list": _render_crt_list(entries),
         "hosts.map": _render_hosts_map(instances),
     }

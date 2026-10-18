@@ -125,3 +125,14 @@ def test_a_plain_http_instance_without_a_trusted_proxy_is_warned():
     trusted = "\n".join(doctor._edge_lines_from_probe(
         "one", "acme", ["example.com"], doctor._parse_edge_probe(_probe()), None, True, True))
     assert "WARN" not in trusted
+
+
+def test_rootless_docker_is_warned_and_rootless_podman_is_not():
+    probe = doctor._parse_edge_probe(_probe() + "%sDAEMON:[\"name=seccomp\",\"name=rootless\"]\n" % S)
+    docker = "\n".join(doctor._edge_lines_from_probe("one", "acme", [], probe, docker=True))
+    assert "rootless Docker" in docker and "no per-client rate limits" in docker
+    rated = "\n".join(doctor._edge_lines_from_probe("one", "acme", [], probe, docker=True,
+                                                    rates_set=True))
+    assert "rootless Docker" in rated and "no per-client rate limits" not in rated
+    podman = "\n".join(doctor._edge_lines_from_probe("one", "acme", [], probe, docker=False))
+    assert "rootless" not in podman
