@@ -413,6 +413,73 @@ def test_a_failure_is_reported_without_failing(tmp_path):
     assert run.acme_calls("--deploy") == []
 
 
+# acme.sh 3.1.6's stderr for a refused order: Let's Encrypt's problem
+# document as it sent it, then acme.sh's closing lines.
+RATE_LIMITED = """[Sun Oct 18 21:35:44 UTC 2026] Error creating new order. Le_OrderFinalize not found. {
+  "type": "urn:ietf:params:acme:error:rateLimited",
+  "detail": "too many certificates (5) already issued for this exact set of identifiers in the last 168h0m0s, retry after 2026-10-20 14:02:11 UTC: see https://letsencrypt.org/docs/rate-limits/#new-certificates-per-exact-set-of-identifiers",
+  "status": 429
+}
+[Sun Oct 18 21:35:45 UTC 2026] Please add '--debug' or '--log' to see more information.
+[Sun Oct 18 21:35:45 UTC 2026] See: https://github.com/acmesh-official/acme.sh/wiki/How-to-debug-acme.sh
+"""
+
+# A failed challenge, which acme.sh reports by its detail alone.
+CHALLENGE_FAILED = """[Sun Oct 18 21:35:44 UTC 2026] example.com: Invalid status. Verification error details: 203.0.113.7: Fetching http://example.com/.well-known/acme-challenge/abc: Timeout during connect (likely firewall problem)
+[Sun Oct 18 21:35:45 UTC 2026] Please add '--debug' or '--log' to see more information.
+[Sun Oct 18 21:35:45 UTC 2026] See: https://github.com/acmesh-official/acme.sh/wiki/How-to-debug-acme.sh
+"""
+
+
+def test_a_problem_document_gives_its_type_and_detail():
+    kind, reason = mod.acme_failure("", RATE_LIMITED)
+    assert kind == "rateLimited"
+    assert reason.startswith("too many certificates (5) already issued")
+    assert reason.endswith("#new-certificates-per-exact-set-of-identifiers")
+
+
+def test_a_compact_problem_document_is_read_too():
+    err = ('[date] example.com: Invalid status, Verification error: "error":'
+           '{"type":"urn:ietf:params:acme:error:caa","detail":"CAA record for '
+           'example.com prevents issuance","status":403\n')
+    assert mod.acme_failure("", err) == ("caa", "CAA record for example.com prevents issuance")
+
+
+def test_without_a_problem_document_the_last_line_before_the_closing_ones_is_used():
+    kind, reason = mod.acme_failure("", CHALLENGE_FAILED)
+    assert kind is None
+    assert reason.startswith("example.com: Invalid status. Verification error details:")
+    assert "Timeout during connect" in reason
+
+
+def test_output_of_only_closing_lines_gives_no_reason():
+    closing = "\n".join(CHALLENGE_FAILED.splitlines()[1:])
+    assert mod.acme_failure("", closing) == (None, "")
+
+
+def test_hints_follow_the_problem_type():
+    assert mod.acme_hint("rateLimited", "example.com") == ""
+    assert "CAA" in mod.acme_hint("caa", "example.com")
+    assert mod.acme_hint("dns", "example.com") == "Check that example.com has a DNS record."
+    for kind in (None, "connection", "unauthorized"):
+        assert "port 80" in mod.acme_hint(kind, "example.com")
+
+
+def test_a_rate_limit_is_reported_with_lets_encrypts_detail(tmp_path):
+    class RateLimited(FakeRunner):
+        def _acme(self, args):
+            if args[0] == "--issue":
+                return 1, "", RATE_LIMITED
+            return super()._acme(args)
+
+    result = _issue(tmp_path, RateLimited(running=True), one={})
+    [failure] = result["unissued"]
+    assert failure["hostname"] == "example.com"
+    assert "retry after 2026-10-20" in failure["reason"]
+    assert "See:" not in failure["reason"]
+    assert failure["hint"] == ""
+
+
 def test_a_hostname_gone_from_lets_encrypt_is_removed_and_replaced(tmp_path):
     """A hostname switched to internal keeps being served, but from the
     edge's CA: its Let's Encrypt PEM is replaced and HAProxy reloaded."""

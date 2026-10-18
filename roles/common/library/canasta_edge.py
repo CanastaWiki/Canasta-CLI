@@ -1007,6 +1007,44 @@ def _tail(out, err):
     return lines[-1] if lines else ""
 
 
+# acme.sh ends a failed issuance with these, which name no cause.
+ACME_CLOSING_LINES = ("Please add '--debug' or '--log'", "See: ",
+                      "Please check log file")
+ACME_PROBLEM_TYPE = re.compile(r'"type"\s*:\s*"urn:ietf:params:acme:error:([A-Za-z]+)"')
+ACME_PROBLEM_DETAIL = re.compile(r'"detail"\s*:\s*"((?:[^"\\]|\\.)*)"')
+ACME_TIMESTAMP = re.compile(r"^\[[^\]]*\]\s*")
+# What to check for each kind of ACME problem; any other takes the default.
+# A rate limit's detail already says when Let's Encrypt accepts requests again.
+ACME_PROBLEM_HINTS = {
+    "rateLimited": "",
+    "caa": "Allow letsencrypt.org in the domain's CAA records.",
+    "dns": "Check that %s has a DNS record.",
+}
+ACME_DEFAULT_HINT = "Check that %s resolves to this host and that port 80 reaches it."
+
+
+def acme_failure(out, err):
+    """(problem type, reason) for a failed acme.sh run. The reason is Let's
+    Encrypt's own detail when acme.sh printed its response, and otherwise
+    acme.sh's last line before its closing pointers to its documentation.
+    The problem type is None when the output has none."""
+    text = out + "\n" + err
+    kind = ACME_PROBLEM_TYPE.search(text)
+    detail = ACME_PROBLEM_DETAIL.search(text)
+    if detail:
+        return (kind.group(1) if kind else None,
+                detail.group(1).replace('\\"', '"').strip().rstrip("."))
+    lines = [ACME_TIMESTAMP.sub("", l).strip() for l in text.splitlines()]
+    lines = [l for l in lines if l and not l.startswith(ACME_CLOSING_LINES)]
+    return (kind.group(1) if kind else None,
+            lines[-1].rstrip(".") if lines else "")
+
+
+def acme_hint(kind, host):
+    hint = ACME_PROBLEM_HINTS.get(kind, ACME_DEFAULT_HINT)
+    return hint % host if "%s" in hint else hint
+
+
 def issue(run, inspect, edge_dir):
     """Obtain, replace and remove certificates to match the members."""
     return _locked(edge_dir, _issue, run, inspect, edge_dir)
@@ -1089,11 +1127,14 @@ def _issue(run, inspect, edge_dir):
             args.append("--force")
         rc, out, err = _acme(run, inspect, args, env=env)
         if rc != 0:
-            result["unissued"].append({"hostname": host, "reason": _tail(out, err)})
+            kind, reason = acme_failure(out, err)
+            result["unissued"].append({"hostname": host, "reason": reason,
+                                       "hint": acme_hint(kind, host)})
             continue
         rc, out, err = deploy(host)
         if rc != 0:
-            result["unissued"].append({"hostname": host, "reason": _tail(out, err)})
+            result["unissued"].append({"hostname": host, "reason": _tail(out, err),
+                                       "hint": ""})
             continue
         result["issued"].append(host)
         result["changed"] = True
