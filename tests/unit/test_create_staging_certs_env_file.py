@@ -38,7 +38,7 @@ def _create(tmp_path, envfile_lines, **flags):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": dict({"instance_path": str(inst), "envfile": str(envfile),
+        "vars": dict({"instance_path": str(inst), "envfile": str(envfile), "canasta_root": REPO_ROOT,
                       "domain_name": "example.com", "_rootdbpass": "pw",
                       "_wikidbpass": "pw", "_wiki_db_user": "mediawiki",
                       "ansible_python_interpreter": sys.executable}, **flags),

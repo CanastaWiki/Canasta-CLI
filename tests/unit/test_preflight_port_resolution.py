@@ -82,7 +82,7 @@ def _render(envfile_text):
 class TestPortResolution:
     def test_envfile_ports_are_honored(self):
         http, https = _render(
-            "HTTP_PORT=8080\nHTTPS_PORT=8443\nCADDY_AUTO_HTTPS=off\n")
+            "HTTP_PORT=8080\nHTTPS_PORT=8443\nTLS_MODE=off\n")
         assert (http, https) == ("8080", "8443"), (
             "preflight would probe %s/%s and reject a create on ports the "
             "instance never binds" % (http, https))

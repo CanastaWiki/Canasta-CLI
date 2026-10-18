@@ -42,7 +42,7 @@
     key: "{{ item.key }}"
     value: "{{ item.value }}"
   loop:
-    # Scheme mirrors CADDY_AUTO_HTTPS: an HTTP-only instance must get an
+    # Scheme mirrors TLS_MODE: an HTTP-only instance must get an
     # http:// server URL, otherwise MediaWiki canonical-redirects to https
     # on a stack that serves no TLS (SSL_PROTOCOL_ERROR). _http_only is set
     # in _envfile.yml, which runs earlier in create. Mirrors the scheme

@@ -187,7 +187,7 @@ class TestEnvFileMount:
         """Drop a minimal env file in `parent` and return its path."""
         path = os.path.join(parent, "test.env")
         with open(path, "w") as f:
-            f.write("HTTP_PORT=8080\nHTTPS_PORT=8443\nCADDY_AUTO_HTTPS=off\n")
+            f.write("HTTP_PORT=8080\nHTTPS_PORT=8443\nTLS_MODE=off\n")
         return path
 
     def test_envfile_outside_cwd_is_mounted_ro(self, short_tmp):

@@ -37,6 +37,7 @@ def _run(tmp_path, envfile_lines):
         "gather_facts": False,
         "vars": {
             "instance_path": str(inst),
+            "canasta_root": REPO_ROOT,
             "envfile": str(envfile),
             "_rootdbpass": CLI_PW,
             "_wikidbpass": "wiki-pw",

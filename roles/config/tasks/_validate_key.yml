@@ -68,23 +68,36 @@
     - instance_is_k8s | bool
     - _config_key in ['HTTP_PORT', 'HTTPS_PORT']
 
-# CADDY_AUTO_HTTPS is Compose-only for the same reasons as the ports above.
-# On Kubernetes the Ingress terminates TLS and Caddy always runs behind it in
-# http-only mode (rewrite_caddy.yml forces this), so the value has no effect.
-# And its _side_effects.yml scheme handler carries no orchestrator guard, so on
-# K8s it would rewrite MW_SITE_SERVER to http:// (a scheme nothing serves).
-- name: Block CADDY_AUTO_HTTPS on Kubernetes (Ingress terminates TLS)
+# TLS_MODE and its certificate files configure the HAProxy edge, which
+# Compose has and Kubernetes does not. Its _side_effects.yml scheme handler
+# carries no orchestrator guard, so on K8s TLS_MODE=off would rewrite
+# MW_SITE_SERVER to http:// (a scheme nothing serves).
+- name: Block the edge's TLS keys on Kubernetes (Ingress terminates TLS)
   ansible.builtin.fail:
     msg: |
-      'CADDY_AUTO_HTTPS' cannot be set via 'canasta config set' on a
-      Kubernetes instance. The Ingress terminates TLS and Caddy always
-      runs behind it in http-only mode, so this value has no effect.
-
-      TLS for a Kubernetes instance is handled by the Ingress and
-      cert-manager, not by Caddy.
+      '{{ _config_key }}' cannot be set via 'canasta config set' on a
+      Kubernetes instance. TLS for a Kubernetes instance is handled by the
+      Ingress and cert-manager.
   when:
     - instance_is_k8s | bool
-    - _config_key == 'CADDY_AUTO_HTTPS'
+    - _config_key in ['TLS_MODE', 'TLS_CERT', 'TLS_KEY']
+
+# Refused even with --force: a value under the old name would be ignored.
+- name: Refuse a renamed key
+  ansible.builtin.fail:
+    msg: >-
+      '{{ _config_key }}' was renamed to
+      '{{ _renamed[_config_key] }}'{% if _config_key == 'CADDY_AUTO_HTTPS' %}
+      ('CADDY_AUTO_HTTPS=off' is now 'TLS_MODE=off'){% endif %}.
+      Use {{ _renamed[_config_key] }} instead.
+  vars:
+    _renamed:
+      CADDY_TLS_MODE: TLS_MODE
+      CADDY_AUTO_HTTPS: TLS_MODE
+      CADDY_TRUSTED_PROXIES: TRUSTED_PROXIES
+      CADDY_TLS_CERT: TLS_CERT
+      CADDY_TLS_KEY: TLS_KEY
+  when: _config_key in _renamed
 
 - name: Check if key is recognized
   ansible.builtin.fail:

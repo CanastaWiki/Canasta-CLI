@@ -38,9 +38,16 @@
   ansible.builtin.set_fact:
     _config_placeholder_map: "{{ _config_map_raw.stdout | from_json }}"
 
+- name: Read env.template for renamed keys
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/env.template"
+  register: _config_template_raw
+
 - name: Remove each unset key from vars.yaml / env.template
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/config/tasks/_remove_gitops_var.yml
-  loop: "{{ _config_unset_keys | default(keys.split()) }}"
+  loop: >-
+    {{ _config_unset_keys | default(keys.split())
+       | canasta_env_legacy_keys(_config_template_raw.content | b64decode) }}
   loop_control:
     loop_var: _config_key

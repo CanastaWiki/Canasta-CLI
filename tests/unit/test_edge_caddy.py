@@ -63,8 +63,8 @@ EDGE_TRUST = "trusted_proxies static 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 fc0
 @pytest.mark.parametrize("extra", [
     [],
     ["CANASTA_ENABLE_CROWDSEC=true"],
-    ["CADDY_TRUSTED_PROXIES=cloudflare"],
-    ["CADDY_TRUSTED_PROXIES=203.0.113.0/24"],
+    ["TRUSTED_PROXIES=cloudflare"],
+    ["TRUSTED_PROXIES=203.0.113.0/24"],
 ])
 def test_behind_the_edge_caddy_trusts_only_the_edge_x_forwarded_for(tmp_path, extra):
     # The edge recovers the client address and appends it to
@@ -80,7 +80,7 @@ def test_behind_the_edge_caddy_trusts_only_the_edge_x_forwarded_for(tmp_path, ex
 
 
 def test_acme_dns_behind_the_edge_renders(tmp_path):
-    out = _caddyfile(tmp_path, ["CADDY_TLS_MODE=acme-dns"])
+    out = _caddyfile(tmp_path, ["TLS_MODE=acme-dns"])
     assert "\nhttp://example.com {" in out
 
 
@@ -94,8 +94,8 @@ def test_behind_the_edge_user_sites_are_served_over_http(tmp_path):
 
 @pytest.mark.parametrize("env", [
     [],
-    ["CADDY_AUTO_HTTPS=on", "CADDY_TLS_MODE=internal"],
-    ["CADDY_TLS_MODE=custom", "CANASTA_STAGING_CERTS=true"],
+    ["TLS_MODE=internal"],
+    ["TLS_MODE=custom", "CANASTA_STAGING_CERTS=true"],
 ])
 def test_caddy_is_always_an_internal_http_server(tmp_path, env):
     # The edge terminates TLS for every Compose instance.

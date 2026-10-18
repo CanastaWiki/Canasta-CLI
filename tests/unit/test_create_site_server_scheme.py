@@ -1,7 +1,7 @@
 """Guards against the HTTP-only redirect bug.
 
 `canasta create` must derive the MW_SITE_SERVER scheme from
-CADDY_AUTO_HTTPS (via the _http_only fact), not hardcode https://.
+TLS_MODE (via the _http_only fact), not hardcode https://.
 A hardcoded https:// gives an HTTP-only instance an https $wgServer,
 so MediaWiki canonical-redirects login/Special pages to https on a
 stack that serves no TLS -> SSL_PROTOCOL_ERROR.
@@ -86,10 +86,10 @@ class TestSkipTlsScheme:
     """Guards against the --skip-tls ordering variant of that bug.
 
     The fix derives the scheme from _http_only, which _envfile.yml
-    reads out of CADDY_AUTO_HTTPS. That works when the operator supplies
-    CADDY_AUTO_HTTPS=off via --envfile, because the merge happens before
+    reads out of TLS_MODE. That works when the operator supplies
+    TLS_MODE=off via --envfile, because the merge happens before
     the fact is set. It does NOT work for --skip-tls: _settings_files.yml
-    writes CADDY_AUTO_HTTPS=off for the flag, and that runs after the
+    writes TLS_MODE=off for the flag, and that runs after the
     scheme has already been decided. So --skip-tls produced an https://
     MW_SITE_SERVER against a Caddy serving plain HTTP.
     """
@@ -98,20 +98,19 @@ class TestSkipTlsScheme:
         expr = _http_only_expr()
         assert "skip_tls" in expr, (
             "_http_only must account for --skip-tls directly; the flag's "
-            "own CADDY_AUTO_HTTPS=off write happens later in create, so "
+            "own TLS_MODE=off write happens later in create, so "
             "reading .env alone cannot see it"
         )
-        assert "CADDY_AUTO_HTTPS" in expr, (
+        assert "TLS_MODE" in expr, (
             "_http_only must still honor an operator-supplied "
-            "CADDY_AUTO_HTTPS (e.g. via --envfile)"
+            "TLS_MODE (e.g. via --envfile)"
         )
 
     def test_http_only_is_not_forced_by_orchestrator(self):
         """K8s must keep https://, or MediaWiki emits http:// links.
 
-        _settings_files.yml sets CADDY_AUTO_HTTPS=off for Kubernetes too,
-        but there Caddy runs http-only behind an ingress that terminates
-        TLS, so https:// is the correct $wgServer.
+        On Kubernetes the ingress terminates TLS, so https:// is the
+        correct $wgServer.
         """
         expr = _http_only_expr()
         for token in ("orchestrator", "kubernetes", "k8s"):
@@ -123,14 +122,14 @@ class TestSkipTlsScheme:
     def test_skip_tls_env_write_happens_after_the_scheme_is_derived(self):
         """Pins the ordering that makes the fix necessary.
 
-        If a future change moves the CADDY_AUTO_HTTPS write before
+        If a future change moves the TLS_MODE write before
         _env_update.yml, reading .env would suffice and this guard should
         be revisited rather than silently left in place.
         """
         main = _read(CREATE_MAIN)
         assert "skip_tls" in _read(SETTINGS_FILES), (
             "_settings_files.yml is expected to own the --skip-tls "
-            "CADDY_AUTO_HTTPS write"
+            "TLS_MODE write"
         )
         assert main.index("_env_update.yml") < main.index(
             "_settings_files.yml"

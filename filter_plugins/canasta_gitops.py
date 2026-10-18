@@ -19,6 +19,11 @@ from canasta_gitops_pending import (  # noqa: E402
     unpushed_changes,
     unpushed_probe_script,
 )
+from canasta_env_keys import (  # noqa: E402
+    PLAIN_HTTP_KEY,
+    RENAMED_ENV_KEYS,
+    modernize_text as canasta_env_modernize,
+)
 
 ENCRYPTION_FILTER = "git-crypt"
 
@@ -211,7 +216,55 @@ def canasta_env_render(template, env_vars):
                 out.append("%s=%s" % (key, value))
         else:
             out.append(line)
-    return "".join(line + "\n" for line in out)
+    return canasta_env_modernize("".join(line + "\n" for line in out))
+
+
+def _template_keys(template):
+    keys = set()
+    for line in str(template or "").splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            keys.add(stripped.split("=", 1)[0].strip())
+    return keys
+
+
+def canasta_env_legacy_settings(settings, template):
+    """Name each KEY=VALUE setting as env.template does.
+
+    A renamed key the template still has under its old name is stored
+    under that name; TLS_MODE=off is stored as CADDY_AUTO_HTTPS=off where
+    the template has that line.
+    """
+    keys = _template_keys(template)
+    old_name = {new: old for old, new in RENAMED_ENV_KEYS.items()}
+    out = []
+    for setting in settings or []:
+        key, _, value = str(setting).partition("=")
+        if key not in old_name or key in keys:
+            out.append(setting)
+            continue
+        if key == "TLS_MODE" and PLAIN_HTTP_KEY in keys:
+            if value.strip().lower() == "off":
+                out.append("%s=off" % PLAIN_HTTP_KEY)
+                continue
+            out.append("%s=on" % PLAIN_HTTP_KEY)
+        out.append("%s=%s" % (old_name[key] if old_name[key] in keys else key, value))
+    return out
+
+
+def canasta_env_legacy_keys(names, template):
+    """The env.template keys that hold each of the given .env keys."""
+    keys = _template_keys(template)
+    old_name = {new: old for old, new in RENAMED_ENV_KEYS.items()}
+    out = []
+    for key in names or []:
+        held = [key] if key in keys or key not in old_name else []
+        if key in old_name and old_name[key] in keys:
+            held.append(old_name[key])
+        if key == "TLS_MODE" and PLAIN_HTTP_KEY in keys:
+            held.append(PLAIN_HTTP_KEY)
+        out.extend(k for k in held if k not in out)
+    return out
 
 
 def _env_values(content):
@@ -457,6 +510,9 @@ class FilterModule(object):
                 canasta_wikis_render_with_live_urls,
             "canasta_chart_values_refresh": canasta_chart_values_refresh,
             "canasta_env_render": canasta_env_render,
+            "canasta_env_modernize": canasta_env_modernize,
+            "canasta_env_legacy_settings": canasta_env_legacy_settings,
+            "canasta_env_legacy_keys": canasta_env_legacy_keys,
             "canasta_env_sync_plan": canasta_env_sync_plan,
             "canasta_wiki_url_sync_plan": canasta_wiki_url_sync_plan,
             "canasta_wiki_ingress_domains": canasta_wiki_ingress_domains,

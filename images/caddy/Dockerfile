@@ -5,7 +5,7 @@
 # service runs stock upstream Caddy; the profile sync swaps in this image
 # (via CANASTA_CADDY_IMAGE) only when a feature that needs a plugin is
 # enabled — CrowdSec (CANASTA_ENABLE_CROWDSEC) or a provider trusted-proxy
-# mode (CADDY_TRUSTED_PROXIES=cloudflare|imperva). Every plugin here is
+# mode (TRUSTED_PROXIES=cloudflare|imperva). Every plugin here is
 # inert until the rendered Caddyfile uses it, so this image is a safe
 # drop-in for stock Caddy.
 #

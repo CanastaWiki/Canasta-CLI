@@ -165,7 +165,7 @@ class TestOriginTlsGate:
     def test_skipped_when_compose_serves_plain_http(self, monkeypatch):
         monkeypatch.setattr(
             doctor._helpers, "_read_env_for",
-            lambda inst, key: "off" if key == "CADDY_AUTO_HTTPS" else None)
+            lambda inst, key: "off" if key == "TLS_MODE" else None)
         assert doctor._origin_tls_lines(self._inst()) == []
 
     def test_skipped_without_a_path(self):

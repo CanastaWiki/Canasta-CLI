@@ -2118,7 +2118,7 @@ class TestSyncComposeProfiles:
         # imperva needs the caddy-cdn-ranges plugin, so the image switches
         # even with CrowdSec off.
         (tmp_path / ".env").write_text(
-            "CADDY_TRUSTED_PROXIES=imperva\n"
+            "TRUSTED_PROXIES=imperva\n"
             "CANASTA_ENABLE_VARNISH=false\n"
             "COMPOSE_PROFILES=\n"
         )
@@ -2133,7 +2133,7 @@ class TestSyncComposeProfiles:
         # An explicit CIDR list uses Caddy's built-in static source, so no
         # plugin image is needed.
         (tmp_path / ".env").write_text(
-            "CADDY_TRUSTED_PROXIES=10.0.0.0/8\n"
+            "TRUSTED_PROXIES=10.0.0.0/8\n"
             "CANASTA_ENABLE_VARNISH=false\n"
             "COMPOSE_PROFILES=\n"
         )

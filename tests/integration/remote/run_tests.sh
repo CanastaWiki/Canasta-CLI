@@ -292,8 +292,8 @@ MH_PATH_1="${CANASTA_TEST_DATA}/${MH_ID_1}"
 MH_PATH_2="${CANASTA_TEST_DATA}/${MH_ID_2}"
 MH_ENV_1="${CANASTA_CONFIG_DIR}/${MH_ID_1}.env"
 MH_ENV_2="${CANASTA_CONFIG_DIR}/${MH_ID_2}.env"
-printf 'HTTP_PORT=18080\nHTTPS_PORT=18443\nCADDY_AUTO_HTTPS=off\n' > "${MH_ENV_1}"
-printf 'HTTP_PORT=18090\nHTTPS_PORT=18453\nCADDY_AUTO_HTTPS=off\n' > "${MH_ENV_2}"
+printf 'HTTP_PORT=18080\nHTTPS_PORT=18443\nTLS_MODE=off\n' > "${MH_ENV_1}"
+printf 'HTTP_PORT=18090\nHTTPS_PORT=18453\nTLS_MODE=off\n' > "${MH_ENV_2}"
 
 # --- Test 9: create one instance on each host ---
 echo "Test 9: canasta create on two remote hosts"

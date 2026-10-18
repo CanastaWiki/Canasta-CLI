@@ -17,12 +17,14 @@
     - _config_value | regex_search('^[0-9]+$') is not none
     - _config_value | int < 1 or _config_value | int > 65535
 
-- name: Validate CADDY_AUTO_HTTPS value
+- name: Validate TLS_MODE value
   ansible.builtin.fail:
-    msg: "CADDY_AUTO_HTTPS must be 'on' or 'off' (got '{{ _config_value }}')"
+    msg: >-
+      TLS_MODE must be 'acme', 'acme-dns', 'internal', 'custom' or 'off'
+      (got '{{ _config_value }}')
   when:
-    - _config_key == 'CADDY_AUTO_HTTPS'
-    - _config_value | lower not in ['on', 'off']
+    - _config_key == 'TLS_MODE'
+    - _config_value | trim | lower not in ['acme', 'acme-dns', 'internal', 'custom', 'off']
 
 # Enabling Elasticsearch or the observability stack raises the host memory a
 # Canasta instance needs (either -> ~4 GiB, both -> ~8 GiB). Enforce it BEFORE
@@ -61,14 +63,14 @@
 
 # Catch typos like 'cloudfalre' at set time rather than letting an
 # unparseable trusted_proxies directive crash Caddy on next start.
-- name: Validate CADDY_TRUSTED_PROXIES value
+- name: Validate TRUSTED_PROXIES value
   ansible.builtin.fail:
     msg: >-
-      CADDY_TRUSTED_PROXIES must be 'cloudflare', 'imperva', or a
+      TRUSTED_PROXIES must be 'cloudflare', 'imperva', or a
       comma-separated list of IP/CIDR ranges
       (e.g. 10.0.0.0/8,192.0.2.0/24). Got '{{ _config_value }}'.
   when:
-    - _config_key == 'CADDY_TRUSTED_PROXIES'
+    - _config_key == 'TRUSTED_PROXIES'
     - (_config_value | trim | length) > 0
     - _config_value | trim | lower not in ['cloudflare', 'imperva']
     - >-
@@ -160,18 +162,20 @@
 - name: Apply HTTP_PORT/HTTPS_PORT side effects
   when: _config_key in ['HTTP_PORT', 'HTTPS_PORT']
   block:
-    - name: Read CADDY_AUTO_HTTPS to determine active scheme
+    - name: Read TLS_MODE to determine active scheme
       canasta_env:
         path: "{{ instance_path }}/.env"
         state: read
-        key: CADDY_AUTO_HTTPS
-      register: _se_caddy_auto_https
+        key: TLS_MODE
+      register: _se_tls_mode
 
     - name: Determine active port key for this instance
+      vars:
+        _se_plain: "{{ _se_tls_mode.value | default('', true) | trim | lower == 'off' }}"
       ansible.builtin.set_fact:
-        _active_port_key: "{{ (_se_caddy_auto_https.value | default('on') | lower == 'off') | ternary('HTTP_PORT', 'HTTPS_PORT') }}"
-        _active_scheme: "{{ (_se_caddy_auto_https.value | default('on') | lower == 'off') | ternary('http', 'https') }}"
-        _default_port: "{{ (_se_caddy_auto_https.value | default('on') | lower == 'off') | ternary('80', '443') }}"
+        _active_port_key: "{{ _se_plain | ternary('HTTP_PORT', 'HTTPS_PORT') }}"
+        _active_scheme: "{{ _se_plain | ternary('http', 'https') }}"
+        _default_port: "{{ _se_plain | ternary('80', '443') }}"
 
     # Only the "active" port (HTTP_PORT when http-only, HTTPS_PORT otherwise)
     # is reflected in wikis.yaml and MW_SITE_*. Changing the inactive port
@@ -222,13 +226,13 @@
 # Kubernetes port changes: Ingress handles port routing, no cluster
 # recreation needed. The change takes effect on next helm upgrade.
 
-# Toggling CADDY_AUTO_HTTPS flips which port is "active" (the one
+# Switching TLS_MODE to or from "off" flips which port is "active" (the one
 # reflected in wikis.yaml and MW_SITE_*). The HTTP_PORT/HTTPS_PORT
 # handler above only fires when the port values change; we need a
 # parallel handler for when the *scheme* changes but the port values
 # don't.
-- name: Apply CADDY_AUTO_HTTPS side effects
-  when: _config_key == 'CADDY_AUTO_HTTPS'
+- name: Apply TLS_MODE side effects
+  when: _config_key == 'TLS_MODE'
   block:
     - name: Read both HTTP_PORT and HTTPS_PORT from .env
       canasta_env:
@@ -239,7 +243,7 @@
 
     - name: Compute new active scheme/port/default
       vars:
-        _new_http_only: "{{ _config_value | lower == 'off' }}"
+        _new_http_only: "{{ _config_value | trim | lower == 'off' }}"
       ansible.builtin.set_fact:
         _active_scheme: "{{ _new_http_only | ternary('http', 'https') }}"
         _active_port: >-
@@ -329,7 +333,7 @@
         key: MW_SITE_SERVER
         value: "{{ _server_scheme }}{{ _config_value }}"
 
-# Also reconciles CANASTA_CADDY_IMAGE, so CADDY_TRUSTED_PROXIES (which can
+# Also reconciles CANASTA_CADDY_IMAGE, so TRUSTED_PROXIES (which can
 # require the plugin image) belongs in this trigger list too.
 # Intrinsic config-apply side effect; the K8s equivalent is reconciled at
 # deploy time by k8s_reconcile_caddy.yml. Kept in place by design
@@ -339,7 +343,7 @@
     - not (instance_is_k8s | bool)
     - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ENABLE_VARNISH',
                       'CANASTA_ENABLE_OBSERVABILITY', 'CANASTA_ENABLE_CROWDSEC',
-                      'CADDY_TRUSTED_PROXIES']
+                      'TRUSTED_PROXIES']
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
 
@@ -512,7 +516,7 @@
 # CrowdSec enablement (crowdsec.enabled) and the caddy plugin image are
 # reconciled into values.yaml from .env at deploy time by the orchestrator
 # start path (roles/orchestrator/tasks/k8s_reconcile_caddy.yml), so the
-# config-set restart picks them up. CADDY_TRUSTED_PROXIES feeds that same
+# config-set restart picks them up. TRUSTED_PROXIES feeds that same
 # reconcile (cloudflare/imperva need the plugin image), so neither needs a
 # config-set-time values.yaml write here.
 

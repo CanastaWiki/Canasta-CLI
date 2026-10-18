@@ -135,7 +135,7 @@
 - name: Reconcile CANASTA_CADDY_IMAGE for plugin features
   vars:
     _crowdsec_on: "{{ _env_profiles.variables.CANASTA_ENABLE_CROWDSEC | default('false', true) | lower == 'true' }}"
-    _tp_mode: "{{ _env_profiles.variables.CADDY_TRUSTED_PROXIES | default('') | trim | lower }}"
+    _tp_mode: "{{ _env_profiles.variables.TRUSTED_PROXIES | default('') | trim | lower }}"
     _plugin_needed: "{{ _crowdsec_on or (_tp_mode in ['cloudflare', 'imperva']) }}"
     _current_caddy_image: "{{ _env_profiles.variables.CANASTA_CADDY_IMAGE | default('') }}"
     _plugin_caddy_image: "{{ canasta_caddy_plugin_image }}"

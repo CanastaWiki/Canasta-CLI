@@ -20,7 +20,7 @@ class TestConsistencyWarnings:
         env = {
             "CANASTA_ENABLE_ELASTICSEARCH": "true",
             "CANASTA_ENABLE_CROWDSEC": "true",
-            "CADDY_TRUSTED_PROXIES": "cloudflare",
+            "TRUSTED_PROXIES": "cloudflare",
             "COMPOSE_PROFILES": "internal-db,varnish,crowdsec,elasticsearch",
         }
         profiles = ["internal-db", "varnish", "crowdsec", "elasticsearch"]
@@ -33,7 +33,7 @@ class TestConsistencyWarnings:
         env = {
             "CANASTA_ENABLE_ELASTICSEARCH": "false",
             "CANASTA_ENABLE_CROWDSEC": "true",
-            "CADDY_TRUSTED_PROXIES": "cloudflare",
+            "TRUSTED_PROXIES": "cloudflare",
             "COMPOSE_PROFILES": "varnish,crowdsec",
         }
         profiles = ["varnish", "crowdsec"]
@@ -56,7 +56,7 @@ class TestConsistencyWarnings:
         env = {
             "USE_EXTERNAL_DB": "true",
             "CANASTA_ENABLE_CROWDSEC": "true",
-            "CADDY_TRUSTED_PROXIES": "cloudflare",
+            "TRUSTED_PROXIES": "cloudflare",
             "COMPOSE_PROFILES": "varnish,crowdsec",
         }
         out = _w(env, ["varnish", "crowdsec"], ["web", "varnish", "crowdsec"], False)
@@ -179,7 +179,7 @@ class TestInstanceConsistencyLines:
         monkeypatch.setattr(
             doctor._helpers, "_read_env_content",
             lambda path, host: "CANASTA_ENABLE_CROWDSEC=true\n"
-                               "CADDY_TRUSTED_PROXIES=cloudflare\n"
+                               "TRUSTED_PROXIES=cloudflare\n"
                                "COMPOSE_PROFILES=internal-db,varnish,crowdsec\n")
         monkeypatch.setattr(
             doctor, "_gather_runtime",
@@ -241,16 +241,16 @@ class TestCrowdSecTrustedProxies:
     def test_warns_when_crowdsec_is_on_and_trusted_proxies_is_unset(self):
         out = self._warns()
         assert len(out) == 1
-        assert "CADDY_TRUSTED_PROXIES is not set" in out[0]
+        assert "TRUSTED_PROXIES is not set" in out[0]
         assert "Cloudflare or Imperva" in out[0]
-        assert "canasta config set CADDY_TRUSTED_PROXIES=cloudflare" in out[0]
+        assert "canasta config set TRUSTED_PROXIES=cloudflare" in out[0]
 
     def test_quiet_when_trusted_proxies_is_set(self):
-        assert self._warns(dict(self.ENV, CADDY_TRUSTED_PROXIES="cloudflare")) == []
-        assert self._warns(dict(self.ENV, CADDY_TRUSTED_PROXIES="10.0.0.0/8")) == []
+        assert self._warns(dict(self.ENV, TRUSTED_PROXIES="cloudflare")) == []
+        assert self._warns(dict(self.ENV, TRUSTED_PROXIES="10.0.0.0/8")) == []
 
     def test_a_blank_value_still_warns(self):
-        assert self._warns(dict(self.ENV, CADDY_TRUSTED_PROXIES="   ")) != []
+        assert self._warns(dict(self.ENV, TRUSTED_PROXIES="   ")) != []
 
     def test_quiet_when_crowdsec_is_disabled(self):
         env = {"CANASTA_ENABLE_CROWDSEC": "false",

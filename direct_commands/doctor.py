@@ -645,7 +645,7 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
       flags + DB mode.
     - A container running under a profile that isn't active (unmanaged — a
       stop/start won't restore it).
-    - CrowdSec enabled with no CADDY_TRUSTED_PROXIES.
+    - CrowdSec enabled with no TRUSTED_PROXIES.
     - CirrusSearch configured in settings while Elasticsearch is disabled.
     - any env.template literal that differs from .env (the durable gitops
       source and the live config have diverged; a pull would reset .env to it).
@@ -681,14 +681,14 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
             "unmanaged Elasticsearch; set CANASTA_ENABLE_ELASTICSEARCH=true")
 
     crowdsec_on = env.get("CANASTA_ENABLE_CROWDSEC", "").strip().lower() == "true"
-    if crowdsec_on and not env.get("CADDY_TRUSTED_PROXIES", "").strip():
+    if crowdsec_on and not env.get("TRUSTED_PROXIES", "").strip():
         warns.append(
-            "CrowdSec is enabled, but CADDY_TRUSTED_PROXIES is not set. If "
+            "CrowdSec is enabled, but TRUSTED_PROXIES is not set. If "
             "this instance runs behind a proxy such as Cloudflare or Imperva, "
             "set it — otherwise CrowdSec sees only the proxy's addresses, so "
             "its scenarios cannot identify a real client and any ban it "
             "issues lands on a shared edge node and blocks every visitor "
-            "behind it: 'canasta config set CADDY_TRUSTED_PROXIES=cloudflare' "
+            "behind it: 'canasta config set TRUSTED_PROXIES=cloudflare' "
             "(or imperva, or a comma-separated CIDR list for any other "
             "proxy). Leave it unset if clients connect to this host directly — trusting the "
             "header then would let any client forge its own source IP")
@@ -773,9 +773,9 @@ def _instance_consistency_lines(inst):
     content = _helpers._read_env_content(path, host)
     if not content:
         return []
-    env = {
+    env = _helpers.canasta_env_keys.modernize_values({
         k: v for k, v, c in _helpers._parse_env_entries(content) if not c and k
-    }
+    })
     current = [
         p.strip() for p in env.get("COMPOSE_PROFILES", "").split(",")
         if p.strip()
@@ -942,7 +942,7 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
                                    tls_internal=False, k8s=False,
                                    cert_manager=None, edge=False):
     """doctor lines for the probed certificates. With `edge`, the HAProxy
-    edge served them, and `tls_internal` means CADDY_TLS_MODE=internal."""
+    edge served them, and `tls_internal` means TLS_MODE=internal."""
     ca = "the edge's internal CA" if edge else "Caddy internal CA"
     title = ["", "Origin TLS (%s):" % inst_id]
     if entries is None:
@@ -981,7 +981,7 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
             # silent fallback.
             lines.append(
                 "  %s: OK (%s — %s is configured for this instance)"
-                % (name, ca, "CADDY_TLS_MODE=internal" if edge
+                % (name, ca, "TLS_MODE=internal" if edge
                    else "'tls internal'"))
             continue
         if internal:
@@ -1052,7 +1052,7 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
             "  %s: WARN — served by the edge's internal CA, not a publicly "
             "trusted certificate. The edge has no Let's Encrypt certificate "
             "for these names. If the internal CA is what you want, set "
-            "CADDY_TLS_MODE=internal and this check will report it as "
+            "TLS_MODE=internal and this check will report it as "
             "intended." % ", ".join(fallback_names))
     elif fallback_names:
         lines.append(
@@ -1121,7 +1121,7 @@ def _edge_lines_from_probe(inst_id, tls_mode, names, probe, crowdsec=None,
     """doctor lines for an instance behind the HAProxy edge. crowdsec is
     None when CrowdSec is off, else whether its edge bouncer is enrolled.
     plain is an instance served over plain HTTP; trusted, whether
-    CADDY_TRUSTED_PROXIES names the proxy in front of it."""
+    TRUSTED_PROXIES names the proxy in front of it."""
     lines = ["", "HAProxy edge (%s):" % inst_id]
     if probe["edge"]:
         lines.append("  edge: running (%s)" % probe["edge"])
@@ -1152,9 +1152,9 @@ def _edge_lines_from_probe(inst_id, tls_mode, names, probe, crowdsec=None,
         if not trusted:
             lines.append(
                 "  client addresses: WARN — this instance is served over plain HTTP "
-                "behind its own proxy, which CADDY_TRUSTED_PROXIES does not name, so "
+                "behind its own proxy, which TRUSTED_PROXIES does not name, so "
                 "MediaWiki and the edge see only that proxy's address and the edge's "
-                "per-client rate limits are off. Set CADDY_TRUSTED_PROXIES to the "
+                "per-client rate limits are off. Set TRUSTED_PROXIES to the "
                 "proxy's addresses.")
         return lines
     if tls_mode not in ("acme", "acme-dns"):
@@ -1213,12 +1213,12 @@ def _edge_lines(inst):
             _, stdout = _helpers._ssh_run(host, script)
     except (subprocess.TimeoutExpired, OSError):
         return []
-    tls_mode = (_helpers._read_env_for(inst, "CADDY_TLS_MODE") or "acme").strip().lower()
+    tls_mode = (_helpers._read_env_for(inst, "TLS_MODE") or "acme").strip().lower()
+    plain = tls_mode == "off"
     crowdsec = None
     if (_helpers._read_env_for(inst, "CANASTA_ENABLE_CROWDSEC") or "").strip().lower() == "true":
         crowdsec = bool((_helpers._read_env_for(inst, "CROWDSEC_SPOA_API_KEY") or "").strip())
-    plain = (_helpers._read_env_for(inst, "CADDY_AUTO_HTTPS") or "on").strip().lower() == "off"
-    trusted = bool((_helpers._read_env_for(inst, "CADDY_TRUSTED_PROXIES") or "").strip())
+    trusted = bool((_helpers._read_env_for(inst, "TRUSTED_PROXIES") or "").strip())
     rates_set = any((_helpers._read_env_for(inst, k) or "").strip()
                     for k in ("CANASTA_EDGE_RATE_DYNAMIC", "CANASTA_EDGE_RATE_DEFAULT"))
     return _edge_lines_from_probe(inst.get("id", "?"), tls_mode,
@@ -1391,8 +1391,7 @@ def _origin_tls_lines(inst):
     if is_k8s:
         port = "443"
     else:
-        if (_helpers._read_env_for(inst, "CADDY_AUTO_HTTPS") or "on").lower() \
-                == "off":
+        if (_helpers._read_env_for(inst, "TLS_MODE") or "").strip().lower() == "off":
             return []
         port = _helpers._read_env_for(inst, "HTTPS_PORT") or "443"
     names = _origin_tls_server_names(path, host)
@@ -1422,7 +1421,7 @@ def _origin_tls_lines(inst):
     if not stdout.strip():
         return []
     if edge:
-        tls_internal = (_helpers._read_env_for(inst, "CADDY_TLS_MODE")
+        tls_internal = (_helpers._read_env_for(inst, "TLS_MODE")
                         or "acme").strip().lower() == "internal"
     else:
         tls_internal = _parse_tls_internal(stdout)

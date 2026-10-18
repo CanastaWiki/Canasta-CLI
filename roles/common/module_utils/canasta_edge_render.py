@@ -36,7 +36,7 @@ CERT_DIR = CONFIG_DIR + "/certs"
 DEFAULT_CERT = CERT_DIR + "/default.pem"
 STATS_SOCKET = "/var/run/haproxy/admin.sock"
 
-TLS_MODES = ("acme", "acme-dns", "internal", "custom")
+TLS_MODES = ("acme", "acme-dns", "internal", "custom", "off")
 # DNS providers acme-dns supports, as acme.sh names their hooks.
 DNS_PROVIDERS = {"cloudflare": "dns_cf"}
 
@@ -66,7 +66,7 @@ BODY_WAIT = "5s"
 BODY_BUFFER = "2m"
 
 # CDNs whose client-address header the edge trusts, from their own address
-# ranges only. CADDY_TRUSTED_PROXIES names one, or lists CIDRs to trust for
+# ranges only. TRUSTED_PROXIES names one, or lists CIDRs to trust for
 # the last X-Forwarded-For entry.
 CDN_HEADERS = {"cloudflare": "CF-Connecting-IP", "imperva": "Incap-Client-IP"}
 
@@ -228,7 +228,12 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
 
     # Served over plain HTTP, behind the operator's own TLS proxy or with
     # --skip-tls: no HTTPS, no certificates, no redirect.
-    plain = (env.get("CADDY_AUTO_HTTPS") or "on").strip().lower() == "off"
+    tls_mode = (env.get("TLS_MODE") or "acme").strip().lower()
+    if tls_mode not in TLS_MODES:
+        raise EdgeError(
+            "Instance '%s': TLS_MODE is '%s'. Valid values are %s."
+            % (instance_id, tls_mode, ", ".join("'%s'" % m for m in TLS_MODES)))
+    plain = tls_mode == "off"
     http_port = _port(env, "HTTP_PORT", instance_id, 80)
     https_port = _port(env, "HTTPS_PORT", instance_id, 443)
     if not plain and http_port == https_port:
@@ -265,12 +270,6 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         if host not in hostnames and host not in media:
             hostnames.append(host)
 
-    tls_mode = (env.get("CADDY_TLS_MODE") or "acme").strip().lower()
-    if tls_mode not in TLS_MODES:
-        raise EdgeError(
-            "Instance '%s': CADDY_TLS_MODE is '%s'. Valid values are %s."
-            % (instance_id, tls_mode, ", ".join("'%s'" % m for m in TLS_MODES)))
-
     dns = None
     if tls_mode == "acme-dns":
         provider = (env.get("ACME_DNS_PROVIDER") or "cloudflare").strip().lower()
@@ -281,7 +280,7 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         token = (env.get("CLOUDFLARE_API_TOKEN") or "").strip()
         if not token:
             raise EdgeError(
-                "Instance '%s': CADDY_TLS_MODE is 'acme-dns' but "
+                "Instance '%s': TLS_MODE is 'acme-dns' but "
                 "CLOUDFLARE_API_TOKEN is not set. Set it to a Cloudflare API "
                 "token that can edit the DNS of the instance's zone."
                 % instance_id)
@@ -299,13 +298,13 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
             "Instance '%s': PM_MAX_CHILDREN is '%s', not a positive number."
             % (instance_id, raw_children))
 
-    trusted = (env.get("CADDY_TRUSTED_PROXIES") or "").strip()
+    trusted = (env.get("TRUSTED_PROXIES") or "").strip()
     if trusted.lower() in CDN_HEADERS:
         trusted_proxies, trusted_cidrs = trusted.lower(), []
     elif trusted:
         trusted_proxies = "cidrs"
         trusted_cidrs = _networks(trusted.replace(",", "\n"), instance_id,
-                                  "CADDY_TRUSTED_PROXIES entry")
+                                  "TRUSTED_PROXIES entry")
     else:
         trusted_proxies, trusted_cidrs = None, []
 
@@ -322,8 +321,8 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         "tls_mode": tls_mode,
         "dns": dns,
         "staging_certs": _truthy(env.get("CANASTA_STAGING_CERTS"), False),
-        "tls_cert": (env.get("CADDY_TLS_CERT") or "origin.crt").strip(),
-        "tls_key": (env.get("CADDY_TLS_KEY") or "origin.key").strip(),
+        "tls_cert": (env.get("TLS_CERT") or "origin.crt").strip(),
+        "tls_key": (env.get("TLS_KEY") or "origin.key").strip(),
         "pm_max_children": pm_max_children,
         "varnish": _truthy(env.get("CANASTA_ENABLE_VARNISH"), True),
         "snippet": _snippet_lines(snippet, instance_id),
@@ -809,7 +808,7 @@ def render(instances, acme_thumbprint=None, cdn_ranges=None, ipv6=False, sockets
         ranges = (cdn_ranges or {}).get(provider)
         if not ranges:
             raise EdgeError("No address ranges for %s, which "
-                            "CADDY_TRUSTED_PROXIES names." % provider)
+                            "TRUSTED_PROXIES names." % provider)
         files["cdn-%s.lst" % provider] = _lines(ranges)
     for inst in instances:
         for name, entries_ in (("trusted-%s.lst", inst["trusted_cidrs"]),

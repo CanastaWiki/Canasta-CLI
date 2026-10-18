@@ -147,7 +147,7 @@ services:
   caddy:
     # Defaults to upstream Caddy. When a plugin feature is enabled —
     # CrowdSec (CANASTA_ENABLE_CROWDSEC=true) or a provider trusted-proxy
-    # mode (CADDY_TRUSTED_PROXIES=cloudflare|imperva) — the profile sync
+    # mode (TRUSTED_PROXIES=cloudflare|imperva) — the profile sync
     # points CANASTA_CADDY_IMAGE at ghcr.io/canastawiki/canasta-caddy,
     # which bundles the bouncer and caddy-cdn-ranges plugins. The plugins
     # are inert until the rendered Caddyfile uses them, so the image
@@ -183,7 +183,7 @@ services:
       - caddy-data:/data
       - ./config/Caddyfile:/etc/caddy/Caddyfile
       - ./config/Caddyfile.site:/etc/caddy/Caddyfile.site
-      # Certificates for CADDY_TLS_MODE=custom. Gitignored, so a key placed
+      # Certificates for TLS_MODE=custom. Gitignored, so a key placed
       # here does not reach the gitops repository.
       - ./config/certs:/etc/caddy/certs:ro
       - caddy-logs:/var/log/caddy

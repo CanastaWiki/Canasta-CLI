@@ -1,0 +1,22 @@
+---
+# Rename an instance's TLS keys to the names the HAProxy edge reads:
+# CADDY_TLS_MODE, CADDY_TRUSTED_PROXIES, CADDY_TLS_CERT and CADDY_TLS_KEY
+# lose their CADDY_ prefix, and CADDY_AUTO_HTTPS=off becomes TLS_MODE=off.
+#
+# Input: instance_path
+
+- name: Read .env for the renamed TLS keys
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.env"
+  register: _rtk_env
+  no_log: true  # .env holds passwords
+
+- name: Rename the TLS keys in .env
+  ansible.builtin.copy:
+    content: "{{ _rtk_env.content | b64decode | canasta_env_modernize }}"
+    dest: "{{ instance_path }}/.env"
+    mode: "0600"
+  no_log: true  # .env holds passwords
+  when: >-
+    (_rtk_env.content | b64decode | canasta_env_modernize)
+    != (_rtk_env.content | b64decode)

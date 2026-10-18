@@ -32,11 +32,12 @@ def _k8s_block_for(key_substr):
     return None
 
 
-def test_caddy_auto_https_blocked_on_k8s():
-    t = _k8s_block_for("CADDY_AUTO_HTTPS")
-    assert t is not None, "config set must block CADDY_AUTO_HTTPS on Kubernetes"
+def test_edge_tls_keys_blocked_on_k8s():
+    t = _k8s_block_for("TLS_MODE")
+    assert t is not None, "config set must block TLS_MODE on Kubernetes"
     msg = t["ansible.builtin.fail"]["msg"]
-    assert "Kubernetes" in msg and "no effect" in msg
+    assert "Kubernetes" in msg and "cert-manager" in msg
+    assert all(k in " ".join(map(str, t["when"])) for k in ("TLS_CERT", "TLS_KEY"))
 
 
 def test_ports_still_blocked_on_k8s():

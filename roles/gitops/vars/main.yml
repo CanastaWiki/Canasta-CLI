@@ -3,7 +3,7 @@
 # canonical classifier in vars/secret_classification.yml:
 # canasta_secret_key_regex for secrets, and canasta_host_specific_nonsecret for
 # the per-host toggles / ports / URLs a gitops render must preserve
-# (CANASTA_ENABLE_*, CADDY_TRUSTED_PROXIES, ...). CANASTA_CADDY_IMAGE and
+# (CANASTA_ENABLE_*, TRUSTED_PROXIES, ...). CANASTA_CADDY_IMAGE and
 # COMPOSE_PROFILES are intentionally neither — both are re-derived from the
 # feature flags on every start, so storing them would freeze a reconciled value.
 

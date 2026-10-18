@@ -37,7 +37,7 @@
 - name: Parse URL into domain and path
   vars:
     _add_http_only: >-
-      {{ _add_port_env.variables.CADDY_AUTO_HTTPS | default('on') | lower == 'off' }}
+      {{ _add_port_env.variables.TLS_MODE | default('', true) | trim | lower == 'off' }}
     _add_port: >-
       {{ _add_port_env.variables.HTTP_PORT | default('80')
          if (_add_http_only | bool)
