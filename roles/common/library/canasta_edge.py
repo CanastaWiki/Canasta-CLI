@@ -467,10 +467,11 @@ def helper_user(run, inspect, edge_dir):
     rootful and rootless Docker decides again.
     """
     cached = os.path.join(edge_dir, ".helper-user")
+    cached_daemon = os.path.join(edge_dir, ".helper-user-daemon")
     rc, out, _ = run([inspect, "info", "--format", "{{.ID}}"])
     daemon = out.strip() if rc == 0 else ""
-    user, _, decided_on = (_read(cached) or "").strip().partition(" ")
-    if user and decided_on == daemon:
+    user = (_read(cached) or "").strip()
+    if user and (_read(cached_daemon) or "").strip() == daemon:
         return user
     user = "root"
     if os.getuid() != 0:
@@ -482,7 +483,8 @@ def helper_user(run, inspect, edge_dir):
                 user = "%d:%d" % (os.getuid(), os.getgid())
             run([inspect, "run", "--rm", "-v", "%s:/probe" % edge_dir,
                  "--entrypoint", "rm", ACME_IMAGE, "-f", "/probe/.owner-probe"])
-    _write_if_changed(cached, "%s %s\n" % (user, daemon))
+    _write_if_changed(cached, user + "\n")
+    _write_if_changed(cached_daemon, daemon + "\n")
     return user
 
 

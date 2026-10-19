@@ -539,14 +539,16 @@ def test_helpers_run_as_the_operator_where_container_root_is_host_root(tmp_path,
     monkeypatch.setattr(mod.os, "stat", lambda p, *a, **k: type(
         "S", (), {"st_uid": 0})() if p.endswith(".owner-probe") else real_stat(p, *a, **k))
     assert mod.helper_user(OwnerProbe(0, daemon_id="rootful"), "docker", str(edge)) == "1000:1000"
-    assert (edge / ".helper-user").read_text() == "1000:1000 rootful\n"
+    assert (edge / ".helper-user").read_text() == "1000:1000\n"
+    assert (edge / ".helper-user-daemon").read_text() == "rootful\n"
     assert mod.helper_user(FakeRunner(daemon_id="rootful"), "docker", str(edge)) == "1000:1000"
 
 
 def test_helpers_decide_again_on_another_daemon(tmp_path, monkeypatch):
     edge = tmp_path / "edge"
     edge.mkdir()
-    (edge / ".helper-user").write_text("1000:1000 rootful\n")
+    (edge / ".helper-user").write_text("1000:1000\n")
+    (edge / ".helper-user-daemon").write_text("rootful\n")
     monkeypatch.setattr(mod.os, "getuid", lambda: 1000)
     real_stat = os.stat
     monkeypatch.setattr(mod.os, "stat", lambda p, *a, **k: type(
@@ -554,7 +556,8 @@ def test_helpers_decide_again_on_another_daemon(tmp_path, monkeypatch):
     run = OwnerProbe(1000, daemon_id="rootless")
     assert mod.helper_user(run, "docker", str(edge)) == "root"
     assert run.runs("touch")
-    assert (edge / ".helper-user").read_text() == "root rootless\n"
+    assert (edge / ".helper-user").read_text() == "root\n"
+    assert (edge / ".helper-user-daemon").read_text() == "rootless\n"
 
 
 def test_helpers_decide_again_over_a_cache_without_a_daemon(tmp_path, monkeypatch):
