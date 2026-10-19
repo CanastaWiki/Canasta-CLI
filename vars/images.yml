@@ -5,3 +5,9 @@
 # Read by sync_compose_profiles.yml, k8s_reconcile_caddy.yml and
 # direct_commands/_helpers.py.
 canasta_caddy_plugin_image: "ghcr.io/canastawiki/canasta-caddy:2.11.3"
+
+# Image whose netstat lists the host's listeners when the CLI runs in a
+# container, where ss and lsof would see only the container's network. The
+# edge's acme.sh image, so no extra pull on an edge host. Read by
+# create_preflight.yml and edge_sync.yml.
+canasta_port_probe_image: "docker.io/neilpang/acme.sh:3.1.6"
