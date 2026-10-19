@@ -182,25 +182,29 @@
 - name: Require confirmation for delete
   ansible.builtin.fail:
     msg: >-
-      {{ 'Deleting instance ''' ~ instance_id ~ ''' at ' ~ instance_path ~ '.'
+      {{ "Removing instance '" ~ instance_id ~ "' from the registry, leaving its data in place."
+      if keep_data | default(false) | bool
+      else 'Deleting instance ''' ~ instance_id ~ ''' at ' ~ instance_path ~ '.'
       if _instance_registered | default(false) | bool
       else 'Deleting unregistered instance ''' ~ instance_id ~ ''' (Kubernetes resources only).' }}
       Use --yes to confirm.
   when: not (yes | default(false) | bool)
 
 # If the instance directory is already gone (e.g., previous partial
-# delete), just deregister and skip all cleanup.
+# delete), or --keep-data asks for it, just deregister and skip all cleanup.
 - name: Check if instance directory exists
   ansible.builtin.stat:
     path: "{{ instance_path }}"
   register: _inst_dir
   when: instance_path | default('') | length > 0
 
-- name: Handle already-removed instance
+- name: Deregister only
   when:
-    - instance_path | default('') | length > 0
-    - not (_inst_dir.stat.exists | default(false))
     - _instance_registered | default(false) | bool
+    - >-
+      (keep_data | default(false) | bool)
+      or (instance_path | default('') | length > 0
+          and not (_inst_dir.stat.exists | default(false)))
   block:
     # Save inbound connection state into one dict, switch + deregister
     # inside a block so an `always:` restore fires even if the registry
@@ -242,7 +246,10 @@
 
     - name: Report deletion
       ansible.builtin.debug:
-        msg: "Instance '{{ instance_id }}' deleted from registry."
+        msg: >-
+          {{ "Instance '" ~ instance_id ~ "' removed from the registry; its containers or namespace, volumes and files are unchanged."
+             if keep_data | default(false) | bool
+             else "Instance '" ~ instance_id ~ "' deleted from registry." }}
 
     - name: End play for already-removed instance
       ansible.builtin.meta: end_play
