@@ -47,50 +47,26 @@ def _probe_tasks():
     return [
         t for t in _tasks()
         if isinstance(t.get("name"), str)
-        and re.match(
-            r"Probe for userspace listener on the HTTPS? port", t["name"])
+        and t["name"].startswith("Probe for userspace listeners")
     ]
 
 
 class TestProbeIsPortable:
-    def test_both_ports_are_probed(self):
-        names = sorted(t["name"] for t in _probe_tasks())
-        assert len(names) == 2, (
-            "expected an HTTP and an HTTPS probe, got %s" % names)
-        assert any("HTTPS port" in n for n in names)
-        assert any(n.endswith("the HTTP port") for n in names)
+    def test_one_probe_covers_both_ports(self):
+        assert len(_probe_tasks()) == 1
 
-    def test_probes_use_the_resolved_ports_not_the_defaults(self):
+    def test_probe_uses_the_resolved_ports_not_the_defaults(self):
         # A second Compose instance on one host moves off 80/443 via the
         # -e envfile. Hardcoding the defaults here rejected that create
         # before the envfile was ever read.
-        for task in _probe_tasks():
-            cmd = task.get("ansible.builtin.shell", {}).get("cmd", "")
-            assert (
-                "_preflight_http_port" in cmd
-                or "_preflight_https_port" in cmd
-            ), (
-                "%s probes a literal port; it must probe the port this "
-                "instance will actually bind" % task["name"])
+        cmd = _probe_tasks()[0]["ansible.builtin.script"]["cmd"]
+        assert "_preflight_http_port" in cmd
+        assert "_preflight_https_port" in cmd
 
-    def test_probe_falls_back_when_ss_is_absent(self):
-        for task in _probe_tasks():
-            cmd = task.get("ansible.builtin.shell", {}).get("cmd", "")
-            assert "command -v ss" in cmd, (
-                "%s must test for ss rather than assume it" % task["name"])
-            assert "lsof" in cmd, (
-                "%s has no non-Linux fallback; ss is iproute2-only"
-                % task["name"])
-
-    def test_unavailable_probe_is_distinguishable(self):
-        # The bug: an unrunnable probe and a free port both produced
-        # empty stdout, so they were indistinguishable downstream.
-        for task in _probe_tasks():
-            cmd = task.get("ansible.builtin.shell", {}).get("cmd", "")
-            assert _SENTINEL in cmd, (
-                "%s must emit a sentinel when no probe tool exists, or "
-                "'could not check' is silently read as 'port is free'"
-                % task["name"])
+    def test_probe_runs_the_shared_script(self):
+        cmd = _probe_tasks()[0]["ansible.builtin.script"]["cmd"]
+        assert "port_listeners.sh" in cmd
+        assert "canasta_port_probe_image" in cmd
 
 
 class TestFailureGateIgnoresTheSentinel:

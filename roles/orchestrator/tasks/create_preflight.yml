@@ -311,54 +311,30 @@
           {{ (_preflight_envfile.content | default('') | b64decode).splitlines()
              | map('trim') | select('match', '^HTTPS?_PORT=[0-9]+$') | list }}
 
-    - name: Probe for userspace listener on the HTTP port
-      ansible.builtin.shell:
-        cmd: |
-          set -o pipefail
-          if command -v ss >/dev/null 2>&1; then
-            ss -tlnH "sport = :{{ _preflight_http_port }}"
-          elif command -v lsof >/dev/null 2>&1; then
-            lsof -nP -iTCP:{{ _preflight_http_port }} -sTCP:LISTEN 2>/dev/null | tail -n +2
-          else
-            echo "CANASTA_PORT_PROBE_UNAVAILABLE"
-          fi
-      args:
-        executable: /bin/bash
-      register: _port80_listener
+    - name: Probe for userspace listeners on the instance's ports
+      ansible.builtin.script:
+        cmd: >-
+          {{ canasta_root }}/roles/orchestrator/files/scripts/port_listeners.sh
+          {{ inspect_command | default('docker') | quote }}
+          {{ canasta_port_probe_image | quote }}
+          {{ _preflight_http_port | quote }} {{ _preflight_https_port | quote }}
+      register: _port_listeners
       changed_when: false
       failed_when: false
 
-    - name: Probe for userspace listener on the HTTPS port
-      ansible.builtin.shell:
-        cmd: |
-          set -o pipefail
-          if command -v ss >/dev/null 2>&1; then
-            ss -tlnH "sport = :{{ _preflight_https_port }}"
-          elif command -v lsof >/dev/null 2>&1; then
-            lsof -nP -iTCP:{{ _preflight_https_port }} -sTCP:LISTEN 2>/dev/null | tail -n +2
-          else
-            echo "CANASTA_PORT_PROBE_UNAVAILABLE"
-          fi
-      args:
-        executable: /bin/bash
-      register: _port443_listener
-      changed_when: false
-      failed_when: false
-
-    # Neither tool present: say so rather than let a check that never ran
-    # look like a clean result. Not fatal — a missing lsof/ss should not
-    # block a create on an otherwise healthy host.
+    # A check that never ran must not look like a clean result. Not fatal:
+    # it should not block a create on an otherwise healthy host.
     - name: Warn when the port check could not run
       ansible.builtin.debug:
         msg: >-
           Could not check whether ports {{ _preflight_http_port }} and
-          {{ _preflight_https_port }} are free: neither `ss` nor `lsof`
-          is available on this host. If something else is already
-          serving on them, compose will fail to bind (or caddy will
-          start while traffic lands on the other service).
+          {{ _preflight_https_port }} are free: this host has neither `ss`
+          nor `lsof`, and a container on the host's network could not be
+          run to look instead. If something else is already serving on
+          them, the HAProxy edge will fail to start.
       when: >-
         "CANASTA_PORT_PROBE_UNAVAILABLE" in
-        (_port80_listener.stdout | default(''))
+        (_port_listeners.stdout | default(''))
 
     - name: Check whether the HAProxy edge is running
       ansible.builtin.command:
@@ -380,14 +356,14 @@
         msg: >-
           Ports {{ _preflight_http_port }} and {{ _preflight_https_port }} must be
           free for the HAProxy edge, but something is listening:
-          {{ (_port80_listener.stdout ~ ' ' ~ _port443_listener.stdout) | trim }}.
+          {{ _port_listeners.stdout_lines | default([]) | map('trim') | join('; ') }}.
           Stop it, use a different host, or give this instance other ports by
           passing an env file that sets HTTP_PORT and HTTPS_PORT
           ('canasta create -e <file>').
       when:
         - _preflight_edge_running.stdout | default('') | trim | length == 0
-        - (_port80_listener.stdout | default('') ~ _port443_listener.stdout | default('')) | trim | length > 0
-        - '"CANASTA_PORT_PROBE_UNAVAILABLE" not in (_port80_listener.stdout | default(""))'
+        - _port_listeners.stdout | default('') | trim | length > 0
+        - '"CANASTA_PORT_PROBE_UNAVAILABLE" not in (_port_listeners.stdout | default(""))'
 
     - name: Probe whether k3s is running
       ansible.builtin.command:
