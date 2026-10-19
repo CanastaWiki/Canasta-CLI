@@ -1,0 +1,36 @@
+---
+# A gitops pull whose conflicts are being resolved by hand leaves the
+# repository mid-rebase (or mid-merge), with every tracked file at the
+# upstream version, so the configuration is half-merged. Commands that read
+# or write it must not act on it until the resolution finishes. Read-only
+# commands, delete and stop declare unfinished_pull_ok in
+# command_definitions.yml and are not checked.
+#
+# Input: instance_id, instance_path, canasta_unfinished_pull_ok (optional).
+# Output: unfinished_pull (bool), unfinished_pull_reason.
+
+- name: Check for an unfinished gitops pull
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.git/{{ item }}"
+  loop:
+    - rebase-merge
+    - rebase-apply
+    - MERGE_HEAD
+  register: _unfinished_pull_stat
+  when: not (canasta_unfinished_pull_ok | default(false) | bool)
+
+- name: Describe the unfinished gitops pull
+  ansible.builtin.set_fact:
+    unfinished_pull: "{{ _found | length > 0 }}"
+    unfinished_pull_reason: >-
+      its gitops repository is in the middle of a pull whose conflicts are
+      not resolved, so its configuration is half-merged. In
+      {{ instance_path }}, resolve the conflicts and run
+      'git {{ _verb }} --continue', or go back to where the pull started
+      with 'git {{ _verb }} --abort'.
+  vars:
+    _found: >-
+      {{ (_unfinished_pull_stat.results | default([]))
+         | selectattr('stat.exists', 'defined') | selectattr('stat.exists')
+         | map(attribute='item') | list }}
+    _verb: "{{ 'merge' if 'MERGE_HEAD' in _found else 'rebase' }}"

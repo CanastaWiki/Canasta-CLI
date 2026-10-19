@@ -613,6 +613,13 @@ def cmd_gitops_status(args):
         )
         return 1
 
+    # Mid-rebase, the status script's comparisons would describe a
+    # half-merged tree; say what state the repository is in instead.
+    verb = _helpers._unfinished_pull(path, host)
+    if verb:
+        print(_helpers._unfinished_pull_message(inst_id, path, verb))
+        return 1
+
     script = _gitops_status_script(path, ssh_key=getattr(args, "ssh_key", None),
                                    k8s=_helpers._is_k8s(inst))
 

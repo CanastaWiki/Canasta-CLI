@@ -517,6 +517,7 @@ commands:
 
   - name: delete
     description: "Delete a Canasta instance"
+    unfinished_pull_ok: true
     long_description: |
       Permanently delete a Canasta instance, removing containers, volumes,
       and configuration files. If run without --id from an instance directory,
@@ -597,6 +598,7 @@ commands:
 
   - name: stop
     description: "Stop a Canasta instance"
+    unfinished_pull_ok: true
     long_description: |
       Stop all Docker containers for a Canasta instance. The
       containers are stopped gracefully, preserving all data in
@@ -871,6 +873,7 @@ commands:
 
   - name: install
     description: "Install dependencies on the target host"
+    unfinished_pull_ok: true
     long_description: |
       Install one or more dependencies on the target host. Supported
       packages: docker, k8s-cp, k8s-worker, git-crypt, sops, canasta,
@@ -1003,6 +1006,7 @@ commands:
 
   - name: uninstall
     description: "Uninstall dependencies from the target host"
+    unfinished_pull_ok: true
     long_description: |
       Uninstall dependencies from the target host. Supported packages:
       k8s (removes k3s, kubectl, helm, and cleans up iptables rules;
@@ -2098,6 +2102,7 @@ commands:
 
   - name: maintenance_exec
     description: "Execute a command in a container"
+    unfinished_pull_ok: true
     long_description: |
       Execute an arbitrary command inside a container of a Canasta instance.
 
@@ -2251,6 +2256,7 @@ commands:
 
   - name: crowdsec_status
     description: "Show CrowdSec bouncers and active decisions"
+    unfinished_pull_ok: true
     long_description: |
       Show the bouncers registered with the CrowdSec engine and the IP
       decisions (bans, captchas) currently in effect. Read-only.
@@ -2320,6 +2326,7 @@ commands:
 
   - name: crowdsec_scenarios
     description: "List the loaded CrowdSec detection (collections and scenarios)"
+    unfinished_pull_ok: true
     long_description: |
       Show the detection logic the CrowdSec engine has loaded: the
       installed hub collections (e.g. `crowdsecurity/caddy`,
@@ -2341,6 +2348,7 @@ commands:
 
   - name: crowdsec_alerts
     description: "Show recent CrowdSec alerts (detected attacks)"
+    unfinished_pull_ok: true
     long_description: |
       List the alerts the CrowdSec engine has raised — the attacks and
       probes its scenarios have detected over time. Unlike
@@ -2365,6 +2373,7 @@ commands:
 
   - name: crowdsec_metrics
     description: "Show CrowdSec engine throughput metrics"
+    unfinished_pull_ok: true
     long_description: |
       Show the CrowdSec engine's metrics: log lines read from the Caddy
       access log, how often each scenario has fired, and how many
@@ -2484,6 +2493,7 @@ commands:
 
   - name: backup_list
     description: "List backups"
+    unfinished_pull_ok: true
     long_description: |
       List all snapshots stored in the backup repository. Displays
       each snapshot's ID, timestamp, hostname, and tags. Snapshots
@@ -2620,6 +2630,7 @@ commands:
 
   - name: backup_files
     description: "List files in a backup"
+    unfinished_pull_ok: true
     long_description: |
       List all files contained in a specific backup snapshot. This
       is useful for inspecting what was backed up before performing
@@ -2640,6 +2651,7 @@ commands:
 
   - name: backup_check
     description: "Check backup repository integrity"
+    unfinished_pull_ok: true
     long_description: |
       Verify the integrity of the backup repository and its data.
       This checks for errors in the repository structure and
@@ -2655,6 +2667,7 @@ commands:
 
   - name: backup_diff
     description: "Show difference between two backups"
+    unfinished_pull_ok: true
     long_description: |
       Show the differences between two backup snapshots. This
       compares the file contents and metadata of both snapshots,
@@ -2801,6 +2814,7 @@ commands:
 
   - name: backup_schedule_list
     description: "Show the backup schedule"
+    unfinished_pull_ok: true
     long_description: |
       Show the current backup schedule for this instance, if one
       exists.
@@ -2915,6 +2929,7 @@ commands:
 
   - name: backup_databases_list
     description: "Show which databases each wiki's backup dumps"
+    unfinished_pull_ok: true
     long_description: |
       List the databases each wiki's backup captures — the wiki database
       plus anything added with `canasta backup databases add`. A wiki with
@@ -3285,6 +3300,7 @@ commands:
 
   - name: gitops_diff
     description: "Show local and remote changes since the branches diverged"
+    unfinished_pull_ok: true
     long_description: |
       Show the actual patch for uncommitted working tree changes, for
       local commits not yet pushed, and for remote commits that would
@@ -3486,6 +3502,7 @@ commands:
 
   - name: storage_list
     description: "List StorageClasses on the cluster"
+    unfinished_pull_ok: true
     long_description: |
       List the StorageClasses installed on the target Kubernetes
       cluster, alongside the StorageClass canasta will use by default
@@ -3667,6 +3684,7 @@ commands:
 
   - name: sidecar_list
     description: "List app sidecars declared for a Canasta instance"
+    unfinished_pull_ok: true
     long_description: |
       List the sidecars declared in `config/sidecars.yaml`, with their
       image (or build context) and ports.
@@ -3786,6 +3804,7 @@ commands:
 
   - name: image_prune
     description: "Reclaim container image storage on a host"
+    unfinished_pull_ok: true
     long_description: |
       Remove container images the host no longer needs, and their orphaned
       layers. Upgrades leave superseded Canasta images behind, and repeated

@@ -42,6 +42,18 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/detect_runtime.yml"
   when: not (instance_is_k8s | bool)
 
+- name: Check for an unfinished gitops pull
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/check_unfinished_pull.yml"
+
+# Recorded rather than failed, so the host's other instances still upgrade.
+- name: Skip an instance whose gitops pull is unfinished
+  ansible.builtin.set_fact:
+    _upgrade_failures: >-
+      {{ (_upgrade_failures | default([]))
+         + ["'" ~ instance_id ~ "': not upgraded, because " ~ unfinished_pull_reason] }}
+  when: unfinished_pull | bool
+
 - name: Run upgrade role (migrations + refresh + restart)
+  when: not (unfinished_pull | bool)
   ansible.builtin.include_role:
     name: upgrade

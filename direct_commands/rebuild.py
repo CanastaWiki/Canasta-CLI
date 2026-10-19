@@ -88,6 +88,8 @@ def _list_buildable_services(inst, include_sidecars=False):
 @register("rebuild")
 def cmd_rebuild(args):
     inst_id, inst = _helpers._resolve_instance(args)
+    if _helpers._refuse_unfinished_pull(inst_id, inst):
+        return 1
 
     if _helpers._is_k8s(inst):
         print(

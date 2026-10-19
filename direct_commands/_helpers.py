@@ -2325,6 +2325,59 @@ _SENTINEL = "---CANASTA_DELIM---"
 # tests/unit/test_restore_marker.py.
 RESTORE_MARKER = ".canasta-restore-in-progress"
 
+# What a gitops pull whose conflicts are being resolved by hand leaves in the
+# repository; the Ansible side checks the same paths
+# (roles/common/tasks/check_unfinished_pull.yml).
+UNFINISHED_PULL_PATHS = (".git/rebase-merge", ".git/rebase-apply",
+                         ".git/MERGE_HEAD")
+
+
+def _unfinished_pull_test(qpath):
+    """Shell test that succeeds when the instance at qpath (already quoted)
+    has an unfinished gitops pull."""
+    return "{ %s; }" % " || ".join(
+        "test -e %s/%s" % (qpath, p) for p in UNFINISHED_PULL_PATHS)
+
+
+def _unfinished_pull(path, host):
+    """The git command ('rebase' or 'merge') a hand-resolved gitops pull is
+    in the middle of, or None."""
+    if not path:
+        return None
+    if _is_localhost(host):
+        found = [p for p in UNFINISHED_PULL_PATHS
+                 if os.path.exists(os.path.join(path, p))]
+    else:
+        q = _shell_quote(path)
+        rc, stdout = _ssh_run(host, "; ".join(
+            "test -e %s/%s && echo %s" % (q, p, p) for p in UNFINISHED_PULL_PATHS)
+            + "; true")
+        found = [p for p in (stdout.split() if rc == 0 else [])
+                 if p in UNFINISHED_PULL_PATHS]
+    if not found:
+        return None
+    return "merge" if ".git/MERGE_HEAD" in found else "rebase"
+
+
+def _unfinished_pull_message(inst_id, path, verb):
+    return ("Instance '%s': its gitops repository is in the middle of a pull "
+            "whose conflicts are not resolved, so its configuration is "
+            "half-merged. In %s, resolve the conflicts and run 'git %s "
+            "--continue', or go back to where the pull started with 'git %s "
+            "--abort'." % (inst_id, path, verb, verb))
+
+
+def _refuse_unfinished_pull(inst_id, inst):
+    """Print why a command that reads or writes the configuration cannot run,
+    and return True, when the instance's gitops pull is unfinished."""
+    path = inst.get("path", "")
+    verb = _unfinished_pull(path, inst.get("host") or "localhost")
+    if not verb:
+        return False
+    print("Error: " + _unfinished_pull_message(inst_id, path, verb),
+          file=sys.stderr)
+    return True
+
 
 def _gather_instance_info(inst_id, inst):
     """Gather dir existence, wikis, and running status in one operation.
@@ -2364,7 +2417,8 @@ def _gather_instance_info(inst_id, inst):
         "web_ps=$(" + compose_ps + "); "
         "[ -n \"$web_ps\" ] && echo \"$web_ps\"; "
         "echo '%(d)s'; "
-        "test -f %(p)s/%(m)s && echo RESTORE_INTERRUPTED || true; "
+        "test -f %(p)s/%(m)s && echo RESTORE_INTERRUPTED; "
+        + _unfinished_pull_test(qpath) + " && echo PULL_UNFINISHED; true; "
         "echo '%(d)s'; "
         "echo \"$web_ps\" | while IFS='|' read -r cid cstate status; do "
         "case \"$status\" in " + _WEB_STARTING_CASE + ") "
@@ -2383,8 +2437,9 @@ def _gather_instance_info(inst_id, inst):
     dir_ok = parts[0].strip() == "DIR_OK" if len(parts) > 0 else False
     wikis_raw = parts[1] if len(parts) > 1 else ""
     running_raw = parts[2].strip() if len(parts) > 2 else ""
-    interrupted = (parts[3].strip() == "RESTORE_INTERRUPTED"
-                   if len(parts) > 3 else False)
+    flags = parts[3].split() if len(parts) > 3 else []
+    interrupted = "RESTORE_INTERRUPTED" in flags
+    pull_unfinished = "PULL_UNFINISHED" in flags
     restart_counts = _remote_restart_counts(parts[4] if len(parts) > 4 else "")
 
     wikis = []
@@ -2399,7 +2454,7 @@ def _gather_instance_info(inst_id, inst):
               if dir_ok else "NOT FOUND")
 
     return _make_detail(inst_id, host, path, orchestrator, status, wikis,
-                       interrupted)
+                       interrupted, pull_unfinished)
 
 
 def _gather_local(inst_id, inst):
@@ -2413,7 +2468,8 @@ def _gather_local(inst_id, inst):
     interrupted = dir_exists and os.path.exists(
         os.path.join(path, RESTORE_MARKER))
     return _make_detail(inst_id, host, path, orchestrator, status, wikis,
-                       interrupted)
+                       interrupted,
+                       dir_exists and _unfinished_pull(path, host) is not None)
 
 
 def _gather_k8s(inst_id, path, host):
@@ -2430,20 +2486,25 @@ def _gather_k8s(inst_id, path, host):
     status = _web_state_k8s(inst_id, host) if dir_exists else "NOT FOUND"
 
     return _make_detail(inst_id, host, path, "kubernetes", status, wikis,
-                       dir_exists and _read_restore_marker(path, host) is not None)
+                       dir_exists and _read_restore_marker(path, host) is not None,
+                       dir_exists and _unfinished_pull(path, host) is not None)
 
 
 def _make_detail(inst_id, host, path, orchestrator, status, wikis,
-                 interrupted_restore=False):
+                 interrupted_restore=False, unfinished_pull=False):
+    # An interrupted restore or an unfinished gitops pull leaves the instance
+    # running on half-applied config, which otherwise reads here as plain
+    # RUNNING.
+    if interrupted_restore:
+        status = "%s  [RESTORE INTERRUPTED]" % status
+    if unfinished_pull:
+        status = "%s  [GITOPS PULL UNFINISHED]" % status
     return {
         "id": inst_id,
         "host": host,
         "path": path,
         "orchestrator": orchestrator.upper(),
-        # An interrupted restore leaves the instance running on half-applied
-        # config, which otherwise reads here as plain RUNNING.
-        "status": ("%s  [RESTORE INTERRUPTED]" % status
-                   if interrupted_restore else status),
+        "status": status,
         "wikis": wikis,
     }
 
