@@ -523,13 +523,10 @@
 - name: Warn that rootless Docker hides client addresses
   ansible.builtin.debug:
     msg: >-
-      This instance runs on rootless Docker, whose port forwarding replaces
-      each visitor's address with its own while the daemon's userland proxy
-      is on, as it is by default, so MediaWiki, CrowdSec and the HAProxy edge
-      cannot tell visitors apart; the edge applies no per-client rate limits
-      to it. RootlessKit 3.0 or later keeps visitors' addresses once the
-      userland proxy is off: set "userland-proxy": false in
-      ~/.config/docker/daemon.json, load the br_netfilter kernel module,
-      restart the daemon, then set CANASTA_EDGE_RATE_DYNAMIC and
-      CANASTA_EDGE_RATE_DEFAULT to turn the limits on.
+      This instance runs on rootless Docker, where visitors' IP addresses are
+      lost unless the daemon was set up with 'canasta install
+      docker-rootless'. MediaWiki, CrowdSec and the HAProxy edge then see
+      every visitor as the same address. The edge applies no per-client rate
+      limits until you set CANASTA_EDGE_RATE_DYNAMIC and
+      CANASTA_EDGE_RATE_DEFAULT.
   when: create_on_rootless_docker | default(false) | bool

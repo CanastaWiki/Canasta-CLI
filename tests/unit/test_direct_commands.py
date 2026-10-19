@@ -3733,6 +3733,7 @@ class TestDoctor:
         assert "Privileged ports: BLOCKED" in result
         assert "ip_unprivileged_port_start=1024" in result
         assert "RootlessKit" in result
+        assert "canasta install docker-rootless" in result
         assert "canasta install podman" not in result
         assert "canasta-edge.socket" not in result
         assert "sudo sysctl" in result
