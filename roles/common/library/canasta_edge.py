@@ -114,7 +114,7 @@ from ansible.module_utils.canasta_edge_render import (
     ACME_IMAGE, CERT_DIR, CONFIG_DIR, DENY_CIDR_FILE, DENY_UA_FILE, EdgeError,
     HAPROXY_IMAGE, SPOA_IMAGE, cdn_providers, certificates, check_together,
     crowdsec_enforced, frontends,
-    instance_from_config, render,
+    instance_from_config, rates_set, render,
 )
 from ansible.module_utils.canasta_caddyfile import site_hostnames
 from ansible.module_utils.urls import open_url
@@ -1307,14 +1307,15 @@ def plan_conversion(instances, rootless=lambda inst: False, podman_ready=lambda:
     If any of them cannot, the host is refused as a whole and none of its
     instances is upgraded, since none could come back without a front door.
     Returns {convert: [ids], rootless: [ids moving on rootless Docker],
-    refuse: reason or None, held: [Compose instance ids a refusal holds back]}."""
+    rated: [those of them that set the per-client rates], refuse: reason or
+    None, held: [Compose instance ids a refusal holds back]}."""
     compose = [i for i in instances
                if not is_k8s_orchestrator(i.get("orchestrator") or "compose")
                and os.path.isdir(i["path"])]
     names = ", ".join("'%s'" % i["id"] for i in compose)
 
     def refuse(reason):
-        return {"convert": [], "rootless": [], "refuse": reason,
+        return {"convert": [], "rootless": [], "rated": [], "refuse": reason,
                 "held": [i["id"] for i in compose]}
 
     families = {"podman" if "podman" in (i.get("compose_command") or "") else "docker"
@@ -1323,7 +1324,7 @@ def plan_conversion(instances, rootless=lambda inst: False, podman_ready=lambda:
         return refuse("its instances use both Docker and Podman, which cannot share one "
                       "HAProxy edge (%s). Move one runtime's instances to another host, or "
                       "onto the same runtime, and upgrade again." % names)
-    convert, on_rootless, problems = [], [], []
+    convert, on_rootless, rated, problems = [], [], [], []
     for inst in compose:
         if behind_edge(inst["path"]):
             continue
@@ -1345,6 +1346,8 @@ def plan_conversion(instances, rootless=lambda inst: False, podman_ready=lambda:
             # sockets from systemd and keeps client addresses.
             if not podman and rootless(inst):
                 on_rootless.append(inst["id"])
+                if rates_set(env):
+                    rated.append(inst["id"])
     if problems:
         return refuse("the HAProxy edge cannot serve every instance on it yet: %s. Fix "
                       "that and upgrade again." % "; ".join(problems))
@@ -1355,7 +1358,8 @@ def plan_conversion(instances, rootless=lambda inst: False, podman_ready=lambda:
                             for i in compose])
         except EdgeError as exc:
             return refuse(str(exc))
-    return {"convert": convert, "rootless": on_rootless, "refuse": None, "held": []}
+    return {"convert": convert, "rootless": on_rootless, "rated": rated, "refuse": None,
+            "held": []}
 
 
 def run_module():
