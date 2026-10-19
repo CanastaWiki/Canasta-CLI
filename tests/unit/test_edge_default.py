@@ -195,3 +195,49 @@ def test_dry_run_reports_a_refused_host(tmp_path):
                               "two": _instance(tmp_path, "two", "same.example.com")})
     assert "Dry run - would not upgrade one, two on localhost:" in out
     assert "both serve same.example.com" in out
+
+
+def _rootless_messages(tmp_path, playbook_file, task_name):
+    with open(os.path.join(REPO_ROOT, "playbooks", playbook_file)) as f:
+        task = next(t for t in _walk(yaml.safe_load(f)) if t.get("name") == task_name)
+    task = {k: v for k, v in task.items() if k != "when"}
+    out = tmp_path / "out.json"
+    play = tmp_path / "play.yml"
+    play.write_text(yaml.safe_dump([{
+        "hosts": "localhost", "connection": "local", "gather_facts": False,
+        "vars": {
+            "ansible_python_interpreter": sys.executable,
+            "_edge_host_name": "localhost",
+            "_edge_plan": {"convert": ["bare", "rated"], "rootless": ["bare", "rated"],
+                           "rated": ["rated"], "refuse": None, "held": []},
+        },
+        "tasks": [dict(task, register="_msgs"),
+                  {"ansible.builtin.copy": {
+                      "content": "{{ (_msgs.results | default([_msgs]))"
+                                 " | map(attribute='msg') | list | to_json }}",
+                      "dest": str(out)}}],
+    }]))
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_")}
+    env.update(ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
+               ANSIBLE_HOME=str(tmp_path / "ansible-home"))
+    playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
+    proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
+                          capture_output=True, text=True, env=env, cwd=tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return json.loads(out.read_text())
+
+
+def test_the_upgrade_warning_leaves_out_limits_an_instance_sets(tmp_path):
+    bare, rated = _rootless_messages(tmp_path, "_edge_convert_host.yml",
+                                     "Warn about instances moving on rootless Docker")
+    assert "no per-client rate limits" in bare and "CANASTA_EDGE_RATE_DYNAMIC" in bare
+    assert "no per-client rate limits" not in rated
+    assert "CANASTA_EDGE_RATE_DYNAMIC" not in rated
+    assert "userland-proxy" in rated
+
+
+def test_the_dry_run_names_only_instances_without_limits(tmp_path):
+    [msg] = _rootless_messages(tmp_path, "_edge_dry_run_host.yml",
+                               "Report the instances that would move behind the edge")
+    assert msg.startswith("Dry run - would move bare, rated on localhost")
+    assert "(bare on rootless Docker, with no per-client rate limits)" in msg
