@@ -1,0 +1,39 @@
+---
+# Remember the SSH key a gitops command authenticates with, so later gitops
+# commands on the instance use it without --ssh-key.
+#
+# Compose only: a Kubernetes instance authenticates with the deploy key its
+# init generated (.gitops-deploy-key), which Argo CD uses too.
+#
+# --ssh-key records its path in the instance's .gitops-ssh-key (gitignored),
+# replacing any path recorded before. Without --ssh-key, the recorded path is
+# used. The path is stored as given, so a '~' in it is expanded where git runs.
+#
+# Input: instance_path, instance_is_k8s, ssh_key (optional).
+# Output: ssh_key, when a path is recorded and none was passed.
+
+- name: Record the SSH key for later gitops commands
+  ansible.builtin.copy:
+    content: "{{ ssh_key }}\n"
+    dest: "{{ instance_path }}/.gitops-ssh-key"
+    mode: "0600"
+  when:
+    - not (instance_is_k8s | bool)
+    - (ssh_key | default('')) | length > 0
+
+- name: Read the recorded SSH key
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-ssh-key"
+  register: _gitops_recorded_ssh_path
+  failed_when: false
+  when:
+    - not (instance_is_k8s | bool)
+    - (ssh_key | default('')) | length == 0
+
+- name: Use the recorded SSH key
+  ansible.builtin.set_fact:
+    ssh_key: "{{ _gitops_recorded_ssh_path.content | b64decode | trim }}"
+  when:
+    - not (instance_is_k8s | bool)
+    - (ssh_key | default('')) | length == 0
+    - (_gitops_recorded_ssh_path.content | default('') | b64decode | trim) | length > 0

@@ -31,7 +31,8 @@ SITES = {
 
 # Files that hold secrets or host-local state and must never be staged by name.
 NEVER_STAGED = {
-    ".env", "my.cnf", ".gitops-host", ".gitops-deploy-key", ".gitops-applied",
+    ".env", "my.cnf", ".gitops-host", ".gitops-deploy-key", ".gitops-ssh-key",
+    ".gitops-applied",
     ".gitops-pull-baseline",
     "config/wikis.yaml", "config/secrets.env", "images",
 }
