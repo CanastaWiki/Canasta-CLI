@@ -1,0 +1,238 @@
+---
+# Install rootless Docker for the operator, alongside any rootful Docker,
+# configured so the HAProxy edge receives visitors' addresses.
+#
+# Re-running it re-applies every setting, so it also fixes up a rootless
+# Docker installed by hand.
+#
+# Rootless Docker needs, besides its packages:
+#   - a subordinate uid/gid range for the operator;
+#   - lingering, or systemd stops the daemon when the session ends;
+#   - net.ipv4.ip_unprivileged_port_start=80, so it can publish 80 and 443;
+#   - Docker's userland proxy off, or every visitor arrives with the
+#     daemon's own address. The rootless daemon starts that way only with
+#     the br_netfilter kernel module loaded.
+#
+# The docker CLI's context stays on the system daemon: an instance goes on
+# rootless Docker only when its create names the rootless socket.
+
+- name: Determine operator (SSH) user
+  ansible.builtin.command: id -un
+  become: false
+  changed_when: false
+  register: _rd_user_cmd
+
+- name: Determine operator uid
+  ansible.builtin.command: id -u
+  become: false
+  changed_when: false
+  register: _rd_uid_cmd
+
+- name: Set operator facts
+  ansible.builtin.set_fact:
+    _rd_user: "{{ ansible_user | default(_rd_user_cmd.stdout, true) }}"
+    _rd_uid: "{{ _rd_uid_cmd.stdout | trim }}"
+    _rd_xdg: "/run/user/{{ _rd_uid_cmd.stdout | trim }}"
+
+- name: Determine target OS
+  ansible.builtin.command: uname -s
+  become: false
+  changed_when: false
+  register: _rd_uname
+
+- name: Fail on unsupported platforms
+  ansible.builtin.fail:
+    msg: "'canasta install docker-rootless' is for Linux servers only."
+  when: _rd_uname.stdout | trim != 'Linux'
+
+- name: Refuse to install rootless Docker for root
+  ansible.builtin.fail:
+    msg: >-
+      Rootless Docker runs as an unprivileged user, and this command is
+      running as root. Run 'canasta install docker-rootless' as the user
+      the instances will run as.
+  when: _rd_uid == '0'
+
+# Rootless Docker comes from Docker's own packages, which docker.yml sets
+# up; it skips a host that already has Docker.
+- name: Install Docker
+  ansible.builtin.include_tasks: docker.yml
+
+- name: Install the rootless Docker packages
+  become: true
+  block:
+    - name: Gather OS facts
+      ansible.builtin.setup:
+        gather_subset:
+          - distribution
+
+    - name: Install the rootless Docker packages (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name:
+          - docker-ce-rootless-extras
+          - uidmap
+          - dbus-user-session
+          - slirp4netns
+        state: present
+        update_cache: true
+      when: ansible_os_family == 'Debian'
+
+    - name: Install the rootless Docker packages (RHEL/CentOS/Fedora)
+      ansible.builtin.dnf:
+        name:
+          - docker-ce-rootless-extras
+          - shadow-utils
+          - slirp4netns
+        state: present
+      when: ansible_os_family == 'RedHat'
+
+# useradd gives most users a range already; give one the next free 65536
+# ids when it has none, as useradd would.
+- name: Give the operator a subordinate uid and gid range
+  become: true
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+      for f in /etc/subuid /etc/subgid; do
+        touch "$f"
+        grep -q "^{{ _rd_user }}:" "$f" && continue
+        next=$(awk -F: 'BEGIN{m=100000} {e=$2+$3; if (e>m) m=e} END{print m}' "$f")
+        echo "{{ _rd_user }}:$next:65536" >> "$f"
+        echo "added $f"
+      done
+  register: _rd_subids
+  changed_when: "'added' in _rd_subids.stdout"
+
+- name: Enable lingering for the operator
+  become: true
+  ansible.builtin.command:
+    cmd: "loginctl enable-linger {{ _rd_user }}"
+  changed_when: false
+
+- name: Read the unprivileged port floor
+  ansible.builtin.command:
+    cmd: cat /proc/sys/net/ipv4/ip_unprivileged_port_start
+  register: _rd_floor
+  changed_when: false
+
+- name: Lower the unprivileged port floor to 80
+  become: true
+  ansible.builtin.command:
+    cmd: sysctl -w net.ipv4.ip_unprivileged_port_start=80
+  changed_when: true
+  when: _rd_floor.stdout | trim | int > 80
+
+- name: Keep the port floor across reboots
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/canasta-privport.conf
+    content: |
+      net.ipv4.ip_unprivileged_port_start=80
+    mode: "0644"
+
+- name: Load br_netfilter
+  become: true
+  ansible.builtin.command:
+    cmd: modprobe br_netfilter
+  changed_when: false
+
+- name: Load br_netfilter at boot
+  become: true
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/canasta-br_netfilter.conf
+    content: |
+      br_netfilter
+    mode: "0644"
+
+- name: Check for the operator's rootless Docker service
+  ansible.builtin.stat:
+    path: "~/.config/systemd/user/docker.service"
+  become: false
+  register: _rd_service
+
+# The setup tool also makes a 'rootless' docker context and switches the
+# CLI to it; switch back so plain docker commands keep reaching the system
+# daemon, which instance detection prefers.
+- name: Set up the operator's rootless Docker daemon
+  when: not _rd_service.stat.exists
+  become: false
+  environment:
+    XDG_RUNTIME_DIR: "{{ _rd_xdg }}"
+  block:
+    # --force: the tool refuses to run beside a running rootful daemon,
+    # which is the side-by-side install this sets up.
+    - name: Run the rootless Docker setup tool
+      ansible.builtin.command:
+        cmd: dockerd-rootless-setuptool.sh install --force
+      changed_when: true
+
+    - name: Keep the docker CLI on the system daemon
+      ansible.builtin.command:
+        cmd: docker context use default
+      changed_when: true
+      failed_when: false
+
+- name: Create the rootless daemon's configuration directory
+  ansible.builtin.file:
+    path: "~/.config/docker"
+    state: directory
+    mode: "0755"
+  become: false
+
+- name: Read the rootless daemon's configuration
+  ansible.builtin.slurp:
+    src: "~/.config/docker/daemon.json"
+  become: false
+  register: _rd_daemon_json
+  failed_when: false
+
+- name: Turn off the userland proxy
+  ansible.builtin.copy:
+    dest: "~/.config/docker/daemon.json"
+    content: "{{ _rd_config | combine({'userland-proxy': false}) | to_nice_json }}\n"
+    mode: "0644"
+  become: false
+  vars:
+    _rd_config: >-
+      {{ (_rd_daemon_json.content | default('') | b64decode | trim)
+         | default('{}', true) | from_json }}
+  register: _rd_config_write
+
+- name: Restart the rootless daemon on its new configuration
+  ansible.builtin.command:
+    cmd: systemctl --user restart docker
+  environment:
+    XDG_RUNTIME_DIR: "{{ _rd_xdg }}"
+  become: false
+  changed_when: true
+  when: _rd_config_write is changed
+
+- name: Start the rootless daemon at boot
+  ansible.builtin.command:
+    cmd: systemctl --user enable --now docker
+  environment:
+    XDG_RUNTIME_DIR: "{{ _rd_xdg }}"
+  become: false
+  changed_when: false
+
+- name: Check that the rootless daemon answers
+  ansible.builtin.command:
+    argv:
+      - docker
+      - -H
+      - "unix://{{ _rd_xdg }}/docker.sock"
+      - info
+      - --format
+      - "{% raw %}{{json .SecurityOptions}}{% endraw %}"
+  become: false
+  register: _rd_info
+  changed_when: false
+  retries: 5
+  delay: 3
+  until: "'name=rootless' in _rd_info.stdout"
+
+- name: Report rootless Docker installed
+  ansible.builtin.debug:
+    msg: >-
+      Rootless Docker is set up for '{{ _rd_user }}'. Create an instance on
+      it with --docker-host unix://{{ _rd_xdg }}/docker.sock.

@@ -351,11 +351,12 @@ def _doctor_core_lines(probes):
                 "  Privileged ports: BLOCKED — "
                 "net.ipv4.ip_unprivileged_port_start=%d. Rootless Docker's "
                 "RootlessKit cannot bind ports 80/443 for the edge. Fix with:\n"
-                "                     sudo sysctl "
+                "                     canasta install docker-rootless\n"
+                "                     (or manually: sudo sysctl "
                 "net.ipv4.ip_unprivileged_port_start=80\n"
                 "                      && echo "
                 "net.ipv4.ip_unprivileged_port_start=80 | sudo tee "
-                "/etc/sysctl.d/canasta-privport.conf"
+                "/etc/sysctl.d/canasta-privport.conf)"
                 % port_floor
             )
         elif port_floor is not None:
@@ -1169,16 +1170,12 @@ def _edge_lines_from_probe(inst_id, tls_mode, names, probe, crowdsec=None,
     # Rootless Podman reports rootless too, but its edge keeps addresses.
     if docker and "name=rootless" in probe["daemon"]:
         lines.append(
-            "  client addresses: WARN — this instance runs on rootless Docker, whose "
-            "port forwarding replaces each visitor's address with its own while the "
-            "daemon's userland proxy is on, as it is by default, so MediaWiki, "
-            "CrowdSec and the edge cannot tell visitors apart%s. RootlessKit 3.0 or "
-            "later keeps visitors' addresses once the userland proxy is off: set "
-            "\"userland-proxy\": false in ~/.config/docker/daemon.json, load the "
-            "br_netfilter kernel module and restart the daemon%s."
-            % ("" if rates_set else ", and the edge applies no per-client rate limits",
-               "" if rates_set else ", then set CANASTA_EDGE_RATE_DYNAMIC and "
-               "CANASTA_EDGE_RATE_DEFAULT to turn the limits on"))
+            "  client addresses: WARN — this instance runs on rootless Docker, where "
+            "visitors' IP addresses are lost unless the daemon was set up with "
+            "'canasta install docker-rootless'. MediaWiki, CrowdSec and the edge then "
+            "see every visitor as the same address.%s"
+            % ("" if rates_set else " The edge applies no per-client rate limits "
+               "until you set CANASTA_EDGE_RATE_DYNAMIC and CANASTA_EDGE_RATE_DEFAULT."))
     if plain:
         if not trusted:
             lines.append(

@@ -233,7 +233,8 @@ def test_the_upgrade_warning_leaves_out_limits_an_instance_sets(tmp_path):
     assert "no per-client rate limits" in bare and "CANASTA_EDGE_RATE_DYNAMIC" in bare
     assert "no per-client rate limits" not in rated
     assert "CANASTA_EDGE_RATE_DYNAMIC" not in rated
-    assert "userland-proxy" in rated
+    assert "canasta install docker-rootless" in rated
+    assert "daemon.json" not in bare + rated
 
 
 def test_the_dry_run_names_only_instances_without_limits(tmp_path):

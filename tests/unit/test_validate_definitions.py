@@ -235,7 +235,8 @@ class TestDispatchChecks:
     def test_install_choices_and_branches_agree(self):
         param = {"name": "packages",
                  "choices": ["docker", "k8s-cp", "k8s-worker", "git-crypt",
-                             "sops", "podman", "canasta", "uv"]}
+                             "sops", "podman", "docker-rootless", "canasta",
+                             "uv"]}
         assert validate_definitions.check_dispatch(
             {}, param, self._playbook("install.yml")) == []
 
