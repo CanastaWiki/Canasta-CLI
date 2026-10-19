@@ -263,17 +263,13 @@ class TestSSHAgentForward:
 
     def _make_launchd_socket(self):
         """Create a real socket at a launchd-style path. /private/tmp is
-        world-writable on macOS (a regular dir on Linux too). Path length
-        stays well under the 104-byte AF_UNIX limit. Returns the socket
-        path; caller is responsible for cleanup via _cleanup_launchd."""
-        launchd_dir = "/private/tmp/com.apple.launchd.CANASTA_TEST"
-        sock_path = launchd_dir + "/Listeners"
-        if os.path.lexists(sock_path):
-            os.remove(sock_path)
-        if os.path.isdir(launchd_dir):
-            shutil.rmtree(launchd_dir)
-        os.makedirs(launchd_dir)
-        return sock_path, launchd_dir
+        world-writable on macOS (a regular dir on Linux too). The directory
+        is unique to the test, so concurrent runs cannot remove each other's.
+        Path length stays well under the 104-byte AF_UNIX limit. Returns the
+        socket path and the directory, which the caller removes."""
+        launchd_dir = tempfile.mkdtemp(
+            prefix="com.apple.launchd.CANASTA_TEST.", dir="/private/tmp")
+        return launchd_dir + "/Listeners", launchd_dir
 
     def test_skipped_silently_when_socket_in_launchd_tmp(self):
         # The skip happens silently by default — passphraseless keys in

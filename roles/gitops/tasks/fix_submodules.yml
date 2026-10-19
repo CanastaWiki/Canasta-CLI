@@ -2,6 +2,9 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Remember or recall the gitops SSH key
+  ansible.builtin.include_tasks: _ssh_key.yml
+
 # A prior failed `gitops join` can leave .gitmodules committed (in HEAD) but not
 # materialized in the working tree; without it the orphan-gitlink recovery below
 # misclassifies registered submodules as orphans. Restore it from HEAD first.

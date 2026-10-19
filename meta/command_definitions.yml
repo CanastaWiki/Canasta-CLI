@@ -2999,8 +2999,11 @@ commands:
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
           <ssh-key> ...". On a remote host, give an absolute path or one
-          starting with a quoted '~' (for example '~/x'). Omit to keep the default: ssh-agent forwarding on
-          Compose, or the generated `<key>.ssh` deploy key on Kubernetes.
+          starting with a quoted '~' (for example '~/x'). On Compose, the instance
+          remembers the path, and later gitops commands use it when --ssh-key
+          is omitted; passing it again replaces it. Without a remembered key,
+          git uses ssh-agent forwarding on Compose, or the generated `<key>.ssh`
+          deploy key on Kubernetes.
       - name: force
         short: f
         type: bool
@@ -3113,8 +3116,11 @@ commands:
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
           <ssh-key> ...". On a remote host, give an absolute path or one
-          starting with a quoted '~' (for example '~/x'). Omit to keep the default: ssh-agent forwarding on
-          Compose, or the generated `<key>.ssh` deploy key on Kubernetes.
+          starting with a quoted '~' (for example '~/x'). On Compose, the instance
+          remembers the path, and later gitops commands use it when --ssh-key
+          is omitted; passing it again replaces it. Without a remembered key,
+          git uses ssh-agent forwarding on Compose, or the generated `<key>.ssh`
+          deploy key on Kubernetes.
       - name: reinit
         type: bool
         default: false
@@ -3205,8 +3211,11 @@ commands:
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
           <ssh-key> ...". On a remote host, give an absolute path or one
-          starting with a quoted '~' (for example '~/x'). Omit to keep the default: ssh-agent forwarding on
-          Compose, or the staged deploy key on Kubernetes.
+          starting with a quoted '~' (for example '~/x'). On Compose, the instance
+          remembers the path, and later gitops commands use it when --ssh-key
+          is omitted; passing it again replaces it. Without a remembered key,
+          git uses ssh-agent forwarding on Compose, or the staged deploy key on
+          Kubernetes.
       - name: key
         type: path
         description: >-
@@ -3237,8 +3246,11 @@ commands:
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
           <ssh-key> ...". On a remote host, give an absolute path or one
-          starting with a quoted '~' (for example '~/x'). Omit to keep the default: ssh-agent forwarding on
-          Compose, or the staged deploy key on Kubernetes.
+          starting with a quoted '~' (for example '~/x'). On Compose, the instance
+          remembers the path, and later gitops commands use it when --ssh-key
+          is omitted; passing it again replaces it. Without a remembered key,
+          git uses ssh-agent forwarding on Compose, or the staged deploy key on
+          Kubernetes.
       - name: key
         type: path
         description: >-
@@ -3267,8 +3279,9 @@ commands:
           Path on the instance's host to an SSH private key for the remote
           fetch. When set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key>
           ...". On a remote host, give an absolute path or one starting with
-          '~'. Omit to keep the default: ssh-agent forwarding on Compose, or
-          the staged deploy key on Kubernetes.
+          '~'. When omitted, the key path a gitops command remembered for a
+          Compose instance is used, else ssh-agent forwarding on Compose, or the staged
+          deploy key on Kubernetes.
 
   - name: gitops_diff
     description: "Show local and remote changes since the branches diverged"

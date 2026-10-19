@@ -22,9 +22,10 @@ def _git_ssh_env_prefix(ssh_key):
     to the forge, which push (running under gitops_git_env) survives.
 
     Key precedence mirrors the Ansible flows: an explicit --ssh-key, else the
+    key path a gitops command recorded in .gitops-ssh-key, else the
     instance's staged .gitops-deploy-key (Kubernetes), else ambient ssh (the
-    operator's forwarded agent on Compose). The .gitops-deploy-key fallback is
-    a relative path, so callers must have cd'd into the instance path first.
+    operator's forwarded agent on Compose). The fallbacks are relative paths,
+    so callers must have cd'd into the instance path first.
     """
     opts = ("-o StrictHostKeyChecking=accept-new "
             "-o UserKnownHostsFile=~/.ssh/known_hosts")
@@ -32,7 +33,9 @@ def _git_ssh_env_prefix(ssh_key):
         return ('export GIT_SSH_COMMAND="ssh -i %s %s"; '
                 % (_helpers._shell_quote(ssh_key), opts))
     return (
-        'if [ -f .gitops-deploy-key ]; then '
+        'if [ -s .gitops-ssh-key ]; then '
+        'export GIT_SSH_COMMAND="ssh -i $(cat .gitops-ssh-key) %(o)s"; '
+        'elif [ -f .gitops-deploy-key ]; then '
         'export GIT_SSH_COMMAND="ssh -i .gitops-deploy-key %(o)s"; '
         'else export GIT_SSH_COMMAND="ssh %(o)s"; fi; '
         % {"o": opts}
