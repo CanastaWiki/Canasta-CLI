@@ -437,13 +437,23 @@ def _kubectl_section(host, ns, cmd_args, label):
 def _print_restore_marker(marker):
     if not marker:
         return
-    print("Restore:      INTERRUPTED — this instance is running on "
-          "half-applied configuration")
+    # Past these phases the files and databases are in place; what is left
+    # runs on the next successful start or restart.
+    restored = re.search(r"(?m)^phase: (restart-failed|backup-schedule)$",
+                         marker)
+    if restored:
+        print("Restore:      UNFINISHED — the snapshot's data is in place")
+    else:
+        print("Restore:      INTERRUPTED — this instance is running on "
+              "half-applied configuration")
     for line in marker.splitlines():
         if line.startswith("#"):
             continue
         print("  %s" % line)
-    print("  Re-run 'canasta backup restore' to finish it.")
+    if restored:
+        print("  Run 'canasta start' to finish it.")
+    else:
+        print("  Re-run 'canasta backup restore' to finish it.")
 
 
 @register("status")

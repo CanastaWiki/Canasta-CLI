@@ -16,10 +16,11 @@
 - name: Report the instances that would move behind the edge
   ansible.builtin.debug:
     msg: >-
+      {% set _unrated = _edge_plan.rootless | difference(_edge_plan.rated) -%}
       Dry run - would move {{ _edge_plan.convert | join(', ') }} on
-      {{ _edge_host_name }} behind the HAProxy edge{% if _edge_plan.rootless %}
-      ({{ _edge_plan.rootless | join(', ') }} on rootless Docker, with no
-      per-client rate limits){% endif %}.
+      {{ _edge_host_name }} behind the HAProxy edge{% if _unrated %}
+      ({{ _unrated | join(', ') }} on rootless Docker, with no per-client
+      rate limits){% endif %}.
   when:
     - _edge_plan.refuse is none
     - _edge_plan.convert | length > 0

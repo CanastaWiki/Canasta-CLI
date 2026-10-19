@@ -177,6 +177,13 @@ def _user_agents(text, instance_id):
     return agents
 
 
+def rates_set(env):
+    """Whether the operator set the per-client rates, which then apply even
+    where client addresses may be lost (rootless Docker)."""
+    return any((env.get(LIMIT_KEYS[k]) or "").strip()
+               for k in ("rate_dynamic", "rate_default"))
+
+
 def _limit(env, key, instance_id, default, allow_zero):
     raw = (env.get(key) or "").strip()
     if not raw:
@@ -332,10 +339,7 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         "trusted_proxies": trusted_proxies,
         "trusted_cidrs": trusted_cidrs,
         "crowdsec": crowdsec_enforced(env),
-        # The operator set the per-client rates, which then apply even where
-        # client addresses may be lost (rootless Docker).
-        "rates_set": any((env.get(LIMIT_KEYS[k]) or "").strip()
-                         for k in ("rate_dynamic", "rate_default")),
+        "rates_set": rates_set(env),
         "deny_user_agents": _user_agents(deny_user_agents, instance_id),
         "deny_cidrs": _networks(deny_cidrs, instance_id, DENY_CIDR_FILE),
         "limits": {
