@@ -117,10 +117,11 @@ def _run_dump(tmp_path, env, groups, external):
     scratch = tmp_path / "tmp"
     scratch.mkdir()
     # The pod's /tmp is its own; a shared one lets concurrent runs overwrite
-    # each other's scratch files.
-    script = script.replace(
+    # each other's scratch files. Replaced first, since tmp_path is itself
+    # under /tmp on Linux.
+    script = script.replace("/tmp/", "%s/" % scratch).replace(
         "/currentsnapshot/config/backup", str(dumps)).replace(
-        "/dump-status", str(status)).replace("/tmp/", "%s/" % scratch)
+        "/dump-status", str(status))
     result = subprocess.run(["sh", "-c", script], capture_output=True,
                             text=True, env=env)
     assert result.returncode == 0, result.stderr
