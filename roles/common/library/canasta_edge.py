@@ -1330,6 +1330,10 @@ def plan_conversion(instances, rootless=lambda inst: False, podman_ready=lambda:
         return refuse("its instances use both Docker and Podman, which cannot share one "
                       "HAProxy edge (%s). Move one runtime's instances to another host, or "
                       "onto the same runtime, and upgrade again." % names)
+    if families == {"docker"} and len({bool(rootless(i)) for i in compose}) > 1:
+        return refuse("its instances use both rootful and rootless Docker, which cannot "
+                      "share one HAProxy edge (%s). Move one daemon's instances to another "
+                      "host, or onto the same daemon, and upgrade again." % names)
     convert, on_rootless, rated, problems = [], [], [], []
     for inst in compose:
         if behind_edge(inst["path"]):
