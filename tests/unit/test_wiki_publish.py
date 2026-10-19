@@ -273,6 +273,28 @@ class TestCwdResolutionFootnote:
         assert "matching the current directory" not in page
 
 
+class TestRequiredFlagsFirst:
+    """Required flags lead the flags table, each group alphabetized."""
+
+    def _page(self):
+        cmd = {"name": "start", "description": "Demo", "parameters": [
+            {"name": "alpha", "description": "Optional"},
+            {"name": "zulu", "required": True, "description": "Required"},
+            {"name": "mike", "required_unless": "alpha", "description": "Conditional"},
+            {"name": "bravo", "description": "Optional"},
+        ]}
+        return wp.gen_wikitext(cmd)
+
+    def test_order(self):
+        page = self._page()
+        positions = [page.index("| <code>--%s</code>" % f)
+                     for f in ("mike", "zulu", "alpha", "bravo")]
+        assert positions == sorted(positions)
+
+    def test_required_unless_labeled(self):
+        assert "Unless <code>--alpha</code>" in self._page()
+
+
 class TestGlobalFlagsSection:
     """Every command page should carry a 'Global Flags' section listing
     flags inherited by all commands (currently --help and --verbose).

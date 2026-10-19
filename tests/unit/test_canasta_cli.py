@@ -203,6 +203,39 @@ class TestBuildParser:
         assert args.host_name == "prod"
 
 
+class TestRequiredFlagsFirst:
+    PARAMS = [
+        {"name": "opt", "description": "Optional"},
+        {"name": "req", "required": True, "description": "Required"},
+        {"name": "cond", "required_unless": "opt", "description": "Conditional"},
+        {"name": "pos", "positional": True, "description": "Positional"},
+    ]
+
+    def _help(self):
+        from argparse import ArgumentParser
+        p = ArgumentParser(prog="demo")
+        canasta_cli.add_params_to_parser(p, self.PARAMS)
+        return p.format_help()
+
+    def test_required_group_above_options(self):
+        text = self._help()
+        assert (text.index("positional arguments:")
+                < text.index("required arguments:")
+                < text.index("options:"))
+
+    def test_required_flags_in_definition_order(self):
+        text = self._help()
+        section = text[text.index("required arguments:"):text.index("options:")]
+        assert section.index("--req") < section.index("--cond")
+        assert "--opt OPT" not in section
+
+    def test_no_required_group_without_required_flags(self):
+        from argparse import ArgumentParser
+        p = ArgumentParser(prog="demo")
+        canasta_cli.add_params_to_parser(p, [self.PARAMS[0]])
+        assert "required arguments:" not in p.format_help()
+
+
 class TestResolveCommandName:
     def test_simple_command(self, parser):
         args = parser.parse_args(["version"])

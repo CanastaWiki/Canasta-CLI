@@ -854,9 +854,28 @@ def _positional_choices(param, name):
     return {"metavar": name.upper()}
 
 
+def is_required_flag(param):
+    """True for a non-positional param the user must (or usually must) pass."""
+    if param.get("positional"):
+        return False
+    return bool(param.get("required") or param.get("required_unless"))
+
+
 def add_params_to_parser(parser, params):
-    """Add command parameters to an argparse parser based on definitions."""
-    for param in params:
+    """Add command parameters to an argparse parser based on definitions.
+
+    Required flags are listed first, under a "required arguments"
+    heading shown above the "options" heading.
+    """
+    required_group = None
+    if any(is_required_flag(p) for p in params):
+        required_group = parser.add_argument_group("required arguments")
+        # argparse prints groups in creation order; move this one from
+        # the end to just after "positional arguments".
+        parser._action_groups.insert(1, parser._action_groups.pop())
+
+    for param in sorted(params, key=lambda p: not is_required_flag(p)):
+        target = required_group if is_required_flag(param) else parser
         name = param["name"]
         ptype = param.get("type", "string")
         short = param.get("short")
@@ -886,7 +905,7 @@ def add_params_to_parser(parser, params):
             # exec_args/script_args consume all remaining args
             # (e.g., "maintenance exec -i x php -v" -> "php -v")
             if name in ("exec_args", "script_args"):
-                parser.add_argument(
+                target.add_argument(
                     name,
                     nargs=argparse.REMAINDER,
                     default=default,
@@ -894,7 +913,7 @@ def add_params_to_parser(parser, params):
                     metavar=name.upper(),
                 )
             elif param.get("multi"):
-                parser.add_argument(
+                target.add_argument(
                     name,
                     # `required: true` on a positional multi means at least
                     # one value must be given (argparse errors on none).
@@ -904,7 +923,7 @@ def add_params_to_parser(parser, params):
                     **_positional_choices(param, name)
                 )
             else:
-                parser.add_argument(
+                target.add_argument(
                     name,
                     nargs="?",
                     default=default,
@@ -912,7 +931,7 @@ def add_params_to_parser(parser, params):
                     **_positional_choices(param, name)
                 )
         elif ptype == "bool":
-            parser.add_argument(
+            target.add_argument(
                 *flags,
                 action="store_true",
                 default=False,
@@ -921,7 +940,7 @@ def add_params_to_parser(parser, params):
             )
             # Deprecated spellings keep working but stay out of --help.
             if param.get("aliases"):
-                parser.add_argument(
+                target.add_argument(
                     *param["aliases"],
                     action="store_true",
                     default=False,
@@ -930,7 +949,7 @@ def add_params_to_parser(parser, params):
                 )
         elif ptype == "choice":
             choices = param.get("choices", [])
-            parser.add_argument(
+            target.add_argument(
                 *flags,
                 choices=choices,
                 default=default,
@@ -943,7 +962,7 @@ def add_params_to_parser(parser, params):
             # named dest, rather than the default which would store
             # only the last value (and Ansible-side filters that
             # expect a list would iterate over the string's chars).
-            parser.add_argument(
+            target.add_argument(
                 *flags,
                 action="append",
                 default=default if default is not None else [],
@@ -952,7 +971,7 @@ def add_params_to_parser(parser, params):
                 dest=name,
             )
         else:
-            parser.add_argument(
+            target.add_argument(
                 *flags,
                 default=default,
                 required=required,

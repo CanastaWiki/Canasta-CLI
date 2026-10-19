@@ -103,6 +103,15 @@ class TestCommandToMarkdown:
         md = generate_docs.command_to_markdown(SAMPLE_DEFINITIONS["commands"][0])
         assert "Unless" in md
 
+    def test_required_flags_listed_first(self):
+        cmd = {"name": "demo", "parameters": [
+            {"name": "opt", "description": "Optional"},
+            {"name": "req", "required": True, "description": "Required"},
+            {"name": "cond", "required_unless": "opt", "description": "Conditional"},
+        ]}
+        md = generate_docs.command_to_markdown(cmd)
+        assert md.index("--req") < md.index("--cond") < md.index("--opt")
+
 
 class TestCommandToText:
     def test_contains_title(self):

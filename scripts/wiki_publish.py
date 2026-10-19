@@ -506,9 +506,10 @@ def gen_wikitext(cmd, global_flags=None, cmd_index=None):
         lines.append("|}")
         lines.append("")
 
-    # Flags table — alphabetized by flag name so readers can scan
-    # quickly. Definition order in command_definitions.yml is convenient
-    # for authors but unhelpful when there are 30+ flags.
+    # Flags table — required flags first, then alphabetized by flag name
+    # so readers can scan quickly. Definition order in
+    # command_definitions.yml is convenient for authors but unhelpful
+    # when there are 30+ flags.
     if flag_params:
         lines.append("=== Flags ===")
         lines.append("")
@@ -523,7 +524,13 @@ def gen_wikitext(cmd, global_flags=None, cmd_index=None):
         # asterisk in the Default column pointing to a footnote about
         # cwd resolution.
         show_cwd_note = False
-        for p in sorted(flag_params, key=_flag_name):
+        for p in sorted(
+            flag_params,
+            key=lambda p: (
+                not (p.get("required") or p.get("required_unless")),
+                _flag_name(p),
+            ),
+        ):
             flag = "<code>--%s</code>" % _flag_name(p)
             short = ""
             if p.get("short"):
@@ -535,6 +542,10 @@ def gen_wikitext(cmd, global_flags=None, cmd_index=None):
             required = ""
             if p.get("required"):
                 required = "\u2713"
+            elif p.get("required_unless"):
+                required = "Unless <code>--%s</code>" % (
+                    p["required_unless"].replace("_", "-")
+                )
             if p.get("short") == "i" and not p.get("required"):
                 default = (default + "*") if default else "*"
                 show_cwd_note = True
