@@ -149,11 +149,10 @@
 - name: Report certificates Let's Encrypt did not issue
   ansible.builtin.debug:
     msg: >-
-      Let's Encrypt did not issue a certificate for {{ item.hostname }}
-      ({{ item.reason }}). The edge keeps serving it a certificate from its
+      Let's Encrypt did not issue a certificate for {{ item.hostname }}:
+      {{ item.reason }}. The edge keeps serving it a certificate from its
       own CA, which browsers do not trust, and retries at the next start and
-      every renewal run. Check that {{ item.hostname }} resolves to this host
-      and that port 80 reaches it.
+      every renewal run.{{ (' ' ~ item.hint) if item.hint else '' }}
   loop: "{{ _edge_issue.unissued | default([]) }}"
   loop_control:
     label: "{{ item.hostname }}"
