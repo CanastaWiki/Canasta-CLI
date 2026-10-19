@@ -48,6 +48,14 @@ def format_type_default(param):
     return ptype
 
 
+def required_first(params):
+    """Params with required (or required_unless) flags first, else in order."""
+    return sorted(
+        params,
+        key=lambda p: not (p.get("required") or p.get("required_unless")),
+    )
+
+
 def command_to_markdown(cmd, global_flags=None):
     """Generate Markdown documentation for a single command."""
     name = cmd["name"].replace("_", " ")
@@ -80,7 +88,7 @@ def command_to_markdown(cmd, global_flags=None):
         lines.append("")
         lines.append("| Flag | Type | Required | Description |")
         lines.append("|------|------|----------|-------------|")
-        for p in params:
+        for p in required_first(params):
             flag = format_flag_name(p)
             ptype = format_type_default(p)
             required = "Yes" if p.get("required") else ""
@@ -125,7 +133,7 @@ def command_to_text(cmd, global_flags=None):
     params = cmd.get("parameters", [])
     if params:
         lines.append("Flags:")
-        for p in params:
+        for p in required_first(params):
             flag = format_flag_name(p)
             required = " (required)" if p.get("required") else ""
             if p.get("required_unless"):
