@@ -24,6 +24,9 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Remember or recall the gitops SSH key
+  ansible.builtin.include_tasks: _ssh_key.yml
+
 - name: Reject --git-crypt-gpg-user on Kubernetes
   ansible.builtin.fail:
     msg: >-
