@@ -3732,9 +3732,33 @@ class TestDoctor:
         result = direct_commands._parse_doctor(stdout, "myhost")
         assert "Privileged ports: BLOCKED" in result
         assert "ip_unprivileged_port_start=1024" in result
-        assert "canasta install podman" in result
+        assert "RootlessKit" in result
+        assert "canasta install podman" not in result
+        assert "canasta-edge.socket" not in result
         assert "sudo sysctl" in result
         assert "/etc/sysctl.d/canasta-privport.conf" in result
+
+    def test_parse_doctor_rootless_podman_with_blocked_priv_ports(self):
+        d = direct_commands._SENTINEL
+        parts = [
+            "Python 3.12.0",
+            "Docker version 27.0.0",
+            "Docker Compose version v2.30.0",
+            "NOT_RUNNING",
+            "user docker www-data",
+            "OK", "v3.15.0", "k3s version v1.30.0",
+            "REACHABLE", "INSTALLED",
+            "git version 2.45.0", "OK",
+            "OK",
+            "Linux",
+            "16 GB", "50G", "1024",
+            "unix:///run/user/1000/podman/podman.sock",
+        ]
+        stdout = ("\n" + d + "\n").join(parts) + "\n"
+        result = direct_commands._parse_doctor(stdout, "myhost")
+        assert "Privileged ports: BLOCKED" in result
+        assert "canasta-edge.socket" in result
+        assert "canasta install podman" in result
 
     def test_parse_doctor_rootless_with_priv_ports_ok(self):
         d = direct_commands._SENTINEL
