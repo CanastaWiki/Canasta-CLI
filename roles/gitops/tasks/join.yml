@@ -10,6 +10,9 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Remember or recall the gitops SSH key
+  ansible.builtin.include_tasks: _ssh_key.yml
+
 # Early-dispatch to the K8s join, then end_play so the ~400-line Compose
 # join flow below does not run on K8s. Kept in place by design: a full
 # dispatch would extract the Compose flow into its own file, but the

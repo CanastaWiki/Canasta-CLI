@@ -53,6 +53,7 @@ config/persistent/
 .gitops-pull-baseline
 .gitops-host
 .gitops-deploy-key
+.gitops-ssh-key
 
 # Host-local settings overrides — apply on this host only, never shared
 config/settings/global/*.local.php
