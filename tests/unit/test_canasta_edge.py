@@ -717,7 +717,7 @@ def _entry(name, path, runtime="docker compose"):
 def test_an_instance_on_the_standard_ports_moves(tmp_path):
     one = _plain(tmp_path, "one")
     assert mod.plan_conversion([_entry("one", one)]) == {
-        "convert": ["one"], "rootless": [], "refuse": None, "held": []}
+        "convert": ["one"], "rootless": [], "rated": [], "refuse": None, "held": []}
 
 
 @pytest.mark.parametrize("env,hosts", [
@@ -785,7 +785,8 @@ def test_podman_instances_move_when_systemd_can_run_the_edge(tmp_path):
     # Podman reports itself rootless as well; that is not rootless Docker.
     plan = mod.plan_conversion([_entry("one", one, "podman-compose")],
                                rootless=lambda inst: True, podman_ready=lambda: True)
-    assert plan == {"convert": ["one"], "rootless": [], "refuse": None, "held": []}
+    assert plan == {"convert": ["one"], "rootless": [], "rated": [], "refuse": None,
+                    "held": []}
 
 
 def test_podman_without_a_systemd_user_session_refuses_the_host(tmp_path):
@@ -810,6 +811,15 @@ def test_rootless_docker_instances_move_and_are_listed(tmp_path):
     entry = dict(_entry("one", one), docker_host="unix:///run/user/1000/docker.sock")
     plan = mod.plan_conversion([entry], lambda inst: inst["docker_host"].startswith("unix:///run/user/"))
     assert plan["convert"] == ["one"] and plan["rootless"] == ["one"]
+    assert plan["rated"] == []
+
+
+def test_rootless_docker_instances_that_set_the_rates_are_listed(tmp_path):
+    one = _plain(tmp_path, "one")
+    with open(os.path.join(one, ".env"), "a") as f:
+        f.write("CANASTA_EDGE_RATE_DYNAMIC=40\n")
+    plan = mod.plan_conversion([_entry("one", one)], lambda inst: True)
+    assert plan["rootless"] == ["one"] and plan["rated"] == ["one"]
 
 
 LEAF = "-----BEGIN CERTIFICATE-----\nLEAF\n-----END CERTIFICATE-----\n"
@@ -940,7 +950,8 @@ def test_a_silent_haproxy_leaves_imports_unregistered_not_unissued(tmp_path, mon
 def test_kubernetes_instances_are_left_out_of_the_plan(tmp_path):
     one = _plain(tmp_path, "one")
     entry = dict(_entry("one", one), orchestrator="kubernetes")
-    assert mod.plan_conversion([entry]) == {"convert": [], "rootless": [], "refuse": None, "held": []}
+    assert mod.plan_conversion([entry]) == {"convert": [], "rootless": [], "rated": [],
+                                            "refuse": None, "held": []}
 
 
 # --- IPv6 --------------------------------------------------------------------- #

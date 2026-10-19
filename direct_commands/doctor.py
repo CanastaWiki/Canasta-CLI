@@ -332,7 +332,7 @@ def _doctor_core_lines(probes):
             port_floor = int(unpriv_port_start)
         except (TypeError, ValueError):
             port_floor = None
-        if port_floor is not None and port_floor > 80:
+        if port_floor is not None and port_floor > 80 and "podman" in rootless_sock:
             lines.append(
                 "  Privileged ports: BLOCKED — "
                 "net.ipv4.ip_unprivileged_port_start=%d. The edge's systemd "
@@ -344,6 +344,18 @@ def _doctor_core_lines(probes):
                 "                      && echo "
                 "net.ipv4.ip_unprivileged_port_start=80 | sudo tee "
                 "/etc/sysctl.d/canasta-privport.conf)"
+                % port_floor
+            )
+        elif port_floor is not None and port_floor > 80:
+            lines.append(
+                "  Privileged ports: BLOCKED — "
+                "net.ipv4.ip_unprivileged_port_start=%d. Rootless Docker's "
+                "RootlessKit cannot bind ports 80/443 for the edge. Fix with:\n"
+                "                     sudo sysctl "
+                "net.ipv4.ip_unprivileged_port_start=80\n"
+                "                      && echo "
+                "net.ipv4.ip_unprivileged_port_start=80 | sudo tee "
+                "/etc/sysctl.d/canasta-privport.conf"
                 % port_floor
             )
         elif port_floor is not None:
