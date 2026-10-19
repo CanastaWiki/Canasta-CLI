@@ -21,6 +21,7 @@ import yaml
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RESTORE = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "restore.yml")
 MARKER_VARS = os.path.join(REPO_ROOT, "vars", "restore_marker.yml")
+FINISH = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "finish_restore.yml")
 
 
 def _walk(tasks):
@@ -31,8 +32,8 @@ def _walk(tasks):
                 yield nested
 
 
-def _tasks():
-    with open(RESTORE) as fh:
+def _tasks(path=RESTORE):
+    with open(path) as fh:
         return list(_walk(yaml.safe_load(fh)))
 
 
@@ -94,8 +95,10 @@ class TestTheValueIsParkedForTheWindow:
         assert any("default('', true)) != ''" in c for c in conds)
 
     def test_it_is_removed_only_after_a_restore_completes(self):
-        assert (_index("Remove the parked database password")
-                > _index("Re-materialize the backup schedule from restored state"))
+        finish = _tasks(FINISH)
+        names = [t.get("name") for t in finish]
+        assert (names.index("Remove the parked database password")
+                > names.index("Re-materialize the backup schedule from restored state"))
 
 
 class TestTheInterruptedWriteIsFinished:
@@ -129,9 +132,10 @@ class TestTheInterruptedWriteIsFinished:
 
 class TestItComposesWithTheRestoreMarker:
     def test_both_are_cleared_by_the_same_completed_restore(self):
-        for name in ("Clear the restore marker on success",
+        names = [t.get("name") for t in _tasks(FINISH)]
+        for name in ("Clear the restore marker",
                      "Remove the parked database password"):
-            assert _named(name), name
+            assert name in names, name
 
     def test_the_marker_report_comes_first(self):
         # The marker explains what happened; the recovery says what was done

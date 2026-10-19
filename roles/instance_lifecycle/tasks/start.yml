@@ -19,6 +19,9 @@
     name: orchestrator
     tasks_from: start.yml
 
+- name: Finish a restore whose own restart failed
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/backup/tasks/finish_restore.yml"
+
 - name: Report started
   ansible.builtin.debug:
     msg: "Instance '{{ instance_id }}' started."

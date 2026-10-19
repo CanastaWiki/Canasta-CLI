@@ -342,7 +342,8 @@
         tasks_from: restart.yml
   rescue:
     # Left in place deliberately: the instance is restored but not running,
-    # and nothing has re-materialized its backup schedule.
+    # and nothing has re-materialized its backup schedule. The next
+    # successful start or restart finishes the restore (finish_restore.yml).
     - name: Mark the restart as the phase that failed
       ansible.builtin.include_tasks: _restore_marker.yml
       vars:
@@ -357,30 +358,19 @@
 
           Do not re-run the restore — the data is already restored.
           Bring the instance up with
-          'canasta start --id {{ instance_id }}' and confirm with
-          'canasta list'.
+          'canasta start --id {{ instance_id }}', which also re-applies the
+          snapshot's backup schedule and clears the restore marker, and
+          confirm with 'canasta list'.
 
-# The snapshot restored config/backup-schedule.yml (if the instance had a
-# schedule); re-materialize the crontab on the instance's host so the
-# schedule is active again after a restore — including onto a fresh host.
 - name: Mark the backup-schedule phase
   ansible.builtin.include_tasks: _restore_marker.yml
   vars:
     restore_marker_phase: backup-schedule
 
-- name: Re-materialize the backup schedule from restored state
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_rematerialize.yml
-
-- name: Clear the restore marker on success
-  ansible.builtin.include_tasks: _restore_marker.yml
+- name: Finish the restore
+  ansible.builtin.include_tasks: finish_restore.yml
   vars:
-    restore_marker_clear: true
-
-- name: Remove the parked database password
-  ansible.builtin.file:
-    path: "{{ instance_path }}/{{ canasta_restore_dbpass_stash }}"
-    state: absent
+    finish_restore_quiet: true
 
 - name: Display result
   ansible.builtin.debug:

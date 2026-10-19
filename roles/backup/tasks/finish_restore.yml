@@ -1,0 +1,57 @@
+---
+# Run the steps a restore takes once the instance is up: re-materialize the
+# backup schedule the snapshot brought back, clear the restore marker, and
+# remove the parked database password.
+#
+# The restore runs them after its own restart. When that restart fails, they
+# run on the next successful start or restart instead: the marker's phase is
+# then restart-failed (or backup-schedule, for a restore killed while running
+# them), and the data is already in place. Any other phase is a restore that
+# never got its files and databases in, which only another restore can finish.
+#
+# Input: instance_id, instance_path, instance_orchestrator
+
+- name: Read the restore marker
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/{{ canasta_restore_marker }}"
+  register: _finish_restore_marker
+  failed_when: false
+
+- name: Decide whether a restore is waiting to finish
+  ansible.builtin.set_fact:
+    _finish_restore_due: >-
+      {{ (_finish_restore_marker.content | default('') | b64decode)
+         is search('(?m)^phase: (restart-failed|backup-schedule)$') }}
+    _finish_restore_snapshot: >-
+      {{ (_finish_restore_marker.content | default('') | b64decode)
+         | regex_findall('(?m)^snapshot: (.*)$') | first | default('') }}
+
+# The snapshot restored config/backup-schedule.yml (if the instance had a
+# schedule); re-materialize the crontab on the instance's host so the
+# schedule is active again after a restore — including onto a fresh host.
+- name: Re-materialize the backup schedule from restored state
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_rematerialize.yml
+  when: _finish_restore_due | bool
+
+- name: Clear the restore marker
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/backup/tasks/_restore_marker.yml
+  vars:
+    restore_marker_clear: true
+  when: _finish_restore_due | bool
+
+- name: Remove the parked database password
+  ansible.builtin.file:
+    path: "{{ instance_path }}/{{ canasta_restore_dbpass_stash }}"
+    state: absent
+  when: _finish_restore_due | bool
+
+- name: Report the finished restore
+  ansible.builtin.debug:
+    msg: >-
+      Finished the restore of snapshot {{ _finish_restore_snapshot }}:
+      re-applied its backup schedule and cleared the restore marker.
+  when:
+    - _finish_restore_due | bool
+    - not (finish_restore_quiet | default(false))
