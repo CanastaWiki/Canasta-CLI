@@ -129,7 +129,8 @@ def test_rootless_docker_is_warned_and_rootless_podman_is_not():
     probe = doctor._parse_edge_probe(_probe() + "%sDAEMON:[\"name=seccomp\",\"name=rootless\"]\n" % S)
     docker = "\n".join(doctor._edge_lines_from_probe("one", "acme", [], probe, docker=True))
     assert "rootless Docker" in docker and "no per-client rate limits" in docker
-    assert '"userland-proxy": false' in docker and "pasta" not in docker
+    assert "canasta install docker-rootless" in docker
+    assert "daemon.json" not in docker
     rated = "\n".join(doctor._edge_lines_from_probe("one", "acme", [], probe, docker=True,
                                                     rates_set=True))
     assert "rootless Docker" in rated and "no per-client rate limits" not in rated

@@ -23,17 +23,12 @@
 - name: Warn about instances moving on rootless Docker
   ansible.builtin.debug:
     msg: >-
-      '{{ item }}' runs on rootless Docker, whose port forwarding replaces
-      each visitor's address with its own while the daemon's userland proxy
-      is on, as it is by default, so MediaWiki, CrowdSec and the HAProxy edge
-      cannot tell visitors apart{% if item not in _edge_plan.rated %}; the
-      edge applies no per-client rate limits to it{% endif %}. RootlessKit
-      3.0 or later keeps visitors' addresses once the userland proxy is off:
-      set "userland-proxy": false in ~/.config/docker/daemon.json, load the
-      br_netfilter kernel module{% if item in _edge_plan.rated %} and
-      restart the daemon{% else %}, restart the daemon, then set
-      CANASTA_EDGE_RATE_DYNAMIC and CANASTA_EDGE_RATE_DEFAULT to turn the
-      limits on{% endif %}.
+      '{{ item }}' runs on rootless Docker, where visitors' IP addresses are
+      lost unless the daemon was set up with 'canasta install
+      docker-rootless'. MediaWiki, CrowdSec and the HAProxy edge then see
+      every visitor as the same address.{% if item not in _edge_plan.rated %}
+      The edge applies no per-client rate limits until you set
+      CANASTA_EDGE_RATE_DYNAMIC and CANASTA_EDGE_RATE_DEFAULT.{% endif %}
   loop: "{{ _edge_plan.rootless | default([]) }}"
 
 - name: Move instances behind the edge
