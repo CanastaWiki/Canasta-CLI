@@ -28,7 +28,9 @@
     - _gi_stats.results[0].stat.exists | default(false)
     - _gi_stats.results[1].stat.exists | default(false)
   vars:
-    _gi_bridge: config/settings/global/00-canasta-sidecar-env.php
+    _gi_compose_renders:
+      - config/settings/global/00-canasta-sidecar-env.php
+      - docker-compose.sidecars.yml
   block:
     - name: Read the shipped ignore files
       ansible.builtin.set_fact:
@@ -80,25 +82,26 @@
         - wikis
 
     # A file that is tracked stays tracked after it is ignored. Untrack the
-    # sidecar env bridge now that each host renders its own; --cached keeps
-    # this host's copy. Staged with the new rule so one push publishes both.
-    - name: Check whether the sidecar env bridge is tracked
+    # files each host renders for itself; --cached keeps this host's copies.
+    # Staged with the new rules so one push publishes both.
+    - name: Check whether per-host renders are tracked
       ansible.builtin.command:
-        cmd: "git ls-files --error-unmatch -- {{ _gi_bridge }}"
+        cmd: "git ls-files -- {{ _gi_compose_renders | map('quote') | join(' ') }}"
         chdir: "{{ instance_path }}"
-      register: _gi_bridge_tracked
+      register: _gi_renders_tracked
       changed_when: false
-      failed_when: false
       when: _gi_compose | bool
 
-    - name: Untrack the sidecar env bridge
+    - name: Untrack per-host renders
       when:
         - _gi_compose | bool
-        - _gi_bridge_tracked.rc | default(1) == 0
+        - (_gi_renders_tracked.stdout_lines | default([])) | length > 0
       block:
-        - name: Remove the sidecar env bridge from the index
+        - name: Remove per-host renders from the index
           ansible.builtin.command:
-            cmd: "git rm --cached -q -- {{ _gi_bridge }}"
+            cmd: >-
+              git rm --cached -q --
+              {{ _gi_renders_tracked.stdout_lines | map('quote') | join(' ') }}
             chdir: "{{ instance_path }}"
           changed_when: true
 
@@ -108,12 +111,13 @@
             chdir: "{{ instance_path }}"
           changed_when: true
 
-        - name: Report the sidecar env bridge untrack
+        - name: Report the per-host renders untracked
           ansible.builtin.debug:
             msg: >-
-              {{ _gi_bridge }} is now rendered on each host and no longer
-              tracked. The change is staged; publish it with
-              'canasta gitops push'.
+              {{ _gi_renders_tracked.stdout_lines | join(' and ') }}
+              {{ 'is' if _gi_renders_tracked.stdout_lines | length == 1 else 'are' }}
+              rendered on each host and no longer tracked. The change is
+              staged; publish it with 'canasta gitops push'.
 
     # Repos initialized while init staged everything also track the direct
     # deploy's chart copy, so every release's chart change left them dirty.

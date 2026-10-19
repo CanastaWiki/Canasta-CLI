@@ -510,6 +510,35 @@ def test_refresh_leaves_kubernetes_tracking(tmp_path):
     assert _git(inst, "diff", "--cached", "--name-only") == ""
 
 
+def test_sidecars_layer_ignored_on_compose_only():
+    assert "docker-compose.sidecars.yml" in _read(
+        os.path.join(GITOPS, "files", "gitignore.compose"))
+    assert "docker-compose.sidecars.yml" not in _read(
+        os.path.join(GITOPS, "files", "gitignore.default"))
+
+
+def test_refresh_untracks_sidecars_layer_on_compose(tmp_path):
+    # A repo that captured the rendered layer with 'gitops add'.
+    inst = _gitops_repo(tmp_path)
+    (inst / "docker-compose.sidecars.yml").write_text("services: {}\n")
+    _git(inst, "add", "docker-compose.sidecars.yml")
+    _git(inst, "-c", "user.name=t", "-c", "user.email=t@example.com",
+         "-c", "commit.gpgsign=false", "commit", "-q", "-m", "capture")
+    proc = _refresh(tmp_path, inst, "compose")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "docker-compose.sidecars.yml" in proc.stdout
+    assert (inst / "docker-compose.sidecars.yml").exists()
+    assert "docker-compose.sidecars.yml" in (inst / ".gitignore").read_text()
+    assert _git(inst, "status", "--porcelain", "--untracked-files=no") == (
+        "M  .gitignore\nD  " + BRIDGE + "\nD  docker-compose.sidecars.yml\n")
+
+
+def test_pull_flags_restart_when_sidecars_layer_removed():
+    body = _read(os.path.join(GITOPS, "tasks", "pull_compose.yml"))
+    assert "_pull_sidecars.stat.exists" in body
+    assert "'docker-compose.sidecars.yml'" in body
+
+
 def test_pull_flags_restart_when_bridge_removed():
     body = _read(os.path.join(GITOPS, "tasks", "pull_compose.yml"))
     assert "00-canasta-sidecar-env.php" in body

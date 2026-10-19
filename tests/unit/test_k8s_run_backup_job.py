@@ -114,7 +114,12 @@ def _run_dump(tmp_path, env, groups, external):
     jenv.filters["bool"] = bool
     script = jenv.from_string(_dump_container()["command"][-1]).render(
         _backup_groups_encoded=groups, _backup_external_db=external)
-    script = script.replace(
+    scratch = tmp_path / "tmp"
+    scratch.mkdir()
+    # The pod's /tmp is its own; a shared one lets concurrent runs overwrite
+    # each other's scratch files. Replaced first, since tmp_path is itself
+    # under /tmp on Linux.
+    script = script.replace("/tmp/", "%s/" % scratch).replace(
         "/currentsnapshot/config/backup", str(dumps)).replace(
         "/dump-status", str(status))
     result = subprocess.run(["sh", "-c", script], capture_output=True,
