@@ -56,12 +56,14 @@
     instance_devmode: >-
       {{ _delete_query.instance.devMode | default(false) }}
     # Without these, destroy.yml tears the instance down with the wrong
-    # runtime: `docker compose down` against a podman host removes
-    # nothing, and the containers outlive the instance.
+    # runtime or daemon: `docker compose down` against a podman host, or
+    # against the rootful daemon for an instance on a rootless one,
+    # removes nothing, and the containers outlive the instance.
     compose_command: >-
       {{ _delete_query.instance.composeCommand | default(compose_command) }}
     inspect_command: >-
       {{ _delete_query.instance.inspectCommand | default(inspect_command) }}
+    instance_docker_host: "{{ _delete_query.instance.dockerHost | default('') }}"
     _instance_registered: true
     _instance_host: >-
       {{ _delete_query.instance.host | default('localhost') }}

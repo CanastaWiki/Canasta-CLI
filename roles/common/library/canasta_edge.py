@@ -462,11 +462,16 @@ def helper_user(run, inspect, edge_dir):
     helper running as root would leave root-owned files and directories
     the operator cannot remove, so helpers run as the operator. Elsewhere
     (rootless runtimes, or canasta run as root) root already maps to the
-    operator. Decided once by having a container create a file, and kept.
+    operator. Decided by having a container create a file, and kept with
+    the ID of the daemon it was decided on, so a host that moves between
+    rootful and rootless Docker decides again.
     """
     cached = os.path.join(edge_dir, ".helper-user")
+    cached_daemon = os.path.join(edge_dir, ".helper-user-daemon")
+    rc, out, _ = run([inspect, "info", "--format", "{{.ID}}"])
+    daemon = out.strip() if rc == 0 else ""
     user = (_read(cached) or "").strip()
-    if user:
+    if user and (_read(cached_daemon) or "").strip() == daemon:
         return user
     user = "root"
     if os.getuid() != 0:
@@ -479,6 +484,7 @@ def helper_user(run, inspect, edge_dir):
             run([inspect, "run", "--rm", "-v", "%s:/probe" % edge_dir,
                  "--entrypoint", "rm", ACME_IMAGE, "-f", "/probe/.owner-probe"])
     _write_if_changed(cached, user + "\n")
+    _write_if_changed(cached_daemon, daemon + "\n")
     return user
 
 
