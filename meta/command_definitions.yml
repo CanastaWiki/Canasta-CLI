@@ -530,10 +530,17 @@ commands:
       registered, so running delete again finishes the job. Pass --force to
       delete the instance anyway; any containers, volumes or namespace that
       remain must then be removed by hand.
+
+      Pass --keep-data to remove the instance from the registry only: its
+      containers or Kubernetes namespace, volumes, Argo CD Application and
+      files stay as they are. Use it to move an instance to the other
+      orchestrator under the same ID: create the new instance, restore a
+      backup into it, and keep the old one as the way back.
     examples:
       - "canasta delete -y"
       - "cd /path/to/instance && canasta delete -y"
       - "canasta delete -i mysite -y --force"
+      - "canasta delete -i mysite -y --keep-data"
     playbook: delete.yml
     parameters:
       - name: id
@@ -550,6 +557,10 @@ commands:
         type: bool
         default: false
         description: "Delete even if the containers, volumes or namespace cannot be removed"
+      - name: keep_data
+        type: bool
+        default: false
+        description: "Remove the instance from the registry only, leaving its containers or namespace, volumes and files in place"
 
   - name: start
     description: "Start a Canasta instance"
