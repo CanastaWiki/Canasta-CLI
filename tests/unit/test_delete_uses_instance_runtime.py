@@ -72,6 +72,13 @@ class TestRuntimeComesFromTheRegistry:
         assert "default(compose_command)" in str(body["compose_command"])
         assert "default(inspect_command)" in str(body["inspect_command"])
 
+    def test_the_daemon_comes_from_the_instance_record(self):
+        # canasta.yml's play-level DOCKER_HOST reads instance_docker_host;
+        # without it, an instance created with --docker-host is torn down
+        # on the default daemon, which has none of its containers.
+        body = _named("Set instance facts from registry")["ansible.builtin.set_fact"]
+        assert "dockerHost" in str(body["instance_docker_host"])
+
 
 class TestDirectoryRemovalEntersTheUserNamespace:
     def test_rootless_podman_is_detected(self):
