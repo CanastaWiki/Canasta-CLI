@@ -3669,6 +3669,27 @@ class TestDoctor:
         assert "canasta create uses the Docker daemon instead" in result
         assert "CANASTA_CONTAINER_RUNTIME=podman" in result
 
+    def test_parse_doctor_rootless_docker_with_docker_daemon(self):
+        d = direct_commands._SENTINEL
+        parts = [
+            "Python 3.12.0",
+            "Docker version 27.0.0",
+            "Docker Compose version v2.30.0",
+            "OK",
+            "user docker www-data",
+            "OK", "v3.15.0", "k3s version v1.30.0",
+            "REACHABLE", "INSTALLED",
+            "git version 2.45.0", "OK",
+            "OK",
+            "Linux",
+            "16 GB", "50G", "80",
+            "unix:///run/user/1000/docker.sock",
+        ]
+        stdout = ("\n" + d + "\n").join(parts) + "\n"
+        result = direct_commands._parse_doctor(stdout, "myhost")
+        assert "unless --docker-host names this socket" in result
+        assert "CANASTA_CONTAINER_RUNTIME" not in result
+
     def test_parse_doctor_reports_no_rootless_socket(self):
         d = direct_commands._SENTINEL
         parts = [
