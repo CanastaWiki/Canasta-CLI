@@ -25,8 +25,10 @@ class FakeRunner:
     an openssl run would, and fails haproxy -c when told to."""
 
     def __init__(self, containers=None, running=False, invalid=False,
-                 listed=None, issue_fails=(), network_ipv6=None, stats_down=0):
+                 listed=None, issue_fails=(), network_ipv6=None, stats_down=0,
+                 daemon_id=""):
         self.containers = containers or {}
+        self.daemon_id = daemon_id
         # How many stats socket checks fail before HAProxy answers.
         self.stats_down = stats_down
         # The existing edge network's IPv6 setting; None when there is none.
@@ -70,6 +72,8 @@ class FakeRunner:
             return 0, "", ""
         if argv[1] == "exec":
             return 0, "", ""
+        if argv[1] == "info" and "{{.ID}}" in argv:
+            return 0, "%s\n" % self.daemon_id, ""
         if argv[1:3] == ["network", "inspect"]:
             if self.network_ipv6 is None:
                 return 1, "", "network canasta-edge not found"
@@ -534,9 +538,34 @@ def test_helpers_run_as_the_operator_where_container_root_is_host_root(tmp_path,
     monkeypatch.setattr(mod.os, "getgid", lambda: 1000)
     monkeypatch.setattr(mod.os, "stat", lambda p, *a, **k: type(
         "S", (), {"st_uid": 0})() if p.endswith(".owner-probe") else real_stat(p, *a, **k))
-    assert mod.helper_user(OwnerProbe(0), "docker", str(edge)) == "1000:1000"
-    assert (edge / ".helper-user").read_text() == "1000:1000\n"
-    assert mod.helper_user(FakeRunner(), "docker", str(edge)) == "1000:1000"
+    assert mod.helper_user(OwnerProbe(0, daemon_id="rootful"), "docker", str(edge)) == "1000:1000"
+    assert (edge / ".helper-user").read_text() == "1000:1000 rootful\n"
+    assert mod.helper_user(FakeRunner(daemon_id="rootful"), "docker", str(edge)) == "1000:1000"
+
+
+def test_helpers_decide_again_on_another_daemon(tmp_path, monkeypatch):
+    edge = tmp_path / "edge"
+    edge.mkdir()
+    (edge / ".helper-user").write_text("1000:1000 rootful\n")
+    monkeypatch.setattr(mod.os, "getuid", lambda: 1000)
+    real_stat = os.stat
+    monkeypatch.setattr(mod.os, "stat", lambda p, *a, **k: type(
+        "S", (), {"st_uid": 1000})() if p.endswith(".owner-probe") else real_stat(p, *a, **k))
+    run = OwnerProbe(1000, daemon_id="rootless")
+    assert mod.helper_user(run, "docker", str(edge)) == "root"
+    assert run.runs("touch")
+    assert (edge / ".helper-user").read_text() == "root rootless\n"
+
+
+def test_helpers_decide_again_over_a_cache_without_a_daemon(tmp_path, monkeypatch):
+    edge = tmp_path / "edge"
+    edge.mkdir()
+    (edge / ".helper-user").write_text("1000:1000\n")
+    monkeypatch.setattr(mod.os, "getuid", lambda: 1000)
+    real_stat = os.stat
+    monkeypatch.setattr(mod.os, "stat", lambda p, *a, **k: type(
+        "S", (), {"st_uid": 1000})() if p.endswith(".owner-probe") else real_stat(p, *a, **k))
+    assert mod.helper_user(OwnerProbe(1000, daemon_id="rootless"), "docker", str(edge)) == "root"
 
 
 def test_helpers_stay_root_on_a_rootless_runtime(tmp_path, monkeypatch):
