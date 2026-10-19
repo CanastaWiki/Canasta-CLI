@@ -118,6 +118,8 @@ def _run_on_each_wiki(args, inst_id, inst, tokens):
 @register("maintenance_script")
 def cmd_maintenance_script(args):
     inst_id, inst = _helpers._resolve_instance(args)
+    if _helpers._refuse_unfinished_pull(inst_id, inst):
+        return 1
     tokens = _helpers._script_arg_tokens(args)
 
     # No script name → list available scripts.
@@ -138,6 +140,8 @@ def cmd_maintenance_script(args):
 @register("maintenance_extension")
 def cmd_maintenance_extension(args):
     inst_id, inst = _helpers._resolve_instance(args)
+    if _helpers._refuse_unfinished_pull(inst_id, inst):
+        return 1
     tokens = _helpers._script_arg_tokens(args)
 
     # No args → list extensions that have a maintenance/ subdirectory.
@@ -162,6 +166,8 @@ def cmd_maintenance_extension(args):
 @register("maintenance_update")
 def cmd_maintenance_update(args):
     inst_id, inst = _helpers._resolve_instance(args)
+    if _helpers._refuse_unfinished_pull(inst_id, inst):
+        return 1
     wikis = _resolve_wiki_targets(args, inst)
     if not wikis:
         return 1

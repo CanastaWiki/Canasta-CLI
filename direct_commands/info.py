@@ -456,6 +456,13 @@ def _print_restore_marker(marker):
         print("  Re-run 'canasta backup restore' to finish it.")
 
 
+def _print_unfinished_pull(inst_id, path, host):
+    verb = _helpers._unfinished_pull(path, host)
+    if verb:
+        print("GitOps pull:  UNFINISHED — "
+              + _helpers._unfinished_pull_message(inst_id, path, verb))
+
+
 @register("status")
 def cmd_status(args):
     inst_id, inst = _resolve_status_instance(args)
@@ -485,6 +492,7 @@ def cmd_status(args):
         running = _helpers._check_running_k8s(inst_id, host)
         print("Status:       %s" % ("RUNNING" if running else "STOPPED"))
         _print_restore_marker(_helpers._read_restore_marker(path, host))
+        _print_unfinished_pull(inst_id, path, host)
         ns = "canasta-%s" % inst_id
         sections = [
             ("Pods", "pods -o wide"),
@@ -507,6 +515,7 @@ def cmd_status(args):
         path, host, compose_cmd=compose_cmd)
     print("Status:       %s" % ("RUNNING" if running else "STOPPED"))
     _print_restore_marker(_helpers._read_restore_marker(path, host))
+    _print_unfinished_pull(inst_id, path, host)
     if not path:
         print("\n(no path on file — cannot inspect containers)")
         return 0

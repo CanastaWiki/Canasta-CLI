@@ -2184,6 +2184,8 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         os.environ["ANSIBLE_STDOUT_CALLBACK"] = "canasta_minimal"
 
     _add_param_extra_vars(params, args, host_value, extra_vars)
+    if cmd_def.get("unfinished_pull_ok"):
+        extra_vars["canasta_unfinished_pull_ok"] = "true"
 
     _add_runtime_extra_vars(args, host_value, extra_vars)
 
