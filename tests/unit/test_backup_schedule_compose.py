@@ -248,8 +248,12 @@ class TestSchedulePersistence:
         assert any("backup_schedule_unapply.yml" in i for i in incs), "unapply when absent"
 
     def test_restore_rematerializes(self):
-        assert any("backup_schedule_rematerialize.yml" in _inc(t)
+        assert any("finish_restore.yml" in _inc(t)
                    for t in _tasks_of(self.RESTORE)), \
+            "restore must finish through finish_restore.yml"
+        finish = os.path.join(self.ROLES, "backup", "tasks", "finish_restore.yml")
+        assert any("backup_schedule_rematerialize.yml" in _inc(t)
+                   for t in _tasks_of(finish)), \
             "restore must re-materialize the schedule from restored state"
 
     def test_gitops_pull_compose_rematerializes_when_schedule_changed(self):

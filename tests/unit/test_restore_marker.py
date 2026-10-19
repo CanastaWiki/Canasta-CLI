@@ -10,6 +10,7 @@ as healthy.
 The marker's presence is the record: a restore that finishes removes it.
 """
 import os
+import re
 import sys
 
 import yaml
@@ -26,6 +27,11 @@ RESTORE_K8S = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_res
 MARKER_TASKS = os.path.join(
     REPO_ROOT, "roles", "backup", "tasks", "_restore_marker.yml")
 MARKER_VARS = os.path.join(REPO_ROOT, "vars", "restore_marker.yml")
+FINISH = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "finish_restore.yml")
+START = os.path.join(
+    REPO_ROOT, "roles", "instance_lifecycle", "tasks", "start.yml")
+RESTART = os.path.join(
+    REPO_ROOT, "roles", "instance_lifecycle", "tasks", "restart.yml")
 
 
 def _walk(tasks):
@@ -88,10 +94,17 @@ class TestTheMarkerTracksTheRestore:
             assert phase in recorded, "phase '%s' is not recorded" % phase
 
     def test_it_is_cleared_only_after_the_last_mutating_step(self):
-        assert (_index(RESTORE, "Clear the restore marker on success")
-                > _index(RESTORE, "Re-materialize the backup schedule from restored state"))
-        task = _named(RESTORE, "Clear the restore marker on success")
+        assert (_index(FINISH, "Clear the restore marker")
+                > _index(FINISH, "Re-materialize the backup schedule from restored state"))
+        task = _named(FINISH, "Clear the restore marker")
         assert task["vars"]["restore_marker_clear"] is True
+
+    def test_the_restore_finishes_through_the_shared_steps(self):
+        assert (_index(RESTORE, "Mark the backup-schedule phase")
+                < _index(RESTORE, "Finish the restore"))
+        task = _named(RESTORE, "Finish the restore")
+        assert task["ansible.builtin.include_tasks"] == "finish_restore.yml"
+        assert task["vars"]["finish_restore_quiet"] is True
 
     def test_a_failed_restart_leaves_the_marker_in_place(self):
         # Restored but not running, and the backup schedule never
@@ -106,6 +119,58 @@ class TestTheMarkerTracksTheRestore:
         for field in ("_resolved_snapshot", "wiki", "restore_marker_phase",
                       "_restore_started_at"):
             assert field in content
+
+
+def _finish_due_pattern():
+    task = _named(FINISH, "Decide whether a restore is waiting to finish")
+    expr = task["ansible.builtin.set_fact"]["_finish_restore_due"]
+    return re.search(r"search\('(.*)'\)", expr).group(1)
+
+
+def _marker(phase):
+    return ("# An interrupted 'canasta backup restore'.\n"
+            "snapshot: abc123\nwiki: (all wikis)\nphase: %s\n"
+            "started: 2026-10-19T12:00:00Z\n" % phase)
+
+
+class TestAFailedRestartIsFinishedByTheNextStart:
+    """A restore whose restart fails has its data in place but never runs
+    its last steps; the next successful start or restart runs them."""
+
+    def test_start_and_restart_finish_it_after_the_containers_are_up(self):
+        for path in (START, RESTART):
+            finish = _named(path, "Finish a restore whose own restart failed")
+            assert finish, path
+            assert finish["ansible.builtin.include_tasks"].endswith(
+                "/roles/backup/tasks/finish_restore.yml")
+            assert (_index(path, "Start containers")
+                    < _index(path, "Finish a restore whose own restart failed")), path
+
+    def test_it_finishes_only_a_restore_whose_data_is_in_place(self):
+        pattern = _finish_due_pattern()
+        for phase in ("restart-failed", "backup-schedule"):
+            assert re.search(pattern, _marker(phase)), phase
+        # The restore's own restart runs restart.yml in this phase; the
+        # restore finishes itself afterwards.
+        for phase in ("starting", "files", "databases", "secrets", "restart"):
+            assert not re.search(pattern, _marker(phase)), phase
+
+    def test_every_step_waits_on_the_decision(self):
+        for name in ("Re-materialize the backup schedule from restored state",
+                     "Clear the restore marker",
+                     "Remove the parked database password",
+                     "Report the finished restore"):
+            assert "_finish_restore_due | bool" in str(
+                _named(FINISH, name)["when"]), name
+
+    def test_a_missing_marker_is_not_an_error(self):
+        assert _named(FINISH, "Read the restore marker")["failed_when"] is False
+
+    def test_the_failed_restart_names_the_command_that_finishes_it(self):
+        msg = str(_named(RESTORE, "Report a restore that succeeded with a failed restart")
+                  ["ansible.builtin.fail"]["msg"])
+        assert "canasta start" in msg
+        assert "backup schedule" in msg
 
 
 class TestTheKubernetesRestoreMarksItsPhases:
@@ -184,6 +249,14 @@ class TestListAndStatusSurfaceIt:
         assert "phase: databases" in out
         assert "# comment" not in out
         assert "canasta backup restore" in out, "the message must name the way out"
+
+    def test_status_says_start_finishes_a_restore_whose_data_is_in_place(self, capsys):
+        info._print_restore_marker(_marker("restart-failed"))
+        out = capsys.readouterr().out
+        assert "UNFINISHED" in out
+        assert "half-applied" not in out
+        assert "canasta start" in out
+        assert "canasta backup restore" not in out
 
     def test_status_says_nothing_without_a_marker(self, capsys):
         info._print_restore_marker(None)
