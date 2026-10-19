@@ -351,12 +351,18 @@
 - name: Fingerprint .env and wikis.yaml after rendering
   ansible.builtin.include_tasks: "_rendered_fingerprint.yml"
 
-# A pull that untracks the sidecar env bridge deletes this host's copy; a
-# restart renders it again.
+# A pull that untracks a per-host render (the sidecar env bridge or
+# docker-compose.sidecars.yml) deletes this host's copy; a restart renders
+# it again.
 - name: Check for the sidecar env bridge
   ansible.builtin.stat:
     path: "{{ instance_path }}/config/settings/global/00-canasta-sidecar-env.php"
   register: _pull_bridge
+
+- name: Check for docker-compose.sidecars.yml
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/docker-compose.sidecars.yml"
+  register: _pull_sidecars
 
 - name: Determine if restart is needed
   ansible.builtin.set_fact:
@@ -373,7 +379,10 @@
              | list | length > 0)
          or ('config/settings/global/00-canasta-sidecar-env.php'
              in (_pull_changed_files.stdout_lines | default([]))
-             and not _pull_bridge.stat.exists) }}
+             and not _pull_bridge.stat.exists)
+         or ('docker-compose.sidecars.yml'
+             in (_pull_changed_files.stdout_lines | default([]))
+             and not _pull_sidecars.stat.exists) }}
     _pull_needs_maintenance: >-
       {{ _pull_changed_files.stdout_lines | default([])
          | select('match', '^(extensions/|skins/)')

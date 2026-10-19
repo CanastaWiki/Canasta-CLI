@@ -5,3 +5,7 @@ config/settings/global/00-canasta-sidecar-env.php
 
 # Rendered on each start, joining the HAProxy edge (Compose only)
 docker-compose.edge.yml
+
+# Rendered on each host from config/sidecars.yaml (Compose only; Kubernetes
+# ignores values-sidecars.yaml)
+docker-compose.sidecars.yml
