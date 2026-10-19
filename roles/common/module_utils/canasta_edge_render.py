@@ -605,16 +605,23 @@ _ROUTING = [
     # thousand. Images and sitemaps are passed too but are static files.
     "    acl dynamic path_sub /api.php",
     "    acl dynamic path_sub /rest.php/",
-    "    acl dynamic req.fhdr(cookie) -m reg ([sS]ession|Token)=",
-    "    acl dynamic req.hdr(authorization) -m found",
     "    acl dynamic url_sub -i Special:",
     "    acl dynamic url_sub -i Special%3A",
     "    acl dynamic url_param(diff) -m found",
     "    acl dynamic url_param(oldid) -m found",
     "    acl has_action url_param(action) -m found",
     "    acl view_action url_param(action) -m str view",
+    # Varnish passes every request from a logged-in user, or from behind
+    # basic auth, but the files a page pulls in cost no PHP: counted as
+    # dynamic, one page of thumbnails would use up a client's allowance.
+    "    acl credentials req.fhdr(cookie) -m reg ([sS]ession|Token)=",
+    "    acl credentials req.hdr(authorization) -m found",
+    "    acl static_file path_sub /w/images/ /w/resources/ /w/skins/ /w/extensions/",
+    "    acl php path_end .php",
     "    use_backend be_%[var(txn.inst)]_media if known_site media_host",
     "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host dynamic",
+    "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host credentials !static_file",
+    "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host credentials php",
     "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host !METH_GET",
     "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host has_action !view_action",
     "    use_backend be_%[var(txn.inst)]_default if known_site",

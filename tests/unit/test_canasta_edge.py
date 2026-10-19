@@ -1155,6 +1155,30 @@ def test_stopping_under_podman_removes_the_units(tmp_path, user_units):
     assert run.calls[-1] == ["podman-compose", "-p", "canasta-edge", "down", "-v"]
 
 
+def test_stopping_removes_the_hostnames_and_keys_but_keeps_the_ca_and_account(tmp_path):
+    for sub in ("conf/certs", "ca", "acme"):
+        (tmp_path / sub).mkdir(parents=True)
+    (tmp_path / "conf" / "hosts.map").write_text("wiki.example.com@443 one/default\n")
+    (tmp_path / "conf" / "certs" / "wiki.example.com.pem").write_text("key")
+    (tmp_path / "ca" / "ca.pem").write_text("ca")
+    (tmp_path / "acme" / "thumbprint").write_text("t")
+    mod.stop_edge(FakeRunner(), "docker", "docker compose", str(tmp_path))
+    assert not (tmp_path / "conf").exists()
+    assert (tmp_path / "ca" / "ca.pem").exists()
+    assert (tmp_path / "acme" / "thumbprint").exists()
+
+
+def test_a_failed_stop_leaves_the_files(tmp_path):
+    (tmp_path / "conf").mkdir()
+
+    class Failing(FakeRunner):
+        def __call__(self, argv, env=None, cwd=None):
+            return (1, "", "boom")
+    with pytest.raises(mod.EdgeError):
+        mod.stop_edge(Failing(), "docker", "docker compose", str(tmp_path))
+    assert (tmp_path / "conf").exists()
+
+
 def test_the_check_runs_without_the_systemd_sockets(tmp_path, user_units):
     seen = {}
 

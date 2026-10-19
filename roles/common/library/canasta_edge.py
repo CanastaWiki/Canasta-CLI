@@ -783,7 +783,12 @@ def start_edge(run, inspect, compose_command, edge_dir, recreate=False, restart=
 
 
 def stop_edge(run, inspect, compose_command, edge_dir):
-    """Stop the edge and remove what runs it."""
+    """Stop the edge and remove what runs it.
+
+    Also removes conf/, which names the hostnames of instances no longer
+    behind the edge and holds their private keys. The CA and acme.sh's
+    account stay for the next instance on the host.
+    """
     if uses_sockets(inspect):
         systemctl(run, "disable", "--now", SERVICE_UNIT, SOCKET_UNIT)
         for unit in (SERVICE_UNIT, SOCKET_UNIT):
@@ -796,6 +801,7 @@ def stop_edge(run, inspect, compose_command, edge_dir):
                        cwd=edge_dir)
     if rc != 0:
         raise EdgeError("Could not stop the HAProxy edge: %s" % _tail(out, err))
+    shutil.rmtree(os.path.join(edge_dir, "conf"), ignore_errors=True)
 
 
 def host_has_ipv6():

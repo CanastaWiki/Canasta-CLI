@@ -49,18 +49,12 @@
     label: "{{ item.instance }}: {{ item.address }}"
 
 - name: Find what else listens on the edge's ports
-  ansible.builtin.shell:
-    cmd: |
-      set -o pipefail
-      if command -v ss >/dev/null 2>&1; then
-        ss -tlnpH '{{ _edge_ports | map('regex_replace', '^', 'sport = :') | join(' or ') }}' 2>/dev/null
-      elif command -v lsof >/dev/null 2>&1; then
-        lsof -nP {{ _edge_ports | map('regex_replace', '^', '-iTCP:') | join(' ') }} -sTCP:LISTEN 2>/dev/null | tail -n +2
-      fi
-  vars:
-    _edge_ports: "{{ _edge.ports | default([80, 443]) | map('string') | list }}"
-  args:
-    executable: /bin/bash
+  ansible.builtin.script:
+    cmd: >-
+      {{ canasta_root }}/roles/orchestrator/files/scripts/port_listeners.sh
+      {{ inspect_command | default('docker') | quote }}
+      {{ canasta_port_probe_image | quote }}
+      {{ _edge.ports | default([80, 443]) | map('string') | map('quote') | join(' ') }}
   register: _edge_port_holders
   changed_when: false
   failed_when: false
@@ -77,12 +71,13 @@
       The HAProxy edge needs ports
       {{ _edge.ports | default([80, 443]) | join(', ') }}, but something is
       already listening on them:
-      {{ _edge_port_holders.stdout | trim }}.
+      {{ _edge_port_holders.stdout_lines | map('trim') | join('; ') }}.
       Stop it, or give the instances behind the edge other ports with
       HTTP_PORT and HTTPS_PORT.
   when:
     - _edge_port_holders is not skipped
     - _edge_port_holders.stdout | default('') | trim | length > 0
+    - '"CANASTA_PORT_PROBE_UNAVAILABLE" not in _edge_port_holders.stdout'
 
 # Also when the edge's files changed, or acme.sh is not running: `up`
 # creates or recreates only the services that need it.
