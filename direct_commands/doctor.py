@@ -321,7 +321,10 @@ def _doctor_core_lines(probes):
                 "CANASTA_CONTAINER_RUNTIME=podman to use Podman"
             )
         else:
-            create_use = "canasta create uses the Docker daemon instead"
+            create_use = (
+                "canasta create uses the Docker daemon unless --docker-host "
+                "names this socket"
+            )
         lines.append(
             "  Rootless socket: %s (%s)" % (rootless_sock, create_use)
         )
@@ -1155,10 +1158,12 @@ def _edge_lines_from_probe(inst_id, tls_mode, names, probe, crowdsec=None,
     if docker and "name=rootless" in probe["daemon"]:
         lines.append(
             "  client addresses: WARN — this instance runs on rootless Docker, whose "
-            "port forwarding replaces each visitor's address with its own, so "
-            "MediaWiki, CrowdSec and the edge cannot tell visitors apart%s. Switch "
-            "the daemon to an address-preserving port driver (RootlessKit's "
-            "slirp4netns, or pasta with the implicit driver)%s."
+            "port forwarding replaces each visitor's address with its own while the "
+            "daemon's userland proxy is on, as it is by default, so MediaWiki, "
+            "CrowdSec and the edge cannot tell visitors apart%s. RootlessKit 3.0 or "
+            "later keeps visitors' addresses once the userland proxy is off: set "
+            "\"userland-proxy\": false in ~/.config/docker/daemon.json, load the "
+            "br_netfilter kernel module and restart the daemon%s."
             % ("" if rates_set else ", and the edge applies no per-client rate limits",
                "" if rates_set else ", then set CANASTA_EDGE_RATE_DYNAMIC and "
                "CANASTA_EDGE_RATE_DEFAULT to turn the limits on"))
