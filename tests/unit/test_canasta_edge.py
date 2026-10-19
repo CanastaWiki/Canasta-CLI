@@ -773,6 +773,25 @@ def test_a_host_mixing_docker_and_podman_is_refused(tmp_path):
     assert "'one'" in plan["refuse"] and "'two'" in plan["refuse"]
 
 
+def test_a_host_mixing_rootful_and_rootless_docker_is_refused(tmp_path):
+    one = _plain(tmp_path, "one")
+    two = dict(_entry("two", _plain(tmp_path, "two", hosts=("two.example.org",))),
+               docker_host="unix:///run/user/1000/docker.sock")
+    plan = mod.plan_conversion([_entry("one", one), two],
+                               rootless=lambda inst: bool(inst.get("docker_host")))
+    assert plan["convert"] == []
+    assert "both rootful and rootless Docker" in plan["refuse"]
+    assert "'one'" in plan["refuse"] and "'two'" in plan["refuse"]
+
+
+def test_a_host_all_on_rootless_docker_moves(tmp_path):
+    one = _plain(tmp_path, "one")
+    two = _plain(tmp_path, "two", hosts=("two.example.org",))
+    plan = mod.plan_conversion([_entry("one", one), _entry("two", two)],
+                               rootless=lambda inst: True)
+    assert sorted(plan["convert"]) == ["one", "two"] and plan["refuse"] is None
+
+
 def test_two_docker_compose_commands_are_one_runtime(tmp_path):
     one = _plain(tmp_path, "one")
     two = _plain(tmp_path, "two", hosts=("two.example.org",))

@@ -877,7 +877,7 @@ commands:
     long_description: |
       Install one or more dependencies on the target host. Supported
       packages: docker, k8s-cp, k8s-worker, git-crypt, sops, canasta,
-      podman, uv, uv:<tool>.
+      podman, docker-rootless, uv, uv:<tool>.
 
       `k8s-cp` installs k3s as a control-plane node — the cluster's
       API server, scheduler, etc., plus kubectl + helm on the same
@@ -925,6 +925,14 @@ commands:
       rootless Podman targets. Idempotent — skips if podman is already
       installed.
 
+      `docker-rootless` installs rootless Docker for the operator,
+      alongside rootful Docker if the host has it, and configures it so
+      the HAProxy edge receives visitors' IP addresses. It also enables
+      lingering, lowers the unprivileged port floor to 80, and leaves the
+      docker CLI on the system daemon. Create an instance on it with the
+      `--docker-host` socket the command prints. A host's instances all
+      use one runtime. Re-running it re-applies the configuration.
+
       `uv` installs the Astral uv Python package manager on its own.
       `uv:<tool>` installs `<tool>` via uv (e.g. `uv:podman-compose`).
       This is the recommended workaround for Debian 13 (trixie) stable,
@@ -946,6 +954,7 @@ commands:
       - "canasta install -i mysite canasta"
       - "canasta install podman"
       - "canasta install --host prod1.example.com podman"
+      - "canasta install docker-rootless"
       - "canasta install uv"
       - "canasta install --host prod1.example.com uv"
       - "canasta install uv:podman-compose"
@@ -976,7 +985,7 @@ commands:
         positional: true
         multi: true
         required: true
-        choices: [docker, k8s-cp, k8s-worker, git-crypt, sops, podman, canasta, uv]
+        choices: [docker, k8s-cp, k8s-worker, git-crypt, sops, podman, docker-rootless, canasta, uv]
         choices_dynamic_prefix: "uv:"
         # Charset the tail after the prefix must match. Mirrors the
         # playbook's `^uv:[a-zA-Z0-9_-]+$` validation in install.yml so
@@ -985,7 +994,8 @@ commands:
         choices_dynamic_pattern: "[a-zA-Z0-9_-]+"
         description: >-
           Dependencies to install (docker, k8s-cp, k8s-worker,
-          git-crypt, sops, podman, canasta, uv, uv:<tool>)
+          git-crypt, sops, podman, docker-rootless, canasta, uv,
+          uv:<tool>)
       - name: public_ip
         type: string
         multi: true

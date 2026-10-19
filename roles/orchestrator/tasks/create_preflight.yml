@@ -311,6 +311,42 @@
           {{ (_preflight_envfile.content | default('') | b64decode).splitlines()
              | map('trim') | select('match', '^HTTPS?_PORT=[0-9]+$') | list }}
 
+    # Rootful and rootless Docker can be installed side by side, but a host's
+    # instances share one edge on one daemon. Daemon IDs, not socket paths,
+    # tell the two apart, since two paths can name one daemon. The instance's
+    # daemon is named explicitly: an empty docker host means the system
+    # socket, whatever the docker CLI's context says.
+    - name: Look for an edge on the other Docker daemon
+      ansible.builtin.shell:
+        cmd: >-
+          mine=$(docker -H {{ (_preflight_docker_host | default('', true)
+          or 'unix:///var/run/docker.sock') | quote }}
+          info --format '{% raw %}{{.ID}}{% endraw %}' 2>/dev/null) || exit 0;
+          for s in /var/run/docker.sock "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/docker.sock"; do
+          [ -S "$s" ] || continue;
+          id=$(docker -H "unix://$s" info --format '{% raw %}{{.ID}}{% endraw %}' 2>/dev/null) || continue;
+          [ "$id" = "$mine" ] && continue;
+          [ -n "$(docker -H "unix://$s" ps -a -q --filter 'name=^canasta-edge$' 2>/dev/null)" ] && echo "$s";
+          done; true
+      register: _preflight_other_docker_edge
+      changed_when: false
+      failed_when: false
+      when: not (compose_command | default('docker compose') is search('podman'))
+
+    - name: Refuse a second Docker daemon on the host
+      ansible.builtin.fail:
+        msg: >-
+          This host's HAProxy edge runs on
+          {{ 'rootful' if create_on_rootless_docker | bool else 'rootless' }}
+          Docker, and this instance would run on
+          {{ 'rootless' if create_on_rootless_docker | bool else 'rootful' }}
+          Docker, whose containers the edge cannot reach. A host's instances
+          all use one runtime. Create it on the same Docker daemon as the
+          host's other instances{{ '' if create_on_rootless_docker | bool
+          else " (--docker-host unix://" ~ (_preflight_other_docker_edge.stdout | trim) ~ ")" }},
+          or on another host.
+      when: (_preflight_other_docker_edge.stdout | default('') | trim | length) > 0
+
     - name: Probe for userspace listeners on the instance's ports
       ansible.builtin.script:
         cmd: >-
@@ -487,13 +523,10 @@
 - name: Warn that rootless Docker hides client addresses
   ansible.builtin.debug:
     msg: >-
-      This instance runs on rootless Docker, whose port forwarding replaces
-      each visitor's address with its own while the daemon's userland proxy
-      is on, as it is by default, so MediaWiki, CrowdSec and the HAProxy edge
-      cannot tell visitors apart; the edge applies no per-client rate limits
-      to it. RootlessKit 3.0 or later keeps visitors' addresses once the
-      userland proxy is off: set "userland-proxy": false in
-      ~/.config/docker/daemon.json, load the br_netfilter kernel module,
-      restart the daemon, then set CANASTA_EDGE_RATE_DYNAMIC and
-      CANASTA_EDGE_RATE_DEFAULT to turn the limits on.
+      This instance runs on rootless Docker, where visitors' IP addresses are
+      lost unless the daemon was set up with 'canasta install
+      docker-rootless'. MediaWiki, CrowdSec and the HAProxy edge then see
+      every visitor as the same address. The edge applies no per-client rate
+      limits until you set CANASTA_EDGE_RATE_DYNAMIC and
+      CANASTA_EDGE_RATE_DEFAULT.
   when: create_on_rootless_docker | default(false) | bool
