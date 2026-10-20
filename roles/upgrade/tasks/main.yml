@@ -214,6 +214,14 @@
     {{ canasta_root }}/roles/gitops/tasks/backfill_mycnf_template.yml
   when: not (instance_is_k8s | bool)
 
+# init_config writes config/haproxy-backend.cfg; a Compose gitops repo created
+# before the HAProxy edge would otherwise leave it untracked. Compose only:
+# the file serves the edge, which fronts Compose instances.
+- name: Stage haproxy-backend.cfg in a gitops repo that lacks it
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/stage_haproxy_backend_cfg.yml
+  when: not (instance_is_k8s | bool)
+
 # Facts persist across the instances of one upgrade run, so clear the image
 # change signals before this instance sets its own.
 - name: Reset image change signals for this instance
