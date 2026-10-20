@@ -1,0 +1,31 @@
+---
+# Tell the operator what is left to resolve in a stopped rebase, by kind,
+# and how to finish.
+#
+# Requires: instance_path, instance_id.
+
+- name: Read what is left to resolve
+  ansible.builtin.include_tasks: _classify_conflicts.yml
+
+- name: Report what is left to resolve
+  ansible.builtin.debug:
+    msg: |-
+      {% set n = _pull_conflict_plain | length + _pull_conflict_encrypted | length + _pull_conflict_binary | length %}
+      {% if n == 0 %}
+      All conflicts are resolved. Finish with 'canasta gitops resolve -i {{ instance_id }} --continue'.
+      {% else %}
+      The pull stopped at {{ n }} conflicting file(s) in {{ instance_path }}:
+      {% for f in _pull_conflict_plain %}
+        - {{ f }}: edit out the conflict markers
+      {% endfor %}
+      {% for f in _pull_conflict_encrypted %}
+        - {{ f }}: encrypted and not mergeable; keep one version
+      {% endfor %}
+      {% for f in _pull_conflict_binary %}
+        - {{ f }}: binary; keep one version
+      {% endfor %}
+      Keep one version whole with '--keep local <file>' (this host's) or
+      '--keep remote <file>'. Then finish with
+      'canasta gitops resolve -i {{ instance_id }} --continue', or go back
+      to where the pull started with '--abort'.
+      {% endif %}

@@ -22,10 +22,12 @@
 # below; capture it first so the uncommitted-changes check stops the pull.
 - name: Sync wikis.yaml with its gitops template
   ansible.builtin.include_tasks: "sync_wikis_yaml.yml"
+  when: gitops_resolve_mode | default('') != 'continue'
 
 # Likewise for direct .env edits, which the .env render would overwrite.
 - name: Write .env edits into the gitops sources
   ansible.builtin.include_tasks: "sync_env.yml"
+  when: gitops_resolve_mode | default('') != 'continue'
 
 # --- Step 1: Check for uncommitted changes ---
 # Only tracked files are a hazard: a pull can overwrite a locally modified
@@ -40,6 +42,7 @@
     chdir: "{{ instance_path }}"
   register: _pull_uncommitted
   changed_when: false
+  when: gitops_resolve_mode | default('') != 'continue'
 
 - name: Fail if uncommitted changes exist
   ansible.builtin.fail:
@@ -49,15 +52,28 @@
       'canasta gitops add <file>' then 'canasta gitops push', or discard
       them with 'git checkout -- <file>', then retry.
       Changed files: {{ _pull_uncommitted.stdout }}
-  when: _pull_uncommitted.stdout | trim | length > 0
+  when:
+    - gitops_resolve_mode | default('') != 'continue'
+    - _pull_uncommitted.stdout | trim | length > 0
 
 # --- Step 2: Save state before pull ---
+# 'gitops resolve --continue' supplies _pull_prev_commit and _pull_result for
+# the rebase it finished, and skips straight to applying it.
 - name: Get current commit hash
   ansible.builtin.command:
     cmd: "git rev-parse HEAD"
     chdir: "{{ instance_path }}"
-  register: _pull_prev_commit
+  register: _pull_prev_commit_cmd
   changed_when: false
+  when: gitops_resolve_mode | default('') != 'continue'
+
+# A skipped task registers a skip result, so the commands register under
+# their own names and the facts the rest of the pull reads are set only when
+# they ran.
+- name: Record the commit the pull starts from
+  ansible.builtin.set_fact:
+    _pull_prev_commit: "{{ _pull_prev_commit_cmd }}"
+  when: gitops_resolve_mode | default('') != 'continue'
 
 # --- Step 3: Pull and update submodules ---
 # Rebase, not merge or fast-forward-only. Hosts contribute small config commits
@@ -71,18 +87,26 @@
     cmd: "umask 022 && git -c commit.gpgsign=false pull --rebase"
     chdir: "{{ instance_path }}"
   environment: "{{ gitops_git_env }}"
-  register: _pull_result
-  changed_when: "'Already up to date' not in _pull_result.stdout"
+  register: _pull_result_cmd
+  changed_when: "'Already up to date' not in _pull_result_cmd.stdout"
   failed_when: false
+  when: gitops_resolve_mode | default('') != 'continue'
 
 - name: Restrict the pulled hosts/ tree to the operator
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_restrict_hosts_dir.yml"
+
+- name: Record the pull's result
+  ansible.builtin.set_fact:
+    _pull_result: "{{ _pull_result_cmd }}"
+  when: gitops_resolve_mode | default('') != 'continue'
 
 # A conflicting replay stops mid-rebase, which strands the instance in a state
 # no canasta command understands. Name what conflicted, roll back to exactly
 # where the pull started — local commits intact — and fail.
 - name: Explain and roll back a failed pull
-  when: _pull_result.rc != 0
+  when:
+    - _pull_result.rc != 0
+    - gitops_resolve_mode | default('') != 'start'
   block:
     - name: Hand the failure to the shared explainer
       ansible.builtin.set_fact:
@@ -90,6 +114,15 @@
 
     - name: Report why the pull could not be replayed
       ansible.builtin.include_tasks: "_explain_pull_failure.yml"
+
+# 'gitops resolve' keeps the stopped rebase for the operator to resolve.
+- name: Stop at the conflicts for gitops resolve
+  ansible.builtin.include_tasks: "_resolve_stop.yml"
+  vars:
+    _resolve_failure: "{{ _pull_result }}"
+  when:
+    - _pull_result.rc != 0
+    - gitops_resolve_mode | default('') == 'start'
 
 # Applying a commit whose .gitattributes no longer encrypts host vars would
 # have this host's next write commit secrets in cleartext. Nothing has been

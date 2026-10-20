@@ -1,0 +1,71 @@
+---
+# Sort the paths a stopped rebase left unmerged into three kinds, which need
+# different handling: text conflicts an edit resolves (including encrypted
+# files the git-crypt merge driver wrote markers into), encrypted files the
+# driver could not merge (one side only, no markers), and binary files. Read
+# them while the rebase is still stopped. 'gitops resolve' records which
+# encrypted files were one-sided when it stopped (in the rebase's own state
+# directory, which git removes when the rebase ends), and that record stands.
+#
+# Requires: instance_path.
+# Output: _pull_conflict_plain, _pull_conflict_encrypted, _pull_conflict_binary.
+
+- name: Collect the conflicted paths
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      record="$(git rev-parse --git-path rebase-merge)/canasta-one-side"
+      git diff --name-only --diff-filter=U -z \
+        | while IFS= read -r -d '' f; do
+            attr="$(git check-attr filter -- "$f" 2>/dev/null | sed 's/.*: //')"
+            if [ "$attr" = "git-crypt" ]; then
+              # A merge driver leaves an editable marker conflict here. Decide
+              # on the file itself rather than on whether a driver is
+              # registered: a registered driver that failed closed leaves no
+              # markers and one side only, and calling that editable loses the
+              # other side. Once 'gitops resolve' has stopped, its record of
+              # that decision stands, since an edited file has no markers
+              # either.
+              if [ -f "$record" ]; then
+                grep -qxF -- "$f" "$record" && printf 'encrypted\t%s\n' "$f" \
+                  || printf 'text\t%s\n' "$f"
+              elif grep -q '^<<<<<<< ' "$f" 2>/dev/null; then
+                printf 'text\t%s\n' "$f"
+              else
+                printf 'encrypted\t%s\n' "$f"
+              fi
+              continue
+            fi
+            # A tracked binary (a public_assets logo) is just as unmergeable as
+            # ciphertext, and needs the same take-one-side advice — minus the
+            # decryption. NUL bytes in the head of the blob are git's own test.
+            raw="$(git cat-file -p ":2:$f" 2>/dev/null | head -c 8000 | wc -c)"
+            txt="$(git cat-file -p ":2:$f" 2>/dev/null | head -c 8000 \
+                   | tr -d '\000' | wc -c)"
+            if [ "$raw" != "$txt" ]; then
+              printf 'binary\t%s\n' "$f"
+            else
+              printf 'text\t%s\n' "$f"
+            fi
+          done
+  args:
+    chdir: "{{ instance_path }}"
+    executable: /bin/bash
+  register: _pull_conflicted
+  changed_when: false
+  failed_when: false
+
+- name: Classify the conflicted paths
+  ansible.builtin.set_fact:
+    _pull_conflict_encrypted: >-
+      {{ _pull_conflicted.stdout_lines | default([])
+         | select('match', '^encrypted\t')
+         | map('regex_replace', '^[^\t]*\t', '') | list }}
+    _pull_conflict_binary: >-
+      {{ _pull_conflicted.stdout_lines | default([])
+         | select('match', '^binary\t')
+         | map('regex_replace', '^[^\t]*\t', '') | list }}
+    _pull_conflict_plain: >-
+      {{ _pull_conflicted.stdout_lines | default([])
+         | select('match', '^text\t')
+         | map('regex_replace', '^[^\t]*\t', '') | list }}

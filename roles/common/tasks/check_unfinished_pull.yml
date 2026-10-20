@@ -24,10 +24,16 @@
     unfinished_pull: "{{ _found | length > 0 }}"
     unfinished_pull_reason: >-
       its gitops repository is in the middle of a pull whose conflicts are
-      not resolved, so its configuration is half-merged. In
-      {{ instance_path }}, resolve the conflicts and run
-      'git {{ _verb }} --continue', or go back to where the pull started
-      with 'git {{ _verb }} --abort'.
+      not resolved, so its configuration is half-merged.
+      {% if _verb == 'merge' -%}
+      In {{ instance_path }}, resolve the conflicts and run
+      'git merge --continue', or go back to where the pull started with
+      'git merge --abort'.
+      {%- else -%}
+      Finish it with 'canasta gitops resolve -i {{ instance_id }} --continue',
+      or go back to where the pull started with
+      'canasta gitops resolve -i {{ instance_id }} --abort'.
+      {%- endif %}
   vars:
     _found: >-
       {{ (_unfinished_pull_stat.results | default([]))

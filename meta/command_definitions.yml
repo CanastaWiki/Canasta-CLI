@@ -3284,6 +3284,76 @@ commands:
           locked. Without it, a repo with GPG recipients is unlocked through a
           forwarded GPG agent.
 
+  - name: gitops_resolve
+    description: "Resolve a gitops pull whose changes conflict with this host's"
+    unfinished_pull_ok: true
+    long_description: |
+      When `canasta gitops pull` cannot replay this host's commits on top of
+      the remote's, it rolls back and names the conflicting files. Run
+      `canasta gitops resolve` to replay the pull again and stop at the
+      conflicts, with each file listed by what it needs.
+
+      Edit out the conflict markers in a text file. An encrypted file the
+      git-crypt merge driver merged has ordinary markers too, and is
+      committed encrypted. For a binary file, or an encrypted file the
+      driver could not merge, keep one version whole with
+      `--keep local <file>` (this host's) or `--keep remote <file>`.
+
+      `--continue` finishes the replay, stopping again if a later commit
+      conflicts, and then applies the result as `gitops pull` does: it
+      renders this host's files and reports whether a restart is needed.
+      `--abort` goes back to where the pull started, with this host's
+      commits intact.
+
+      While a pull is being resolved, commands that read or write the
+      instance's configuration refuse to run.
+    examples:
+      - "canasta gitops resolve -i mywiki"
+      - "canasta gitops resolve -i mywiki --keep remote public_assets/logo.png"
+      - "canasta gitops resolve -i mywiki --continue"
+      - "canasta gitops resolve -i mywiki --abort"
+    playbook: gitops_resolve.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: resume
+        long: continue
+        type: bool
+        description: >-
+          Finish the replay once the conflicts are resolved, and apply the
+          pulled changes.
+      - name: abort
+        type: bool
+        description: "Go back to where the pull started."
+      - name: keep
+        type: choice
+        choices: [local, remote]
+        description: >-
+          Keep one version of the named files whole: local (this host's) or
+          remote.
+      - name: files
+        type: string
+        positional: true
+        multi: true
+        as_list: true
+        description: "Files to keep one version of, with --keep."
+      - name: ssh_key
+        type: path
+        path_kind: instance_host
+        description: >-
+          Path on the instance's host to an SSH private key for git network
+          operations. On Compose, the instance remembers the path for later
+          gitops commands. Without a remembered key, git uses ssh-agent
+          forwarding on Compose, or the staged deploy key on Kubernetes.
+      - name: key
+        type: path
+        description: >-
+          Compose only. Path on the controller (the machine running canasta)
+          to the git-crypt symmetric key, used to unlock the checkout if it is
+          locked.
+
   - name: gitops_status
     description: "Show gitops status for the instance"
     long_description: |

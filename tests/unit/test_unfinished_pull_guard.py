@@ -61,7 +61,8 @@ class TestTheCheck:
     def test_a_rebase_in_progress_is_found(self, tmp_path):
         out = _check(tmp_path, "rebase-merge")
         assert "FOUND=[True]" in out
-        assert "git rebase --continue" in out and "git rebase --abort" in out
+        assert "gitops resolve -i mysite --continue" in out
+        assert "gitops resolve -i mysite --abort" in out
 
     def test_an_applying_rebase_is_found(self, tmp_path):
         assert "FOUND=[True]" in _check(tmp_path, "rebase-apply")
@@ -146,7 +147,7 @@ class TestTheFastPath:
         self._mid_rebase(tmp_path)
         info._print_unfinished_pull("demo", str(tmp_path), "localhost")
         out = capsys.readouterr().out
-        assert "UNFINISHED" in out and "git rebase --abort" in out
+        assert "UNFINISHED" in out and "gitops resolve -i demo --abort" in out
 
     def test_commands_that_use_the_configuration_refuse(self, tmp_path, monkeypatch, capsys):
         inst = self._mid_rebase(tmp_path)
@@ -155,4 +156,4 @@ class TestTheFastPath:
         for cmd in (maintenance.cmd_maintenance_update, maintenance.cmd_maintenance_script,
                     maintenance.cmd_maintenance_extension, rebuild.cmd_rebuild):
             assert cmd(args) == 1, cmd.__name__
-            assert "git rebase --continue" in capsys.readouterr().err
+            assert "gitops resolve -i demo --continue" in capsys.readouterr().err

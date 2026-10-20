@@ -7,19 +7,30 @@
 # Rebase, not merge or fast-forward-only — see pull_compose.yml. --rebase is
 # explicit so the outcome does not depend on the host's ambient pull config.
 # Authenticates with the staged deploy key (or --ssh-key), like push.
+# 'gitops resolve --continue' supplies _git_pull for the rebase it finished.
 - name: Pull values repo
   ansible.builtin.shell:
     cmd: "umask 022 && git -c commit.gpgsign=false pull --rebase"
     chdir: "{{ instance_path }}"
   environment: "{{ gitops_k8s_git_env }}"
-  register: _git_pull
-  changed_when: "'Already up to date' not in _git_pull.stdout"
+  register: _git_pull_cmd
+  changed_when: "'Already up to date' not in _git_pull_cmd.stdout"
   failed_when: false
+  when: gitops_resolve_mode | default('') != 'continue'
+
+# A skipped task registers a skip result, so the pull registers under its own
+# name and _git_pull is set only when it ran.
+- name: Record the pull's result
+  ansible.builtin.set_fact:
+    _git_pull: "{{ _git_pull_cmd }}"
+  when: gitops_resolve_mode | default('') != 'continue'
 
 # Never leave the repo mid-rebase: name what conflicted, roll back to where the
 # pull started, and fail with local commits intact.
 - name: Explain and roll back a failed pull
-  when: _git_pull.rc != 0
+  when:
+    - _git_pull.rc != 0
+    - gitops_resolve_mode | default('') != 'start'
   block:
     - name: Hand the failure to the shared explainer
       ansible.builtin.set_fact:
@@ -27,6 +38,15 @@
 
     - name: Report why the pull could not be replayed
       ansible.builtin.include_tasks: "_explain_pull_failure.yml"
+
+# 'gitops resolve' keeps the stopped rebase for the operator to resolve.
+- name: Stop at the conflicts for gitops resolve
+  ansible.builtin.include_tasks: "_resolve_stop.yml"
+  vars:
+    _resolve_failure: "{{ _git_pull }}"
+  when:
+    - _git_pull.rc != 0
+    - gitops_resolve_mode | default('') == 'start'
 
 # Keep extensions/skins submodules in sync with the pulled pointers.
 - name: Update submodules
