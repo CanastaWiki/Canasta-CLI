@@ -1097,6 +1097,96 @@ def test_turning_crowdsec_off_removes_the_bouncer(tmp_path):
     assert not (edge / "conf" / "spoe-one.cfg").exists()
 
 
+# The image declares these as volumes; without a mount over them, Docker
+# makes two anonymous volumes per container that recreate and delete leave.
+SPOA_IMAGE_VOLUMES = ["/usr/lib/crowdsec-haproxy-spoa-bouncer/lua",
+                      "/var/lib/crowdsec-haproxy-spoa-bouncer/html"]
+
+
+def test_the_bouncer_mounts_tmpfs_over_its_image_volumes(tmp_path):
+    path = _instance(tmp_path, "one", env=CROWDSEC_ENV)
+    assert mod.write_layer(path, "one", True, spoa=True)
+    layer = yaml.safe_load(open(os.path.join(path, mod.LAYER_FILE)))
+    assert sorted(layer["services"]["crowdsec-spoa"]["tmpfs"]) == SPOA_IMAGE_VOLUMES
+
+
+def test_a_removed_bouncer_takes_its_volumes_with_it():
+    calls = []
+
+    def run(argv):
+        calls.append(argv)
+        return (0, "abc123\n", "") if argv[1] == "ps" else (0, "", "")
+    assert mod.remove_stale_spoa(run, "docker", "/srv/one")
+    assert calls[-1] == ["docker", "rm", "-f", "-v", "abc123"]
+
+
+LUA_VOL, HTML_VOL, OTHER_VOL = "a" * 64, "b" * 64, "c" * 64
+
+
+def _prune_runner(listing, helper_rc=0):
+    calls = []
+
+    def run(argv):
+        calls.append(argv)
+        if argv[1:3] == ["volume", "ls"]:
+            return 0, listing, ""
+        if argv[1] == "run":
+            return helper_rc, ("0 crowdsec.lua template.lua utils.lua\n"
+                               "1 ban-with-contact.html ban.html captcha.html lua\n"
+                               "2 crowdsec.lua notes.txt\n"), ""
+        return 0, "", ""
+    return run, calls
+
+
+def test_leftover_bouncer_volumes_are_removed_and_nothing_else():
+    run, calls = _prune_runner("%s\n%s\n%s\nmysite_mysql-data\n" % (LUA_VOL, HTML_VOL, OTHER_VOL))
+    assert mod.prune_spoa_volumes(run, "docker") == [LUA_VOL, HTML_VOL]
+    helper = next(c for c in calls if c[1] == "run")
+    assert "--network" in helper and "none" in helper
+    assert "%s:/v/0:ro" % LUA_VOL in helper and "mysite_mysql-data:/v/3:ro" not in helper
+    assert calls[-1] == ["docker", "volume", "rm", LUA_VOL, HTML_VOL]
+
+
+def test_no_candidate_volumes_runs_no_helper():
+    run, calls = _prune_runner("mysite_mysql-data\n")
+    assert mod.prune_spoa_volumes(run, "docker") == []
+    assert [c for c in calls if c[1] == "run"] == []
+
+
+def test_a_failed_listing_removes_nothing():
+    run, calls = _prune_runner("%s\n" % LUA_VOL, helper_rc=1)
+    assert mod.prune_spoa_volumes(run, "docker") == []
+    assert not [c for c in calls if c[1:3] == ["volume", "rm"]]
+
+
+def test_the_upgrade_replaces_a_bouncer_that_predates_its_tmpfs_mounts():
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(repo, "playbooks", "_upgrade_single.yml")) as f:
+        tasks = yaml.safe_load(f)
+    names = [t.get("name") for t in tasks]
+    order = ["Run upgrade role (migrations + refresh + restart)",
+             "Check whether the edge bouncer predates its tmpfs mounts",
+             "Rewrite the edge layer with the bouncer's tmpfs mounts",
+             "Find the edge bouncer container",
+             "Remove the old edge bouncer with its volumes",
+             "Start the edge bouncer on the new layer",
+             "Remove volumes earlier CrowdSec bouncers left behind"]
+    assert [names.index(n) for n in order] == sorted(names.index(n) for n in order)
+    remove = tasks[names.index("Remove the old edge bouncer with its volumes")]
+    assert "'rm', '-f', '-v'" in remove["ansible.builtin.command"]["argv"]
+    start = tasks[names.index("Start the edge bouncer on the new layer")]
+    assert "running" in str(start["when"])
+
+
+def test_the_upgrade_prunes_on_compose_only():
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    with open(os.path.join(repo, "playbooks", "_upgrade_single.yml")) as f:
+        tasks = {t.get("name"): t for t in yaml.safe_load(f)}
+    prune = tasks["Remove volumes earlier CrowdSec bouncers left behind"]
+    assert prune["canasta_edge"]["state"] == "prune"
+    assert prune["when"] == "not (instance_is_k8s | bool)"
+
+
 def test_a_new_edge_directory_asks_for_recreated_containers(tmp_path):
     path = _instance(tmp_path, "one")
     edge = tmp_path / "edge"
