@@ -1,0 +1,48 @@
+---
+# Stage config/haproxy-backend.cfg in a gitops repo that does not track it.
+# 'gitops init' tracks it with the rest of config/, but in a repo created
+# before the HAProxy edge the upgrade writes it afterwards, and untracked it
+# never reaches the repo or the host's other copies. Staged like
+# hosts/hosts.yaml's backfill, so the next 'canasta gitops push' commits it.
+#
+# Gitops-only; no-ops when the file is tracked, ignored or missing.
+#
+# Input: instance_path.
+
+- name: Stat the gitops marker and haproxy-backend.cfg
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ item }}"
+  loop:
+    - .gitops-host
+    - config/haproxy-backend.cfg
+  loop_control:
+    label: "{{ item }}"
+  register: _shb_stats
+
+- name: Check whether haproxy-backend.cfg is tracked or ignored
+  ansible.builtin.shell:
+    cmd: >-
+      git ls-files --error-unmatch -- config/haproxy-backend.cfg >/dev/null 2>&1
+      || git check-ignore -q -- config/haproxy-backend.cfg
+      || echo untracked
+    chdir: "{{ instance_path }}"
+  register: _shb_tracked
+  changed_when: false
+  failed_when: false
+  when:
+    - _shb_stats.results[0].stat.exists
+    - _shb_stats.results[1].stat.exists
+
+- name: Stage haproxy-backend.cfg for the next gitops push
+  ansible.builtin.command:
+    cmd: git add -- config/haproxy-backend.cfg
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when: (_shb_tracked.stdout | default('') | trim) == 'untracked'
+
+- name: Report haproxy-backend.cfg staged
+  ansible.builtin.debug:
+    msg: >-
+      config/haproxy-backend.cfg is staged in the gitops repo; publish it with
+      'canasta gitops push'.
+  when: (_shb_tracked.stdout | default('') | trim) == 'untracked'

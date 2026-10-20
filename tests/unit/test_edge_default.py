@@ -69,9 +69,12 @@ def test_upgrade_moves_hosts_before_instances_upgrade():
     assert move["ansible.builtin.include_tasks"] == "_edge_convert_host.yml"
 
 
-def test_every_instance_gets_the_snippet_file_without_clobbering():
+def test_compose_instances_get_the_snippet_file_without_clobbering():
     with open(os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks", "init_config.yml")) as f:
-        tasks = {t.get("name"): t for t in _walk(yaml.safe_load(f))}
+        top = yaml.safe_load(f)
+    compose = next(t for t in top if t.get("name") == "Compose-specific init")
+    assert compose["when"] == "not (instance_is_k8s | bool)"
+    tasks = {t.get("name"): t for t in compose["block"]}
     copy = tasks["Create haproxy-backend.cfg from template (no-clobber)"]["ansible.builtin.copy"]
     assert copy["dest"] == "{{ instance_path }}/config/haproxy-backend.cfg"
     assert copy["force"] is False
