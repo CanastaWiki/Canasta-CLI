@@ -1,0 +1,34 @@
+---
+# Earlier releases wrote config/haproxy-backend.cfg into Kubernetes instances
+# too, where nothing reads it (the HAProxy edge fronts Compose instances),
+# and on a gitops instance it showed as untracked. Remove it while it is
+# still the untouched template and git does not track it; an edited or
+# committed copy is left alone.
+#
+# Input: instance_path, canasta_root.
+
+- name: Read the haproxy-backend.cfg a Kubernetes instance carries
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/haproxy-backend.cfg"
+    checksum_algorithm: sha256
+  register: _k8s_haproxy_cfg
+
+- name: Check whether git tracks the Kubernetes haproxy-backend.cfg
+  ansible.builtin.command:
+    cmd: git ls-files --error-unmatch -- config/haproxy-backend.cfg
+    chdir: "{{ instance_path }}"
+  register: _k8s_haproxy_cfg_tracked
+  changed_when: false
+  failed_when: false
+  when: _k8s_haproxy_cfg.stat.exists | default(false)
+
+- name: Remove the unused haproxy-backend.cfg from a Kubernetes instance
+  ansible.builtin.file:
+    path: "{{ instance_path }}/config/haproxy-backend.cfg"
+    state: absent
+  when:
+    - _k8s_haproxy_cfg.stat.exists | default(false)
+    - _k8s_haproxy_cfg.stat.checksum | default('') ==
+      lookup('file', canasta_root ~ '/instance_template/config/haproxy-backend.cfg',
+             rstrip=false) | hash('sha256')
+    - (_k8s_haproxy_cfg_tracked.rc | default(0)) != 0
