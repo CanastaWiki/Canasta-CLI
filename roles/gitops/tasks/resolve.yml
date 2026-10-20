@@ -1,0 +1,270 @@
+---
+# canasta gitops resolve — resolve a gitops pull whose rebase conflicts.
+#
+#   (no flag)              run the pull and stop at its conflicts
+#   --keep local|remote F  keep one version of F whole
+#   --continue             finish the rebase and apply it, as the pull would
+#   --abort                go back to where the pull started
+#
+# During the rebase the remote's version is git's "ours" and this host's
+# replayed commit is "theirs"; --keep names them local and remote instead.
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Remember or recall the gitops SSH key
+  ansible.builtin.include_tasks: _ssh_key.yml
+
+- name: Decide what to do
+  ansible.builtin.set_fact:
+    _resolve_action: >-
+      {{ 'abort' if abort | default(false) | bool
+         else 'continue' if resume | default(false) | bool
+         else 'keep' if (keep | default('')) | length > 0
+         else 'start' }}
+    _resolve_files: "{{ files | default([], true) }}"
+
+- name: Refuse more than one action
+  ansible.builtin.fail:
+    msg: "Pass at most one of --continue, --abort and --keep."
+  when: >-
+    [abort | default(false) | bool, resume | default(false) | bool,
+     (keep | default('')) | length > 0] | select | list | length > 1
+
+- name: Refuse files without --keep
+  ansible.builtin.fail:
+    msg: "Files are named only with '--keep local|remote <file>'."
+  when:
+    - _resolve_action != 'keep'
+    - _resolve_files | length > 0
+
+- name: Check for a pull being resolved
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.git/{{ item }}"
+  loop:
+    - rebase-merge
+    - rebase-apply
+  register: _resolve_dirs
+
+- name: Note whether a pull is being resolved
+  ansible.builtin.set_fact:
+    _resolve_in_progress: "{{ _resolve_dirs.results | selectattr('stat.exists') | list | length > 0 }}"
+    _resolve_dir: >-
+      {{ (_resolve_dirs.results | selectattr('stat.exists') | map(attribute='item')
+          | list + ['rebase-merge']) | first }}
+
+- name: Refuse to start while a pull is being resolved
+  ansible.builtin.fail:
+    msg: >-
+      A pull is already being resolved in {{ instance_path }}. Edit the
+      conflicts or keep one version with '--keep local|remote <file>', then
+      run 'canasta gitops resolve -i {{ instance_id }} --continue', or go
+      back to where the pull started with '--abort'.
+  when:
+    - _resolve_action == 'start'
+    - _resolve_in_progress | bool
+
+- name: Refuse to finish a resolution that was never started
+  ansible.builtin.fail:
+    msg: >-
+      No pull is being resolved in {{ instance_path }}. Start one with
+      'canasta gitops resolve -i {{ instance_id }}'.
+  when:
+    - _resolve_action != 'start'
+    - not (_resolve_in_progress | bool)
+
+# --- start: the pull, which stops at its conflicts ---
+- name: Run the pull and stop at its conflicts
+  ansible.builtin.include_tasks: "pull_{{ instance_orchestrator | default('compose') }}.yml"
+  vars:
+    gitops_resolve_mode: start
+  when: _resolve_action == 'start'
+
+- name: Report a pull with nothing to resolve
+  ansible.builtin.debug:
+    msg: "Nothing to resolve: the pull applied without conflicts."
+  when: _resolve_action == 'start'
+
+# --- abort ---
+- name: Go back to where the pull started
+  ansible.builtin.shell:
+    cmd: "umask 022 && git rebase --abort"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when: _resolve_action == 'abort'
+
+- name: Restrict the restored hosts/ tree to the operator
+  ansible.builtin.include_tasks: _restrict_hosts_dir.yml
+  when: _resolve_action == 'abort'
+
+- name: Report the abandoned resolution
+  ansible.builtin.debug:
+    msg: >-
+      Went back to where the pull started; this host's commits are intact.
+  when: _resolve_action == 'abort'
+
+# --- keep ---
+- name: Refuse --keep without files
+  ansible.builtin.fail:
+    msg: "Name the file(s) to keep: '--keep {{ keep }} <file>...'."
+  when:
+    - _resolve_action == 'keep'
+    - _resolve_files | length == 0
+
+- name: List the conflicting files
+  ansible.builtin.command:
+    cmd: git diff --name-only --diff-filter=U
+    chdir: "{{ instance_path }}"
+  register: _resolve_unmerged
+  changed_when: false
+  when: _resolve_action == 'keep'
+
+- name: Refuse to keep a file that is not conflicting
+  ansible.builtin.fail:
+    msg: >-
+      Not conflicting: {{ _resolve_not_unmerged | join(', ') }}. Conflicting
+      files: {{ _resolve_unmerged.stdout_lines | join(', ') or 'none' }}.
+  vars:
+    _resolve_not_unmerged: "{{ _resolve_files | reject('in', _resolve_unmerged.stdout_lines) | list }}"
+  when:
+    - _resolve_action == 'keep'
+    - _resolve_not_unmerged | length > 0
+
+- name: Keep one version of each file
+  ansible.builtin.command:
+    argv:
+      - git
+      - checkout
+      - "{{ '--theirs' if keep == 'local' else '--ours' }}"
+      - --
+      - "{{ item }}"
+    chdir: "{{ instance_path }}"
+  loop: "{{ _resolve_files }}"
+  changed_when: true
+  when: _resolve_action == 'keep'
+
+- name: Mark the kept files resolved
+  ansible.builtin.command:
+    argv: "{{ ['git', 'add', '--'] + _resolve_files }}"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when: _resolve_action == 'keep'
+
+- name: Report what is left after keeping
+  ansible.builtin.include_tasks: _resolve_report.yml
+  when: _resolve_action == 'keep'
+
+# --- continue ---
+- name: Read what is left to resolve
+  ansible.builtin.include_tasks: _classify_conflicts.yml
+  when: _resolve_action == 'continue'
+
+- name: Look for conflict markers left in edited files
+  ansible.builtin.command:
+    argv: "{{ ['grep', '-lE', '^(<<<<<<<|>>>>>>>) ', '--'] + _pull_conflict_plain }}"
+    chdir: "{{ instance_path }}"
+  register: _resolve_markers
+  changed_when: false
+  failed_when: false
+  when:
+    - _resolve_action == 'continue'
+    - _pull_conflict_plain | length > 0
+
+- name: Refuse to finish while conflicts remain
+  ansible.builtin.fail:
+    msg: >-
+      Cannot finish yet:
+      {% if _resolve_markers.stdout_lines | default([]) %}conflict markers
+      remain in {{ _resolve_markers.stdout_lines | join(', ') }}{% endif %}
+      {%- if (_resolve_markers.stdout_lines | default([])) and _resolve_one_side %}; {% endif %}
+      {%- if _resolve_one_side %}{{ _resolve_one_side | join(', ') }} need one
+      version kept with '--keep local|remote <file>'{% endif %}.
+  vars:
+    _resolve_one_side: "{{ _pull_conflict_encrypted + _pull_conflict_binary }}"
+  when:
+    - _resolve_action == 'continue'
+    - (_resolve_markers.stdout_lines | default([]) | length > 0) or (_resolve_one_side | length > 0)
+
+- name: Mark the edited files resolved
+  ansible.builtin.command:
+    argv: "{{ ['git', 'add', '--'] + _pull_conflict_plain }}"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when:
+    - _resolve_action == 'continue'
+    - _pull_conflict_plain | length > 0
+
+# The pull's apply steps diff against, and roll back to, the commit it
+# started from, which the rebase recorded.
+- name: Read the commit the pull started from
+  ansible.builtin.command:
+    cmd: "cat .git/{{ _resolve_dir }}/orig-head"
+    chdir: "{{ instance_path }}"
+  register: _resolve_orig_head
+  changed_when: false
+  when: _resolve_action == 'continue'
+
+- name: Finish the rebase
+  ansible.builtin.shell:
+    cmd: "umask 022 && git -c commit.gpgsign=false rebase --continue"
+    chdir: "{{ instance_path }}"
+  environment:
+    GIT_EDITOR: "true"
+  register: _resolve_continue
+  changed_when: true
+  failed_when: false
+  when: _resolve_action == 'continue'
+
+- name: Check whether the rebase stopped again
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.git/{{ _resolve_dir }}"
+  register: _resolve_still
+  when: _resolve_action == 'continue'
+
+- name: Record the next commit's conflicts as git left them
+  ansible.builtin.include_tasks: _resolve_record.yml
+  when:
+    - _resolve_action == 'continue'
+    - _resolve_still.stat.exists
+
+- name: Report the next commit's conflicts
+  ansible.builtin.include_tasks: _resolve_report.yml
+  when:
+    - _resolve_action == 'continue'
+    - _resolve_still.stat.exists
+
+- name: End the run at the next commit's conflicts
+  ansible.builtin.meta: end_host
+  when:
+    - _resolve_action == 'continue'
+    - _resolve_still.stat.exists
+
+- name: Report a rebase that could not finish
+  ansible.builtin.fail:
+    msg: >-
+      The rebase could not finish. git said:
+      {{ (_resolve_continue.stdout | default('') ~ ' '
+          ~ _resolve_continue.stderr | default('')) | trim }}
+  when:
+    - _resolve_action == 'continue'
+    - _resolve_continue.rc | default(0) != 0
+
+- name: Hand the finished rebase to the pull's apply steps
+  ansible.builtin.set_fact:
+    _pull_prev_commit:
+      stdout: "{{ _resolve_orig_head.stdout | trim }}"
+    _pull_result:
+      changed: true
+      rc: 0
+      stdout: ""
+    _git_pull:
+      changed: true
+      rc: 0
+      stdout: "Resolved the pull's conflicts."
+  when: _resolve_action == 'continue'
+
+- name: Apply the resolved pull
+  ansible.builtin.include_tasks: "pull_{{ instance_orchestrator | default('compose') }}.yml"
+  vars:
+    gitops_resolve_mode: continue
+  when: _resolve_action == 'continue'

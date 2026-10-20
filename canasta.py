@@ -123,7 +123,7 @@ SUBCOMMAND_GROUPS = {
         "unlock", "files", "check", "diff", "purge",
     ],
     "gitops": [
-        "init", "join", "add", "rm", "push", "pull",
+        "init", "join", "add", "rm", "push", "pull", "resolve",
         "status", "diff", "fix-submodules", "sync",
     ],
     "storage": ["setup", "list"],

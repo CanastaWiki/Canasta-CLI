@@ -1,0 +1,20 @@
+---
+# Classify a stopped rebase's conflicts while every file is as git left it,
+# and record which encrypted files the merge driver could not merge. Edits
+# remove conflict markers, so later checks read this record instead.
+#
+# Requires: instance_path.
+
+- name: Forget the classification of an earlier stop
+  ansible.builtin.file:
+    path: "{{ instance_path }}/.git/{{ _resolve_record_dir | default('rebase-merge') }}/canasta-one-side"
+    state: absent
+
+- name: Classify the conflicts before anything is edited
+  ansible.builtin.include_tasks: _classify_conflicts.yml
+
+- name: Record which encrypted files have one side only
+  ansible.builtin.copy:
+    content: "{{ (_pull_conflict_encrypted | join('\n') ~ '\n') if _pull_conflict_encrypted else '' }}"
+    dest: "{{ instance_path }}/.git/{{ _resolve_record_dir | default('rebase-merge') }}/canasta-one-side"
+    mode: "0644"
