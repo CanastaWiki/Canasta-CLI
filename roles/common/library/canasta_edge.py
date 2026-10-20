@@ -307,7 +307,11 @@ services:
 """
 
 # The instance's CrowdSec bouncer for the edge, on both networks: its LAPI
-# is on the instance's, and the edge asks it on the edge's.
+# is on the instance's, and the edge asks it on the edge's. The image
+# declares its HAProxy Lua scripts and ban-page templates as volumes, which
+# the edge does not use (it answers a banned client with a plain 403); tmpfs
+# over them keeps Docker from leaving two anonymous volumes behind each time
+# the container is created.
 SPOA_SERVICE = """\
   crowdsec-spoa:
     image: %(image)s
@@ -316,6 +320,9 @@ SPOA_SERVICE = """\
       - CROWDSEC_URL=http://crowdsec:8080/
       - CROWDSEC_KEY=${CROWDSEC_SPOA_API_KEY:-}
       - PROMETHEUS_ENABLED=false
+    tmpfs:
+      - /usr/lib/crowdsec-haproxy-spoa-bouncer/lua
+      - /var/lib/crowdsec-haproxy-spoa-bouncer/html
     networks:
       default: {}
       %(network)s:
@@ -386,8 +393,48 @@ def remove_stale_spoa(run, inspect, instance_path):
                       "--filter", "label=com.docker.compose.service=crowdsec-spoa"])
     ids = out.split() if rc == 0 else []
     if ids:
-        run([inspect, "rm", "-f"] + ids)
+        run([inspect, "rm", "-f", "-v"] + ids)
     return bool(ids)
+
+
+# What Docker copied into the anonymous volumes it made for the bouncer
+# image's declared volumes, before the layer mounted tmpfs over them.
+SPOA_LEFTOVER_CONTENTS = (
+    {"crowdsec.lua", "template.lua", "utils.lua"},
+    {"ban.html", "ban-with-contact.html", "captcha.html", "lua"},
+)
+_ANONYMOUS_VOLUME = re.compile(r"^[0-9a-f]{64}$")
+PRUNE_IMAGE = "docker.io/library/alpine:3.21"
+
+
+def prune_spoa_volumes(run, inspect):
+    """Remove the anonymous volumes earlier bouncer containers left behind.
+
+    Only an unattached volume with a generated name and exactly the files the
+    bouncer image put in one of its two volumes is removed, so no volume an
+    operator or another container made can match. Returns the removed names.
+    """
+    rc, out, _ = run([inspect, "volume", "ls", "-q", "--filter", "dangling=true"])
+    names = [n for n in out.split() if _ANONYMOUS_VOLUME.match(n)] if rc == 0 else []
+    if not names:
+        return []
+    argv = [inspect, "run", "--rm", "--network", "none"]
+    for i, name in enumerate(names):
+        argv += ["-v", "%s:/v/%d:ro" % (name, i)]
+    argv += [PRUNE_IMAGE, "sh", "-c",
+             'for d in /v/*; do echo "${d#/v/} $(ls -A "$d" | tr \'\\n\' \' \')"; done']
+    rc, out, _ = run(argv)
+    if rc != 0:
+        return []
+    leftovers = []
+    for line in out.splitlines():
+        index, _, files = line.strip().partition(" ")
+        if index.isdigit() and int(index) < len(names) \
+                and set(files.split()) in SPOA_LEFTOVER_CONTENTS:
+            leftovers.append(names[int(index)])
+    if leftovers:
+        run([inspect, "volume", "rm"] + leftovers)
+    return leftovers
 
 
 def read_members(edge_dir):
@@ -1375,7 +1422,8 @@ def plan_conversion(instances, rootless=lambda inst: False, podman_ready=lambda:
 def run_module():
     module = AnsibleModule(
         argument_spec=dict(
-            state=dict(type="str", choices=["sync", "start", "stop", "issue", "plan", "import"],
+            state=dict(type="str",
+                       choices=["sync", "start", "stop", "issue", "plan", "import", "prune"],
                        default="sync"),
             recreate=dict(type="bool", default=False),
             restart=dict(type="bool", default=False),
@@ -1424,6 +1472,9 @@ def run_module():
                 return podman
             result = dict(plan_conversion(params["instances"] or [], rootless, podman_ready),
                           changed=False)
+        elif params["state"] == "prune":
+            removed = prune_spoa_volumes(run, params["inspect_command"])
+            result = {"changed": bool(removed), "removed": removed}
         elif params["state"] == "import":
             imported = _locked(edge_dir, import_caddy_certificates, run,
                                params["inspect_command"], edge_dir, params["instance_id"],
