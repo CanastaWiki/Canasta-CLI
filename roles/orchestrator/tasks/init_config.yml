@@ -25,15 +25,6 @@
     force: false
     mode: "0644"
 
-# Comments only until the user adds directives; no-clobber because this
-# runs on upgrade too.
-- name: Create haproxy-backend.cfg from template (no-clobber)
-  ansible.builtin.copy:
-    src: "{{ canasta_root }}/instance_template/config/haproxy-backend.cfg"
-    dest: "{{ instance_path }}/config/haproxy-backend.cfg"
-    force: false
-    mode: "0644"
-
 - name: Generate observability credentials if enabled
   ansible.builtin.include_tasks: ensure_observability_credentials.yml
 
@@ -46,7 +37,22 @@
     - name: Sync compose profiles
       ansible.builtin.include_tasks: sync_compose_profiles.yml
 
+    # The HAProxy edge, which reads it, fronts Compose instances. Comments
+    # only until the user adds directives; no-clobber because this runs on
+    # upgrade too.
+    - name: Create haproxy-backend.cfg from template (no-clobber)
+      ansible.builtin.copy:
+        src: "{{ canasta_root }}/instance_template/config/haproxy-backend.cfg"
+        dest: "{{ instance_path }}/config/haproxy-backend.cfg"
+        force: false
+        mode: "0644"
+
 - name: Kubernetes-specific init
   when: instance_is_k8s | bool
   ansible.builtin.debug:
     msg: "Kubernetes configuration managed via Helm values.yaml"
+
+# Earlier releases wrote haproxy-backend.cfg into Kubernetes instances too.
+- name: Remove an unused haproxy-backend.cfg from a Kubernetes instance
+  ansible.builtin.include_tasks: remove_k8s_haproxy_backend_cfg.yml
+  when: instance_is_k8s | bool
