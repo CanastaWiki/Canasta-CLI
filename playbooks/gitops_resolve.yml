@@ -1,0 +1,7 @@
+---
+# canasta gitops resolve
+
+- name: Gitops Resolve
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: resolve.yml

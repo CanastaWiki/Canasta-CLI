@@ -2360,11 +2360,16 @@ def _unfinished_pull(path, host):
 
 
 def _unfinished_pull_message(inst_id, path, verb):
-    return ("Instance '%s': its gitops repository is in the middle of a pull "
+    head = ("Instance '%s': its gitops repository is in the middle of a pull "
             "whose conflicts are not resolved, so its configuration is "
-            "half-merged. In %s, resolve the conflicts and run 'git %s "
-            "--continue', or go back to where the pull started with 'git %s "
-            "--abort'." % (inst_id, path, verb, verb))
+            "half-merged. " % inst_id)
+    if verb == "merge":
+        return head + ("In %s, resolve the conflicts and run 'git merge "
+                       "--continue', or go back to where the pull started "
+                       "with 'git merge --abort'." % path)
+    return head + ("Finish it with 'canasta gitops resolve -i %s --continue', "
+                   "or go back to where the pull started with 'canasta gitops "
+                   "resolve -i %s --abort'." % (inst_id, inst_id))
 
 
 def _refuse_unfinished_pull(inst_id, inst):

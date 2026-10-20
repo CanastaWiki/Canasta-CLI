@@ -1,0 +1,32 @@
+---
+# 'gitops resolve' ran the pull and its rebase stopped. Keep the stopped
+# rebase, say what is left to resolve, and end the run. A pull that failed
+# without stopping (a network error, a refused fetch) has nothing to resolve.
+#
+# Requires: instance_path, instance_id, _resolve_failure (the failed pull).
+
+- name: Check that the rebase stopped at conflicts
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.git/{{ item }}"
+  loop:
+    - rebase-merge
+    - rebase-apply
+  register: _resolve_stop_dirs
+
+- name: Report a pull that failed before replaying anything
+  ansible.builtin.fail:
+    msg: >-
+      Cannot resolve: the pull failed before replaying anything, so there is
+      nothing to resolve. git said:
+      {{ (_resolve_failure.stdout | default('') ~ ' '
+          ~ _resolve_failure.stderr | default('')) | trim }}
+  when: _resolve_stop_dirs.results | selectattr('stat.exists') | list | length == 0
+
+- name: Record the conflicts as git left them
+  ansible.builtin.include_tasks: _resolve_record.yml
+
+- name: Report what is left to resolve
+  ansible.builtin.include_tasks: _resolve_report.yml
+
+- name: End the run at the conflicts
+  ansible.builtin.meta: end_host
