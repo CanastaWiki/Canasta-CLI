@@ -57,3 +57,78 @@
   when: not (unfinished_pull | bool)
   ansible.builtin.include_role:
     name: upgrade
+
+# A bouncer created before the edge layer mounted tmpfs over the image's
+# volumes still holds two anonymous volumes. Rewrite the layer, and replace
+# the container with its volumes, rather than wait for the next restart.
+- name: Check whether the edge bouncer predates its tmpfs mounts
+  ansible.builtin.shell:
+    cmd: >-
+      grep -q '^  crowdsec-spoa:' docker-compose.edge.yml 2>/dev/null
+      && ! grep -q 'tmpfs:' docker-compose.edge.yml && echo old || true
+    chdir: "{{ instance_path }}"
+  register: _upgrade_spoa_layer
+  changed_when: false
+  when:
+    - not (instance_is_k8s | bool)
+    - not (unfinished_pull | bool)
+
+- name: Rewrite the edge layer with the bouncer's tmpfs mounts
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/edge_sync.yml"
+  when: (_upgrade_spoa_layer.stdout | default('') | trim) == 'old'
+
+- name: Find the edge bouncer container
+  ansible.builtin.command:
+    argv:
+      - "{{ inspect_command }}"
+      - ps
+      - -a
+      - --filter
+      - "label=com.docker.compose.project={{ instance_path | basename | lower }}"
+      - --filter
+      - label=com.docker.compose.service=crowdsec-spoa
+      - --format
+      - "{% raw %}{{.ID}} {{.State}}{% endraw %}"
+  register: _upgrade_spoa_containers
+  changed_when: false
+  when: (_upgrade_spoa_layer.stdout | default('') | trim) == 'old'
+
+- name: Remove the old edge bouncer with its volumes
+  ansible.builtin.command:
+    argv: "{{ [inspect_command, 'rm', '-f', '-v']
+              + (_upgrade_spoa_containers.stdout_lines | map('split') | map('first') | list) }}"
+  changed_when: true
+  when:
+    - (_upgrade_spoa_layer.stdout | default('') | trim) == 'old'
+    - (_upgrade_spoa_containers.stdout_lines | default([]) | length) > 0
+
+- name: Start the edge bouncer on the new layer
+  ansible.builtin.command:
+    cmd: >-
+      {{ compose_command }} -f docker-compose.yml -f docker-compose.edge.yml
+      up -d --no-deps crowdsec-spoa
+    chdir: "{{ instance_path }}"
+  environment:
+    COMPOSE_IGNORE_ORPHANS: "true"
+  changed_when: true
+  when:
+    - (_upgrade_spoa_layer.stdout | default('') | trim) == 'old'
+    - (_upgrade_spoa_containers.stdout | default('')) is search(' running')
+
+# Bouncers created before the layer mounted tmpfs over the image's volumes
+# left two anonymous volumes behind each time; remove those on this daemon.
+- name: Remove volumes earlier CrowdSec bouncers left behind
+  canasta_edge:
+    state: prune
+    inspect_command: "{{ inspect_command }}"
+  register: _upgrade_spoa_prune
+  when: not (instance_is_k8s | bool)
+
+- name: Report the removed bouncer volumes
+  ansible.builtin.debug:
+    msg: >-
+      Removed {{ _upgrade_spoa_prune.removed | length }} volume(s) earlier
+      CrowdSec bouncers left behind.
+  when:
+    - not (instance_is_k8s | bool)
+    - (_upgrade_spoa_prune.removed | default([]) | length) > 0
