@@ -284,6 +284,29 @@ def test_behind_a_cdn_limits_count_the_client_not_the_cdn(edge_ports):
     assert first[-1] == 429 and other == 200
 
 
+def test_static_files_are_not_rate_limited(edge_ports):
+    """A page with many images on the wiki's own hostname must not trip the
+    per-client limit, and its files still load once page views are refused."""
+    client = {"CF-Connecting-IP": "198.51.100.9"}
+    files = ["/w/images/thumb/a/ab/P%d.jpg/300px-P%d.jpg" % (n, n) for n in range(6)] + [
+        "/w/resources/src/a.svg", "/w/skins/Vector/a.css", "/w/extensions/Foo/a.js",
+        "/public_assets/logo.png", "/favicon.ico"]
+    assert [_request(edge_ports, "cdn.example.org", p, headers=client)[0]
+            for p in files] == [200] * len(files)
+    pages = [_request(edge_ports, "cdn.example.org", "/wiki/C%d" % n, headers=client)[0]
+             for n in range(5)]
+    assert pages[:3] == [200] * 3 and pages[-1] == 429
+    assert _request(edge_ports, "cdn.example.org", "/public_assets/logo.png",
+                    headers=client)[0] == 200
+
+
+def test_php_under_a_static_path_is_rate_limited(edge_ports):
+    client = {"CF-Connecting-IP": "198.51.100.10"}
+    codes = [_request(edge_ports, "cdn.example.org", "/w/extensions/Foo/entry.php",
+                      headers=client)[0] for n in range(5)]
+    assert codes[-1] == 429
+
+
 def test_a_request_body_is_accepted(edge_ports):
     assert _request(edge_ports, "example.com", "/w/index.php", method="POST",
                     headers={"Content-Type": "text/plain"})[0] == 200

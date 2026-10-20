@@ -229,9 +229,9 @@ def test_rate_limits_follow_the_instance_settings():
     cfg = edge.render([inst])["files"]["haproxy.cfg"]
     dynamic = cfg.split("backend be_wiki1_dynamic\n", 1)[1].split("\n\n", 1)[0]
     default = cfg.split("backend be_wiki1_default\n", 1)[1].split("\n\n", 1)[0]
-    assert "sc0_http_req_rate gt 10" in dynamic
-    assert "sc0_http_req_rate" not in default
-    assert "sc0_http_err_rate gt %d" % edge.DEFAULT_ERROR_RATE in default
+    assert "sc_gpc_rate(0,0) gt 10" in dynamic
+    assert "sc_gpc_rate(0,0)" not in default
+    assert "sc_gpc_rate(1,0) gt %d" % edge.DEFAULT_ERROR_RATE in default
 
 
 def test_maxconn_can_be_overridden():

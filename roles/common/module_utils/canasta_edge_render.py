@@ -574,16 +574,24 @@ def _backend_rules(inst, kind, rootless=False):
     # every client looks private, so there the exemption would undo limits
     # the operator turned on.
     exempt = "" if rootless else " if !{ src %s }" % " ".join(PRIVATE_SOURCES)
+    # Counter 0 counts requests other than static files, which a page pulls
+    # in by the dozen at no PHP cost. Counter 1 counts the errors the
+    # instance returns, not the edge's own 429s, which would otherwise keep
+    # a client that is still browsing locked out.
     out += [
-        "    stick-table type ipv6 size 100k expire 1m "
-        "store http_req_rate(%s),http_err_rate(%s)" % (RATE_WINDOW, RATE_WINDOW),
+        "    stick-table type ipv6 size 100k expire 1m store gpc_rate(2,%s)" % RATE_WINDOW,
         "    http-request track-sc0 src%s" % exempt,
     ]
     if rate:
-        out.append("    http-request deny deny_status 429 if { sc0_http_req_rate gt %d }"
-                   % rate)
-    out.append("    http-request deny deny_status 429 if { sc0_http_err_rate gt %d }"
-               % DEFAULT_ERROR_RATE)
+        out += [
+            "    http-request sc-inc-gpc(0,0) unless { var(txn.static) -m bool }",
+            "    http-request deny deny_status 429 if { sc_gpc_rate(0,0) gt %d } "
+            "!{ var(txn.static) -m bool }" % rate,
+        ]
+    out += [
+        "    http-request deny deny_status 429 if { sc_gpc_rate(1,0) gt %d }" % DEFAULT_ERROR_RATE,
+        "    http-response sc-inc-gpc(1,0) if { status 400:499 }",
+    ]
     return out
 
 
@@ -620,8 +628,10 @@ _ROUTING = [
     # dynamic, one page of thumbnails would use up a client's allowance.
     "    acl credentials req.fhdr(cookie) -m reg ([sS]ession|Token)=",
     "    acl credentials req.hdr(authorization) -m found",
-    "    acl static_file path_sub /w/images/ /w/resources/ /w/skins/ /w/extensions/",
+    "    acl static_file path_sub /w/images/ /w/resources/ /w/skins/ /w/extensions/ /public_assets/",
+    "    acl static_file path_end /favicon.ico",
     "    acl php path_end .php",
+    "    http-request set-var(txn.static) bool(true) if static_file !php",
     "    use_backend be_%[var(txn.inst)]_media if known_site media_host",
     "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host dynamic",
     "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host credentials !static_file",
