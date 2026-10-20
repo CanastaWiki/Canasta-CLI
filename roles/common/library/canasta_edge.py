@@ -501,6 +501,16 @@ def load_instance(instance_id, path):
     return inst
 
 
+def ensure_image(run, inspect, image):
+    """Pull image unless it is present, so a registry failure is reported
+    as one rather than as the failure of whatever runs it."""
+    if run([inspect, "image", "inspect", image])[0] == 0:
+        return
+    rc, out, err = run([inspect, "pull", "-q", image])
+    if rc != 0:
+        raise EdgeError("Could not pull %s: %s" % (image, _tail(out, err)))
+
+
 def helper_user(run, inspect, edge_dir):
     """The user the edge's helper containers (openssl, acme.sh) run as.
 
@@ -523,6 +533,7 @@ def helper_user(run, inspect, edge_dir):
     user = "root"
     if os.getuid() != 0:
         probe = os.path.join(edge_dir, ".owner-probe")
+        ensure_image(run, inspect, ACME_IMAGE)
         run([inspect, "run", "--rm", "-v", "%s:/probe" % edge_dir,
              "--entrypoint", "touch", ACME_IMAGE, "/probe/.owner-probe"])
         if os.path.exists(probe):
@@ -634,6 +645,7 @@ def ensure_certificates(run, inspect, edge_dir, certificates, instances):
         ca_missing = not os.path.exists(os.path.join(ca, "ca.crt"))
         # Under the edge directory, which is the same path on the host when
         # the CLI itself runs in a container; its own /tmp is not.
+        ensure_image(run, inspect, ACME_IMAGE)
         work = tempfile.mkdtemp(prefix=".work-", dir=edge_dir)
         try:
             rc, _, err = run([
@@ -657,6 +669,7 @@ def ensure_certificates(run, inspect, edge_dir, certificates, instances):
 
 def validate(run, inspect, edge_dir, files):
     """Check the rendered files with haproxy -c before they are installed."""
+    ensure_image(run, inspect, HAPROXY_IMAGE)
     stage = tempfile.mkdtemp(prefix=".stage-", dir=edge_dir)
     try:
         for name, content in files.items():
@@ -723,6 +736,7 @@ def ensure_account(run, inspect, edge_dir):
                   "cp /tmp/account.key /acme.sh/ca/%s/directory/account.key" % (ca, ca)]
     lines += ["acme.sh --register-account --server %s" % server
               for server in ACME_SERVERS.values()]
+    ensure_image(run, inspect, ACME_IMAGE)
     rc, out, err = run([inspect, "run", "--rm",
                         "--user", helper_user(run, inspect, edge_dir),
                         "-v", "%s:/acme.sh" % os.path.join(edge_dir, "acme"),
@@ -815,10 +829,7 @@ def start_edge(run, inspect, compose_command, edge_dir, recreate=False, restart=
     # forwarder, which the socket unit could not then bind.
     if systemctl(run, "is-active", "--quiet", SOCKET_UNIT)[0] != 0:
         run([inspect, "rm", "-f", CONTAINER])
-    if run([inspect, "image", "exists", HAPROXY_IMAGE])[0] != 0:
-        rc, out, err = run([inspect, "pull", "-q", HAPROXY_IMAGE])
-        if rc != 0:
-            raise EdgeError("Could not pull %s: %s" % (HAPROXY_IMAGE, _tail(out, err)))
+    ensure_image(run, inspect, HAPROXY_IMAGE)
     for args in (["daemon-reload"], ["enable", "--now", SOCKET_UNIT], ["enable", SERVICE_UNIT],
                  ["restart" if (restart or recreate) else "start", SERVICE_UNIT]):
         rc, out, err = systemctl(run, *args)

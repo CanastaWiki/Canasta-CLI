@@ -26,8 +26,10 @@ class FakeRunner:
 
     def __init__(self, containers=None, running=False, invalid=False,
                  listed=None, issue_fails=(), network_ipv6=None, stats_down=0,
-                 daemon_id=""):
+                 daemon_id="", unpulled=()):
         self.containers = containers or {}
+        # Images that are absent and fail to pull.
+        self.unpulled = set(unpulled)
         self.daemon_id = daemon_id
         # How many stats socket checks fail before HAProxy answers.
         self.stats_down = stats_down
@@ -63,6 +65,10 @@ class FakeRunner:
     def __call__(self, argv, env=None, cwd=None):
         self.calls.append(argv)
         self.envs.append(env or {})
+        if argv[1:3] == ["image", "inspect"]:
+            return (1, "", "No such image") if argv[3] in self.unpulled else (0, "", "")
+        if argv[1] == "pull" and argv[-1] in self.unpulled:
+            return 1, "", "reading manifest: received unexpected HTTP status: 502 Bad Gateway"
         if argv[1] == "exec" and "acme.sh" in argv:
             return self._acme(argv[argv.index("acme.sh") + 1:])
         if argv[1] == "exec" and "socat" in argv[-1]:
@@ -261,6 +267,28 @@ def test_an_invalid_render_is_not_installed(tmp_path):
     assert re.search("bad config", _sync(FakeRunner(invalid=True), edge, "one", path)["error"])
     assert not (edge / "conf" / "haproxy.cfg").exists()
     assert not [n for n in os.listdir(edge) if n.startswith(".stage-")]
+
+
+def test_a_failed_haproxy_pull_is_reported_as_one(tmp_path):
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    run = FakeRunner(unpulled={mod.HAPROXY_IMAGE})
+    error = _sync(run, edge, "one", path)["error"]
+    assert error == "Could not pull %s: reading manifest: received unexpected HTTP " \
+        "status: 502 Bad Gateway" % mod.HAPROXY_IMAGE
+    assert not [c for c in run.calls if c[1] == "run" and mod.HAPROXY_IMAGE in c]
+    assert not (edge / "conf" / "haproxy.cfg").exists()
+
+
+def test_a_failed_helper_pull_records_no_helper_user(tmp_path, monkeypatch):
+    edge = tmp_path / "edge"
+    edge.mkdir()
+    monkeypatch.setattr(mod.os, "getuid", lambda: 1000)
+    run = FakeRunner(daemon_id="rootful", unpulled={mod.ACME_IMAGE})
+    with pytest.raises(mod.EdgeError, match="Could not pull %s" % re.escape(mod.ACME_IMAGE)):
+        mod.helper_user(run, "docker", str(edge))
+    assert not run.runs("touch")
+    assert not (edge / ".helper-user").exists()
 
 
 def test_a_render_error_names_the_instance(tmp_path):
