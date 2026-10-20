@@ -127,13 +127,15 @@ spec:
         - name: web
           image: {{ include "canasta.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          # The image's PID 1 is a shell that never passes SIGTERM on to
-          # Apache, so without this the pod is killed only when the grace
-          # period runs out, cutting off whatever it is still serving.
+          # When PID 1 is Apache, the image's stop signal that follows the
+          # hook is itself a graceful stop, and Apache treats a second stop
+          # signal during one as a forced shutdown, so the hook only sleeps.
+          # When PID 1 is a shell, which never passes the signal on to
+          # Apache, the hook stops Apache gracefully or the pod is killed
+          # only when the grace period runs out.
           # graceful-stop lets in-flight requests finish and closes
           # keep-alive connections; the container exits when Apache does.
-          # The hook returns at once: the SIGTERM that follows does not
-          # interrupt the drain, and a hook still running when the
+          # The hook returns at once: a hook still running when the
           # container exits is reported as failed.
           lifecycle:
             preStop:
@@ -141,7 +143,7 @@ spec:
                 command:
                   - /bin/sh
                   - -c
-                  - sleep {{ int .Values.web.preStopSleepSeconds }}; apachectl -k graceful-stop
+                  - sleep {{ int .Values.web.preStopSleepSeconds }}; [ "$(cat /proc/1/comm)" = apache2 ] || apachectl -k graceful-stop
           ports:
             - name: http
               containerPort: 80

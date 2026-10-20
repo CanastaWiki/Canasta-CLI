@@ -2,9 +2,10 @@
 
 A deleted pod leaves its Service while it is told to stop, and the two are
 not ordered, so a pod must keep serving until its removal has propagated.
-The web image's PID 1 is a shell that ignores SIGTERM, so Apache has to be
-stopped gracefully from the preStop hook rather than killed when the grace
-period runs out.
+When the web image's PID 1 is a shell that ignores the stop signal, Apache
+has to be stopped gracefully from the preStop hook rather than killed when the
+grace period runs out. When PID 1 is Apache, the stop signal is its graceful
+stop, and a second one from the hook would turn it into a forced shutdown.
 """
 
 import os
@@ -86,9 +87,32 @@ class TestShutdown:
         assert "terminationGracePeriodSeconds must be greater" in out.stderr
 
 
-def test_web_prestop_stops_apache_gracefully_and_returns():
+def test_web_prestop_stops_apache_gracefully_unless_it_is_pid_1():
     script = _prestop(_render("deployment-web.yaml"), "web")
-    assert script == "sleep 10; apachectl -k graceful-stop"
+    assert script == ('sleep 10; [ "$(cat /proc/1/comm)" = apache2 ] '
+                      '|| apachectl -k graceful-stop')
+
+
+@pytest.mark.parametrize("pid1,stops", [("apachectl", True),
+                                        ("apache2", False)])
+def test_web_prestop_graceful_stop_depends_on_pid_1(tmp_path, pid1, stops):
+    script = _prestop(_render("deployment-web.yaml"), "web")
+    comm = tmp_path / "comm"
+    comm.write_text(pid1 + "\n")
+    marker = tmp_path / "stopped"
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    for tool, body in (("sleep", "exit 0"),
+                       ("apachectl", 'echo "$@" > %s' % marker)):
+        (bindir / tool).write_text("#!/bin/sh\n%s\n" % body)
+        (bindir / tool).chmod(0o755)
+    script = script.replace("/proc/1/comm", str(comm))
+    env = dict(os.environ, PATH="%s:%s" % (bindir, os.environ["PATH"]))
+    out = subprocess.run(["/bin/sh", "-c", script], env=env)
+    assert out.returncode == 0
+    assert marker.exists() == stops
+    if stops:
+        assert marker.read_text().strip() == "-k graceful-stop"
 
 
 def test_web_grace_period_leaves_time_to_drain():
