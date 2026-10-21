@@ -74,3 +74,13 @@ def test_fast_path_start_hands_edge_instances_to_ansible(monkeypatch):
                         lambda inst: {})
     monkeypatch.setattr(_helpers, "_run_compose", lambda *a, **k: 1 / 0)
     assert lifecycle.cmd_start(None) is _helpers.FALLBACK
+
+
+def test_edge_reloads_signal_haproxy_through_exec():
+    # `docker kill` marks the container manually stopped, so the daemon would
+    # not restart it.
+    reloads = [t for t in _tasks("edge_sync.yml") if t.get("name", "").startswith("Reload the edge")]
+    assert len(reloads) == 2
+    for task in reloads:
+        argv = task["ansible.builtin.command"]["argv"]
+        assert argv[1:] == ["exec", "canasta-edge", "kill", "-USR2", "1"]

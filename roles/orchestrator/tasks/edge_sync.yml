@@ -99,15 +99,18 @@
       or not (_edge.acme_running | default(false) | bool)
 
 # The image runs HAProxy in master-worker mode, where USR2 reloads the
-# configuration without dropping connections.
+# configuration without dropping connections. The signal goes through exec:
+# Docker counts any `kill` as a manual stop, and then does not restart the
+# container when the daemon restarts.
 - name: Reload the edge
   ansible.builtin.command:
     argv:
       - "{{ inspect_command | default('docker') }}"
-      - kill
-      - --signal
-      - USR2
+      - exec
       - canasta-edge
+      - kill
+      - -USR2
+      - "1"
   changed_when: true
   when:
     - _edge.members | default([]) | length > 0
@@ -132,10 +135,11 @@
   ansible.builtin.command:
     argv:
       - "{{ inspect_command | default('docker') }}"
-      - kill
-      - --signal
-      - USR2
+      - exec
       - canasta-edge
+      - kill
+      - -USR2
+      - "1"
   changed_when: true
   when:
     - _edge_issue is not skipped

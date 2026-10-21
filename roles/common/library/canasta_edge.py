@@ -174,7 +174,9 @@ services:
     container_name: %(container)s
     # Reads the private keys in conf/certs, which are not world-readable.
     user: root
-    restart: unless-stopped
+    # The edge is only ever removed, never left stopped; "always" also
+    # brings back a container Docker counts as manually stopped.
+    restart: always
     # HAProxy logs every request.
     logging: &logging
       driver: json-file

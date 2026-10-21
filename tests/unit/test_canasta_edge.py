@@ -1402,6 +1402,16 @@ def test_the_edge_listens_on_every_instance_port(tmp_path, user_units):
         "ListenStream=0.0.0.0:8080", "ListenStream=0.0.0.0:8443"]
 
 
+def test_haproxy_comes_back_whenever_the_daemon_restarts(tmp_path, user_units):
+    # unless-stopped skips a container Docker counts as manually stopped,
+    # which any `docker kill` marks it as.
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(), edge, "one", path)
+    services = yaml.safe_load((edge / "docker-compose.yml").read_text())["services"]
+    assert services["haproxy"]["restart"] == "always"
+
+
 CAPPED_LOG = {"driver": "json-file", "options": {"max-size": "50m", "max-file": "3"}}
 
 
