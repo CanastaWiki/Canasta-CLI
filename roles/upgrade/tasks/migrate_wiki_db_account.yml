@@ -14,14 +14,10 @@
 #
 # Input: instance_id, instance_path, instance_orchestrator, _was_running,
 #        _upgrade_stage_only
-# Output: _mig_db_staged, _mig_db_redeployed
+# Output: _mig_db_staged, _mig_db_redeployed, _upgrade_db_move_pending
 
-- name: Read the database account settings
-  canasta_env:
-    path: "{{ instance_path }}/.env"
-    state: read_all
-  register: _mig_db_env
-  no_log: true  # registers the whole .env, including passwords
+- name: Check whether MediaWiki waits to move to its own database account
+  ansible.builtin.include_tasks: check_wiki_db_account.yml
 
 # Facts persist across the instances of one upgrade run.
 - name: Decide whether to move MediaWiki to its own database account
@@ -29,10 +25,15 @@
     _mig_db_staged: false
     _mig_db_redeployed: false
     _mig_db_account: >-
-      {{ (_was_running | default(false) | bool)
-         and (_mig_db_env.variables.USE_EXTERNAL_DB | default('false') | string | lower) != 'true'
-         and (_mig_db_env.variables.CANASTA_DB_ROOT_ACCOUNT | default('false') | string | lower) != 'true'
-         and (_mig_db_env.variables.WIKI_DB_USER | default('root', true)) == 'root' }}
+      {{ (_was_running | default(false) | bool) and (_mig_db_pending | bool) }}
+
+- name: Record the move left for a stopped instance
+  ansible.builtin.set_fact:
+    _upgrade_db_move_pending: >-
+      {{ (_upgrade_db_move_pending | default([])) + [instance_id] }}
+  when:
+    - not (_was_running | default(false) | bool)
+    - _mig_db_pending | bool
 
 - name: Move MediaWiki to its own database account
   when: _mig_db_account | bool
