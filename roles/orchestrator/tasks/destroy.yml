@@ -5,6 +5,13 @@
 - name: Destroy (Docker Compose)
   when: not (instance_is_k8s | bool)
   block:
+    # Before anything is removed: taking the instance out of the edge
+    # comes last.
+    - name: Check that the edge's files are writable
+      canasta_edge:
+        state: writable
+        instance_path: "{{ instance_path }}"
+
     - name: Check for docker-compose.sidecars.yml
       ansible.builtin.stat:
         path: "{{ instance_path }}/docker-compose.sidecars.yml"
