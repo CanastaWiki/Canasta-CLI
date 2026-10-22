@@ -2797,9 +2797,6 @@ commands:
       be scheduled. With no retention flag, nothing is purged and
       snapshots accumulate.
 
-      `--purge-older-than` is an older spelling of `--keep-within`; give
-      one or the other, not both.
-
       The schedule is persisted to `config/backup-schedule.yml` (captured
       by backups, re-materialized on restore). Setting a new schedule
       replaces the existing crontab entry in place; duplicates aren't
@@ -2843,9 +2840,6 @@ commands:
       - name: keep_tag
         type: string
         description: "Keep backups that have this tag"
-      - name: purge_older_than
-        type: string
-        description: "Older spelling of --keep-within"
 
   - name: backup_schedule_list
     description: "Show the backup schedule"

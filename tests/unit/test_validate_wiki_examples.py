@@ -42,7 +42,7 @@ DEFINITIONS = {
             {"name": "keep_within", "type": "string"},
         ]},
         {"name": "backup_schedule_set", "parameters": [
-            {"name": "purge_older_than", "type": "string"},
+            {"name": "keep_within", "type": "string"},
         ]},
         {"name": "storage_setup_nfs", "parameters": [
             {"name": "host", "short": "H", "type": "string"},

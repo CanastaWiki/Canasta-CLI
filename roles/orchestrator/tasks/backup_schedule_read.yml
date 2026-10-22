@@ -1,0 +1,64 @@
+---
+# Read config/backup-schedule.yml, rewriting it first if it is in the
+# single-duration form that predates the retention mapping
+# (purge_older_than: <d>, which meant --keep-within <d>). Reached from
+# upgrade, and from restore and gitops pull, both of which can bring back
+# a file written in that form. A rewritten file is staged for gitops.
+#
+# Input: instance_path
+# Output: _sched_state (stat), _sched_state_data (parsed file, {} if absent)
+
+- name: Check for a persisted backup schedule
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/config/backup-schedule.yml"
+  register: _sched_state
+
+- name: Read the persisted backup schedule
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/backup-schedule.yml"
+  register: _sched_state_content
+  when: _sched_state.stat.exists
+
+- name: Parse the persisted backup schedule
+  ansible.builtin.set_fact:
+    _sched_state_data: >-
+      {{ (_sched_state_content.content | b64decode | from_yaml)
+         if _sched_state.stat.exists else {} }}
+
+# A block's condition is re-evaluated for each task in it, and the first
+# task removes the key, so the condition is fixed beforehand.
+- name: Check for the single-duration form
+  ansible.builtin.set_fact:
+    _sched_state_legacy: "{{ 'purge_older_than' in _sched_state_data }}"
+
+- name: Rewrite a single-duration schedule as a retention policy
+  when: _sched_state_legacy | bool
+  block:
+    # A retention mapping beside the old key already carries the policy.
+    - name: Convert purge_older_than to keep-within
+      ansible.builtin.set_fact:
+        _sched_converted_retention: >-
+          {{ _sched_state_data.retention
+             | default({'keep-within':
+                          _sched_state_data.purge_older_than | string | trim}
+                       if (_sched_state_data.purge_older_than | string | trim)
+                       else {}, true) }}
+
+    - name: Replace purge_older_than with the retention policy
+      ansible.builtin.set_fact:
+        _sched_state_data: >-
+          {{ _sched_state_data | dict2items
+             | rejectattr('key', 'in', ['purge_older_than', 'retention'])
+             | items2dict
+             | combine({'retention': _sched_converted_retention}
+                       if _sched_converted_retention else {}) }}
+
+    - name: Write the converted backup schedule
+      ansible.builtin.copy:
+        dest: "{{ instance_path }}/config/backup-schedule.yml"
+        content: "{{ _sched_state_data | to_nice_yaml }}"
+        mode: "0644"
+
+    - name: Stage the converted backup schedule for gitops
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/gitops/tasks/stage_backup_schedule.yml

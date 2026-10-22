@@ -100,10 +100,8 @@ class TestComposeSchedulePurgeFlag:
             % sorted(missing)
         )
 
-    def test_purge_older_than_survives_as_an_alias(self):
-        """In live use with durations from 90d to 180d, so it cannot be
-        dropped in favor of --keep-within."""
-        assert "--purge-older-than" in _accepted_flags("backup_schedule_set")
+    def test_retention_is_given_only_in_restic_flags(self):
+        assert "--purge-older-than" not in _accepted_flags("backup_schedule_set")
 
     def test_no_retention_policy_chains_no_purge(self):
         """`restic forget` with no policy deletes everything it was not
@@ -241,9 +239,9 @@ class TestSchedulePersistence:
 
     def test_rematerialize_reads_file_and_branches(self):
         tasks = _tasks_of(self.REMAT)
-        assert any((t.get("ansible.builtin.slurp") or t.get("slurp")) for t in tasks), \
-            "rematerialize must read the persisted file"
         incs = [_inc(t) for t in tasks]
+        assert any("backup_schedule_read.yml" in i for i in incs), \
+            "rematerialize must read the persisted file"
         assert any("backup_schedule_apply.yml" in i for i in incs), "apply when present"
         assert any("backup_schedule_unapply.yml" in i for i in incs), "unapply when absent"
 

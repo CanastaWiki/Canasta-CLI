@@ -193,6 +193,7 @@ def main():
     gitops_host = os.path.join(base, ".gitops-host")
     legacy_git = os.path.join(base, ".git")
     hosts_yaml = os.path.join(base, "hosts", "hosts.yaml")
+    backup_schedule = os.path.join(base, "config", "backup-schedule.yml")
 
     env_values, env_present = parse_env(env_path)
 
@@ -214,6 +215,8 @@ def main():
             ),
             "hosts_yaml": os.path.isfile(hosts_yaml),
             "env_readable_beyond_owner": env_readable_beyond_owner(env_path),
+            "backup_schedule_has_purge_older_than": file_contains(
+                backup_schedule, "purge_older_than"),
         },
         "old_wiki_dirs": old_wiki_dirs(base),
         "stray_php": list_files_matching(
