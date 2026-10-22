@@ -494,10 +494,12 @@ def _wiki_db_account_updates(env):
 
 
 def _uses_wiki_db_account(env):
-    """True when MediaWiki has its own account on the bundled database."""
-    if not env or (env.get("USE_EXTERNAL_DB") or "").strip().lower() == "true":
+    """True when MediaWiki has its own database account, not the
+    administrator's (root, or MYSQL_USER on an external database)."""
+    if not env:
         return False
-    return (env.get("WIKI_DB_USER") or "").strip() not in ("", "root")
+    admin = (env.get("MYSQL_USER") or "").strip() or "root"
+    return (env.get("WIKI_DB_USER") or "").strip() not in ("", "root", admin)
 
 
 def _backfill_db_defaults(inst):

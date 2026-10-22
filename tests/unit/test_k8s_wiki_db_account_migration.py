@@ -384,7 +384,7 @@ class TestComposeRestartIsRecorded:
         compose = next(t for t in _load(SWITCH)
                        if t.get("name") == "Switch (Docker Compose)")
         for tasks, restart in ((compose["block"], "Restart onto the new account"),
-                               (compose["rescue"], "Restart on the root account")):
+                               (compose["rescue"], "Restart on the administrator account")):
             names = [t.get("name") for t in tasks]
             record = tasks[names.index(restart) + 1]
             assert record["ansible.builtin.set_fact"] == {"_mig_db_redeployed": True}

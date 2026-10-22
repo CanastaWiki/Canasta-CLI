@@ -441,8 +441,13 @@
       The instance's databases on the external server
       {{- (' ' ~ _delete_db_host) if _delete_db_host else '' }} were not
       dropped{{ (': ' ~ _dbs | join(', ')) if _dbs else '' }}.
+      {%- if _wiki_account not in ['', 'root', _admin_account] %}
+      Nor was MediaWiki's account on it, '{{ _wiki_account }}'.
+      {%- endif %}
   vars:
     _dbs: >-
       {{ _delete_wikis.db_groups | default([])
          | map(attribute='databases') | flatten | unique | list }}
+    _wiki_account: "{{ _delete_env.variables.WIKI_DB_USER | default('', true) }}"
+    _admin_account: "{{ _delete_env.variables.MYSQL_USER | default('root', true) }}"
   when: _delete_external_db | bool

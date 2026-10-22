@@ -1,10 +1,11 @@
-# Jinja filters for a wiki's extra databases.
+# Jinja filters for wiki databases and the account MediaWiki uses.
 #
 # Loaded via the `filter_plugins` path in ansible.cfg (role-local plugin
 # auto-discovery does not fire under include_role / include_tasks).
 
 import importlib.util
 import os
+import re
 
 
 def _load_validator():
@@ -69,6 +70,28 @@ def canasta_extra_dump_plan(paths, stem, wiki, db_groups=None):
     return {"load": load, "skipped": skipped}
 
 
+# MySQL limits account names to 32 characters.
+_ACCOUNT_NAME_MAX = 32
+
+
+def canasta_wiki_db_user(instance_id, external):
+    """MediaWiki's own database account for an instance.
+
+    The bundled database serves one instance, so its account is
+    `mediawiki`. An external server can serve several instances, each of
+    which sets its account's password and grants, so there it is
+    `mediawiki_<instance id>`, with characters an account name may not have
+    replaced by `_`.
+    """
+    if not external:
+        return "mediawiki"
+    name = "mediawiki_" + re.sub(r"[^A-Za-z0-9_]", "_", str(instance_id))
+    return name[:_ACCOUNT_NAME_MAX]
+
+
 class FilterModule:
     def filters(self):
-        return {"canasta_extra_dump_plan": canasta_extra_dump_plan}
+        return {
+            "canasta_extra_dump_plan": canasta_extra_dump_plan,
+            "canasta_wiki_db_user": canasta_wiki_db_user,
+        }
