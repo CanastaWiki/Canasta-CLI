@@ -250,3 +250,113 @@ def http_site_addresses(text, hostnames):
         parts.append(raw)
         parts.append(inter[k + 1])
     return "".join(parts)
+
+
+def _directives(text, base=0):
+    """(offset, name) of each directive at the top level of text, relative
+    to base: the first token of a line outside any nested block."""
+    n = len(text)
+    i = base
+    depth = 0
+    line_start = True
+    found = []
+    while i < n:
+        c = text[i]
+        if c == "\n":
+            line_start = True
+            i += 1
+        elif c.isspace():
+            i += 1
+        elif c == "#":
+            i = _skip_comment(text, i)
+        elif c == '"' or c == "`":
+            line_start = False
+            i = _skip_string(text, i, c)
+        elif c == "<" and i + 1 < n and text[i + 1] == "<":
+            line_start = False
+            i = _skip_heredoc(text, i)
+        elif c == "{":
+            line_start = False
+            if _opens_block(text, i):
+                depth += 1
+                i += 1
+            else:
+                i = _skip_placeholder(text, i)
+        elif c == "}":
+            line_start = False
+            if depth == 0:
+                break
+            depth -= 1
+            i += 1
+        else:
+            j = i
+            while j < n and not text[j].isspace():
+                j += 1
+            if line_start and depth == 0:
+                found.append((i, text[i:j]))
+            line_start = False
+            i = j
+    return found
+
+
+def _served_over_http(label):
+    """Whether a site block behind a proxy that terminates TLS is served
+    over plain HTTP: it has an address on the standard ports."""
+    return any(_split_address(addr)[2] in ("", "80", "443")
+               for addr in label.replace(",", " ").split())
+
+
+def tls_directive_lines(text, site=False):
+    """1-based line numbers of the `tls` directives in a Caddyfile that
+    Caddy would apply to a site it serves over plain HTTP.
+
+    site: text is imported inside a site block, as Caddyfile.site is, so its
+    top-level directives are checked. Otherwise the directives of its site
+    blocks on the standard ports and of its snippets are; `tls` nested
+    deeper, such as a reverse_proxy transport's, configures something else.
+    """
+    if not isinstance(text, str):
+        text = "" if text is None else str(text)
+    text = text.replace("\r\n", "\n")
+    if site:
+        starts = [0]
+    else:
+        blocks, inter = _parse_top_level(text)
+        starts = []
+        offset = len(inter[0])
+        for k, block in enumerate(blocks):
+            label = block["label"].strip()
+            if not block["is_global"] and (
+                    label.startswith("(") or _served_over_http(label)):
+                starts.append(offset + len(block["label"]) + 1)
+            offset += len(block["raw"]) + len(inter[k + 1])
+    lines = []
+    for start in starts:
+        for pos, name in _directives(text, start):
+            if name == "tls":
+                lines.append(text.count("\n", 0, pos) + 1)
+    return lines
+
+
+TLS_FILES = (("config/Caddyfile.site", True), ("config/Caddyfile.global", False))
+
+
+def instance_tls_directives(read):
+    """'file:line' for each tls directive in an instance's Caddyfile.site and
+    Caddyfile.global. read(relpath) returns a file's text, or '' when the
+    file is missing."""
+    return ["%s:%d" % (rel, line) for rel, site in TLS_FILES
+            for line in tls_directive_lines(read(rel) or "", site)]
+
+
+def tls_directives_problem(found):
+    """What is wrong with the tls directives found, after the instance's
+    name; no closing period."""
+    one = len(found) == 1
+    return ("has %s at %s, which %s Caddy from starting behind the HAProxy edge. "
+            "The edge handles TLS for the instances behind it, and TLS_MODE replaces "
+            "%s: 'internal' for a certificate from the edge's own CA, or 'custom' "
+            "with TLS_CERT and TLS_KEY for your own. Remove %s"
+            % ("a tls directive" if one else "tls directives", ", ".join(found),
+               "stops" if one else "stop", "it" if one else "them",
+               "it" if one else "them"))

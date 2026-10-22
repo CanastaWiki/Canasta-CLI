@@ -4,12 +4,16 @@
 # differ from a render of the templates in quoting, blank lines, and key
 # order while meaning the same thing, so a byte checksum would flag a restart
 # for a render that changes nothing. my.cnf is installed only when its bytes
-# change, so its bytes are what it fingerprints.
+# change, so its bytes are what it fingerprints. The other files a restart
+# applies (config/Caddyfile*, config/secret-keys-web,
+# docker-compose.override.yml) come from git, not a render, and are
+# fingerprinted by their bytes under 'files'.
 #
 # Input:  instance_path
 # Output: _rendered_fingerprint, {'env': <sha1>, 'wikis': <sha1>,
-#         'mycnf': <sha1>, 'media_hosts': <sha1>}; a missing file
-#         fingerprints as ''.
+#         'mycnf': <sha1>, 'media_hosts': <sha1>,
+#         'files': {<path>: <sha1>}}; a missing file fingerprints as '',
+#         or is absent from 'files'.
 
 - name: Read .env for fingerprinting
   canasta_env:
@@ -36,6 +40,19 @@
   register: _rendered_fp_media_hosts
   failed_when: false
 
+- name: Find the Caddy and web secret key files for fingerprinting
+  ansible.builtin.find:
+    paths: "{{ instance_path }}/config"
+    patterns: ["Caddyfile*", "secret-keys-web"]
+    get_checksum: true
+  register: _rendered_fp_config
+
+- name: Read docker-compose.override.yml for fingerprinting
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/docker-compose.override.yml"
+    get_checksum: true
+  register: _rendered_fp_override
+
 - name: Fingerprint the rendered files
   ansible.builtin.set_fact:
     _rendered_fingerprint:
@@ -51,4 +68,12 @@
       media_hosts: >-
         {{ (_rendered_fp_media_hosts.content | b64decode | from_yaml | to_json(sort_keys=true) | hash('sha1'))
            if _rendered_fp_media_hosts.content is defined else '' }}
+      files: >-
+        {{ dict(_rendered_fp_config.files | default([])
+                | map(attribute='path') | map('basename')
+                | map('regex_replace', '^', 'config/')
+                | zip(_rendered_fp_config.files | default([])
+                      | map(attribute='checksum')))
+           | combine({'docker-compose.override.yml': _rendered_fp_override.stat.checksum}
+                     if _rendered_fp_override.stat.exists else {}) }}
   no_log: true

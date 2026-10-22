@@ -50,7 +50,7 @@ def test_pull_compose_reconciles_profiles_after_render():
     # picked up by the post-render .env fingerprint and flags a restart.
     change_idx = next(
         (i for i, t in enumerate(tasks)
-         if t.get("name") == "Fingerprint .env and wikis.yaml after rendering"),
+         if t.get("name") == "Fingerprint the instance's files after rendering"),
         None,
     )
     assert change_idx is not None, "expected the post-render .env fingerprint step"

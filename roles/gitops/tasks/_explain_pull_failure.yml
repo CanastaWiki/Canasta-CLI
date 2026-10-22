@@ -39,7 +39,7 @@
       Cannot pull: this host has local changes to tracked files, so the remote
       changes cannot be replayed on top of them. Share them with
       'canasta gitops add <file>' then 'canasta gitops push', or discard them
-      with 'git checkout -- <file>', then retry.
+      with 'git checkout HEAD -- <file>', then retry.
       {% elif _pull_conflict_encrypted | length > 0 or _pull_conflict_binary | length > 0 or _pull_conflict_plain | length > 0 %}
       Cannot pull: this host's local commit(s) conflict with the remote changes,
       so they could not be replayed on top. The rebase was rolled back — the

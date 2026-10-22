@@ -42,15 +42,17 @@ options:
       obtains, renews and removes Let's Encrypt certificates through
       acme.sh, once the edge is running and answering challenges. plan
       decides which of a host's instances move behind the edge; import
-      moves an instance's Caddy certificates to the edge.
+      moves an instance's Caddy certificates to the edge. check fails when
+      the instance's Caddyfile.site or Caddyfile.global has a tls directive,
+      which Caddy cannot use behind the edge.
     type: str
-    choices: [sync, start, stop, issue, plan, import]
+    choices: [sync, start, stop, issue, plan, import, check]
     default: sync
   instance_id:
-    description: The instance's registry ID (required for sync).
+    description: The instance's registry ID (required for sync and check).
     type: str
   instance_path:
-    description: Path to the instance directory (required for sync).
+    description: Path to the instance directory (required for sync and check).
     type: str
   member:
     description: >-
@@ -116,7 +118,9 @@ from ansible.module_utils.canasta_edge_render import (
     crowdsec_enforced, frontends,
     instance_from_config, rates_set, render,
 )
-from ansible.module_utils.canasta_caddyfile import site_hostnames
+from ansible.module_utils.canasta_caddyfile import (
+    instance_tls_directives, site_hostnames, tls_directives_problem,
+)
 from ansible.module_utils.urls import open_url
 
 NETWORK = "canasta-edge"
@@ -478,6 +482,12 @@ def global_sites(path):
     """(hostnames, skipped) for the site blocks in the instance's
     Caddyfile.global, which its Caddy serves besides the wikis."""
     return site_hostnames(_read(os.path.join(path, "config", "Caddyfile.global")) or "")
+
+
+def tls_directives(path):
+    """'file:line' for each tls directive in the instance's Caddyfile.site
+    and Caddyfile.global."""
+    return instance_tls_directives(lambda rel: _read(os.path.join(path, rel)))
 
 
 def load_instance(instance_id, path):
@@ -1411,6 +1421,10 @@ def plan_conversion(instances, rootless=lambda inst: False, podman_ready=lambda:
             if reason:
                 problems.append(reason)
                 continue
+            found = tls_directives(inst["path"])
+            if found:
+                problems.append("'%s' %s" % (inst["id"], tls_directives_problem(found)))
+                continue
             convert.append(inst["id"])
             # Rootless Podman reports rootless too, but its edge takes its
             # sockets from systemd and keeps client addresses.
@@ -1436,7 +1450,8 @@ def run_module():
     module = AnsibleModule(
         argument_spec=dict(
             state=dict(type="str",
-                       choices=["sync", "start", "stop", "issue", "plan", "import", "prune"],
+                       choices=["sync", "start", "stop", "issue", "plan", "import", "prune",
+                                "check"],
                        default="sync"),
             recreate=dict(type="bool", default=False),
             restart=dict(type="bool", default=False),
@@ -1450,6 +1465,7 @@ def run_module():
         ),
         required_if=[("state", "sync", ("instance_id", "instance_path")),
                      ("state", "import", ("instance_id", "instance_path")),
+                     ("state", "check", ("instance_id", "instance_path")),
                      ("state", "plan", ("instances",))],
     )
     params = module.params
@@ -1485,6 +1501,14 @@ def run_module():
                 return podman
             result = dict(plan_conversion(params["instances"] or [], rootless, podman_ready),
                           changed=False)
+        elif params["state"] == "check":
+            found = tls_directives(params["instance_path"])
+            if found:
+                problem = tls_directives_problem(found)
+                module.fail_json(msg="Instance '%s' %s." % (params["instance_id"], problem),
+                                 reason="it %s." % problem, tls_directives=found)
+                return
+            result = {"changed": False, "tls_directives": []}
         elif params["state"] == "prune":
             removed = prune_spoa_volumes(run, params["inspect_command"])
             result = {"changed": bool(removed), "removed": removed}
