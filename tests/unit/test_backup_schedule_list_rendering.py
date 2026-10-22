@@ -109,3 +109,33 @@ class TestAutoPurgeLine:
         line = _auto_purge_line(_job(""))
         assert line.startswith("Auto-purge: not configured")
         assert "accumulate" in line
+
+
+SET = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "schedule_set.yml")
+
+
+def _set_output(policy):
+    with open(SET) as f:
+        task = next(t for t in yaml.safe_load(f)
+                    if t.get("name") == "Report schedule set")
+    out = _render(task["ansible.builtin.debug"]["msg"],
+                  cron_expression=CRON, _retention_policy=policy)
+    return [line for line in out.splitlines() if line]
+
+
+class TestScheduleSetReport:
+    """`schedule set` echoes the policy in the words `schedule list` uses."""
+
+    @pytest.mark.parametrize("policy, flags", [
+        ({"keep-within": "90d"}, "--keep-within 90d"),
+        ({"keep-weekly": "4", "keep-daily": "7"},
+         "--keep-daily 7 --keep-weekly 4"),
+    ])
+    def test_the_policy_is_reported_as_list_shows_it(self, policy, flags):
+        assert _set_output(policy) == [
+            "Backup schedule set: %s" % CRON,
+            _auto_purge_line(_job(flags)),
+        ]
+
+    def test_no_policy_reports_that_snapshots_accumulate(self):
+        assert _set_output({})[1] == _auto_purge_line(_job(""))

@@ -41,4 +41,10 @@
 
 - name: Report schedule set
   ansible.builtin.debug:
-    msg: "Backup schedule set: {{ cron_expression }}"
+    msg: |-
+      Backup schedule set: {{ cron_expression }}
+      {% if _retention_policy %}
+      Auto-purge: --{{ _retention_policy | dictsort | map('join', ' ') | join(' --') }}
+      {% else %}
+      Auto-purge: not configured (snapshots will accumulate)
+      {% endif %}
