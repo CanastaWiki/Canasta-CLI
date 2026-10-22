@@ -207,6 +207,30 @@ services:
     # still booting.
     depends_on:
       - web
+    # Varnish resolves its backend host once, when it loads the VCL. When the
+    # daemon restores web and varnish together after a restart, the lookup can
+    # come before Docker's DNS knows web; the name then goes to public DNS,
+    # where .web is a delegated TLD and answers 127.0.53.53. Wait until web
+    # resolves to a real address; after a minute, exit and let the restart
+    # policy try again.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        tries=0
+        while :; do
+          case "$$(getent hosts web)" in
+            ""|127.*) ;;
+            *) exec /usr/local/bin/docker-varnish-entrypoint "$$@" ;;
+          esac
+          tries=$$((tries + 1))
+          if [ "$$tries" -ge 60 ]; then
+            echo "The web container's address did not resolve; Varnish will start again." >&2
+            exit 1
+          fi
+          sleep 1
+        done
+      - varnish
     healthcheck:
       test: ["CMD", "varnishadm", "ping"]
       interval: 10s
