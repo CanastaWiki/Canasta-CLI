@@ -1083,6 +1083,14 @@ commands:
       A restarted instance whose startup `composer update` failed is
       reported with a warning.
 
+      On Docker Compose, an instance whose new image may not fit on the
+      filesystem that holds container images is not upgraded and keeps
+      running as it is. The size of the image it runs now is the measure,
+      so the check can ask for more space than the pull needs. The
+      filesystem also needs at least 250,000 free inodes, since an image
+      unpacks to over 100,000 files. `canasta image prune` reclaims the
+      images no instance uses.
+
       On Docker Compose, upgrade first moves each host's instances behind
       the HAProxy edge, keeping their hostnames, ports and certificates. A
       host whose instances the edge cannot all serve is refused with the
