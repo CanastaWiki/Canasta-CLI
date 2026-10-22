@@ -15,7 +15,7 @@ from ansible.template import Templar, trust_as_template
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 RECLAIM = os.path.join(
-    REPO_ROOT, "roles", "orchestrator", "tasks", "image_reclaim.yml")
+    REPO_ROOT, "roles", "orchestrator", "tasks", "_image_reclaim_runtime.yml")
 
 
 def _flatten(tasks):
@@ -131,8 +131,7 @@ class TestWiring:
     def test_references_include_every_profile(self):
         task = _task("List the images each instance's compose project references")
         assert task["ansible.builtin.command"]["cmd"] == (
-            "{{ compose_command | default('docker compose') }} "
-            "--profile '*' config --images")
+            "docker compose --profile '*' config --images")
         assert task["ansible.builtin.command"]["chdir"] == (
             "{{ _reclaim_compose_path }}")
         assert task["failed_when"] is False
@@ -147,6 +146,7 @@ class TestWiring:
         }
         paths = _render_with_task_vars(
             "Note the instance directories present here", fact,
+            _reclaim_cli="docker",
             _reclaim_dirs={"results": [
                 stat_result("/home/a/site", True),
                 stat_result("/home/b/gone", False),
@@ -168,6 +168,6 @@ class TestWiring:
             names.index("Prune dangling images (sidecar rebuild orphans)"))
 
     def test_the_report_counts_built_images(self):
-        msg = _task("Report Docker reclaim")["ansible.builtin.debug"]["msg"]
+        msg = _task("Report the reclaim")["ansible.builtin.debug"]["msg"]
         assert "_reclaim_built_removed" in msg
         assert "_reclaim_built_skipped" in msg
