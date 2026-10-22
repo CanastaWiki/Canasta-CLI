@@ -1,0 +1,104 @@
+---
+# Refuse a Compose upgrade whose image pull would not fit on the disk.
+#
+# A pull that runs out of space fails partway through unpacking, after the
+# upgrade has already refreshed the instance's configuration. The size of
+# the image the instance runs now stands in for the new one: layers the
+# two share are not downloaded again, so this can ask for more than the
+# pull needs, never less.
+#
+# Inodes run out separately from bytes. A Canasta image unpacks to about
+# 115,000 files, so a filesystem with fewer free inodes than the floor below
+# fails the pull with "no space left on device" however many bytes are
+# free. A filesystem that allocates inodes on demand reports none in total
+# and is not checked.
+#
+# Input: instance_id, instance_path, inspect_command, canasta_default_image
+# Output: _upgrade_space_reason ('' when the upgrade may go ahead)
+
+- name: Read the image the instance runs
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: CANASTA_IMAGE
+  register: _space_current
+
+# Mirrors upgrade_image_tag.yml: only a version tag under the official
+# repository is moved to the release's image.
+- name: Name the image the upgrade pulls
+  ansible.builtin.set_fact:
+    _space_current_image: "{{ _space_current.value | default('', true) }}"
+    _space_target_image: >-
+      {{ canasta_default_image
+         if (_space_current.value | default('', true))
+            is match('^ghcr\.io/canastawiki/canasta:[0-9]+\.[0-9]+\.[0-9]+$')
+         else (_space_current.value | default('', true)) }}
+
+# A version tag never changes, so one already on the host is not pulled
+# again. Any other tag may have moved since it was last pulled.
+- name: Measure the image against the free space where images are stored
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      case "$TARGET" in
+        *:[0-9]*.[0-9]*.[0-9]*)
+          if "$CLI" image inspect "$TARGET" >/dev/null 2>&1; then
+            echo present; exit 0
+          fi ;;
+      esac
+      if [ "$CLI" = podman ]; then
+        store=$(podman info --format '{% raw %}{{.Store.GraphRoot}}{% endraw %}' 2>/dev/null)
+      else
+        store=$(docker info --format '{% raw %}{{.DockerRootDir}}{% endraw %}' 2>/dev/null)
+      fi
+      [ -n "$store" ] && [ -d "$store" ] || { echo unknown; exit 0; }
+      need=-
+      if [ -n "$CURRENT" ]; then
+        need=$("$CLI" image inspect "$CURRENT" --format '{% raw %}{{.Size}}{% endraw %}' 2>/dev/null) || need=-
+      fi
+      free=$(df -Pk "$store" | awk 'NR==2{print $4}')
+      [ -n "$free" ] && free=$((free * 1024))
+      inodes=$(df -Pi "$store" | awk 'NR==2{print $2, $4}')
+      echo "${need:--} ${free:--} ${inodes:-- -} $store"
+    executable: /bin/bash
+  environment:
+    CLI: "{{ inspect_command }}"
+    CURRENT: "{{ _space_current_image }}"
+    TARGET: "{{ _space_target_image | trim }}"
+  register: _space_probe
+  changed_when: false
+  failed_when: false
+
+# A probe that could not measure something lets the upgrade go ahead, as
+# it did before this check existed.
+- name: Decide whether the image fits
+  ansible.builtin.set_fact:
+    _upgrade_space_reason: >-
+      {{ ("'" ~ instance_id ~ "': not upgraded, because its image needs up to "
+          ~ (_space_need | int | human_readable) ~ " and "
+          ~ (_space_free | int | human_readable) ~ " is free on "
+          ~ _space_store ~ "; run 'canasta image prune' or free space,"
+          ~ " then upgrade again")
+         if _space_short_bytes
+         else ("'" ~ instance_id ~ "': not upgraded, because its image"
+               ~ " unpacks to about 115,000 files and only " ~ _space_ifree
+               ~ " inodes are free on " ~ _space_store ~ "; run 'canasta"
+               ~ " image prune' or remove files, then upgrade again")
+         if _space_short_inodes
+         else '' }}
+  vars:
+    _space_inode_floor: 250000
+    _space_fields: "{{ (_space_probe.stdout | default('')).split() }}"
+    _space_measured: "{{ _space_fields | length == 5 }}"
+    _space_need: "{{ _space_fields[0] if _space_measured else '-' }}"
+    _space_free: "{{ _space_fields[1] if _space_measured else '-' }}"
+    _space_itotal: "{{ _space_fields[2] if _space_measured else '-' }}"
+    _space_ifree: "{{ _space_fields[3] if _space_measured else '-' }}"
+    _space_store: "{{ _space_fields[4] if _space_measured else '' }}"
+    _space_short_bytes: >-
+      {{ _space_need is match('^[0-9]+$') and _space_free is match('^[0-9]+$')
+         and (_space_need | int) > (_space_free | int) }}
+    _space_short_inodes: >-
+      {{ _space_itotal is match('^[0-9]+$') and _space_ifree is match('^[0-9]+$')
+         and (_space_itotal | int) > 0
+         and (_space_ifree | int) < _space_inode_floor }}

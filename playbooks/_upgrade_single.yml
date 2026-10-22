@@ -72,11 +72,29 @@
          + ["'" ~ instance_id ~ "': not upgraded, because " ~ _upgrade_caddy_tls.reason] }}
   when: _upgrade_caddy_tls.tls_directives | default([]) | length > 0
 
+- name: Reset the image space check for this instance
+  ansible.builtin.set_fact:
+    _upgrade_space_reason: ''
+
+- name: Check that the image pull fits on the disk
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/upgrade/tasks/check_image_space.yml"
+  when:
+    - not (instance_is_k8s | bool)
+    - not (unfinished_pull | bool)
+    - _upgrade_caddy_tls.tls_directives | default([]) | length == 0
+    - _inst.value.buildFrom | default('') == ''
+
+- name: Skip an instance whose image would not fit
+  ansible.builtin.set_fact:
+    _upgrade_failures: "{{ (_upgrade_failures | default([])) + [_upgrade_space_reason] }}"
+  when: _upgrade_space_reason | length > 0
+
 - name: Decide whether the instance upgrades
   ansible.builtin.set_fact:
     _upgrade_skip: >-
       {{ (unfinished_pull | bool)
-         or (_upgrade_caddy_tls.tls_directives | default([]) | length > 0) }}
+         or (_upgrade_caddy_tls.tls_directives | default([]) | length > 0)
+         or (_upgrade_space_reason | length > 0) }}
 
 - name: Run upgrade role (migrations + refresh + restart)
   when: not (_upgrade_skip | bool)
