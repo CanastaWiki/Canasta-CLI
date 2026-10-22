@@ -174,34 +174,32 @@ else
 fi
 echo ""
 
-# --- Test 4: Backup schedule set/list without --purge ---
-echo "Test 4: backup schedule list (no --purge)"
+# --- Test 4: Backup schedule set/list without a retention flag ---
+echo "Test 4: backup schedule list (no retention flag)"
 if ! canasta backup schedule set -i "${INSTANCE_ID}" "0 3 * * *" 2>&1; then
-    fail "schedule set without --purge"
+    fail "schedule set without a retention flag"
 else
     SCHED_OUTPUT=$(canasta backup schedule list -i "${INSTANCE_ID}" 2>&1) || true
     if echo "${SCHED_OUTPUT}" | grep -q "0 3 \* \* \*" \
        && echo "${SCHED_OUTPUT}" | grep -qi "not configured"; then
-        pass "schedule list shows 'not configured' when --purge absent"
+        pass "schedule list shows 'not configured' with no retention flag"
     else
-        fail "schedule list (no --purge) unexpected output: ${SCHED_OUTPUT}"
+        fail "schedule list (no retention flag) unexpected output: ${SCHED_OUTPUT}"
     fi
 fi
 echo ""
 
-# --- Test 5: Backup schedule set/list with --purge ---
-echo "Test 5: backup schedule list (with --purge)"
-if ! canasta backup schedule set -i "${INSTANCE_ID}" "0 4 * * *" --purge-older-than 30d 2>&1; then
-    fail "schedule set with --purge-older-than"
+# --- Test 5: Backup schedule set/list with a retention flag ---
+echo "Test 5: backup schedule list (with --keep-within)"
+if ! canasta backup schedule set -i "${INSTANCE_ID}" "0 4 * * *" --keep-within 30d 2>&1; then
+    fail "schedule set with --keep-within"
 else
     SCHED_OUTPUT=$(canasta backup schedule list -i "${INSTANCE_ID}" 2>&1) || true
-    # --purge-older-than is a spelling of --keep-within, and the schedule
-    # reports the retention in restic's own flags.
     if echo "${SCHED_OUTPUT}" | grep -q "0 4 \* \* \*" \
        && echo "${SCHED_OUTPUT}" | grep -q -- "--keep-within 30d"; then
-        pass "schedule list shows the retention flags when --purge set"
+        pass "schedule list shows the retention flags when --keep-within set"
     else
-        fail "schedule list (with --purge) unexpected output: ${SCHED_OUTPUT}"
+        fail "schedule list (with --keep-within) unexpected output: ${SCHED_OUTPUT}"
     fi
 fi
 echo ""

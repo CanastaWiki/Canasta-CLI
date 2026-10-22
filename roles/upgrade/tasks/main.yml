@@ -62,6 +62,7 @@
     - tighten_env_permissions.yml
     - remove_enable_edge.yml
     - rename_tls_keys.yml
+    - convert_backup_schedule_retention.yml
   loop_control:
     loop_var: _migration
 

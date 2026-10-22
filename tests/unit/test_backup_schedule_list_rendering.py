@@ -90,7 +90,6 @@ def _job(purge_args):
 
 class TestAutoPurgeLine:
     def test_a_single_duration_is_shown_as_its_flag(self):
-        """What --purge-older-than writes, reported as restic spells it."""
         assert _auto_purge_line(_job("--keep-within 30d")) == (
             "Auto-purge: --keep-within 30d")
 

@@ -1,0 +1,8 @@
+---
+# Migration: rewrite a config/backup-schedule.yml that still carries the
+# single purge_older_than duration as a retention policy.
+
+- name: Convert the backup schedule's retention
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_read.yml
+  when: _mig.files.backup_schedule_has_purge_older_than | default(false)
