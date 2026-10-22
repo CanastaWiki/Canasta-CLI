@@ -117,6 +117,7 @@
         {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
       vars:
         exec_service: "{{ _db_admin_service }}"
+        exec_dotenv: "{{ _db_admin_dotenv }}"
         exec_no_log: true
         exec_command: >-
           rc=0;

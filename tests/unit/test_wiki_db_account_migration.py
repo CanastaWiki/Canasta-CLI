@@ -1,11 +1,13 @@
-"""upgrade moves existing Compose instances onto MediaWiki's own account.
+"""upgrade moves existing instances onto MediaWiki's own account.
 
-The move runs after upgrade's restart, only for a running bundled-database
-instance that still uses root and has not opted out, refuses when a
-settings file sets $wgDBuser/$wgDBpassword or the server holds a database
-no wiki declares, and rolls back to root if anything fails after the
-switch. CANASTA_DB_ROOT_ACCOUNT=true is the opt-out, and it also puts a
-moved instance back on root at its next start.
+The move runs after upgrade's restart, only for a running instance that
+still uses the database administrator account (root on the bundled
+database, MYSQL_USER on an external one, which is moved on Compose only)
+and has not opted out. It refuses when a settings file sets
+$wgDBuser/$wgDBpassword or the server holds a database no wiki declares, and
+rolls back to the administrator account if anything fails after the switch.
+CANASTA_DB_ROOT_ACCOUNT=true is the opt-out, and it also puts a moved
+instance back on root at its next start.
 """
 
 import os
@@ -58,8 +60,13 @@ class TestWhoIsMoved:
     def _decide(self, env, orchestrator="compose", running=True):
         check = _named(_load(CHECK),
                        "Decide whether MediaWiki waits to move to its own database account")
+        # The task's vars are templated first, as Ansible does.
+        variables = {"_mig_db_env": {"variables": env},
+                     "instance_orchestrator": orchestrator, **TEMPLAR_VARS}
+        for name, expr in check["vars"].items():
+            variables[name] = _render(expr, **variables)
         pending = _render(check["ansible.builtin.set_fact"]["_mig_db_pending"],
-                          _mig_db_env={"variables": env})
+                          **variables)
         task = _named(_load(MIGRATE),
                       "Decide whether to move MediaWiki to its own database account")
         return _render(task["ansible.builtin.set_fact"]["_mig_db_account"],
@@ -72,11 +79,26 @@ class TestWhoIsMoved:
         assert self._decide({"WIKI_DB_USER": "root"}, orchestrator) is True
         assert self._decide({}, orchestrator) is True
 
+    EXTERNAL = {"USE_EXTERNAL_DB": "true", "MYSQL_USER": "op"}
+
+    def test_an_external_compose_instance_on_its_administrator_is_moved(self):
+        assert self._decide({"WIKI_DB_USER": "op", **self.EXTERNAL}) is True
+        assert self._decide(dict(self.EXTERNAL)) is True
+
+    def test_an_external_kubernetes_instance_is_left_alone(self):
+        assert self._decide({"WIKI_DB_USER": "op", **self.EXTERNAL},
+                            "kubernetes") is False
+
+    def test_an_external_instance_with_its_own_account_is_left_alone(self):
+        assert self._decide({"WIKI_DB_USER": "mediawiki_site",
+                             **self.EXTERNAL}) is False
+
     @pytest.mark.parametrize("orchestrator", ["compose", "kubernetes"])
     @pytest.mark.parametrize("env, running", [
         ({"WIKI_DB_USER": "mediawiki"}, True),
         ({"WIKI_DB_USER": "root", "CANASTA_DB_ROOT_ACCOUNT": "true"}, True),
-        ({"WIKI_DB_USER": "root", "USE_EXTERNAL_DB": "true"}, True),
+        ({"WIKI_DB_USER": "op", "MYSQL_USER": "op", "USE_EXTERNAL_DB": "true",
+          "CANASTA_DB_ROOT_ACCOUNT": "true"}, True),
         ({"WIKI_DB_USER": "root"}, False),
     ])
     def test_others_are_left_alone(self, env, orchestrator, running):
@@ -131,24 +153,29 @@ class TestSwitchAndRollback:
         record = self._switch()["block"][names.index("Record the account in .env")]
         assert record["ansible.builtin.include_role"] == {
             "name": "config", "tasks_from": "set.yml"}
-        assert "WIKI_DB_USER=mediawiki" in record["vars"]["config_settings_override"]
+        assert "WIKI_DB_USER={{ _mig_db_user }}" in record["vars"]["config_settings_override"]
+        choose = self._switch()["block"][names.index("Choose the account")]
+        assert "canasta_wiki_db_user(_mig_db_external | bool)" in (
+            choose["ansible.builtin.set_fact"]["_mig_db_user"])
+        assert names.index("Choose the account") < names.index("Record the account in .env")
         assert record["vars"]["no_restart"] is True
         assert (names.index("Record the account in .env")
                 < names.index("Restart onto the new account")
                 < names.index("Check that each wiki reaches its database as the new account"))
 
-    def test_a_failure_rolls_back_to_root_and_restarts(self):
+    def test_a_failure_rolls_back_to_the_administrator_and_restarts(self):
         rescue = self._switch()["rescue"]
         names = [t["name"] for t in rescue]
-        roll = rescue[names.index("Roll back to the root account")]
-        assert roll["vars"]["config_settings_override"] == "WIKI_DB_USER=root"
-        assert names.index("Roll back to the root account") < \
-            names.index("Restart on the root account")
+        roll = rescue[names.index("Roll back to the administrator account")]
+        assert roll["vars"]["config_settings_override"] == (
+            "WIKI_DB_USER={{ _mig_db_admin_user }}")
+        assert names.index("Roll back to the administrator account") < \
+            names.index("Restart on the administrator account")
 
     def test_config_set_does_not_advise_reconcile_before_its_own_restart(self):
         switch = self._switch()
         for tasks, name in ((switch["block"], "Record the account in .env"),
-                            (switch["rescue"], "Roll back to the root account")):
+                            (switch["rescue"], "Roll back to the administrator account")):
             assert _named(tasks, name)["vars"]["config_restart_by_caller"] is True
 
     @pytest.mark.parametrize("no_restart, by_caller, advised", [

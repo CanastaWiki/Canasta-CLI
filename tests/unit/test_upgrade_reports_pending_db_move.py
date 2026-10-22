@@ -73,15 +73,17 @@ class TestDryRun:
         assert task["ansible.builtin.include_tasks"] == "_upgrade_dry_run_instance.yml"
         assert "_edge_refused" in task["loop"]
 
-    @pytest.mark.parametrize("running, phrase", [
-        (True, "would move MediaWiki of 'mysite' off the database root account"),
-        (False, "would leave 'mysite' stopped and skip moving MediaWiki"),
+    @pytest.mark.parametrize("running, external, phrase", [
+        (True, False, "would move MediaWiki of 'mysite' off the database root account"),
+        (True, True, "off the database administrator account"),
+        (False, False, "would leave 'mysite' stopped and skip moving MediaWiki"),
     ])
-    def test_the_report_says_whether_the_move_runs(self, running, phrase):
+    def test_the_report_says_whether_the_move_runs(self, running, external, phrase):
         task = _named(_load(DRY_RUN), "Report the database account move")
         msg = _render(task["ansible.builtin.debug"]["msg"],
-                      _container_running=running, instance_id="mysite")
-        assert phrase in msg
+                      _container_running=running, instance_id="mysite",
+                      _mig_db_external=external)
+        assert phrase in " ".join(msg.split())
 
     @pytest.mark.parametrize("exists, pending, shown", [
         (True, True, True),

@@ -35,10 +35,12 @@
     msg: >-
       {% if _container_running | bool -%}
       Dry run - would move MediaWiki of '{{ instance_id }}' off the database
-      root account, unless a settings file or an undeclared database stops it.
+      {{ 'administrator' if _mig_db_external | bool else 'root' }} account,
+      unless a settings file or an undeclared database stops it.
       {%- else -%}
       Dry run - would leave '{{ instance_id }}' stopped and skip moving
-      MediaWiki off the database root account.
+      MediaWiki off the database
+      {{ 'administrator' if _mig_db_external | bool else 'root' }} account.
       {%- endif %}
   when:
     - _upgrade_dry_env.stat.exists

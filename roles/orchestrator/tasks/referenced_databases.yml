@@ -1,0 +1,26 @@
+---
+# Keep the databases whose names appear in the instance's settings files.
+#
+# An external server can hold other applications' databases, so a database
+# no wiki declares matters only when a setting names it (a Cargo database
+# set with $wgCargoDBname, for example).
+#
+# Input: instance_path, refdb_names (list of database names)
+# Output: _refdb_referenced (the names a settings file mentions)
+
+- name: Find the databases the settings files name
+  ansible.builtin.shell:
+    cmd: >-
+      for db in {{ refdb_names | map('quote') | join(' ') }}; do
+      grep -rqwF --include='*.php' -- "$db" config && echo "$db";
+      done; true
+    chdir: "{{ instance_path }}"
+  register: _refdb_grep
+  changed_when: false
+  when: refdb_names | length > 0
+
+- name: Record the databases the settings files name
+  ansible.builtin.set_fact:
+    _refdb_referenced: >-
+      {{ (_refdb_grep.stdout_lines | default([]))
+         if refdb_names | length > 0 else [] }}

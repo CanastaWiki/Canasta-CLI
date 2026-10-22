@@ -35,7 +35,21 @@ class TestDumpPassword:
             "where it is visible in the process list: %r" % cmd)
 
     def test_password_passed_via_mysql_pwd(self):
-        assert 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD"' in _dump_command()
+        # db_admin.yml's _db_admin_pwd is a MYSQL_PWD= assignment.
+        assert "{{ _db_admin_pwd }} mariadb-dump {{ _db_admin_args }}" in _dump_command()
+
+    def test_runs_where_db_admin_says(self):
+        tasks = _tasks()
+        assert tasks[0]["ansible.builtin.include_tasks"].endswith(
+            "roles/orchestrator/tasks/db_admin.yml")
+        for task in tasks[1:]:
+            v = task.get("vars") or {}
+            for key in ("exec_service", "copy_service"):
+                if key in v:
+                    assert v[key] == "{{ _db_admin_service }}", task["name"]
+        dump = next(t for t in tasks if "mariadb-dump" in
+                    (t.get("vars") or {}).get("exec_command", ""))
+        assert dump["vars"]["exec_dotenv"] == "{{ _db_admin_dotenv }}"
 
 
 class TestExportFileMode:
@@ -51,7 +65,7 @@ class TestExportFileMode:
 
     def test_export_file_precreated_0600_before_copy(self):
         names = [t.get("name") for t in _tasks()]
-        copy_idx = names.index("Copy dump from the db container to the host")
+        copy_idx = names.index("Copy dump from the container to the host")
         pre = [
             t for t in self._file_tasks()
             if names.index(t["name"]) < copy_idx
@@ -62,7 +76,7 @@ class TestExportFileMode:
 
     def test_export_file_chmodded_0600_after_copy(self):
         names = [t.get("name") for t in _tasks()]
-        copy_idx = names.index("Copy dump from the db container to the host")
+        copy_idx = names.index("Copy dump from the container to the host")
         post = [
             t for t in self._file_tasks()
             if names.index(t["name"]) > copy_idx

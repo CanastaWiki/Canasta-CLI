@@ -40,6 +40,7 @@
           ansible.builtin.include_tasks: exec.yml
           vars:
             exec_service: "{{ _db_admin_service }}"
+            exec_dotenv: "{{ _db_admin_dotenv }}"
             exec_command: >-
               {{ _db_admin_pwd }} mariadb {{ _db_admin_args }}
               -N -e "SHOW DATABASES"

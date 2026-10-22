@@ -21,6 +21,9 @@ sys.path.insert(0, REPO_ROOT)
 import direct_commands  # noqa: E402
 from direct_commands import _helpers, maintenance  # noqa: E402
 
+sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
+import canasta_dotenv  # noqa: E402
+
 EXEC_YML = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
                         "exec.yml")
 RUN_UPDATE_PHP_YML = os.path.join(REPO_ROOT, "roles", "mediawiki", "tasks",
@@ -238,6 +241,7 @@ def _render_compose_exec(extra):
     template = build["ansible.builtin.set_fact"]["_exec_full_cmd"]
     env = jinja2.Environment()
     env.filters["quote"] = shlex.quote
+    env.filters["canasta_dotenv_exec"] = canasta_dotenv.canasta_dotenv_exec
     variables = {"compose_command": "docker compose",
                  "_exec_shell": "sh", "exec_command": "php x.php"}
     variables.update(extra)
