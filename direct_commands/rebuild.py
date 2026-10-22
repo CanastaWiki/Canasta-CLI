@@ -126,6 +126,9 @@ def cmd_rebuild(args):
         )
         return 0
 
+    if not getattr(args, "no_restart", False) and _helpers._refuse_caddy_tls(inst_id, inst):
+        return 1
+
     build_argv = ["build"]
     if getattr(args, "no_cache", False):
         build_argv.append("--no-cache")

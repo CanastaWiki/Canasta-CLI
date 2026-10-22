@@ -435,7 +435,10 @@ commands:
         description: >-
           Build argument KEY=VALUE forwarded to the --build-from image
           builds (repeatable, e.g. --build-arg MW_VERSION=master). A
-          user-supplied BASE_IMAGE overrides the auto-detected base.
+          user-supplied BASE_IMAGE overrides the auto-detected base: the
+          local CanastaBase build when CanastaBase/ is in the source
+          directory, else the published CanastaBase image for Canasta
+          source and the current Canasta release image for an overlay.
       - name: database
         short: d
         type: path
@@ -1097,6 +1100,12 @@ commands:
       image rebuilt, and its web pods restart when the new build differs
       from the image they run.
 
+      An instance built from source is rebuilt on the upgrade's Canasta
+      release: a `BASE_IMAGE` build argument that names an older
+      `ghcr.io/canastawiki/canasta:<version>` image is moved to the new
+      release, in the rebuild and in the recorded build arguments. Any other
+      `BASE_IMAGE` is kept as given.
+
       Upgrade also moves a running instance on the bundled database off the
       database root account, onto MediaWiki's own `mediawiki` account with
       access to the instance's wiki databases only. It leaves the instance
@@ -1105,7 +1114,9 @@ commands:
       tries again on the next upgrade. `canasta config set
       CANASTA_DB_ROOT_ACCOUNT=true` keeps an instance on root. On a
       gitops-managed Kubernetes instance the move is staged with the rest
-      and takes effect at the push and sync.
+      and takes effect at the push and sync. A stopped instance is left
+      stopped and on root until an upgrade runs while it is running;
+      `--dry-run` and the end of the upgrade name each such instance.
 
       By default the CLI itself updates to the latest released version
       within the current major (the highest vX.Y.Z tag whose major matches

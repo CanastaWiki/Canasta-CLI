@@ -96,8 +96,10 @@ class TestWhoIsGuarded:
             names.index("Run upgrade role (migrations + refresh + restart)")
         skip = _named(UPGRADE_SINGLE, "Skip an instance whose gitops pull is unfinished")
         assert "_upgrade_failures" in skip["ansible.builtin.set_fact"]
+        decide = _named(UPGRADE_SINGLE, "Decide whether the instance upgrades")
+        assert "unfinished_pull" in decide["ansible.builtin.set_fact"]["_upgrade_skip"]
         run = _named(UPGRADE_SINGLE, "Run upgrade role (migrations + refresh + restart)")
-        assert "unfinished_pull" in str(run["when"])
+        assert "_upgrade_skip" in str(run["when"])
 
     def test_read_only_commands_delete_and_stop_are_allowed(self):
         cmds = {c["name"]: c for c in _load(DEFS)["commands"]}

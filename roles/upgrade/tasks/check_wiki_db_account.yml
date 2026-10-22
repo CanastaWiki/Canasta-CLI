@@ -1,0 +1,22 @@
+---
+# Decide whether an instance's MediaWiki still waits to move off the
+# database root account: it is on the bundled database, still uses root,
+# and has not opted out (CANASTA_DB_ROOT_ACCOUNT=true). Shared by the move
+# itself and by `upgrade --dry-run`.
+#
+# Input: instance_path
+# Output: _mig_db_env, _mig_db_pending
+
+- name: Read the database account settings
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _mig_db_env
+  no_log: true  # registers the whole .env, including passwords
+
+- name: Decide whether MediaWiki waits to move to its own database account
+  ansible.builtin.set_fact:
+    _mig_db_pending: >-
+      {{ (_mig_db_env.variables.USE_EXTERNAL_DB | default('false') | string | lower) != 'true'
+         and (_mig_db_env.variables.CANASTA_DB_ROOT_ACCOUNT | default('false') | string | lower) != 'true'
+         and (_mig_db_env.variables.WIKI_DB_USER | default('root', true)) == 'root' }}

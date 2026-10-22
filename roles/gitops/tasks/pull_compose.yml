@@ -24,7 +24,18 @@
   ansible.builtin.include_tasks: "sync_wikis_yaml.yml"
   when: gitops_resolve_mode | default('') != 'continue'
 
-# Likewise for direct .env edits, which the .env render would overwrite.
+# Recorded so the files the .env sync below changes can be told apart from
+# changes the operator already had.
+- name: List tracked files changed before the .env sync
+  ansible.builtin.command:
+    cmd: "git status --porcelain --untracked-files=no"
+    chdir: "{{ instance_path }}"
+  register: _pull_dirty_before_sync
+  changed_when: false
+  when: gitops_resolve_mode | default('') != 'continue'
+
+# Direct .env edits would be overwritten by the .env render; the sync saves
+# them in the sources and the pull commits them below.
 - name: Write .env edits into the gitops sources
   ansible.builtin.include_tasks: "sync_env.yml"
   when: gitops_resolve_mode | default('') != 'continue'
@@ -44,17 +55,109 @@
   changed_when: false
   when: gitops_resolve_mode | default('') != 'continue'
 
+- name: Separate the .env sync's changes from earlier ones
+  ansible.builtin.set_fact:
+    _pull_sync_paths: >-
+      {{ _pull_uncommitted.stdout_lines | map('regex_replace', '^...', '')
+         | reject('in', _pull_dirty_before_paths) | list }}
+  vars:
+    _pull_dirty_before_paths: >-
+      {{ _pull_dirty_before_sync.stdout_lines
+         | map('regex_replace', '^...', '') | list }}
+  when: gitops_resolve_mode | default('') != 'continue'
+
+# A host that cannot push keeps the .env sync's changes uncommitted, where
+# the check below stops the pull on them.
+- name: Read hosts.yaml for this host's role
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/hosts.yaml"
+  register: _pull_hosts_raw
+  failed_when: false
+  when:
+    - gitops_resolve_mode | default('') != 'continue'
+    - _pull_sync_paths | length > 0
+
+- name: Decide whether to commit the .env sync's changes
+  ansible.builtin.set_fact:
+    _pull_commit_sync: >-
+      {{ _pull_sync_paths | length > 0
+         and _pull_hosts_raw.content is defined
+         and ((_pull_hosts_raw.content | b64decode | from_yaml).hosts
+              | default([])
+              | selectattr('name', 'equalto',
+                           _sync_env_host_raw.content | b64decode | trim)
+              | first | default({})).get('role', 'both')
+            in ['source', 'both'] }}
+  when: gitops_resolve_mode | default('') != 'continue'
+
 - name: Fail if uncommitted changes exist
   ansible.builtin.fail:
     msg: >-
       Cannot pull: the instance directory has local changes to tracked
       files that a pull could overwrite. Share them with
       'canasta gitops add <file>' then 'canasta gitops push', or discard
-      them with 'git checkout -- <file>', then retry.
+      them with 'git checkout HEAD -- <file>', then retry.
       Changed files: {{ _pull_uncommitted.stdout }}
   when:
     - gitops_resolve_mode | default('') != 'continue'
     - _pull_uncommitted.stdout | trim | length > 0
+    - not (_pull_commit_sync | bool)
+      or _pull_uncommitted.stdout_lines | length > _pull_sync_paths | length
+
+# The .env sync's changes are committed the way 'gitops push' commits, so
+# the rebase below replays them like any local commit.
+- name: Guard against committing unencrypted git-crypt files
+  ansible.builtin.include_tasks: "_check_gitcrypt_staged.yml"
+  when:
+    - gitops_resolve_mode | default('') != 'continue'
+    - _pull_commit_sync | bool
+
+- name: Check that every commit since the last apply is local
+  ansible.builtin.shell:
+    cmd: >-
+      applied=$(cat .gitops-applied) &&
+      git merge-base --is-ancestor "$applied" HEAD &&
+      git merge-base --is-ancestor
+      "$(git merge-base HEAD @{upstream})" "$applied"
+    chdir: "{{ instance_path }}"
+  register: _pull_applied_is_local
+  changed_when: false
+  failed_when: false
+  when:
+    - gitops_resolve_mode | default('') != 'continue'
+    - _pull_commit_sync | bool
+
+- name: Commit the .env sync's changes
+  ansible.builtin.command:
+    argv: >-
+      {{ ['git', '-c', 'commit.gpgsign=false', 'commit', '-m',
+          'Save .env changes in the gitops sources', '--']
+         + _pull_sync_paths }}
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when:
+    - gitops_resolve_mode | default('') != 'continue'
+    - _pull_commit_sync | bool
+
+# The instance already runs the committed values.
+- name: Record the .env sync's commit as applied
+  ansible.builtin.shell:
+    cmd: "git rev-parse HEAD > .gitops-applied"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when:
+    - gitops_resolve_mode | default('') != 'continue'
+    - _pull_commit_sync | bool
+    - _pull_applied_is_local.rc == 0
+
+- name: Report the .env sync's commit
+  ansible.builtin.debug:
+    msg: >-
+      Committed the .env changes locally; 'canasta gitops push' shares
+      them.
+  when:
+    - gitops_resolve_mode | default('') != 'continue'
+    - _pull_commit_sync | bool
 
 # --- Step 2: Save state before pull ---
 # 'gitops resolve --continue' supplies _pull_prev_commit and _pull_result for
