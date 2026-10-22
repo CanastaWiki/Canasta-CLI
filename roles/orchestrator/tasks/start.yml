@@ -11,6 +11,14 @@
 - name: Start (Docker Compose)
   when: not (instance_is_k8s | bool)
   block:
+    # Also before the instance's first move: this start renders its
+    # Caddyfile for plain HTTP and adds it to the edge.
+    - name: Refuse tls directives Caddy cannot use behind the edge
+      canasta_edge:
+        state: check
+        instance_id: "{{ instance_id | default(id) }}"
+        instance_path: "{{ instance_path }}"
+
     - name: Sync compose profiles
       ansible.builtin.include_tasks: sync_compose_profiles.yml
 

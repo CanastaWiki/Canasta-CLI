@@ -61,6 +61,15 @@
           {{ _upgrade_instances.instances.keys() | list
              | reject('in', _edge_refused | default([])) | list }}
 
+    - name: Report each instance's database account move
+      ansible.builtin.include_tasks: _upgrade_dry_run_instance.yml
+      loop: >-
+        {{ _upgrade_instances.instances | dict2items
+           | rejectattr('key', 'in', _edge_refused | default([])) | list }}
+      loop_control:
+        loop_var: _inst
+        label: "{{ _inst.key }}"
+
     - name: Report purge that would run
       ansible.builtin.debug:
         msg: >-
@@ -110,6 +119,14 @@
           {{ 'is staged in its gitops repo and deploys'
              if (_upgrade_gitops_staged | default([]) | length) == 1
              else 'are staged in their gitops repos and deploy' }}
+
+    - name: Report the database account moves left for stopped instances
+      ansible.builtin.debug:
+        msg: >-
+          Left stopped with the database account move pending:
+          {{ _upgrade_db_move_pending | join(', ') }}. Run 'canasta upgrade'
+          again after 'canasta start' to complete it.
+      when: (_upgrade_db_move_pending | default([]) | length) > 0
 
     # --- Purge superseded images (--purge) ---
     # Runs once per distinct host after all its instances have upgraded, so

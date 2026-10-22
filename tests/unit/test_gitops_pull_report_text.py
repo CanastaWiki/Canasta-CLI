@@ -7,7 +7,7 @@ around them. A pull needing nothing printed a trailing space and a blank
 line; a pull needing both printed an empty third line.
 
 The outcomes are collected as a list and joined, so each combination is
-one sentence.
+one sentence, naming what made each outcome necessary.
 """
 
 import ast
@@ -50,6 +50,10 @@ def _env():
     return env
 
 
+RESTART = [".env", "config/Caddyfile.site"]
+MAINTENANCE = ["extensions/Foo"]
+
+
 def _report(restart, maintenance):
     env = _env()
     tasks = _tasks()
@@ -60,7 +64,9 @@ def _report(restart, maintenance):
         env.from_string(
             summarize["ansible.builtin.set_fact"]["_pull_followup"]
         ).render(
-            _pull_needs_restart=restart, _pull_needs_maintenance=maintenance,
+            _pull_restart_triggers=RESTART if restart is True else (restart or []),
+            _pull_maintenance_triggers=(MAINTENANCE if maintenance is True
+                                        else (maintenance or [])),
         ).strip()
     )
 
@@ -87,18 +93,27 @@ class TestPullReportIsOneSentence:
 
     def test_restart_only(self):
         assert _report(True, False) == (
-            "Pulled aaaaaaa..bbbbbbb. Restart needed.")
+            "Pulled aaaaaaa..bbbbbbb. Restart needed (.env, "
+            "config/Caddyfile.site changed).")
 
     def test_maintenance_only(self):
         assert _report(False, True) == (
             "Pulled aaaaaaa..bbbbbbb. Maintenance update needed "
-            "(extensions/skins changed).")
+            "(extensions/Foo changed).")
 
     def test_both_needed_reads_as_two_sentences(self):
         """The case the ternaries rendered with an empty line between."""
         assert _report(True, True) == (
-            "Pulled aaaaaaa..bbbbbbb. Restart needed. Maintenance update "
-            "needed (extensions/skins changed).")
+            "Pulled aaaaaaa..bbbbbbb. Restart needed (.env, "
+            "config/Caddyfile.site changed). Maintenance update needed "
+            "(extensions/Foo changed).")
+
+    def test_a_long_extension_list_is_shortened(self):
+        names = ["extensions/E%d" % i for i in range(8)]
+        assert _report(False, names) == (
+            "Pulled aaaaaaa..bbbbbbb. Maintenance update needed "
+            "(extensions/E0, extensions/E1, extensions/E2, extensions/E3, "
+            "extensions/E4 and 3 more changed).")
 
     @pytest.mark.parametrize("restart,maintenance", [
         (False, False), (True, False), (False, True), (True, True)])

@@ -24,7 +24,18 @@
   ansible.builtin.include_tasks: "sync_wikis_yaml.yml"
   when: gitops_resolve_mode | default('') != 'continue'
 
-# Likewise for direct .env edits, which the .env render would overwrite.
+# Recorded so the files the .env sync below changes can be told apart from
+# changes the operator already had.
+- name: List tracked files changed before the .env sync
+  ansible.builtin.command:
+    cmd: "git status --porcelain --untracked-files=no"
+    chdir: "{{ instance_path }}"
+  register: _pull_dirty_before_sync
+  changed_when: false
+  when: gitops_resolve_mode | default('') != 'continue'
+
+# Direct .env edits would be overwritten by the .env render; the sync saves
+# them in the sources and the pull commits them below.
 - name: Write .env edits into the gitops sources
   ansible.builtin.include_tasks: "sync_env.yml"
   when: gitops_resolve_mode | default('') != 'continue'
@@ -44,17 +55,109 @@
   changed_when: false
   when: gitops_resolve_mode | default('') != 'continue'
 
+- name: Separate the .env sync's changes from earlier ones
+  ansible.builtin.set_fact:
+    _pull_sync_paths: >-
+      {{ _pull_uncommitted.stdout_lines | map('regex_replace', '^...', '')
+         | reject('in', _pull_dirty_before_paths) | list }}
+  vars:
+    _pull_dirty_before_paths: >-
+      {{ _pull_dirty_before_sync.stdout_lines
+         | map('regex_replace', '^...', '') | list }}
+  when: gitops_resolve_mode | default('') != 'continue'
+
+# A host that cannot push keeps the .env sync's changes uncommitted, where
+# the check below stops the pull on them.
+- name: Read hosts.yaml for this host's role
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/hosts.yaml"
+  register: _pull_hosts_raw
+  failed_when: false
+  when:
+    - gitops_resolve_mode | default('') != 'continue'
+    - _pull_sync_paths | length > 0
+
+- name: Decide whether to commit the .env sync's changes
+  ansible.builtin.set_fact:
+    _pull_commit_sync: >-
+      {{ _pull_sync_paths | length > 0
+         and _pull_hosts_raw.content is defined
+         and ((_pull_hosts_raw.content | b64decode | from_yaml).hosts
+              | default([])
+              | selectattr('name', 'equalto',
+                           _sync_env_host_raw.content | b64decode | trim)
+              | first | default({})).get('role', 'both')
+            in ['source', 'both'] }}
+  when: gitops_resolve_mode | default('') != 'continue'
+
 - name: Fail if uncommitted changes exist
   ansible.builtin.fail:
     msg: >-
       Cannot pull: the instance directory has local changes to tracked
       files that a pull could overwrite. Share them with
       'canasta gitops add <file>' then 'canasta gitops push', or discard
-      them with 'git checkout -- <file>', then retry.
+      them with 'git checkout HEAD -- <file>', then retry.
       Changed files: {{ _pull_uncommitted.stdout }}
   when:
     - gitops_resolve_mode | default('') != 'continue'
     - _pull_uncommitted.stdout | trim | length > 0
+    - not (_pull_commit_sync | bool)
+      or _pull_uncommitted.stdout_lines | length > _pull_sync_paths | length
+
+# The .env sync's changes are committed the way 'gitops push' commits, so
+# the rebase below replays them like any local commit.
+- name: Guard against committing unencrypted git-crypt files
+  ansible.builtin.include_tasks: "_check_gitcrypt_staged.yml"
+  when:
+    - gitops_resolve_mode | default('') != 'continue'
+    - _pull_commit_sync | bool
+
+- name: Check that every commit since the last apply is local
+  ansible.builtin.shell:
+    cmd: >-
+      applied=$(cat .gitops-applied) &&
+      git merge-base --is-ancestor "$applied" HEAD &&
+      git merge-base --is-ancestor
+      "$(git merge-base HEAD @{upstream})" "$applied"
+    chdir: "{{ instance_path }}"
+  register: _pull_applied_is_local
+  changed_when: false
+  failed_when: false
+  when:
+    - gitops_resolve_mode | default('') != 'continue'
+    - _pull_commit_sync | bool
+
+- name: Commit the .env sync's changes
+  ansible.builtin.command:
+    argv: >-
+      {{ ['git', '-c', 'commit.gpgsign=false', 'commit', '-m',
+          'Save .env changes in the gitops sources', '--']
+         + _pull_sync_paths }}
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when:
+    - gitops_resolve_mode | default('') != 'continue'
+    - _pull_commit_sync | bool
+
+# The instance already runs the committed values.
+- name: Record the .env sync's commit as applied
+  ansible.builtin.shell:
+    cmd: "git rev-parse HEAD > .gitops-applied"
+    chdir: "{{ instance_path }}"
+  changed_when: true
+  when:
+    - gitops_resolve_mode | default('') != 'continue'
+    - _pull_commit_sync | bool
+    - _pull_applied_is_local.rc == 0
+
+- name: Report the .env sync's commit
+  ansible.builtin.debug:
+    msg: >-
+      Committed the .env changes locally; 'canasta gitops push' shares
+      them.
+  when:
+    - gitops_resolve_mode | default('') != 'continue'
+    - _pull_commit_sync | bool
 
 # --- Step 2: Save state before pull ---
 # 'gitops resolve --continue' supplies _pull_prev_commit and _pull_result for
@@ -74,6 +177,34 @@
   ansible.builtin.set_fact:
     _pull_prev_commit: "{{ _pull_prev_commit_cmd }}"
   when: gitops_resolve_mode | default('') != 'continue'
+
+# --- Step 2b: Record what the instance runs before this pull ---
+# The pull checks out new config files and the steps below rewrite .env and
+# config/wikis.yaml before steps that can still refuse. What a pull needs
+# (a restart, a maintenance update) must be judged against the files and
+# commit the instance had before the first attempt to apply it, so the
+# baseline stays on disk until the pull completes and a retry reuses it.
+- name: Fingerprint the instance's files before pulling
+  ansible.builtin.include_tasks: "_rendered_fingerprint.yml"
+
+- name: Read the baseline left by an unfinished pull
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-pull-baseline"
+  register: _pull_baseline_raw
+  failed_when: false
+
+- name: Set the pre-pull baseline
+  ansible.builtin.set_fact:
+    _pull_baseline: >-
+      {{ (_pull_baseline_raw.content | b64decode | from_json)
+         if _pull_baseline_raw.content is defined
+         else _rendered_fingerprint | combine({'commit': _pull_prev_commit.stdout}) }}
+
+- name: Keep the baseline until the pull completes
+  ansible.builtin.copy:
+    content: "{{ _pull_baseline | to_json }}"
+    dest: "{{ instance_path }}/.gitops-pull-baseline"
+    mode: "0644"
 
 # --- Step 3: Pull and update submodules ---
 # Rebase, not merge or fast-forward-only. Hosts contribute small config commits
@@ -218,12 +349,36 @@
          if (_pull_applied != '' and (_pull_applied_exists.rc | default(1)) == 0)
          else _pull_prev_commit.stdout }}
 
+# The baseline's commit is the one the instance ran before this pull's
+# first attempt; .gitops-applied can be older than that when commits reached
+# the checkout without a pull.
+- name: Check the baseline commit still exists
+  ansible.builtin.command:
+    cmd: "git cat-file -e {{ _pull_baseline.commit }}^{commit}"
+    chdir: "{{ instance_path }}"
+  register: _pull_baseline_commit_exists
+  changed_when: false
+  failed_when: false
+  when: _pull_baseline.commit | default('') != ''
+
+- name: Choose the commit the instance ran before this pull
+  ansible.builtin.set_fact:
+    _pull_ran_commit: >-
+      {{ _pull_baseline.commit
+         if (_pull_baseline.commit | default('') != ''
+             and (_pull_baseline_commit_exists.rc | default(1)) == 0)
+         else _pull_diff_base }}
+
 - name: Skip rendering when this commit is already applied
   when: _pull_applied == _pull_new_commit.stdout
   block:
     - name: Report no changes
       ansible.builtin.debug:
         msg: "Already up to date."
+    - name: Remove the pre-pull baseline
+      ansible.builtin.file:
+        path: "{{ instance_path }}/.gitops-pull-baseline"
+        state: absent
     - name: End play for no-change case
       ansible.builtin.meta: end_play
 
@@ -238,33 +393,6 @@
     _pull_hostname: "{{ _gitops_host.hostname }}"
     _pull_vars: "{{ _gitops_host.shared_vars | combine(_gitops_host.host_vars) }}"
   no_log: true  # the vars hold secrets
-
-# --- Step 5b: Record what the rendered files held before this pull ---
-# The steps below rewrite .env and config/wikis.yaml before steps that can
-# still refuse. Whether a restart is needed must be judged against what
-# those files held before the first attempt to apply this commit, so the
-# baseline stays on disk until the pull completes and a retry reuses it.
-- name: Fingerprint .env and wikis.yaml before rendering
-  ansible.builtin.include_tasks: "_rendered_fingerprint.yml"
-
-- name: Read the baseline left by an unfinished pull
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/.gitops-pull-baseline"
-  register: _pull_baseline_raw
-  failed_when: false
-
-- name: Set the pre-render baseline
-  ansible.builtin.set_fact:
-    _pull_baseline: >-
-      {{ (_pull_baseline_raw.content | b64decode | from_json)
-         if _pull_baseline_raw.content is defined
-         else _rendered_fingerprint }}
-
-- name: Keep the baseline until the pull completes
-  ansible.builtin.copy:
-    content: "{{ _pull_baseline | to_json }}"
-    dest: "{{ instance_path }}/.gitops-pull-baseline"
-    mode: "0644"
 
 # --- Step 6: Render .env from env.template + vars ---
 - name: Render .env from template
@@ -381,7 +509,7 @@
   register: _pull_changed_files
   changed_when: false
 
-- name: Fingerprint .env and wikis.yaml after rendering
+- name: Fingerprint the instance's files after rendering
   ansible.builtin.include_tasks: "_rendered_fingerprint.yml"
 
 # A pull that untracks a per-host render (the sidecar env bridge or
@@ -397,29 +525,40 @@
     path: "{{ instance_path }}/docker-compose.sidecars.yml"
   register: _pull_sidecars
 
+- name: List the extension and skin changes since the instance's commit
+  ansible.builtin.command:
+    argv:
+      - git
+      - -c
+      - core.quotePath=false
+      - diff
+      - --raw
+      - --no-renames
+      - "{{ _pull_ran_commit }}"
+      - HEAD
+      - --
+      - extensions
+      - skins
+      - config/settings
+    chdir: "{{ instance_path }}"
+  register: _pull_extension_changes
+  changed_when: false
+
 - name: Determine if restart is needed
   ansible.builtin.set_fact:
-    _pull_needs_restart: >-
-      {{ (_pull_baseline.env | default('') != _rendered_fingerprint.env)
-         or (_pull_baseline.wikis | default('') != _rendered_fingerprint.wikis)
-         or (_pull_baseline.mycnf | default(_rendered_fingerprint.mycnf)
-             != _rendered_fingerprint.mycnf)
-         or (_pull_baseline.media_hosts | default(_rendered_fingerprint.media_hosts)
-             != _rendered_fingerprint.media_hosts)
-         or (_pull_changed_files.stdout_lines | default([])
-             | select('match',
-               '^(env\.template|config/Caddyfile|config/secret-keys-web$|docker-compose\.override\.yml|my\.cnf$)')
-             | list | length > 0)
-         or ('config/settings/global/00-canasta-sidecar-env.php'
-             in (_pull_changed_files.stdout_lines | default([]))
-             and not _pull_bridge.stat.exists)
-         or ('docker-compose.sidecars.yml'
-             in (_pull_changed_files.stdout_lines | default([]))
-             and not _pull_sidecars.stat.exists) }}
-    _pull_needs_maintenance: >-
-      {{ _pull_changed_files.stdout_lines | default([])
-         | select('match', '^(extensions/|skins/)')
-         | list | length > 0 }}
+    _pull_restart_triggers: >-
+      {{ (_pull_baseline | canasta_fingerprint_changes(_rendered_fingerprint))
+         + (['config/settings/global/00-canasta-sidecar-env.php']
+            if ('config/settings/global/00-canasta-sidecar-env.php'
+                in (_pull_changed_files.stdout_lines | default([]))
+                and not _pull_bridge.stat.exists) else [])
+         + (['docker-compose.sidecars.yml']
+            if ('docker-compose.sidecars.yml'
+                in (_pull_changed_files.stdout_lines | default([]))
+                and not _pull_sidecars.stat.exists) else []) }}
+    _pull_maintenance_triggers: >-
+      {{ _pull_extension_changes.stdout_lines | default([])
+         | canasta_maintenance_triggers }}
 
 # --- Step 10: Re-apply the backup schedule ---
 # Re-materialize the crontab when the pulled config changed the schedule
@@ -456,9 +595,13 @@
 - name: Summarize what the pull requires
   ansible.builtin.set_fact:
     _pull_followup: >-
-      {{ ((['Restart needed.'] if _pull_needs_restart | bool else [])
-      + (['Maintenance update needed (extensions/skins changed).']
-      if _pull_needs_maintenance | bool else []))
+      {{ ((['Restart needed (' ~ (_pull_restart_triggers | join(', '))
+      ~ ' changed).'] if _pull_restart_triggers else [])
+      + (['Maintenance update needed ('
+      ~ (_pull_maintenance_triggers[:5] | join(', '))
+      ~ ((' and ' ~ (_pull_maintenance_triggers | length - 5) ~ ' more')
+      if _pull_maintenance_triggers | length > 5 else '')
+      ~ ' changed).'] if _pull_maintenance_triggers else []))
       or ['No restart needed.'] }}
 
 - name: Report pull results

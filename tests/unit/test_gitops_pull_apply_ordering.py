@@ -2,12 +2,13 @@
 
 Two signals must survive a pull that stops partway:
 
-- Rendering rewrites .env and config/wikis.yaml before steps that can still
-  refuse (my.cnf, media hosts, profiles). If the restart decision compared
-  against the files as this run found them, a retry would start from the
-  already-rendered files and report no restart for a change that needs one.
-  The pre-render state is kept on disk in .gitops-pull-baseline until the
-  pull completes, and a retry reuses it.
+- The pull checks out new config files, and rendering rewrites .env and
+  config/wikis.yaml before steps that can still refuse (my.cnf, media
+  hosts, profiles). If the restart decision compared against the files as
+  this run found them, a retry would start from the already-pulled and
+  rendered files and report no restart for a change that needs one. The
+  pre-pull state and commit are kept on disk in .gitops-pull-baseline until
+  the pull completes, and a retry reuses them.
 
 - .gitops-applied decides "Already up to date". Written before the backup
   schedule is re-applied, a failure there would leave the crontab stale with
@@ -15,6 +16,7 @@ Two signals must survive a pull that stops partway:
 """
 
 import os
+import sys
 
 import pytest
 import yaml
@@ -65,10 +67,16 @@ def _removes(path):
 def _env():
     jinja2 = pytest.importorskip("jinja2")
     from ansible.plugins.filter.core import FilterModule
+    from ansible.plugins.filter.mathstuff import FilterModule as MathFilters
     from ansible.plugins.test.core import TestModule
+
+    sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
+    from canasta_gitops import FilterModule as CanastaFilters
 
     env = jinja2.Environment()
     env.filters.update(FilterModule().filters())
+    env.filters.update(MathFilters().filters())
+    env.filters.update(CanastaFilters().filters())
     env.tests.update(TestModule().tests())
     return env
 
@@ -99,13 +107,14 @@ class TestAppliedMarkerIsWrittenLast:
 
 
 class TestRestartSignalSurvivesAPartialPull:
-    def test_baseline_is_recorded_before_anything_is_rendered(self):
+    def test_baseline_is_recorded_before_anything_is_pulled_or_rendered(self):
         tasks = _tasks()
+        pull = _index(tasks, _named("Pull from remote"), "git pull")
         render = _index(tasks, _includes("_render_env.yml"), "_render_env.yml")
         read = _index(tasks, _named("Read the baseline left by an unfinished pull"),
                       "baseline read")
         write = _index(tasks, _writes(BASELINE), "baseline write")
-        assert read < write < render
+        assert read < write < pull < render
 
     def test_baseline_is_removed_only_after_the_pull_is_applied(self):
         tasks = _tasks()
@@ -113,16 +122,19 @@ class TestRestartSignalSurvivesAPartialPull:
         remove = _index(tasks, _removes(BASELINE), "baseline removal")
         assert applied < remove
 
-    def test_baseline_is_not_cleared_on_the_already_up_to_date_path(self):
-        """The no-op exit happens before the baseline is ever written."""
+    def test_the_already_up_to_date_path_removes_the_baseline(self):
+        """Nothing is applied, so the baseline must not outlive the run."""
         tasks = _tasks()
-        skip = _index(
+        skip = tasks[_index(
             tasks,
             lambda t: any(s.get("ansible.builtin.meta") == "end_play"
                           for s in t.get("block", []) if isinstance(s, dict)),
             "Already up to date exit",
-        )
-        assert skip < _index(tasks, _writes(BASELINE), "baseline write")
+        )]["block"]
+        remove = _index(skip, _removes(BASELINE), "baseline removal")
+        end = _index(skip, lambda t: t.get("ansible.builtin.meta") == "end_play",
+                     "end_play")
+        assert remove < end
 
     def test_baseline_file_is_ignored_by_git(self):
         with open(GITIGNORE) as f:
@@ -131,15 +143,16 @@ class TestRestartSignalSurvivesAPartialPull:
 
     def _baseline(self, raw, pre):
         task = next(t for t in _tasks()
-                    if t.get("name") == "Set the pre-render baseline")
+                    if t.get("name") == "Set the pre-pull baseline")
         out = _env().from_string(
             task["ansible.builtin.set_fact"]["_pull_baseline"]
-        ).render(_pull_baseline_raw=raw, _rendered_fingerprint=pre).strip()
+        ).render(_pull_baseline_raw=raw, _rendered_fingerprint=pre,
+                 _pull_prev_commit={"stdout": "abc123"}).strip()
         return yaml.safe_load(out)
 
-    def test_first_attempt_records_the_current_files(self):
+    def test_first_attempt_records_the_current_files_and_commit(self):
         assert self._baseline({}, _fp("old-env", "old-wikis")) == {
-            "env": "old-env", "wikis": "old-wikis",
+            "env": "old-env", "wikis": "old-wikis", "commit": "abc123",
         }
 
     def test_retry_reuses_the_recorded_baseline(self):
@@ -157,13 +170,13 @@ class TestRestartSignalSurvivesAPartialPull:
         task = next(t for t in _tasks()
                     if t.get("name") == "Determine if restart is needed")
         out = _env().from_string(
-            task["ansible.builtin.set_fact"]["_pull_needs_restart"]
+            task["ansible.builtin.set_fact"]["_pull_restart_triggers"]
         ).render(
             _pull_baseline=baseline,
             _rendered_fingerprint=post,
             _pull_changed_files={"stdout_lines": list(changed)},
         ).strip()
-        return out == "True"
+        return yaml.safe_load(out) != []
 
     def test_restart_is_judged_against_the_baseline(self):
         baseline = {"env": "old-env", "wikis": "w"}
@@ -204,6 +217,8 @@ class TestFingerprintIgnoresLayout:
                 _rendered_fp_wikis=wikis,
                 _rendered_fp_mycnf={},
                 _rendered_fp_media_hosts={},
+                _rendered_fp_config={"files": []},
+                _rendered_fp_override={"stat": {"exists": False}},
             ).strip()
             for k, v in exprs.items()
         }
@@ -227,4 +242,5 @@ class TestFingerprintIgnoresLayout:
 
     def test_missing_files_fingerprint_empty(self):
         assert self._fingerprint({}, None) == {
-            "env": "", "wikis": "", "mycnf": "", "media_hosts": ""}
+            "env": "", "wikis": "", "mycnf": "", "media_hosts": "",
+            "files": "{}"}

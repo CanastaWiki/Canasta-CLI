@@ -26,6 +26,7 @@ from _orchestrator import TEMPLAR_VARS
 
 UPGRADE = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks")
 MIGRATE = os.path.join(UPGRADE, "migrate_wiki_db_account.yml")
+CHECK = os.path.join(UPGRADE, "check_wiki_db_account.yml")
 DEFAULTS = os.path.join(REPO_ROOT, "roles", "config", "defaults", "main.yml")
 CONFIG_SET = os.path.join(REPO_ROOT, "roles", "config", "tasks", "set.yml")
 SWITCH = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
@@ -55,10 +56,14 @@ def _render(expr, **variables):
 
 class TestWhoIsMoved:
     def _decide(self, env, orchestrator="compose", running=True):
+        check = _named(_load(CHECK),
+                       "Decide whether MediaWiki waits to move to its own database account")
+        pending = _render(check["ansible.builtin.set_fact"]["_mig_db_pending"],
+                          _mig_db_env={"variables": env})
         task = _named(_load(MIGRATE),
                       "Decide whether to move MediaWiki to its own database account")
         return _render(task["ansible.builtin.set_fact"]["_mig_db_account"],
-                       _mig_db_env={"variables": env},
+                       _mig_db_pending=pending,
                        instance_orchestrator=orchestrator, _was_running=running,
                        **TEMPLAR_VARS)
 
