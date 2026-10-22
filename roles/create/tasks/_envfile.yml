@@ -64,8 +64,25 @@
     - name: Override root DB password with external DB password
       ansible.builtin.set_fact:
         _rootdbpass: "{{ _ext_db_password.value | default(_rootdbpass, true) }}"
-        _wikidbpass: "{{ _ext_db_password.value | default(_rootdbpass, true) }}"
-        _wiki_db_user: "{{ _ext_db_user.value | default('root', true) }}"
+      no_log: true
+
+    # On Compose MediaWiki gets an account of its own on the external
+    # server (--wikidbuser, or one named for the instance, since the server
+    # can serve other instances), created at start; --wikidbuser root keeps
+    # it on the administrator account. On Kubernetes the chart gives the web
+    # pod the administrator account.
+    - name: Choose MediaWiki's account on the external database
+      ansible.builtin.set_fact:
+        _wiki_db_user: >-
+          {{ (_ext_db_user.value | default('root', true))
+             if instance_is_k8s | bool or wikidbuser | default('') == 'root'
+             else wikidbuser if wikidbuser | default('') | length > 0
+             else id | canasta_wiki_db_user(true) }}
+
+    - name: Give MediaWiki the administrator's password while it uses that account
+      ansible.builtin.set_fact:
+        _wikidbpass: "{{ _rootdbpass }}"
+      when: _wiki_db_user == (_ext_db_user.value | default('root', true))
       no_log: true
 
 # An env file may still use the TLS keys' old names.

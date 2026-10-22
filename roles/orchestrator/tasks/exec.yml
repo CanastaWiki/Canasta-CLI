@@ -19,6 +19,10 @@
 #   exec_user (str, optional) - container user to run as on Compose;
 #     ignored on K8s, where kubectl exec cannot switch users. Default: the
 #     image's user (root in the web container).
+#   exec_dotenv (dict, optional) - variables to pass into the command on
+#     Compose, each read from the .env key it maps to when the command runs
+#     (canasta_dotenv_exec), so the value is never on a command line. Ignored
+#     on K8s.
 # Output:
 #   exec_result (registered result with .stdout, .rc, etc.)
 
@@ -59,8 +63,10 @@
 - name: Build exec command (Compose)
   ansible.builtin.set_fact:
     _exec_full_cmd: >-
+      {{ exec_dotenv | default({}, true) | canasta_dotenv_exec }}
       {{ compose_command }} {{ _exec_profile_flags | default('') }} exec -T
       {{ ('--user ' ~ (exec_user | quote)) if (exec_user | default('')) | length > 0 else '' }}
+      {{ exec_dotenv | default({}, true) | list | map('regex_replace', '^', '-e ') | join(' ') }}
       {{ exec_service | default('web') }}
       {{ _exec_shell }} {{ exec_command | quote }}
     _exec_chdir: "{{ instance_path }}"

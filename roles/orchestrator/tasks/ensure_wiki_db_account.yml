@@ -1,6 +1,6 @@
 ---
-# Make MediaWiki's database account match .env (Compose, bundled database).
-# On Kubernetes, only say when the account picks up the change.
+# Make MediaWiki's database account match .env (Compose). On Kubernetes,
+# only say when the account picks up the change.
 #
 # Account state lives only in the database server: no backup captures it,
 # and a restore onto a fresh host, a gitops join or a rebuilt db volume
@@ -11,8 +11,14 @@
 # reads WIKI_DB_USER and WIKI_DB_PASSWORD from its own environment, so it
 # must run after the `up` that gave the db container the current values.
 #
-# Nothing to do for an external database (the operator owns its accounts)
-# or while MediaWiki still connects as root.
+# An external database has no db container, so the script runs in the web
+# container, which holds MediaWiki's account as MYSQL_USER and
+# MYSQL_PASSWORD, and logs in to the server as the .env administrator (see
+# db_admin.yml). There it runs after web starts, and of the databases no
+# wiki declares, only those a settings file names are reported, since the
+# server can hold other applications' databases.
+#
+# Nothing to do while MediaWiki connects as the administrator account.
 #
 # Input: instance_path, instance_orchestrator, compose_command
 # Output: _wiki_db_undeclared - databases the account cannot use
@@ -27,11 +33,13 @@
 - name: Decide whether the account needs ensuring
   ansible.builtin.set_fact:
     _wiki_db_undeclared: []
+    _ensure_external: >-
+      {{ (_ensure_env.variables.USE_EXTERNAL_DB | default('false')
+          | string | lower) == 'true' }}
     _ensure_needed: >-
       {{ not (instance_is_k8s | bool)
-         and (_ensure_env.variables.USE_EXTERNAL_DB | default('false')
-              | string | lower) != 'true'
-         and (_ensure_env.variables.WIKI_DB_USER | default('root', true)) != 'root' }}
+         and (_ensure_env.variables.WIKI_DB_USER | default('root', true))
+             not in ['root', _ensure_env.variables.MYSQL_USER | default('root', true)] }}
 
 # On Kubernetes the web pod's ensure-db-account init container does this at
 # every pod start, from the wikis.yaml the pod was deployed with, so a change
@@ -109,7 +117,16 @@
       when: _ensure_running.rc == 0
       ansible.builtin.command:
         cmd: >-
-          {{ _db_admin_exec }} sh -s --
+          {{ _db_admin_exec }}
+          {% if _ensure_external | bool -%}
+          sh -c 'WIKI_DB_USER="$MYSQL_USER" WIKI_DB_PASSWORD="$MYSQL_PASSWORD"
+          DB_HOST="$MYSQL_HOST" DB_PORT="$MYSQL_PORT"
+          DB_ADMIN_USER="$CANASTA_DB_ADMIN_USER"
+          DB_ADMIN_PASSWORD="$CANASTA_DB_ADMIN_PASSWORD"
+          exec sh -s -- "$@"' sh
+          {%- else -%}
+          sh -s --
+          {%- endif %}
           {{ _ensure_wikis.db_groups | map(attribute='databases') | flatten
              | unique | map('quote') | join(' ') }}
         chdir: "{{ instance_path }}"
@@ -125,6 +142,21 @@
         _wiki_db_undeclared: >-
           {{ _ensure_result.stdout_lines | select('match', '^UNDECLARED ')
              | map('regex_replace', '^UNDECLARED ', '') | list }}
+
+    - name: Find the undeclared databases a settings file names (external database)
+      ansible.builtin.include_tasks: referenced_databases.yml
+      vars:
+        refdb_names: "{{ _wiki_db_undeclared }}"
+      when:
+        - _ensure_result is not skipped
+        - _ensure_external | bool
+
+    - name: Report only those (external database)
+      ansible.builtin.set_fact:
+        _wiki_db_undeclared: "{{ _refdb_referenced }}"
+      when:
+        - _ensure_result is not skipped
+        - _ensure_external | bool
 
     - name: Warn about databases the wiki account cannot use
       ansible.builtin.debug:

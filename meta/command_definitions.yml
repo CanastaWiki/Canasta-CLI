@@ -405,10 +405,13 @@ commands:
       - name: wikidbuser
         type: string
         description: >-
-          Database account MediaWiki connects with (default: mediawiki).
-          The CLI creates it with access to the instance's wiki databases
-          only. Pass root to start MediaWiki on the database administrator
-          account; the next upgrade moves it to its own account unless
+          Database account MediaWiki connects with (default: mediawiki, or
+          mediawiki_<id> on an external database on Docker Compose, since
+          the server can serve other instances). The CLI creates it with
+          access to the instance's wiki databases only, logging in to an
+          external database as the env file's MYSQL_USER. Pass root to
+          start MediaWiki on the database administrator account; the next
+          upgrade moves it to its own account unless
           CANASTA_DB_ROOT_ACCOUNT=true is set.
       - name: wikidbpass
         type: string

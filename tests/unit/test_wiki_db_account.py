@@ -31,6 +31,7 @@ COMPOSE = os.path.join(REPO_ROOT, "roles", "orchestrator", "files",
 
 FAKE_MARIADB = r"""#!/bin/sh
 echo "$1 $2" >> "$FAKE_DIR/calls"
+echo "$* PWD=$MYSQL_PWD" >> "$FAKE_DIR/argv"
 for a in "$@"; do
   case "$a" in
     *"SELECT Db FROM mysql.db"*) cat "$FAKE_DIR/granted"; exit 0 ;;
@@ -54,15 +55,19 @@ def db(tmp_path):
         "information_schema\nmain\nmain_cargo\nmysql\nstray\n")
     (tmp_path / "sql").write_text("")
 
-    def run(*dbs, user="mediawiki", password="pw", granted="", db_host=None):
+    def run(*dbs, user="mediawiki", password="pw", granted="", db_host=None,
+            **extra_env):
         (tmp_path / "granted").write_text(granted)
         (tmp_path / "sql").write_text("")
         (tmp_path / "calls").write_text("")
+        (tmp_path / "argv").write_text("")
         env = dict(os.environ, FAKE_DIR=str(tmp_path),
                    PATH="%s:%s" % (bindir, os.environ["PATH"]),
                    WIKI_DB_USER=user, WIKI_DB_PASSWORD=password,
                    MYSQL_ROOT_PASSWORD="rootpw")
-        env.pop("DB_HOST", None)
+        for name in ("DB_HOST", "DB_PORT", "DB_ADMIN_USER", "DB_ADMIN_PASSWORD"):
+            env.pop(name, None)
+        env.update(extra_env)
         if db_host is not None:
             env["DB_HOST"] = db_host
         with open(SCRIPT) as f:
@@ -99,8 +104,28 @@ class TestTheScript:
 
     def test_root_account_is_left_alone(self, db):
         result, sql = db("main", user="root")
-        assert result.stdout.strip() == "SKIPPED account is root"
+        assert result.stdout.strip() == "SKIPPED account is the administrator's"
         assert sql == ""
+
+    def test_administrator_account_is_left_alone(self, db):
+        result, sql = db("main", user="op", DB_ADMIN_USER="op",
+                         DB_ADMIN_PASSWORD="adminpw")
+        assert result.stdout.strip() == "SKIPPED account is the administrator's"
+        assert sql == ""
+
+    def test_external_server_logs_in_as_its_administrator(self, db, tmp_path):
+        result, sql = db("main", user="mediawiki_site", db_host="dbhost",
+                         DB_PORT="3307", DB_ADMIN_USER="op",
+                         DB_ADMIN_PASSWORD="adminpw")
+        assert result.returncode == 0, result.stderr
+        assert "GRANT ALL PRIVILEGES ON `main`.* TO 'mediawiki_site'@'%';" in sql
+        argv = (tmp_path / "argv").read_text().splitlines()
+        assert argv and all(a.startswith("-h dbhost -P 3307 ") for a in argv), argv
+        admin = [a for a in argv if "SELECT 1" not in a]
+        assert admin and all("-u op " in a and a.endswith("PWD=adminpw")
+                             for a in admin), admin
+        assert not any("rootpw" in a for a in argv)
+        assert "pw" in (tmp_path / "logins").read_text().split()
 
     @pytest.mark.parametrize("user", ["x';drop", "me-wiki", "a b"])
     def test_unsafe_user_names_are_refused(self, db, user):
@@ -166,15 +191,18 @@ class TestWiring:
         assert "--protocol=tcp -h 127.0.0.1" in (
             ping["ansible.builtin.command"]["cmd"])
 
-    def test_skipped_for_external_db_root_and_kubernetes(self):
+    def test_skipped_for_the_administrator_account_and_kubernetes(self):
         decide = next(t for t in self._tasks("ensure_wiki_db_account.yml")
                       if t.get("name") == "Decide whether the account needs ensuring")
         expr = decide["ansible.builtin.set_fact"]["_ensure_needed"]
+        external = {"USE_EXTERNAL_DB": "true", "MYSQL_USER": "op"}
         for env, orch, needed in (
                 ({"WIKI_DB_USER": "mediawiki"}, "compose", True),
                 ({"WIKI_DB_USER": "root"}, "compose", False),
                 ({}, "compose", False),
-                ({"WIKI_DB_USER": "mediawiki", "USE_EXTERNAL_DB": "true"}, "compose", False),
+                ({"WIKI_DB_USER": "mediawiki_site", **external}, "compose", True),
+                ({"WIKI_DB_USER": "op", **external}, "compose", False),
+                ({"WIKI_DB_USER": "mediawiki_site", **external}, "kubernetes", False),
                 ({"WIKI_DB_USER": "mediawiki"}, "kubernetes", False)):
             templar = Templar(loader=DataLoader(), variables={
                 "_ensure_env": {"variables": env},
@@ -211,7 +239,10 @@ class TestFastPath:
         ({"WIKI_DB_USER": "mediawiki"}, True),
         ({"WIKI_DB_USER": "root"}, False),
         ({}, False),
-        ({"WIKI_DB_USER": "op", "USE_EXTERNAL_DB": "true"}, False),
+        ({"WIKI_DB_USER": "op", "MYSQL_USER": "op",
+          "USE_EXTERNAL_DB": "true"}, False),
+        ({"WIKI_DB_USER": "mediawiki_site", "MYSQL_USER": "op",
+          "USE_EXTERNAL_DB": "true"}, True),
     ])
     def test_start_hands_an_own_account_to_ansible(self, env, uses):
         assert _helpers._uses_wiki_db_account(env) is uses

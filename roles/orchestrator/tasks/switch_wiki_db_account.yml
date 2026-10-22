@@ -1,10 +1,12 @@
 ---
-# Move a running instance's MediaWiki from the database root account to its
-# own `mediawiki` account, once upgrade's checks found nothing in the way.
-# A failure after the switch rolls back to root.
+# Move a running instance's MediaWiki from the database administrator
+# account to its own account (canasta_wiki_db_user), once upgrade's checks
+# found nothing in the way. A failure after the switch rolls back to the
+# administrator account.
 #
-# Compose: records the keys through config set, restarts so the db
-# container creates and grants the account, and checks each wiki.
+# Compose: records the keys through config set, restarts so the start
+# creates and grants the account (ensure_wiki_db_account.yml), and checks
+# each wiki.
 #
 # Kubernetes: puts the password in the db Secret's WIKI_DB_PASSWORD key,
 # reusing one the Secret already has, and in .env. A direct instance is then redeployed as a rolling update, in
@@ -16,7 +18,8 @@
 # references the new key, and root stays valid throughout.
 #
 # Input: instance_id, instance_path, _mig_db_wikis (canasta_wikis_yaml
-#        read), _upgrade_stage_only
+#        read), _mig_db_external and _mig_db_admin_user
+#        (check_wiki_db_account.yml), _upgrade_stage_only
 # Output: _mig_db_staged (true when the move is staged for a gitops push),
 #         _mig_db_redeployed (true once the move restarted or redeployed the
 #         instance, onto the new account or back onto root)
@@ -28,6 +31,10 @@
       ansible.builtin.include_tasks: >-
         {{ canasta_root }}/roles/common/tasks/generate_password.yml
 
+    - name: Choose the account
+      ansible.builtin.set_fact:
+        _mig_db_user: "{{ instance_id | canasta_wiki_db_user(_mig_db_external | bool) }}"
+
     # Through config set, so a gitops instance records the keys in its
     # vars and the next pull does not render them away.
     - name: Record the account in .env
@@ -36,7 +43,7 @@
         tasks_from: set.yml
       vars:
         config_settings_override: >-
-          WIKI_DB_USER=mediawiki WIKI_DB_PASSWORD={{ _generated_password }}
+          WIKI_DB_USER={{ _mig_db_user }} WIKI_DB_PASSWORD={{ _generated_password }}
         force: true
         no_restart: true
         config_restart_by_caller: true
@@ -69,9 +76,9 @@
     - name: Report the database account migration complete
       ansible.builtin.debug:
         msg: >-
-          MediaWiki now connects as 'mediawiki', with access to this
-          instance's wiki databases only; the root password is no
-          longer in the web container.
+          MediaWiki now connects as '{{ _mig_db_user }}', with access to
+          this instance's wiki databases only; the database administrator's
+          password is no longer in the web container.
           {%- if _mig_db_gitops.stat.exists %}
           The new keys are in this host's gitops vars; run 'canasta
           gitops push -i {{ instance_id }}' to commit them before the
@@ -84,19 +91,19 @@
         msg: >-
           WARNING: moving instance '{{ instance_id }}' to its own database
           account failed ({{ ansible_failed_result.msg | default('see the
-          error above') }}). Rolling back to the root account.
+          error above') }}). Rolling back to the administrator account.
 
-    - name: Roll back to the root account
+    - name: Roll back to the administrator account
       ansible.builtin.include_role:
         name: config
         tasks_from: set.yml
       vars:
-        config_settings_override: "WIKI_DB_USER=root"
+        config_settings_override: "WIKI_DB_USER={{ _mig_db_admin_user }}"
         force: true
         no_restart: true
         config_restart_by_caller: true
 
-    - name: Restart on the root account
+    - name: Restart on the administrator account
       ansible.builtin.include_role:
         name: instance_lifecycle
         tasks_from: restart.yml

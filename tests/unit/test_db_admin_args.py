@@ -38,6 +38,7 @@ def _db_admin(tmp_path, env_text, **extra_vars):
         ],
     }]))
     env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
+               ANSIBLE_FILTER_PLUGINS=os.path.join(REPO_ROOT, "filter_plugins"),
                ANSIBLE_LIBRARY=os.path.join(COMMON, "library"),
                ANSIBLE_MODULE_UTILS=os.path.join(COMMON, "module_utils"))
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
@@ -51,14 +52,16 @@ def _db_admin(tmp_path, env_text, **extra_vars):
 @pytest.mark.parametrize("env_text, service, args", [
     ("USE_EXTERNAL_DB=true\nMYSQL_HOST=db.example.com\nMYSQL_PORT=3307\n",
      "web",
-     '-h "${MYSQL_HOST:-db}" -P "${MYSQL_PORT:-3306}" -u "${MYSQL_USER:-root}"'),
+     '-h "${MYSQL_HOST:-db}" -P "${MYSQL_PORT:-3306}" -u "$CANASTA_DB_ADMIN_USER"'),
     ("MYSQL_PASSWORD=pw\n", "db", "-u root"),
 ])
 def test_client_arguments(tmp_path, env_text, service, args):
     result = _db_admin(tmp_path, env_text)
     assert {k: result[k] for k in ("service", "args")} == \
         {"service": service, "args": args}
-    assert result["exec"].split()[:3] == ["docker", "compose", "exec"]
+    # An external database's administrator is passed in from .env first.
+    words = result["exec"].split()
+    assert words[words.index("docker"):][:3] == ["docker", "compose", "exec"]
 
 
 @pytest.mark.parametrize("env_text, target", [

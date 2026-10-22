@@ -1,11 +1,13 @@
 ---
 # Decide whether an instance's MediaWiki still waits to move off the
-# database root account: it is on the bundled database, still uses root,
-# and has not opted out (CANASTA_DB_ROOT_ACCOUNT=true). Shared by the move
-# itself and by `upgrade --dry-run`.
+# database administrator account (root on the bundled database, MYSQL_USER
+# on an external one): it still uses that account and has not opted out
+# (CANASTA_DB_ROOT_ACCOUNT=true). An external database on Kubernetes is not
+# moved, since its chart gives the web pod the administrator account. Shared
+# by the move itself and by `upgrade --dry-run`.
 #
 # Input: instance_path
-# Output: _mig_db_env, _mig_db_pending
+# Output: _mig_db_env, _mig_db_external, _mig_db_admin_user, _mig_db_pending
 
 - name: Read the database account settings
   canasta_env:
@@ -16,7 +18,15 @@
 
 - name: Decide whether MediaWiki waits to move to its own database account
   ansible.builtin.set_fact:
+    _mig_db_external: "{{ _external | bool }}"
+    _mig_db_admin_user: "{{ _admin_user }}"
     _mig_db_pending: >-
-      {{ (_mig_db_env.variables.USE_EXTERNAL_DB | default('false') | string | lower) != 'true'
+      {{ not (_external | bool and instance_is_k8s | default(false) | bool)
          and (_mig_db_env.variables.CANASTA_DB_ROOT_ACCOUNT | default('false') | string | lower) != 'true'
-         and (_mig_db_env.variables.WIKI_DB_USER | default('root', true)) == 'root' }}
+         and (_mig_db_env.variables.WIKI_DB_USER | default(_admin_user, true)) == _admin_user }}
+  vars:
+    _external: >-
+      {{ (_mig_db_env.variables.USE_EXTERNAL_DB | default('false') | string | lower) == 'true' }}
+    _admin_user: >-
+      {{ (_mig_db_env.variables.MYSQL_USER | default('root', true))
+         if _external | bool else 'root' }}

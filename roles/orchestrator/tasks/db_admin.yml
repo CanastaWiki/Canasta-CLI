@@ -4,8 +4,11 @@
 # Bundled database: the db container, as root with its own
 # $MYSQL_ROOT_PASSWORD, so nothing depends on the credentials the web
 # container holds. External database: there is no db container, so the web
-# container, as the operator's MYSQL_USER. On Kubernetes these are the db
-# StatefulSet's and the web Deployment's pods.
+# container, as the .env MYSQL_USER. The web container holds only
+# MediaWiki's own account, so on Compose the administrator's credentials are
+# read from .env and passed into each command (canasta_dotenv_exec). On
+# Kubernetes these are the db StatefulSet's and the web Deployment's pods,
+# and the web pod's own MYSQL_USER is used.
 #
 # Input: instance_path, compose_command; instance_id on Kubernetes
 # Output:
@@ -15,8 +18,11 @@
 #                       that service as
 #                       `{{ _db_admin_pwd }} mariadb {{ _db_admin_args }}`
 #   _db_admin_exec    - host command prefix that runs a command in that
-#                       service with stdin attached, e.g.
-#                       `{{ _db_admin_exec }} sh -c '...'`
+#                       service with stdin attached, from the instance
+#                       directory, e.g. `{{ _db_admin_exec }} sh -c '...'`
+#   _db_admin_dotenv  - the .env values the command needs passed in; give it
+#                       to exec.yml as exec_dotenv when running in
+#                       _db_admin_service through exec.yml
 
 - name: Read the database settings from .env
   canasta_env:
@@ -30,11 +36,15 @@
 - name: Choose the database administration target
   ansible.builtin.set_fact:
     _db_admin_service: "{{ 'web' if _db_admin_external | bool else 'db' }}"
+    _db_admin_dotenv: "{{ _db_admin_passed | default({}, true) }}"
     _db_admin_pwd: >-
-      {{ 'MYSQL_PWD="$MYSQL_PASSWORD"' if _db_admin_external | bool
+      {{ 'MYSQL_PWD="$CANASTA_DB_ADMIN_PASSWORD"' if _db_admin_passed
+         else 'MYSQL_PWD="$MYSQL_PASSWORD"' if _db_admin_external | bool
          else 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD"' }}
     _db_admin_args: >-
-      {{ '-h "${MYSQL_HOST:-db}" -P "${MYSQL_PORT:-3306}" -u "${MYSQL_USER:-root}"'
+      {{ '-h "${MYSQL_HOST:-db}" -P "${MYSQL_PORT:-3306}" -u "$CANASTA_DB_ADMIN_USER"'
+         if _db_admin_passed
+         else '-h "${MYSQL_HOST:-db}" -P "${MYSQL_PORT:-3306}" -u "${MYSQL_USER:-root}"'
          if _db_admin_external | bool
          else '-u root' }}
     _db_admin_exec: >-
@@ -44,14 +54,22 @@
          if _db_admin_external | bool
          else ('statefulset/canasta-' ~ instance_id ~ '-db -c db') }} --
       {%- else -%}
+      {{ _db_admin_passed | canasta_dotenv_exec }}
       {{ compose_command }}
       {{ (_db_admin_env.variables.COMPOSE_PROFILES | default(''))
          | split(',') | map('trim') | reject('equalto', '')
          | map('regex_replace', '^', '--profile ') | join(' ')
          if compose_command is search('podman') else '' }}
-      exec -T {{ 'web' if _db_admin_external | bool else 'db' }}
+      exec -T
+      {{ _db_admin_passed | list | map('regex_replace', '^', '-e ') | join(' ') }}
+      {{ 'web' if _db_admin_external | bool else 'db' }}
       {%- endif %}
   vars:
     _db_admin_external: >-
       {{ (_db_admin_env.variables.USE_EXTERNAL_DB | default('false'))
          | string | lower == 'true' }}
+    _db_admin_passed: >-
+      {{ {'CANASTA_DB_ADMIN_USER': 'MYSQL_USER',
+          'CANASTA_DB_ADMIN_PASSWORD': 'MYSQL_PASSWORD'}
+         if _db_admin_external | bool and not (instance_is_k8s | default(false) | bool)
+         else {} }}

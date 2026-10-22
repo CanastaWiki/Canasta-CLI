@@ -1,15 +1,16 @@
 ---
-# Move an instance's MediaWiki off the database root account and onto its
-# own `mediawiki` account.
+# Move an instance's MediaWiki off the database administrator account (root
+# on the bundled database, the .env MYSQL_USER on an external one) and onto
+# its own account (see check_wiki_db_account.yml for which instances).
 #
 # Runs after upgrade's restart, so the instance is up on the refreshed
 # compose file or chart, which take MediaWiki's credentials from
-# WIKI_DB_USER / WIKI_DB_PASSWORD. Only a running instance on the bundled
-# database that still uses root and has not opted out
+# WIKI_DB_USER / WIKI_DB_PASSWORD. Only a running instance that still uses
+# the administrator account and has not opted out
 # (CANASTA_DB_ROOT_ACCOUNT=true) is migrated. Anything that would leave a
 # wiki unable to reach its data stops the migration and leaves the instance
-# on root; a failure after the switch rolls back to root. Either way the
-# rest of the upgrade is unaffected. A gitops-managed Kubernetes instance is
+# on the administrator account; a failure after the switch rolls back to it.
+# Either way the rest of the upgrade is unaffected. A gitops-managed Kubernetes instance is
 # staged for its next push rather than moved (switch_wiki_db_account.yml).
 #
 # Input: instance_id, instance_path, instance_orchestrator, _was_running,
@@ -41,8 +42,8 @@
     - name: Report the database account migration
       ansible.builtin.debug:
         msg: >-
-          Checking whether MediaWiki can move off the database root account
-          onto its own 'mediawiki' account.
+          Checking whether MediaWiki can move off the database administrator
+          account onto its own account.
 
     # A $wgDBuser or $wgDBpassword set in a settings file wins over the
     # container environment, so switching the environment would change
@@ -90,11 +91,25 @@
              | reject('in', _mig_db_wikis.db_groups | map(attribute='databases') | flatten)
              | list }}
 
-    - name: Report why the instance stays on the root account
+    # An external server can hold other applications' databases; only those
+    # a settings file names could belong to a wiki.
+    - name: Find the undeclared databases a settings file names (external database)
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/referenced_databases.yml
+      vars:
+        refdb_names: "{{ _mig_db_undeclared }}"
+      when: _mig_db_external | bool
+
+    - name: Keep only those (external database)
+      ansible.builtin.set_fact:
+        _mig_db_undeclared: "{{ _refdb_referenced }}"
+      when: _mig_db_external | bool
+
+    - name: Report why the instance stays on the administrator account
       ansible.builtin.debug:
         msg: >-
-          WARNING: instance '{{ instance_id }}' stays on the database root
-          account.
+          WARNING: instance '{{ instance_id }}' stays on the database
+          administrator account.
           {%- if _mig_db_overrides.stdout_lines | length > 0 %}
           {{ _mig_db_overrides.stdout_lines | join(', ') }} set $wgDBuser or
           $wgDBpassword, which would override MediaWiki's own account;
@@ -108,7 +123,8 @@
           are no longer used.
           {%- endif %}
           The move is tried again on the next upgrade. To keep this instance
-          on root, run 'canasta config set CANASTA_DB_ROOT_ACCOUNT=true -i
+          on the administrator account, run 'canasta config set
+          CANASTA_DB_ROOT_ACCOUNT=true -i
           {{ instance_id }}'.
       when: >-
         _mig_db_overrides.stdout_lines | length > 0
