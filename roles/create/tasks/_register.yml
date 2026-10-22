@@ -25,6 +25,9 @@
     inspect_command: "{{ inspect_command | default(omit, true) }}"
     build_from: "{{ build_from | default(omit) }}"
     build_args: "{{ build_arg | default(omit, true) }}"
+    build_base: >-
+      {{ _effective_base_image
+         if (build_from | default('')) != '' else omit }}
     state: present
   delegate_to: canasta_controller
   vars:
