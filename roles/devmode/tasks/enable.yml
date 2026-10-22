@@ -17,6 +17,13 @@
     msg: "Instance '{{ instance_id }}' is already in development mode."
   when: instance_devmode | bool
 
+- name: Check for tls directives before changing anything
+  canasta_edge:
+    state: check
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+  when: not (instance_is_k8s | bool)
+
 - name: Read base image from .env
   canasta_env:
     path: "{{ instance_path }}/.env"
