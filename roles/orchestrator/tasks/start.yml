@@ -176,6 +176,81 @@
              or start_converge | default(false) | bool }}
         _start_account_ensured: false
 
+    # Docker creates a missing bind-mount source on the host, as root under
+    # rootful Docker, and the operator then cannot change or remove it.
+    # Parents come first: a directory's mode also applies to the parents
+    # it creates.
+    - name: Find the stack's bind-mounted directories
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/{{ item.dir }}"
+      loop:
+        - { dir: config }
+        - { dir: extensions }
+        - { dir: skins }
+        - { dir: images, mode: "0775" }
+        - { dir: public_assets }
+        - { dir: config/certs, mode: "0700" }
+        - { dir: config/logstash/pipeline }
+      loop_control:
+        label: "{{ item.dir }}"
+      register: _stack_bind_dirs
+      when: _start_needed | bool
+
+    - name: Create the stack's missing bind-mounted directories
+      ansible.builtin.file:
+        path: "{{ instance_path }}/{{ item.item.dir }}"
+        state: directory
+        mode: "{{ item.item.mode | default('0755') }}"
+      loop: "{{ _stack_bind_dirs.results | default([]) | rejectattr('skipped', 'defined')
+                | rejectattr('stat.exists') | list }}"
+      loop_control:
+        label: "{{ item.item.dir }}"
+
+    - name: List the sources Docker would create for bind mounts
+      ansible.builtin.command:
+        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} config"
+        chdir: "{{ instance_path }}"
+      register: _start_compose_config
+      changed_when: false
+      failed_when: false
+      no_log: true  # the rendered configuration includes .env's passwords
+      when:
+        - _start_needed | bool
+        - compose_command is not search('podman')
+
+    - name: Collect the bind-mount sources Docker would create
+      ansible.builtin.set_fact:
+        _start_bind_sources: >-
+          {% set found = [] -%}
+          {% if _start_compose_config.rc | default(1) == 0 -%}
+          {% for svc in ((_start_compose_config.stdout | from_yaml).services | default({})).values() -%}
+          {% for vol in svc.volumes | default([]) -%}
+          {% if vol.type | default('') == 'bind' and vol.bind is defined
+                and vol.bind.create_host_path | default(true) -%}
+          {% set _ = found.append(vol.source) -%}
+          {% endif -%}
+          {% endfor -%}
+          {% endfor -%}
+          {% endif -%}
+          {{ found | unique }}
+
+    - name: Check the bind-mount sources
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: "{{ _start_bind_sources }}"
+      register: _start_bind_source_stats
+
+    - name: Report bind-mount sources that do not exist
+      ansible.builtin.debug:
+        msg: >-
+          The instance's compose files bind-mount {{ item.item }}, which does
+          not exist. Docker creates it as an empty directory, owned by root
+          under rootful Docker. Create it, or remove the mount from
+          docker-compose.override.yml.
+      loop: "{{ _start_bind_source_stats.results | rejectattr('stat.exists') | list }}"
+      loop_control:
+        label: "{{ item.item }}"
+
     - name: Report starting containers (quiet mode)
       ansible.builtin.debug:
         msg: "Starting containers..."
