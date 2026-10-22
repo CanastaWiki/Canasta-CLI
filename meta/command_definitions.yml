@@ -781,6 +781,9 @@ commands:
       * With --cli-only: prints only the CLI header; skips all
         instance reads. Intended for scripts that just want the CLI
         version deterministically.
+
+      For an instance built with --build-from, the image tag is followed
+      by the base image of its most recent build.
     examples:
       - "canasta version"
       - "canasta version -i mysite"

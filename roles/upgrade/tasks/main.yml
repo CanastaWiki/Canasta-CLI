@@ -158,6 +158,17 @@
     build_arg: "{{ _upgrade_build_args }}"
   when: _upgrade_rebuild | bool
 
+- name: Record the base image of the rebuilt image
+  canasta_registry:
+    id: "{{ instance_id }}"
+    state: update
+    build_base: "{{ _effective_base_image }}"
+  delegate_to: canasta_controller
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  when: _upgrade_rebuild | bool
+
 - name: Record the moved BASE_IMAGE in the registry
   when:
     - _upgrade_rebuild | bool

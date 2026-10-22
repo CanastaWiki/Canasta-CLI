@@ -19,6 +19,7 @@
     exec_service: web
     exec_command: "php maintenance/update.php --wiki={{ _update_php_wiki | quote }}"
     exec_long: true
+    exec_user: www-data
   loop: >-
     {{ update_php_wikis
        if (update_php_wikis | default([], true) | length > 0)
