@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 
+import canasta_caddyfile
 import canasta_web_cause
 import yaml
 
@@ -1261,6 +1262,19 @@ def _edge_lines(inst):
                                   "podman" not in os.path.basename(inspect), rates_set)
 
 
+def _caddy_tls_lines(inst):
+    """doctor lines for tls directives in a Compose instance's
+    Caddyfile.site and Caddyfile.global; [] when it has none, and on
+    Kubernetes."""
+    if not inst.get("path") or _helpers._is_k8s(inst):
+        return []
+    found = _helpers._caddy_tls_directives(inst)
+    if not found:
+        return []
+    return ["", "Caddy configuration (%s):" % inst.get("id", "?"),
+            "  tls directives: WARN — the instance %s." % canasta_caddyfile.tls_directives_problem(found)]
+
+
 def _origin_tls_server_names(path, host):
     """Unique hostnames the instance serves, derived from wikis.yaml as
     rewrite_caddy.yml derives the Caddy site address."""
@@ -1890,6 +1904,9 @@ def cmd_doctor(args):
             print(line)
 
         for line in _edge_lines(inst):
+            print(line)
+
+        for line in _caddy_tls_lines(inst):
             print(line)
 
         for line in _composer_failure_lines(inst):

@@ -16,6 +16,7 @@ import time
 import urllib.parse
 import urllib.request
 
+import canasta_caddyfile
 import canasta_config
 import canasta_env_keys
 import canasta_web_cause
@@ -2381,6 +2382,30 @@ def _refuse_unfinished_pull(inst_id, inst):
         return False
     print("Error: " + _unfinished_pull_message(inst_id, path, verb),
           file=sys.stderr)
+    return True
+
+
+def _caddy_tls_directives(inst):
+    """'file:line' for each tls directive in a Compose instance's
+    Caddyfile.site and Caddyfile.global, which Caddy cannot use behind the
+    HAProxy edge. [] for an instance not behind it yet: its Caddyfile on
+    disk is still the one where Caddy handles TLS itself."""
+    path = inst.get("path", "")
+    host = inst.get("host") or "localhost"
+    if not _read_instance_file(path, host, "docker-compose.edge.yml"):
+        return []
+    return canasta_caddyfile.instance_tls_directives(
+        lambda rel: _read_instance_file(path, host, rel))
+
+
+def _refuse_caddy_tls(inst_id, inst):
+    """Print why the instance's Caddy cannot be recreated, and return True,
+    when its Caddyfile.site or Caddyfile.global has a tls directive."""
+    found = _caddy_tls_directives(inst)
+    if not found:
+        return False
+    print("Error: Instance '%s' %s." % (
+        inst_id, canasta_caddyfile.tls_directives_problem(found)), file=sys.stderr)
     return True
 
 
