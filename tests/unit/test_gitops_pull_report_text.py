@@ -12,6 +12,7 @@ one sentence.
 
 import ast
 import os
+import subprocess
 
 import pytest
 import yaml
@@ -50,7 +51,8 @@ def _env():
     return env
 
 
-def _report(restart, maintenance):
+def _report(restart, maintenance, range_base="aaaaaaaaaa",
+            prev="aaaaaaaaaa", new="bbbbbbbbbb"):
     env = _env()
     tasks = _tasks()
 
@@ -67,8 +69,9 @@ def _report(restart, maintenance):
     report = _find(tasks, "Report pull results")
     assert report is not None, "the report task is gone or renamed"
     return env.from_string(report["ansible.builtin.debug"]["msg"]).render(
-        _pull_prev_commit={"stdout": "aaaaaaaaaa"},
-        _pull_new_commit={"stdout": "bbbbbbbbbb"},
+        _pull_prev_commit={"stdout": prev},
+        _pull_new_commit={"stdout": new},
+        _pull_range_base={"stdout": range_base},
         _pull_followup=followup,
     )
 
@@ -106,3 +109,73 @@ class TestPullReportIsOneSentence:
         out = _report(restart, maintenance)
         assert out == out.strip()
         assert "  " not in out
+
+
+def _git(cwd, *args):
+    return subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
+         "-c", "commit.gpgsign=false", *args],
+        cwd=cwd, check=True, capture_output=True, text=True,
+    ).stdout.strip()
+
+
+def _commit(cwd, name):
+    with open(os.path.join(cwd, name), "w") as f:
+        f.write(name)
+    _git(cwd, "add", name)
+    _git(cwd, "commit", "-q", "-m", name)
+
+
+def _range_base(cwd, prev, new):
+    env = _env()
+    task = _find(_tasks(), "Find where the pulled commits begin")
+    assert task is not None, "the range-start task is gone or renamed"
+    cmd = env.from_string(task["ansible.builtin.command"]["cmd"]).render(
+        _pull_prev_commit={"stdout": prev}, _pull_new_commit={"stdout": new})
+    proc = subprocess.run(cmd.split(), cwd=cwd, capture_output=True, text=True)
+    return proc.stdout.strip()
+
+
+@pytest.fixture
+def repos(tmp_path):
+    remote = tmp_path / "remote.git"
+    other = tmp_path / "other"
+    host = tmp_path / "host"
+    _git(tmp_path, "init", "-q", "--bare", "-b", "main", str(remote))
+    _git(tmp_path, "clone", "-q", str(remote), str(other))
+    _commit(other, "base")
+    _git(other, "push", "-q", "origin", "HEAD:main")
+    _git(tmp_path, "clone", "-q", str(remote), str(host))
+    return str(other), str(host)
+
+
+def _pull_and_report(other, host):
+    _commit(other, "remote-change")
+    _git(other, "push", "-q", "origin", "HEAD:main")
+    prev = _git(host, "rev-parse", "HEAD")
+    _git(host, "pull", "-q", "--rebase")
+    new = _git(host, "rev-parse", "HEAD")
+    base = _range_base(host, prev, new)
+    return prev, new, base, _report(False, False, base, prev, new)
+
+
+class TestPullReportRange:
+    def test_without_local_commits_the_range_starts_at_the_old_head(
+            self, repos):
+        other, host = repos
+        prev, new, _, out = _pull_and_report(other, host)
+        assert out == "Pulled %s..%s. No restart needed." % (prev[:7], new[:7])
+
+    def test_replayed_local_commits_keep_the_range_in_history(self, repos):
+        other, host = repos
+        _commit(host, "local-change")
+        prev, new, base, out = _pull_and_report(other, host)
+        assert not _git(host, "branch", "--contains", prev), (
+            "the rebase should have left the pre-pull HEAD off the branch")
+        assert out == "Pulled %s..%s. No restart needed." % (base[:7], new[:7])
+        assert _git(host, "log", "--format=%s", "%s..%s" % (base, new)) \
+            .split() == ["local-change", "remote-change"]
+
+    def test_no_common_ancestor_falls_back_to_the_old_head(self):
+        out = _report(False, False, range_base="", prev="cccccccccc")
+        assert out == "Pulled ccccccc..bbbbbbb. No restart needed."
