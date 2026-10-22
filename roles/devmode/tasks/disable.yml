@@ -16,6 +16,13 @@
     msg: "Instance '{{ instance_id }}' is not in development mode."
   when: not (instance_devmode | bool)
 
+- name: Check for tls directives before stopping
+  canasta_edge:
+    state: check
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+  when: not (instance_is_k8s | bool)
+
 - name: Stop containers
   ansible.builtin.include_role:
     name: orchestrator

@@ -1,0 +1,45 @@
+---
+# `upgrade --dry-run`: report whether an instance's MediaWiki would move off
+# the database root account, or would wait because the instance is stopped.
+# Input: _inst (dict with key=id, value=instance details)
+
+- name: Set instance facts
+  ansible.builtin.set_fact:
+    instance_id: "{{ _inst.key }}"
+    instance_path: "{{ _inst.value.path }}"
+    instance_orchestrator: "{{ _inst.value.orchestrator | default('compose') }}"
+    inspect_command: >-
+      {{ _inst.value.inspectCommand
+         | default(_upgrade_default_inspect_command) }}
+    instance_docker_host: "{{ _inst.value.dockerHost | default('') }}"
+    _instance_host: "{{ _inst.value.host | default('localhost') }}"
+
+- name: Switch connection to instance host
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/switch_connection.yml"
+
+- name: Check that the instance's settings exist
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.env"
+  register: _upgrade_dry_env
+
+- name: Check whether the instance is running
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/check_running.yml"
+  when: _upgrade_dry_env.stat.exists
+
+- name: Check whether MediaWiki waits to move to its own database account
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/upgrade/tasks/check_wiki_db_account.yml"
+  when: _upgrade_dry_env.stat.exists
+
+- name: Report the database account move
+  ansible.builtin.debug:
+    msg: >-
+      {% if _container_running | bool -%}
+      Dry run - would move MediaWiki of '{{ instance_id }}' off the database
+      root account, unless a settings file or an undeclared database stops it.
+      {%- else -%}
+      Dry run - would leave '{{ instance_id }}' stopped and skip moving
+      MediaWiki off the database root account.
+      {%- endif %}
+  when:
+    - _upgrade_dry_env.stat.exists
+    - _mig_db_pending | bool
