@@ -604,13 +604,25 @@
       ~ ' changed).'] if _pull_maintenance_triggers else []))
       or ['No restart needed.'] }}
 
+# A rebase replays local commits as new ones, leaving the pre-pull HEAD out
+# of the branch's history. The merge base is where the pulled commits begin
+# either way: the pre-pull HEAD when there was nothing to replay.
+- name: Find where the pulled commits begin
+  ansible.builtin.command:
+    cmd: "git merge-base {{ _pull_prev_commit.stdout }} {{ _pull_new_commit.stdout }}"
+    chdir: "{{ instance_path }}"
+  register: _pull_range_base
+  changed_when: false
+  failed_when: false
+
 - name: Report pull results
   ansible.builtin.debug:
     msg: >-
       {{ ('Re-applied ' ~ _pull_new_commit.stdout[:7] ~ ' (the previous pull
       did not finish).')
       if _pull_prev_commit.stdout == _pull_new_commit.stdout
-      else ('Pulled ' ~ _pull_prev_commit.stdout[:7] ~ '..'
+      else ('Pulled ' ~ (_pull_range_base.stdout | default('', true)
+      or _pull_prev_commit.stdout)[:7] ~ '..'
       ~ _pull_new_commit.stdout[:7] ~ '.') }}
       {{ _pull_followup | join(' ') }}
 
