@@ -435,7 +435,10 @@ commands:
         description: >-
           Build argument KEY=VALUE forwarded to the --build-from image
           builds (repeatable, e.g. --build-arg MW_VERSION=master). A
-          user-supplied BASE_IMAGE overrides the auto-detected base.
+          user-supplied BASE_IMAGE overrides the auto-detected base: the
+          local CanastaBase build when CanastaBase/ is in the source
+          directory, else the published CanastaBase image for Canasta
+          source and the current Canasta release image for an overlay.
       - name: database
         short: d
         type: path
@@ -778,6 +781,9 @@ commands:
       * With --cli-only: prints only the CLI header; skips all
         instance reads. Intended for scripts that just want the CLI
         version deterministically.
+
+      For an instance built with --build-from, the image tag is followed
+      by the base image of its most recent build.
     examples:
       - "canasta version"
       - "canasta version -i mysite"
@@ -1080,6 +1086,14 @@ commands:
       A restarted instance whose startup `composer update` failed is
       reported with a warning.
 
+      On Docker Compose, an instance whose new image may not fit on the
+      filesystem that holds container images is not upgraded and keeps
+      running as it is. The size of the image it runs now is the measure,
+      so the check can ask for more space than the pull needs. The
+      filesystem also needs at least 250,000 free inodes, since an image
+      unpacks to over 100,000 files. `canasta image prune` reclaims the
+      images no instance uses.
+
       On Docker Compose, upgrade first moves each host's instances behind
       the HAProxy edge, keeping their hostnames, ports and certificates. A
       host whose instances the edge cannot all serve is refused with the
@@ -1097,6 +1111,12 @@ commands:
       image rebuilt, and its web pods restart when the new build differs
       from the image they run.
 
+      An instance built from source is rebuilt on the upgrade's Canasta
+      release: a `BASE_IMAGE` build argument that names an older
+      `ghcr.io/canastawiki/canasta:<version>` image is moved to the new
+      release, in the rebuild and in the recorded build arguments. Any other
+      `BASE_IMAGE` is kept as given.
+
       Upgrade also moves a running instance on the bundled database off the
       database root account, onto MediaWiki's own `mediawiki` account with
       access to the instance's wiki databases only. It leaves the instance
@@ -1105,7 +1125,9 @@ commands:
       tries again on the next upgrade. `canasta config set
       CANASTA_DB_ROOT_ACCOUNT=true` keeps an instance on root. On a
       gitops-managed Kubernetes instance the move is staged with the rest
-      and takes effect at the push and sync.
+      and takes effect at the push and sync. A stopped instance is left
+      stopped and on root until an upgrade runs while it is running;
+      `--dry-run` and the end of the upgrade name each such instance.
 
       By default the CLI itself updates to the latest released version
       within the current major (the highest vX.Y.Z tag whose major matches
@@ -3892,8 +3914,9 @@ commands:
       `build:` sidecars, and `image push`) orphan the previous push's layers.
       Nothing else ever collects them, so the disk only grows until this runs.
 
-      On a Docker host, removes the Canasta image tags no instance registered
-      on the host is pinned to, then prunes dangling layers. On a Kubernetes
+      On a Docker or Podman host, removes the Canasta image tags no instance
+      registered on the host is pinned to, then prunes dangling layers. A
+      host carrying both runtimes is reclaimed in each. On a Kubernetes
       host, prunes containerd images no pod references, then runs the
       in-cluster registry's garbage collector (with `--delete-untagged`) and
       restarts the registry so its in-memory blob cache matches the pruned

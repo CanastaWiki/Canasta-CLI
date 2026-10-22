@@ -568,7 +568,7 @@ def test_helpers_run_as_the_operator_where_container_root_is_host_root(tmp_path,
         "S", (), {"st_uid": 0})() if p.endswith(".owner-probe") else real_stat(p, *a, **k))
     assert mod.helper_user(OwnerProbe(0, daemon_id="rootful"), "docker", str(edge)) == "1000:1000"
     assert (edge / ".helper-user").read_text() == "1000:1000\n"
-    assert (edge / ".helper-user-daemon").read_text() == "rootful\n"
+    assert (edge / ".helper-user-daemon").read_text() == "rootful\n1000\n"
     assert mod.helper_user(FakeRunner(daemon_id="rootful"), "docker", str(edge)) == "1000:1000"
 
 
@@ -576,7 +576,7 @@ def test_helpers_decide_again_on_another_daemon(tmp_path, monkeypatch):
     edge = tmp_path / "edge"
     edge.mkdir()
     (edge / ".helper-user").write_text("1000:1000\n")
-    (edge / ".helper-user-daemon").write_text("rootful\n")
+    (edge / ".helper-user-daemon").write_text("rootful\n1000\n")
     monkeypatch.setattr(mod.os, "getuid", lambda: 1000)
     real_stat = os.stat
     monkeypatch.setattr(mod.os, "stat", lambda p, *a, **k: type(
@@ -585,7 +585,101 @@ def test_helpers_decide_again_on_another_daemon(tmp_path, monkeypatch):
     assert mod.helper_user(run, "docker", str(edge)) == "root"
     assert run.runs("touch")
     assert (edge / ".helper-user").read_text() == "root\n"
-    assert (edge / ".helper-user-daemon").read_text() == "rootless\n"
+    assert (edge / ".helper-user-daemon").read_text() == "rootless\n1000\n"
+
+
+def test_helpers_decide_again_for_another_user(tmp_path, monkeypatch):
+    edge = tmp_path / "edge"
+    edge.mkdir()
+    (edge / ".helper-user").write_text("root\n")
+    (edge / ".helper-user-daemon").write_text("rootful\n0\n")
+    monkeypatch.setattr(mod.os, "getuid", lambda: 1000)
+    monkeypatch.setattr(mod.os, "getgid", lambda: 1000)
+    real_stat = os.stat
+    monkeypatch.setattr(mod.os, "stat", lambda p, *a, **k: type(
+        "S", (), {"st_uid": 0})() if str(p).endswith(".owner-probe") else real_stat(p, *a, **k))
+    run = OwnerProbe(0, daemon_id="rootful")
+    assert mod.helper_user(run, "docker", str(edge)) == "1000:1000"
+    assert run.runs("touch")
+    assert (edge / ".helper-user-daemon").read_text() == "rootful\n1000\n"
+
+
+def test_helpers_decide_again_over_a_cache_without_a_uid(tmp_path, monkeypatch):
+    edge = tmp_path / "edge"
+    edge.mkdir()
+    (edge / ".helper-user").write_text("root\n")
+    (edge / ".helper-user-daemon").write_text("rootful\n")
+    monkeypatch.setattr(mod.os, "getuid", lambda: 1000)
+    monkeypatch.setattr(mod.os, "getgid", lambda: 1000)
+    real_stat = os.stat
+    monkeypatch.setattr(mod.os, "stat", lambda p, *a, **k: type(
+        "S", (), {"st_uid": 0})() if str(p).endswith(".owner-probe") else real_stat(p, *a, **k))
+    assert mod.helper_user(OwnerProbe(0, daemon_id="rootful"), "docker", str(edge)) == "1000:1000"
+
+
+# --- whether this run can write the edge ---------------------------------------- #
+
+def _owned_elsewhere(monkeypatch):
+    """Run as a uid that owns nothing here, so only the write bits decide."""
+    uid = os.getuid() + 4242
+    monkeypatch.setattr(mod.os, "getuid", lambda: uid)
+
+
+@pytest.mark.skipif(os.getuid() == 0, reason="root can write anything")
+def test_the_check_names_files_this_user_cannot_write(tmp_path, monkeypatch):
+    path = _instance(tmp_path, "one")
+    edge = tmp_path / "config" / "edge"
+    (edge / "conf" / "certs").mkdir(parents=True)
+    pem = edge / "conf" / "certs" / "example.com.pem"
+    pem.write_text("x")
+    (tmp_path / "config" / "edge.lock").write_text("")
+    layer = tmp_path / "one" / mod.LAYER_FILE
+    layer.write_text("x")
+    _owned_elsewhere(monkeypatch)
+    assert mod.unwritable_paths(str(edge), path) == []
+    for p in (pem, layer, tmp_path / "config" / "edge.lock"):
+        p.chmod(0o444)
+    try:
+        assert mod.unwritable_paths(str(edge), path) == [
+            str(tmp_path / "config" / "edge.lock"), str(pem), str(layer)]
+        with pytest.raises(mod.EdgeError, match=re.escape(str(pem))):
+            mod.check_writable(str(edge), path)
+    finally:
+        for p in (pem, layer, tmp_path / "config" / "edge.lock"):
+            p.chmod(0o644)
+
+
+@pytest.mark.skipif(os.getuid() == 0, reason="root can write anything")
+def test_the_check_needs_the_config_dir_for_a_new_lock(tmp_path, monkeypatch):
+    config = tmp_path / "config"
+    config.mkdir()
+    _owned_elsewhere(monkeypatch)
+    config.chmod(0o555)
+    try:
+        assert mod.unwritable_paths(str(config / "edge")) == [str(config)]
+    finally:
+        config.chmod(0o755)
+
+
+@pytest.mark.skipif(os.getuid() == 0, reason="needs an edge owned by another user")
+def test_root_is_refused_an_edge_another_user_owns(tmp_path, monkeypatch):
+    edge = tmp_path / "config" / "edge"
+    edge.mkdir(parents=True)
+    owner = mod._user_name(os.getuid())
+    monkeypatch.setattr(mod.os, "getuid", lambda: 0)
+    assert mod.foreign_owner(str(edge)) == owner
+    with pytest.raises(mod.EdgeError, match="running as root.*belongs to %s" % re.escape(owner)):
+        mod.check_writable(str(edge))
+    # Before the edge exists, the directory it goes in decides.
+    assert mod.foreign_owner(str(tmp_path / "config" / "other")) == owner
+
+
+def test_the_operator_is_not_refused_their_own_edge(tmp_path):
+    edge = tmp_path / "config" / "edge"
+    edge.mkdir(parents=True)
+    if os.getuid() != 0:
+        assert mod.foreign_owner(str(edge)) is None
+    mod.check_writable(str(edge), _instance(tmp_path, "one"))
 
 
 def test_helpers_decide_again_over_a_cache_without_a_daemon(tmp_path, monkeypatch):

@@ -86,6 +86,7 @@ def _smw_loaded(inst_id, inst, wiki):
         "echo %s | php maintenance/run.php eval --wiki=%s" % (
             _helpers._shell_quote(_SMW_PROBE_PHP), _helpers._shell_quote(wiki),
         ),
+        user=_helpers.WEB_USER,
     )
     if rc != 0:
         return None
@@ -109,6 +110,7 @@ def _run_on_each_wiki(args, inst_id, inst, tokens):
         print("\n=== %s (%s) ===" % (tokens[0], w))
         rc = _helpers._stream_in_container(
             inst_id, inst, _helpers._maint_run_command(tokens, w),
+            user=_helpers.WEB_USER,
         )
         if rc != 0:
             overall_rc = rc
@@ -182,6 +184,7 @@ def cmd_maintenance_update(args):
         rc = _helpers._stream_in_container(
             inst_id, inst,
             "php maintenance/update.php --wiki=%s" % _helpers._shell_quote(w),
+            user=_helpers.WEB_USER,
         )
         if rc != 0:
             overall_rc = rc
@@ -197,6 +200,7 @@ def cmd_maintenance_update(args):
                 inst_id, inst,
                 "php maintenance/runJobs.php --wiki=%s" % _helpers._shell_quote(w),
                 retry_on_reset=True,  # runJobs.php is idempotent
+                user=_helpers.WEB_USER,
             )
             if rc != 0:
                 overall_rc = rc
@@ -230,6 +234,7 @@ def cmd_maintenance_update(args):
                     "php extensions/SemanticMediaWiki/maintenance/"
                     "rebuildData.php --wiki=%s" % _helpers._shell_quote(w),
                     retry_on_reset=True,  # rebuildData.php is idempotent
+                    user=_helpers.WEB_USER,
                 )
 
     completed = [w for w in wikis if w not in failed]

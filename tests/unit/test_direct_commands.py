@@ -1373,6 +1373,57 @@ class TestCmdVersionInstanceModes:
         assert "canasta-site" in captured["cmd"]
         assert "docker compose" not in captured["cmd"]
 
+    def test_list_all_reports_recorded_build_base(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """A build-from instance with a recorded base shows it after the
+        local tag; one without a recorded base prints the tag alone."""
+        built = tmp_path / "built"
+        built.mkdir()
+        (built / ".env").write_text("CANASTA_IMAGE=canasta:local\n")
+        legacy = tmp_path / "legacy"
+        legacy.mkdir()
+        (legacy / ".env").write_text("CANASTA_IMAGE=canasta:local\n")
+        self._setup(tmp_path, monkeypatch, {
+            "built": {"path": str(built), "host": "localhost",
+                      "buildFrom": "/src",
+                      "buildBase": "ghcr.io/canastawiki/canasta:3.5.29"},
+            "legacy": {"path": str(legacy), "host": "localhost",
+                       "buildFrom": "/src"},
+        })
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        monkeypatch.chdir(outside)
+        args = type("Args", (), {"id": None, "cli_only": False, "host": None})()
+        assert direct_commands.cmd_version(args) == 0
+        lines = capsys.readouterr().out.splitlines()
+        assert ("Instance 'built': canasta:local "
+                "(built on ghcr.io/canastawiki/canasta:3.5.29)") in lines
+        assert "Instance 'legacy': canasta:local" in lines
+
+    def test_inside_build_from_instance_reports_build_base(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        site = tmp_path / "site"
+        site.mkdir()
+        (site / ".env").write_text("CANASTA_IMAGE=canasta:local\n")
+        self._setup(tmp_path, monkeypatch, {
+            "site": {"path": str(site), "host": "localhost",
+                     "buildFrom": "/src", "buildBase": "canasta-base:local"},
+        })
+        monkeypatch.chdir(site)
+        monkeypatch.setattr(
+            subprocess, "run",
+            lambda *a, **kw: type("R", (), {
+                "returncode": 0, "stdout": "3.5.29\n",
+            })(),
+        )
+        args = type("Args", (), {"id": None, "cli_only": False, "host": None})()
+        assert direct_commands.cmd_version(args) == 0
+        out = capsys.readouterr().out
+        assert ("Instance 'site': canasta:local (built on canasta-base:local) "
+                "(running: 3.5.29)") in out
+
     def test_all_flag_rejected(self, tmp_path, monkeypatch, capsys):
         """--all was removed; argparse should reject it so anyone who
         still uses it gets a loud error instead of silently falling
@@ -4093,7 +4144,7 @@ class TestMaintenanceScript:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4122,7 +4173,7 @@ class TestMaintenanceScript:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4145,7 +4196,7 @@ class TestMaintenanceScript:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4164,7 +4215,7 @@ class TestMaintenanceScript:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4180,7 +4231,7 @@ class TestMaintenanceScript:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4196,7 +4247,7 @@ class TestMaintenanceScript:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4214,7 +4265,7 @@ class TestMaintenanceScript:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4232,7 +4283,7 @@ class TestMaintenanceScript:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4247,7 +4298,7 @@ class TestMaintenanceScript:
         commands = []
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             commands.append(command)
             return (rcs or {}).get(len(commands), 0)
 
@@ -4333,7 +4384,7 @@ class TestMaintenanceExtension:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4348,7 +4399,7 @@ class TestMaintenanceExtension:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4366,7 +4417,7 @@ class TestMaintenanceExtension:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4384,7 +4435,7 @@ class TestMaintenanceExtension:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4402,7 +4453,7 @@ class TestMaintenanceExtension:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4420,7 +4471,7 @@ class TestMaintenanceExtension:
         commands = []
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             commands.append(command)
             return (rcs or {}).get(len(commands), 0)
 
@@ -4516,7 +4567,7 @@ class TestMaintenanceUpdate:
         retries = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             retries[command.split()[1]] = retry_on_reset
             return 0
 
@@ -4534,7 +4585,7 @@ class TestMaintenanceUpdate:
         commands = []
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             commands.append(command)
             return 0
 
@@ -4559,7 +4610,7 @@ class TestMaintenanceUpdate:
         )
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
-            lambda iid, i, c, service="web", retry_on_reset=False:
+            lambda iid, i, c, service="web", retry_on_reset=False, user=None:
                 commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args(skip_jobs=True))
@@ -4572,7 +4623,7 @@ class TestMaintenanceUpdate:
         each per-wiki eval probe returns probe_results[wiki]."""
         probes = []
 
-        def fake_exec(inst_id, inst, command, service="web"):
+        def fake_exec(inst_id, inst, command, service="web", user=None):
             if command.startswith("test -f"):
                 return 0, "yes\n"
             assert "maintenance/run.php eval" in command
@@ -4584,7 +4635,7 @@ class TestMaintenanceUpdate:
     def _stream_recorder(self, monkeypatch):
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
-            lambda iid, i, c, service="web", retry_on_reset=False:
+            lambda iid, i, c, service="web", retry_on_reset=False, user=None:
                 commands.append(c) or 0,
         )
         return commands
@@ -4653,7 +4704,7 @@ class TestMaintenanceUpdate:
         )
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
-            lambda iid, i, c, service="web", retry_on_reset=False:
+            lambda iid, i, c, service="web", retry_on_reset=False, user=None:
                 commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args(skip_smw=True))
@@ -4666,7 +4717,7 @@ class TestMaintenanceUpdate:
         )
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
-            lambda iid, i, c, service="web", retry_on_reset=False:
+            lambda iid, i, c, service="web", retry_on_reset=False, user=None:
                 commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args(wiki="draft"))

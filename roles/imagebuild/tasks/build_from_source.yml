@@ -3,6 +3,7 @@
 #
 # Input:
 #   build_from (path to workspace containing Canasta/ and optionally CanastaBase/)
+#   canasta_default_image (the Canasta image an overlay builds on by default)
 #   build_arg  (optional list of "KEY=VALUE" strings forwarded to the builds)
 # Output fact: _built_image (str: "canasta:local")
 
@@ -71,9 +72,19 @@
       ansible.builtin.set_fact:
         _base_image_arg: "canasta-base:local"
 
+# Canasta source (it carries contents.yaml) builds on CanastaBase. Anything
+# else under Canasta/ is an overlay on the full Canasta image.
+- name: Check whether the Canasta source is the Canasta repository
+  ansible.builtin.stat:
+    path: "{{ build_from }}/Canasta/contents.yaml"
+  register: _canasta_contents
+
 - name: Use published base image
   ansible.builtin.set_fact:
-    _base_image_arg: "ghcr.io/canastawiki/canasta-base:latest"
+    _base_image_arg: >-
+      {{ 'ghcr.io/canastawiki/canasta-base:latest'
+         if _canasta_contents.stat.exists
+         else canasta_default_image }}
   when: not _base_dockerfile.stat.exists
 
 # The effective base is the last BASE_IMAGE build-arg (a user-supplied one

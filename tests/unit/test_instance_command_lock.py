@@ -118,3 +118,36 @@ def test_main_takes_the_lock_before_either_path():
         main.index("run_direct_path(")
     direct = src[src.index("def run_direct_path("):src.index("def main():")]
     assert "direct_commands.run_direct_command" in direct
+
+
+@pytest.mark.skipif(os.getuid() == 0, reason="needs a config dir another user owns")
+def test_root_is_refused_another_users_config_dir_before_any_lock(registry, monkeypatch, capsys):
+    owner = canasta._user_name(os.getuid())
+    monkeypatch.setattr(canasta.os, "getuid", lambda: 0)
+    with pytest.raises(SystemExit) as exc:
+        canasta.run_preflight_checks("restart", argparse.Namespace(id="demo"))
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "running as root" in err and "belongs to %s" % owner in err
+    assert not (registry / "locks").exists()
+
+
+def test_the_config_dir_owner_is_not_refused(registry):
+    canasta.check_root_in_foreign_config_dir()
+
+
+@pytest.mark.skipif(os.getuid() == 0, reason="root can open any lock")
+def test_a_lock_this_user_cannot_open_is_reported_without_a_traceback(registry, capsys):
+    (registry / "locks").mkdir()
+    lock = registry / "locks" / "demo.lock"
+    lock.write_text("")
+    lock.chmod(0)
+    try:
+        with pytest.raises(SystemExit) as exc:
+            _acquire("restart")
+    finally:
+        lock.chmod(0o600)
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "cannot open the instance lock %s" % lock in err
+    assert "sudo chown" in err

@@ -142,7 +142,8 @@ class TestComposeLayering:
     def test_gitops_pull_renders_and_restarts_on_list_change(self):
         body = _read(os.path.join(GITOPS_TASKS, "pull_compose.yml"))
         assert "render_web_env.yml" in body
-        assert "config/secret-keys-web$" in body
+        fingerprint = _read(os.path.join(GITOPS_TASKS, "_rendered_fingerprint.yml"))
+        assert '"secret-keys-web"' in fingerprint
 
     def test_render_reports_keys_without_a_value(self):
         tasks = _load(os.path.join(ORCH_TASKS, "render_web_env.yml"))

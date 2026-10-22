@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 
+import canasta_caddyfile
 import canasta_web_cause
 import yaml
 
@@ -31,7 +32,7 @@ git-crypt --version 2>/dev/null && echo OK || echo MISSING; echo "$D"
 command -v crontab >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 uname -s 2>/dev/null || echo unknown; echo "$D"
 python3 -c "import os; mem=os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')//(1024**3); print(str(mem)+' GB')" 2>/dev/null || echo unknown; echo "$D"
-df -h / | awk 'NR==2{print $4}' 2>/dev/null || echo unknown; echo "$D"
+_store=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || podman info --format '{{.Store.GraphRoot}}' 2>/dev/null); [ -n "$_store" ] && [ -d "$_store" ] || _store=/; printf '%%s|%%s\n' "$(df -h "$_store" 2>/dev/null | awk 'NR==2{print $4}')" "$_store"; echo "$D"
 cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown; echo "$D"
 runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; _sock=""; for s in "$runtime/docker.sock" "$runtime/podman/podman.sock"; do if [ -S "$s" ]; then _sock="unix://$s"; break; fi; done; echo "$_sock"; echo "$D"
 command -v canasta >/dev/null 2>&1 && { canasta version >/dev/null 2>&1 && echo OK || echo BROKEN; } || echo MISSING; echo "$D"
@@ -42,7 +43,7 @@ command -v podman >/dev/null 2>&1 && podman --version 2>/dev/null || echo MISSIN
 command -v sudo >/dev/null 2>&1 && sudo --version 2>/dev/null | head -1 || echo MISSING; echo "$D"
 command -v sudo >/dev/null 2>&1 && { sudo -n true >/dev/null 2>&1 && echo OK || echo PASSWORD_REQUIRED; } || echo MISSING; echo "$D"
 command -v podman-compose >/dev/null 2>&1 && podman-compose version 2>/dev/null || echo MISSING; echo "$D"
-docker system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null || echo unknown
+docker system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null || podman system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null || echo unknown
 """
 
 
@@ -534,6 +535,22 @@ def _doctor_backup_lines(probes):
     return lines
 
 
+def _disk_line(disk):
+    """Free space on the filesystem holding container images.
+
+    The probe reports `avail|path`, measuring the runtime's image store
+    rather than `/`: rootless Docker and Podman keep images under the
+    user's home, which is often a different filesystem.
+    """
+    avail, sep, path = disk.partition("|")
+    if not sep or not avail.strip():
+        return "unknown"
+    path = path.strip() or "/"
+    if path == "/":
+        return "%s on /" % avail.strip()
+    return "%s on %s (container image storage)" % (avail.strip(), path)
+
+
 def _doctor_system_lines(probes):
     """System section: resources, groups, self-update, sudo."""
     lines = []
@@ -549,7 +566,7 @@ def _doctor_system_lines(probes):
     lines.append("")
     lines.append("System:")
     lines.append("  Memory:          %s" % memory)
-    lines.append("  Disk (/ avail):  %s" % disk)
+    lines.append("  Disk free:       %s" % _disk_line(disk))
     reclaimable = _reclaimable_line(system_df, k3s)
     if reclaimable:
         lines.append(reclaimable)
@@ -1261,6 +1278,19 @@ def _edge_lines(inst):
                                   "podman" not in os.path.basename(inspect), rates_set)
 
 
+def _caddy_tls_lines(inst):
+    """doctor lines for tls directives in a Compose instance's
+    Caddyfile.site and Caddyfile.global; [] when it has none, and on
+    Kubernetes."""
+    if not inst.get("path") or _helpers._is_k8s(inst):
+        return []
+    found = _helpers._caddy_tls_directives(inst)
+    if not found:
+        return []
+    return ["", "Caddy configuration (%s):" % inst.get("id", "?"),
+            "  tls directives: WARN — the instance %s." % canasta_caddyfile.tls_directives_problem(found)]
+
+
 def _origin_tls_server_names(path, host):
     """Unique hostnames the instance serves, derived from wikis.yaml as
     rewrite_caddy.yml derives the Caddy site address."""
@@ -1890,6 +1920,9 @@ def cmd_doctor(args):
             print(line)
 
         for line in _edge_lines(inst):
+            print(line)
+
+        for line in _caddy_tls_lines(inst):
             print(line)
 
         for line in _composer_failure_lines(inst):

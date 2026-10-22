@@ -1,0 +1,263 @@
+---
+# Reclaim Canasta images from one runtime's image store.
+#
+# Input: _reclaim_cli ('docker' or 'podman'), plus the pins and instance
+# list image_reclaim.yml collects before including this once per runtime.
+
+- name: Name the runtime being reclaimed
+  ansible.builtin.set_fact:
+    _reclaim_label: "{{ _reclaim_cli | capitalize }}"
+
+- name: List Canasta base images on the host
+  ansible.builtin.command:
+    cmd: >-
+      {{ _reclaim_cli }} images ghcr.io/canastawiki/canasta
+      --format {% raw %}'{{.Repository}}:{{.Tag}}'{% endraw %}
+  register: _reclaim_images
+  changed_when: false
+
+- name: Select the tags no instance on this host is pinned to
+  ansible.builtin.set_fact:
+    _reclaim_removable: >-
+      {{ _reclaim_images.stdout_lines
+         | reject('search', ':<none>')
+         | reject('equalto', '')
+         | list
+         | difference(_reclaim_pinned) }}
+
+- name: Report the reclaim that would run
+  ansible.builtin.debug:
+    msg: >-
+      Dry run - {{ _reclaim_label }}: would remove
+      {{ _reclaim_removable | length }} Canasta
+      image tag(s) on {{ _reclaim_host_name }}
+      ({{ (_reclaim_removable | join(', ')) or 'none' }}), then prune
+      dangling layers.
+  when: reclaim_dry_run | default(false) | bool
+
+# No --force: the runtime refuses to remove an image a container still
+# references, so a running instance's tag survives even when the pin
+# lookup above did not name it.
+- name: Remove Canasta image tags no instance needs
+  ansible.builtin.command:
+    cmd: "{{ _reclaim_cli }} image rm {{ _reclaim_image_ref }}"
+  loop: "{{ _reclaim_removable }}"
+  loop_control:
+    loop_var: _reclaim_image_ref
+  register: _reclaim_removed
+  # No per-iteration changed_when: ansible-core does not expose result
+  # fields as bare names in conditionals, and a changed_when that fails
+  # to evaluate fails the task even under failed_when: false. The report
+  # below counts the removals from the registered results instead.
+  changed_when: false
+  failed_when: false
+  when: not (reclaim_dry_run | default(false) | bool)
+
+# Images Compose built carry their project's label. Those built for an
+# instance on this host that no instance references or pins are removed.
+# podman-compose labels neither its built images nor offers
+# `config --images`, so under Podman built images are kept.
+- name: Find the instance directories on this host
+  ansible.builtin.stat:
+    path: "{{ _reclaim_dir.value.path }}"
+  loop: "{{ _reclaim_instances.instances | default({}) | dict2items }}"
+  loop_control:
+    loop_var: _reclaim_dir
+    label: "{{ _reclaim_dir.key }}"
+  register: _reclaim_dirs
+
+# Only a Compose instance has a compose project to read; reading a
+# Kubernetes instance's directory fails and would keep every built image.
+- name: Note the instance directories present here
+  ansible.builtin.set_fact:
+    _reclaim_local_paths: >-
+      {{ (_reclaim_present
+         | map(attribute='_reclaim_dir.value.path')
+         | unique | list
+         | difference(_reclaim_present_k8s
+                      | map(attribute='_reclaim_dir.value.path') | list))
+         if _reclaim_cli == 'docker' else [] }}
+    _reclaim_local_k8s: "{{ _reclaim_present_k8s | length > 0 }}"
+  vars:
+    _reclaim_present: >-
+      {{ _reclaim_dirs.results | default([])
+         | selectattr('stat', 'defined')
+         | selectattr('stat.isdir', 'defined')
+         | selectattr('stat.isdir')
+         | list }}
+    _reclaim_present_k8s: >-
+      {{ _reclaim_present
+         | selectattr('_reclaim_dir.value.orchestrator', 'defined')
+         | selectattr('_reclaim_dir.value.orchestrator', 'equalto', 'kubernetes')
+         | list }}
+
+# Every profile, so a built image for a disabled profile still counts as
+# referenced.
+- name: List the images each instance's compose project references
+  ansible.builtin.command:
+    cmd: "docker compose --profile '*' config --images"
+    chdir: "{{ _reclaim_compose_path }}"
+  loop: "{{ _reclaim_local_paths }}"
+  loop_control:
+    loop_var: _reclaim_compose_path
+  register: _reclaim_compose_images
+  changed_when: false
+  failed_when: false
+
+- name: List the images Compose built for those instances
+  ansible.builtin.command:
+    cmd: >-
+      docker images
+      --filter label=com.docker.compose.project={{ _reclaim_compose_path | basename | lower }}
+      --format {% raw %}'{{.Repository}}:{{.Tag}}'{% endraw %}
+  loop: "{{ _reclaim_local_paths }}"
+  loop_control:
+    loop_var: _reclaim_compose_path
+  register: _reclaim_built_images
+  changed_when: false
+  failed_when: false
+
+# If any instance's references could not be read, nothing built is
+# removed: an unreadable project could still need its image.
+- name: Select the built images no instance references
+  ansible.builtin.set_fact:
+    _reclaim_built_removable: >-
+      {{ (_reclaim_built_images.results | default([])
+          | selectattr('stdout_lines', 'defined')
+          | map(attribute='stdout_lines') | flatten
+          | reject('search', ':<none>') | reject('equalto', '')
+          | unique | list
+          | difference(_reclaim_compose_images.results | default([])
+                       | selectattr('stdout_lines', 'defined')
+                       | map(attribute='stdout_lines') | flatten | list)
+          | difference(_reclaim_pinned))
+         if (_reclaim_compose_images.results | default([])
+             | rejectattr('rc', 'equalto', 0) | list | length == 0)
+            and (_reclaim_built_images.results | default([])
+                 | rejectattr('rc', 'equalto', 0) | list | length == 0)
+         else [] }}
+    _reclaim_built_skipped: >-
+      {{ (_reclaim_compose_images.results | default([])
+          | rejectattr('rc', 'equalto', 0) | list | length > 0)
+         or (_reclaim_built_images.results | default([])
+             | rejectattr('rc', 'equalto', 0) | list | length > 0) }}
+
+- name: Report the built-image reclaim that would run
+  ansible.builtin.debug:
+    msg: >-
+      Dry run - would remove {{ _reclaim_built_removable | length }}
+      locally built image(s) no instance references
+      ({{ (_reclaim_built_removable | join(', ')) or 'none' }}).
+      {{ 'An instance compose project could not be read, so built
+      images are kept.' if _reclaim_built_skipped | bool else '' }}
+  when:
+    - reclaim_dry_run | default(false) | bool
+    - _reclaim_cli == 'docker'
+
+# No --force, as above: an image a container still uses is refused.
+- name: Remove built images no instance references
+  ansible.builtin.command:
+    cmd: "{{ _reclaim_cli }} image rm {{ _reclaim_image_ref }}"
+  loop: "{{ _reclaim_built_removable }}"
+  loop_control:
+    loop_var: _reclaim_image_ref
+  register: _reclaim_built_removed
+  changed_when: false
+  failed_when: false
+  when: not (reclaim_dry_run | default(false) | bool)
+
+# Dangling (<none>) layers orphaned by rebuilding `build:` sidecars under
+# the same tag, plus intermediate build layers. Referenced by nothing, so
+# this cannot affect a stopped instance or any volume.
+- name: Prune dangling images (sidecar rebuild orphans)
+  ansible.builtin.command:
+    cmd: "{{ _reclaim_cli }} image prune -f"
+  register: _reclaim_dangling
+  changed_when: >-
+    'Total reclaimed space: 0B' not in _reclaim_dangling.stdout
+    if _reclaim_cli == 'docker' else _reclaim_dangling.stdout | trim != ''
+  when: not (reclaim_dry_run | default(false) | bool)
+
+# Docker sums what the prune freed; Podman prints one ID per image removed.
+- name: Report the reclaim
+  ansible.builtin.debug:
+    msg: >-
+      {{ _reclaim_label }}: removed
+      {{ _reclaim_removed.results | default([])
+      | selectattr('stdout', 'defined')
+      | selectattr('stdout', 'search', 'Untagged|Deleted')
+      | list | length }}
+      Canasta tag(s) and
+      {{ _reclaim_built_removed.results | default([])
+      | selectattr('stdout', 'defined')
+      | selectattr('stdout', 'search', 'Untagged|Deleted')
+      | list | length }}
+      unused built image(s){{ ' (kept built images: an instance compose
+      project could not be read)' if _reclaim_built_skipped | bool else '' }};
+      {% if _reclaim_cli == 'docker' %}{{ ((_reclaim_dangling.stdout_lines | default([])
+      | select('search', 'Total reclaimed space')
+      | list) or ['no dangling layers']) | first }}{% else %}{{
+      _reclaim_dangling.stdout_lines | default([]) | reject('equalto', '')
+      | list | length }} dangling image(s) pruned{% endif %}
+  when: not (reclaim_dry_run | default(false) | bool)
+
+# Builds for a Kubernetes instance (--build-from, `build:` sidecars,
+# `image push`) leave a Docker copy behind besides the one pushed to the
+# in-cluster registry. Pods run from the registry's copy, so the Docker
+# one only speeds up the next build; it is reported, not removed.
+- name: List the Docker copies of images built for the in-cluster registry
+  ansible.builtin.command:
+    cmd: >-
+      docker images
+      --format {% raw %}'{{.Repository}}:{{.Tag}}'{% endraw %}
+  register: _reclaim_all_images
+  changed_when: false
+  failed_when: false
+  when:
+    - _reclaim_local_k8s | bool
+    - _reclaim_cli == 'docker'
+
+- name: Select the Kubernetes build copies no Compose instance needs
+  ansible.builtin.set_fact:
+    _reclaim_k8s_copies: >-
+      {{ _reclaim_all_images.stdout_lines | default([])
+         | select('match', '^(localhost:5000/|canasta:local$|canasta-base:local$)')
+         | reject('search', ':<none>')
+         | unique | list
+         | difference(_reclaim_compose_pinned) | sort }}
+
+- name: Report the Kubernetes build copies kept
+  ansible.builtin.debug:
+    msg: >-
+      Docker: kept {{ _reclaim_k8s_copies | length }} image(s) built for
+      the in-cluster registry; pods run from the registry, so these only
+      speed up the next build. Remove them by hand with
+      'docker image rm {{ _reclaim_k8s_copies | join(' ') }}'.
+  when: _reclaim_k8s_copies | length > 0
+
+# The build cache is what makes a rebuild fast, and nothing here can tell
+# whether another build is coming, so it is reported, not pruned.
+- name: Measure the Docker build cache
+  ansible.builtin.command:
+    cmd: >-
+      docker system df
+      --format {% raw %}'{{.Type}}|{{.Reclaimable}}'{% endraw %}
+  register: _reclaim_system_df
+  changed_when: false
+  failed_when: false
+  when: _reclaim_cli == 'docker'
+
+- name: Note the reclaimable build cache
+  ansible.builtin.set_fact:
+    _reclaim_build_cache: >-
+      {{ _reclaim_system_df.stdout_lines | default([])
+         | select('search', '^Build Cache')
+         | first | default('|0B')
+         | split('|') | last | trim | split(' ') | first }}
+
+- name: Report the build cache kept
+  ansible.builtin.debug:
+    msg: >-
+      Docker build cache: {{ _reclaim_build_cache }} reclaimable, kept to
+      speed up rebuilds; reclaim it with 'docker builder prune'.
+  when: (_reclaim_build_cache | regex_replace('[^0-9.]', '') | float(0)) > 0

@@ -16,6 +16,9 @@
 #     (update.php on a big wiki, a large mysqldump) so a controller-side
 #     SSH reset doesn't abort them. Default false (held single connection).
 #   exec_long_async (int, optional) - max seconds for a long exec (3600)
+#   exec_user (str, optional) - container user to run as on Compose;
+#     ignored on K8s, where kubectl exec cannot switch users. Default: the
+#     image's user (root in the web container).
 # Output:
 #   exec_result (registered result with .stdout, .rc, etc.)
 
@@ -57,6 +60,7 @@
   ansible.builtin.set_fact:
     _exec_full_cmd: >-
       {{ compose_command }} {{ _exec_profile_flags | default('') }} exec -T
+      {{ ('--user ' ~ (exec_user | quote)) if (exec_user | default('')) | length > 0 else '' }}
       {{ exec_service | default('web') }}
       {{ _exec_shell }} {{ exec_command | quote }}
     _exec_chdir: "{{ instance_path }}"
