@@ -3903,8 +3903,9 @@ commands:
       `build:` sidecars, and `image push`) orphan the previous push's layers.
       Nothing else ever collects them, so the disk only grows until this runs.
 
-      On a Docker host, removes the Canasta image tags no instance registered
-      on the host is pinned to, then prunes dangling layers. On a Kubernetes
+      On a Docker or Podman host, removes the Canasta image tags no instance
+      registered on the host is pinned to, then prunes dangling layers. A
+      host carrying both runtimes is reclaimed in each. On a Kubernetes
       host, prunes containerd images no pod references, then runs the
       in-cluster registry's garbage collector (with `--delete-untagged`) and
       restarts the registry so its in-memory blob cache matches the pruned

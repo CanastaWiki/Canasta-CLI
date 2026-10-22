@@ -16,13 +16,18 @@ import yaml
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
-TASKS = os.path.join(
-    REPO_ROOT, "roles", "orchestrator", "tasks", "image_reclaim.yml")
+TASKS_DIR = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
+TASKS = os.path.join(TASKS_DIR, "image_reclaim.yml")
+RUNTIME_TASKS = os.path.join(TASKS_DIR, "_image_reclaim_runtime.yml")
 
 
 def _load():
-    with open(TASKS) as f:
-        return yaml.safe_load(f)
+    """The reclaim's tasks, with the per-runtime file it includes."""
+    tasks = []
+    for path in (TASKS, RUNTIME_TASKS):
+        with open(path) as f:
+            tasks.extend(yaml.safe_load(f))
+    return tasks
 
 
 def _flatten(tasks):

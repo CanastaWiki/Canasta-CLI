@@ -50,6 +50,9 @@ ALLOW = {
         "probes for Docker by name and reports the result",
     "direct_commands/_helpers.py":
         "defines the ['docker', 'compose'] default the overrides fall back to",
+    "roles/orchestrator/tasks/_image_reclaim_runtime.yml":
+        "reclaims one named runtime's image store per pass; the compose "
+        "project lookup runs on the Docker pass only",
 }
 
 
