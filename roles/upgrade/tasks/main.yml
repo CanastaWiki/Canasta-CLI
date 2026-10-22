@@ -110,6 +110,14 @@
   ansible.builtin.set_fact:
     _upgrade_build_from: "{{ _upgrade_inst.instance.buildFrom | default('') }}"
 
+# A BASE_IMAGE pinned to an older Canasta release would rebuild the image on
+# that release again, leaving the instance behind the upgrade's target.
+- name: Move a BASE_IMAGE pinned to an older Canasta release to the target
+  ansible.builtin.set_fact:
+    _upgrade_build_args: >-
+      {{ _upgrade_inst.instance.buildArgs | default([])
+         | canasta_retarget_base_image(canasta_default_image) }}
+
 - name: Check that the recorded build-from source still exists
   ansible.builtin.stat:
     path: "{{ _upgrade_build_from }}/Canasta/Dockerfile"
@@ -147,8 +155,30 @@
     tasks_from: build_from_source.yml
   vars:
     build_from: "{{ _upgrade_build_from }}"
-    build_arg: "{{ _upgrade_inst.instance.buildArgs | default([]) }}"
+    build_arg: "{{ _upgrade_build_args }}"
   when: _upgrade_rebuild | bool
+
+- name: Record the moved BASE_IMAGE in the registry
+  when:
+    - _upgrade_rebuild | bool
+    - _upgrade_build_args != (_upgrade_inst.instance.buildArgs | default([]))
+  block:
+    - name: Update the recorded build args
+      canasta_registry:
+        id: "{{ instance_id }}"
+        state: update
+        build_args: "{{ _upgrade_build_args }}"
+      delegate_to: canasta_controller
+      vars:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+    - name: Report the moved BASE_IMAGE
+      ansible.builtin.debug:
+        msg: >-
+          Rebuilt '{{ instance_id }}' on BASE_IMAGE {{ canasta_default_image }}
+          (was {{ (_upgrade_inst.instance.buildArgs
+          | select('match', '^BASE_IMAGE=') | list | last)[11:] }}).
 
 - name: Publish rebuilt image for the orchestrator
   ansible.builtin.include_tasks: >-

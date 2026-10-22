@@ -435,7 +435,10 @@ commands:
         description: >-
           Build argument KEY=VALUE forwarded to the --build-from image
           builds (repeatable, e.g. --build-arg MW_VERSION=master). A
-          user-supplied BASE_IMAGE overrides the auto-detected base.
+          user-supplied BASE_IMAGE overrides the auto-detected base: the
+          local CanastaBase build when CanastaBase/ is in the source
+          directory, else the published CanastaBase image for Canasta
+          source and the current Canasta release image for an overlay.
       - name: database
         short: d
         type: path
@@ -1096,6 +1099,12 @@ commands:
       `canasta gitops sync`. An instance built from source still has its
       image rebuilt, and its web pods restart when the new build differs
       from the image they run.
+
+      An instance built from source is rebuilt on the upgrade's Canasta
+      release: a `BASE_IMAGE` build argument that names an older
+      `ghcr.io/canastawiki/canasta:<version>` image is moved to the new
+      release, in the rebuild and in the recorded build arguments. Any other
+      `BASE_IMAGE` is kept as given.
 
       Upgrade also moves a running instance on the bundled database off the
       database root account, onto MediaWiki's own `mediawiki` account with
