@@ -4133,7 +4133,7 @@ class TestMaintenanceScript:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4162,7 +4162,7 @@ class TestMaintenanceScript:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4185,7 +4185,7 @@ class TestMaintenanceScript:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4204,7 +4204,7 @@ class TestMaintenanceScript:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4220,7 +4220,7 @@ class TestMaintenanceScript:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4236,7 +4236,7 @@ class TestMaintenanceScript:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4254,7 +4254,7 @@ class TestMaintenanceScript:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4272,7 +4272,7 @@ class TestMaintenanceScript:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4287,7 +4287,7 @@ class TestMaintenanceScript:
         commands = []
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             commands.append(command)
             return (rcs or {}).get(len(commands), 0)
 
@@ -4373,7 +4373,7 @@ class TestMaintenanceExtension:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4388,7 +4388,7 @@ class TestMaintenanceExtension:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4406,7 +4406,7 @@ class TestMaintenanceExtension:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4424,7 +4424,7 @@ class TestMaintenanceExtension:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4442,7 +4442,7 @@ class TestMaintenanceExtension:
         captured = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             captured["command"] = command
             return 0
 
@@ -4460,7 +4460,7 @@ class TestMaintenanceExtension:
         commands = []
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             commands.append(command)
             return (rcs or {}).get(len(commands), 0)
 
@@ -4556,7 +4556,7 @@ class TestMaintenanceUpdate:
         retries = {}
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             retries[command.split()[1]] = retry_on_reset
             return 0
 
@@ -4574,7 +4574,7 @@ class TestMaintenanceUpdate:
         commands = []
 
         def fake_stream(inst_id, inst, command, service="web",
-                        retry_on_reset=False):
+                        retry_on_reset=False, user=None):
             commands.append(command)
             return 0
 
@@ -4599,7 +4599,7 @@ class TestMaintenanceUpdate:
         )
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
-            lambda iid, i, c, service="web", retry_on_reset=False:
+            lambda iid, i, c, service="web", retry_on_reset=False, user=None:
                 commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args(skip_jobs=True))
@@ -4612,7 +4612,7 @@ class TestMaintenanceUpdate:
         each per-wiki eval probe returns probe_results[wiki]."""
         probes = []
 
-        def fake_exec(inst_id, inst, command, service="web"):
+        def fake_exec(inst_id, inst, command, service="web", user=None):
             if command.startswith("test -f"):
                 return 0, "yes\n"
             assert "maintenance/run.php eval" in command
@@ -4624,7 +4624,7 @@ class TestMaintenanceUpdate:
     def _stream_recorder(self, monkeypatch):
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
-            lambda iid, i, c, service="web", retry_on_reset=False:
+            lambda iid, i, c, service="web", retry_on_reset=False, user=None:
                 commands.append(c) or 0,
         )
         return commands
@@ -4693,7 +4693,7 @@ class TestMaintenanceUpdate:
         )
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
-            lambda iid, i, c, service="web", retry_on_reset=False:
+            lambda iid, i, c, service="web", retry_on_reset=False, user=None:
                 commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args(skip_smw=True))
@@ -4706,7 +4706,7 @@ class TestMaintenanceUpdate:
         )
         commands = []
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
-            lambda iid, i, c, service="web", retry_on_reset=False:
+            lambda iid, i, c, service="web", retry_on_reset=False, user=None:
                 commands.append(c) or 0,
         )
         direct_commands.cmd_maintenance_update(self._args(wiki="draft"))

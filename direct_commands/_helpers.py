@@ -1129,8 +1129,25 @@ def _k8s_remote_exec_cmd(inst_id, service, command, forward_stdin=True):
     )
 
 
-def _exec_in_container(inst_id, inst, command, service="web"):
-    """Execute a command inside a container/pod. Returns (rc, stdout)."""
+# The web container's Apache, PHP-FPM, and job runner user. Maintenance
+# scripts run as it on Compose so the files they create stay changeable by
+# the web server.
+WEB_USER = "www-data"
+
+
+def _compose_exec_args(service, user=None):
+    """The `exec -T [--user USER] SERVICE` part of a compose exec argv.
+    Both docker compose and podman-compose accept --user."""
+    args = ["exec", "-T"]
+    if user:
+        args += ["--user", user]
+    return args + [service]
+
+
+def _exec_in_container(inst_id, inst, command, service="web", user=None):
+    """Execute a command inside a container/pod. Returns (rc, stdout).
+
+    user applies on Compose only; kubectl exec cannot switch users."""
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     if _is_k8s(inst):
@@ -1155,8 +1172,8 @@ def _exec_in_container(inst_id, inst, command, service="web"):
     if _is_localhost(host):
         try:
             result = subprocess.run(
-                compose_cmd + ["exec", "-T", service,
-                 "/bin/bash", "-c", command],
+                compose_cmd + _compose_exec_args(service, user) + [
+                    "/bin/bash", "-c", command],
                 cwd=path, capture_output=True, text=True, timeout=30,
             )
             return result.returncode, result.stdout
@@ -1166,8 +1183,10 @@ def _exec_in_container(inst_id, inst, command, service="web"):
     compose_str = " ".join(compose_cmd)
     rc, stdout = _ssh_run(
         host,
-        "cd %s && %s exec -T %s /bin/bash -c %s" % (
-            _shell_quote(path), compose_str, service, _shell_quote(command),
+        "cd %s && %s %s /bin/bash -c %s" % (
+            _shell_quote(path), compose_str,
+            " ".join(_compose_exec_args(service, user)),
+            _shell_quote(command),
         ),
     )
     return rc, stdout
@@ -1206,7 +1225,7 @@ def _warn_composer_failure(inst_id, inst):
 
 
 def _stream_in_container(inst_id, inst, command, service="web",
-                         retry_on_reset=False):
+                         retry_on_reset=False, user=None):
     """Run a command inside a container/pod, streaming combined
     stdout+stderr to the user's terminal as it arrives. Returns the
     process return code.
@@ -1229,6 +1248,9 @@ def _stream_in_container(inst_id, inst, command, service="web",
     coreutils-style child the script spawns; PHP CLI is line-buffered
     by default but pipelines through grep/sed/awk are not, and a
     single un-flushed pipe ruins the stream.
+
+    user runs the command as that container user on Compose; Kubernetes
+    ignores it, since kubectl exec cannot switch users.
     """
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
@@ -1265,8 +1287,7 @@ def _stream_in_container(inst_id, inst, command, service="web",
             cwd = None
     elif _is_localhost(host):
         compose_cmd = _resolve_compose_cmd(inst)
-        argv = compose_cmd + [
-            "exec", "-T", service,
+        argv = compose_cmd + _compose_exec_args(service, user) + [
             "/bin/bash", "-c", wrapped,
         ]
         cwd = path or None
@@ -1276,8 +1297,9 @@ def _stream_in_container(inst_id, inst, command, service="web",
         target = _resolve_ssh_target(host)
         argv = ["ssh"] + _ssh_args() + [
             target,
-            _with_docker_host("cd %s && %s exec -T %s /bin/bash -c %s" % (
-                _shell_quote(path), compose_str, service,
+            _with_docker_host("cd %s && %s %s /bin/bash -c %s" % (
+                _shell_quote(path), compose_str,
+                " ".join(_compose_exec_args(service, user)),
                 _shell_quote(wrapped),
             ), inst.get("dockerHost")),
         ]

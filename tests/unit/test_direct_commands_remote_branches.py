@@ -197,7 +197,8 @@ class TestMaintenanceUpdateRc:
                             lambda args: ("mysite", inst))
         streamed = []
 
-        def stream(inst_id, i, command, service="web", retry_on_reset=False):
+        def stream(inst_id, i, command, service="web", retry_on_reset=False,
+                   user=None):
             streamed.append(command)
             return 7 if command in failing else 0
         monkeypatch.setattr(_helpers, "_stream_in_container", stream)
@@ -258,7 +259,7 @@ class TestMaintenanceUpdateRc:
                                {self._cmd("update.php", "a")},
                                wikis=("a", "b"))
 
-        def fake_exec(inst_id, inst, command, service="web"):
+        def fake_exec(inst_id, inst, command, service="web", user=None):
             if command.startswith("test -f"):
                 return 0, "yes\n"
             return 0, "SMW_LOADED=1\n"
