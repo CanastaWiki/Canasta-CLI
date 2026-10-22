@@ -2,6 +2,16 @@
 # Stop containers for an instance.
 # Input: instance_path, instance_devmode (bool), instance_orchestrator
 
+# The start that follows a stop syncs the edge; refuse while the instance
+# is still running rather than fail with it stopped.
+- name: Check that the edge's files are writable
+  canasta_edge:
+    state: writable
+    instance_path: "{{ instance_path }}"
+  when:
+    - not (instance_is_k8s | bool)
+    - stop_check_edge | default(true) | bool
+
 # Announced before the orchestrator dispatch so both Compose and K8s report
 # it, and every caller (stop, restart, config set) gets the message once.
 - name: Report stopping containers

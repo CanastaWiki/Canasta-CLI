@@ -44,9 +44,12 @@ options:
       decides which of a host's instances move behind the edge; import
       moves an instance's Caddy certificates to the edge. check fails when
       the instance's Caddyfile.site or Caddyfile.global has a tls directive,
-      which Caddy cannot use behind the edge.
+      which Caddy cannot use behind the edge. writable fails, naming them,
+      when the user running canasta cannot write the edge's files or the
+      instance's files the edge writes, and when canasta runs as root on a
+      host whose edge belongs to another user.
     type: str
-    choices: [sync, start, stop, issue, plan, import, check]
+    choices: [sync, start, stop, issue, plan, import, check, writable]
     default: sync
   instance_id:
     description: The instance's registry ID (required for sync and check).
@@ -100,9 +103,11 @@ import io
 import ipaddress
 import json
 import os
+import pwd
 import re
 import shlex
 import shutil
+import stat
 import tarfile
 import tempfile
 import time
@@ -532,15 +537,16 @@ def helper_user(run, inspect, edge_dir):
     the operator cannot remove, so helpers run as the operator. Elsewhere
     (rootless runtimes, or canasta run as root) root already maps to the
     operator. Decided by having a container create a file, and kept with
-    the ID of the daemon it was decided on, so a host that moves between
-    rootful and rootless Docker decides again.
+    the ID of the daemon and the uid it was decided for, so a host that
+    moves between rootful and rootless Docker, or a run by another user,
+    decides again.
     """
     cached = os.path.join(edge_dir, ".helper-user")
     cached_daemon = os.path.join(edge_dir, ".helper-user-daemon")
     rc, out, _ = run([inspect, "info", "--format", "{{.ID}}"])
-    daemon = out.strip() if rc == 0 else ""
+    key = "%s\n%d" % (out.strip() if rc == 0 else "", os.getuid())
     user = (_read(cached) or "").strip()
-    if user and (_read(cached_daemon) or "").strip() == daemon:
+    if user and (_read(cached_daemon) or "").strip() == key:
         return user
     user = "root"
     if os.getuid() != 0:
@@ -554,7 +560,7 @@ def helper_user(run, inspect, edge_dir):
             run([inspect, "run", "--rm", "-v", "%s:/probe" % edge_dir,
                  "--entrypoint", "rm", ACME_IMAGE, "-f", "/probe/.owner-probe"])
     _write_if_changed(cached, user + "\n")
-    _write_if_changed(cached_daemon, daemon + "\n")
+    _write_if_changed(cached_daemon, key + "\n")
     return user
 
 
@@ -716,6 +722,72 @@ def _locked(edge_dir, func, *args):
     with open(edge_dir + ".lock", "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         return func(*args)
+
+
+def _user_name(uid):
+    try:
+        return pwd.getpwuid(uid).pw_name
+    except KeyError:
+        return "uid %d" % uid
+
+
+def _unwritable(path):
+    """Whether the user running canasta neither owns path nor can write it."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return (not stat.S_ISLNK(st.st_mode) and st.st_uid != os.getuid()
+            and not os.access(path, os.W_OK))
+
+
+def unwritable_paths(edge_dir, instance_path=None):
+    """What the edge flow writes that the user running canasta cannot: the
+    edge directory's tree, its lock, and the instance's files."""
+    lock = edge_dir + ".lock"
+    paths = [lock if os.path.lexists(lock) else os.path.dirname(edge_dir)]
+    for root, _, files in os.walk(edge_dir):
+        paths += [root] + [os.path.join(root, f) for f in sorted(files)]
+    if instance_path:
+        paths += [instance_path] + [os.path.join(instance_path, p) for p in (
+            "config", LAYER_FILE, SNIPPET_FILE, os.path.join(".git", "index"))]
+    return [p for p in paths if _unwritable(p)]
+
+
+def foreign_owner(edge_dir):
+    """The user the edge belongs to, when canasta runs as root and the edge
+    (or the directory it goes in) belongs to someone else; else None."""
+    if os.getuid() != 0:
+        return None
+    for path in (edge_dir, os.path.dirname(edge_dir)):
+        if os.path.isdir(path):
+            uid = os.stat(path).st_uid
+            return _user_name(uid) if uid != 0 else None
+    return None
+
+
+UNWRITABLE_SHOWN = 10
+
+
+def check_writable(edge_dir, instance_path=None):
+    """Raise EdgeError when this run would leave files the edge's owner
+    cannot change, or cannot change the edge's files itself."""
+    owner = foreign_owner(edge_dir)
+    if owner:
+        raise EdgeError(
+            "canasta is running as root, but the HAProxy edge in %s belongs to %s. "
+            "Run canasta as %s: as root it would write files %s could not change."
+            % (edge_dir, owner, owner, owner))
+    paths = unwritable_paths(edge_dir, instance_path)
+    if not paths:
+        return
+    me = _user_name(os.getuid())
+    shown = paths[:UNWRITABLE_SHOWN]
+    more = len(paths) - len(shown)
+    raise EdgeError(
+        "%s cannot write %s%s, which the HAProxy edge needs to update. Make %s "
+        "their owner again (for example, with sudo chown) and run the command again."
+        % (me, ", ".join(shown), " and %d more" % more if more else "", me))
 
 
 def sync(run, inspect, edge_dir, instance_id, instance_path, member):
@@ -1451,7 +1523,7 @@ def run_module():
         argument_spec=dict(
             state=dict(type="str",
                        choices=["sync", "start", "stop", "issue", "plan", "import", "prune",
-                                "check"],
+                                "check", "writable"],
                        default="sync"),
             recreate=dict(type="bool", default=False),
             restart=dict(type="bool", default=False),
@@ -1509,6 +1581,9 @@ def run_module():
                                  reason="it %s." % problem, tls_directives=found)
                 return
             result = {"changed": False, "tls_directives": []}
+        elif params["state"] == "writable":
+            check_writable(edge_dir, params["instance_path"])
+            result = {"changed": False}
         elif params["state"] == "prune":
             removed = prune_spoa_volumes(run, params["inspect_command"])
             result = {"changed": bool(removed), "removed": removed}

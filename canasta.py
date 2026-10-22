@@ -11,6 +11,7 @@ import datetime
 import fcntl
 import json
 import os
+import pwd
 import re
 import shutil
 import socket
@@ -1102,6 +1103,35 @@ LOCKED_COMMANDS = {
 }
 
 
+def _user_name(uid):
+    try:
+        return pwd.getpwuid(uid).pw_name
+    except KeyError:
+        return "uid %d" % uid
+
+
+def check_root_in_foreign_config_dir():
+    """Refuse to run as root in a config directory another user owns, before
+    anything in it is written: what root creates there, such as instance
+    locks and the HAProxy edge's files, its owner could not change."""
+    if os.getuid() != 0:
+        return
+    config_dir = get_config_dir()
+    try:
+        uid = os.stat(config_dir).st_uid
+    except OSError:
+        return
+    if uid != 0:
+        owner = _user_name(uid)
+        print(
+            "Error: canasta is running as root, but its config directory %s "
+            "belongs to %s. Run canasta as %s: as root it would write files "
+            "%s could not change." % (config_dir, owner, owner, owner),
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def acquire_instance_lock(command_name, args):
     """Hold the instance's command lock for the rest of this run.
 
@@ -1118,9 +1148,19 @@ def acquire_instance_lock(command_name, args):
     if not inst:
         return None
     lock_dir = os.path.join(get_config_dir(), "locks")
-    os.makedirs(lock_dir, exist_ok=True)
-    fd = os.open(os.path.join(lock_dir, "%s.lock" % inst["id"]),
-                 os.O_RDWR | os.O_CREAT, 0o600)
+    lock_path = os.path.join(lock_dir, "%s.lock" % inst["id"])
+    try:
+        os.makedirs(lock_dir, exist_ok=True)
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    except PermissionError:
+        user = _user_name(os.getuid())
+        print(
+            "Error: %s cannot open the instance lock %s. Make %s its owner "
+            "again (for example, sudo chown %s %s) and try again."
+            % (user, lock_path, user, user, lock_path),
+            file=sys.stderr,
+        )
+        sys.exit(1)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -2386,6 +2426,8 @@ def validate_command_args(cmd_def, args):
 
 def run_preflight_checks(command_name, args):
     """Refusals that apply before either the direct or the Ansible path."""
+    check_root_in_foreign_config_dir()
+
     # Pre-flight: a duplicate instance ID is an expected refusal, not a
     # crash. Catch it here so it exits with EXIT_ALREADY_EXISTS instead
     # of the opaque Ansible task-failure code (the playbook still checks

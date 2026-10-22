@@ -14,6 +14,9 @@
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: stop.yml
+  vars:
+    # Nothing starts again, so the edge is not written.
+    stop_check_edge: false
 
 - name: Report stopped
   ansible.builtin.debug:
