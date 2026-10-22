@@ -198,3 +198,31 @@ class TestEnsureOnAnExternalDatabase:
             {"ansible.builtin.include_tasks":
                 os.path.join(TASKS, "ensure_wiki_db_account.yml")}])
         assert log == ""
+
+
+class TestExport:
+    def _export(self, tmp_path, env_lines):
+        inst, fake = _instance(tmp_path, env_lines)
+        dest = tmp_path / "out.sql"
+        _, log = _play(tmp_path, inst, fake, [
+            {"ansible.builtin.include_tasks": os.path.join(
+                REPO_ROOT, "roles", "mediawiki", "tasks", "export_database.yml"),
+             "vars": {"export_db": "main", "export_dest": str(dest),
+                      "export_gzip": False}}])
+        return [l for l in log.splitlines() if l.startswith("ARGV:")], log
+
+    def test_external_database_dumps_in_web_as_the_administrator(self, tmp_path):
+        calls, log = self._export(tmp_path, EXTERNAL_ENV)
+        dump = next(c for c in calls if "mariadb-dump" in c)
+        assert "[-e] [CANASTA_DB_ADMIN_PASSWORD] [web]" in dump
+        assert '-u "$CANASTA_DB_ADMIN_USER"' in dump
+        assert any(c.startswith("ARGV: [cp] [web:") for c in calls), calls
+        assert all(ADMIN_PW not in c for c in calls)
+        assert "PASSWORD=" + ADMIN_PW in log.splitlines()
+
+    def test_bundled_database_dumps_in_db_as_root(self, tmp_path):
+        calls, _ = self._export(tmp_path, ["MYSQL_PASSWORD=rootpw"])
+        dump = next(c for c in calls if "mariadb-dump" in c)
+        assert "[exec] [-T] [db]" in dump
+        assert 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mariadb-dump -u root' in dump
+        assert any(c.startswith("ARGV: [cp] [db:") for c in calls), calls
