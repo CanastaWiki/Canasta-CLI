@@ -18,14 +18,17 @@ import pytest
 import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-RECLAIM = os.path.join(
-    REPO_ROOT, "roles", "orchestrator", "tasks", "image_reclaim.yml")
+TASKS_DIR = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
+RECLAIM_FILES = [os.path.join(TASKS_DIR, name) for name in (
+    "image_reclaim.yml", "_image_reclaim_runtime.yml")]
 
 
 def _debug_messages():
     """{task name: msg} for every debug task in the reclaim, nesting included."""
-    with open(RECLAIM) as f:
-        tasks = yaml.safe_load(f)
+    tasks = []
+    for path in RECLAIM_FILES:
+        with open(path) as f:
+            tasks.extend(yaml.safe_load(f))
 
     found = {}
 
@@ -78,9 +81,11 @@ class TestRenderedReportText:
     """The two reports an operator sees on a successful prune."""
 
     def test_docker_report_reads_as_one_sentence(self):
-        msg = _debug_messages()["Report Docker reclaim"]
+        msg = _debug_messages()["Report the reclaim"]
         out = _render(
             msg,
+            _reclaim_cli="docker",
+            _reclaim_label="Docker",
             _reclaim_removed={"results": [
                 {"stdout": "Untagged: ghcr.io/canastawiki/canasta:a"},
                 {"stdout": "Deleted: sha256:beef"},
@@ -98,9 +103,11 @@ class TestRenderedReportText:
             "Total reclaimed space: 1.5GB")
 
     def test_docker_report_without_dangling_output(self):
-        msg = _debug_messages()["Report Docker reclaim"]
+        msg = _debug_messages()["Report the reclaim"]
         out = _render(
             msg,
+            _reclaim_cli="docker",
+            _reclaim_label="Docker",
             _reclaim_removed={"results": []},
             _reclaim_built_removed={"results": []},
             _reclaim_built_skipped=False,
@@ -111,9 +118,11 @@ class TestRenderedReportText:
             "no dangling layers")
 
     def test_docker_report_says_when_built_images_were_kept(self):
-        msg = _debug_messages()["Report Docker reclaim"]
+        msg = _debug_messages()["Report the reclaim"]
         out = _render(
             msg,
+            _reclaim_cli="docker",
+            _reclaim_label="Docker",
             _reclaim_removed={"results": []},
             _reclaim_built_removed={"results": []},
             _reclaim_built_skipped=True,

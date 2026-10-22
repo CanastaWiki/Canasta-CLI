@@ -32,6 +32,7 @@ FULL = {
     "devMode": True,
     "buildFrom": "/src",
     "buildArgs": ["FOO=1", "BAR=2"],
+    "buildBase": "ghcr.io/canastawiki/canasta:3.5.28",
     "dockerHost": "unix:///run/user/1001/podman/podman.sock",
     "composeCommand": "podman-compose",
     "inspectCommand": "podman",
@@ -42,7 +43,7 @@ def _params(**kw):
     params = {
         "state": "query", "id": None, "path": None, "orchestrator": None,
         "dev_mode": None, "build_from": None, "build_args": None,
-        "host": None, "docker_host": None, "compose_command": None,
+        "build_base": None, "host": None, "docker_host": None, "compose_command": None,
         "inspect_command": None, "filter_host": None, "setting_key": None,
         "setting_value": None, "config_dir": None,
     }
@@ -137,6 +138,35 @@ class TestUpdateTouchesOnlyWhatItIsGiven:
         assert result["changed"] is True
 
 
+class TestBuildBase:
+    def test_update_records_the_base_of_a_rebuild(self, tmp_dir):
+        _seed(tmp_dir)
+        _, failed, _ = _update(
+            tmp_dir, build_base="ghcr.io/canastawiki/canasta:3.5.29")
+        assert not failed
+        entry = _read_back(tmp_dir)
+        assert entry["buildBase"] == "ghcr.io/canastawiki/canasta:3.5.29"
+        assert entry["buildArgs"] == FULL["buildArgs"]
+
+    def test_present_records_the_base_of_the_first_build(self, tmp_dir):
+        with open(os.path.join(tmp_dir, "conf.json"), "w") as f:
+            json.dump({"Instances": {}}, f)
+        run_module_with_params(canasta_registry, _params(
+            state="present", id="fresh", path="/srv/canasta/fresh",
+            build_from="/src", build_base="canasta-base:local",
+            config_dir=tmp_dir))
+        assert _read_back(tmp_dir, "fresh")["buildBase"] == (
+            "canasta-base:local")
+
+    def test_present_without_a_build_records_no_base(self, tmp_dir):
+        with open(os.path.join(tmp_dir, "conf.json"), "w") as f:
+            json.dump({"Instances": {}}, f)
+        run_module_with_params(canasta_registry, _params(
+            state="present", id="fresh", path="/srv/canasta/fresh",
+            config_dir=tmp_dir))
+        assert "buildBase" not in _read_back(tmp_dir, "fresh")
+
+
 class TestUpdateRefusesWhatItCannotMerge:
     def test_it_requires_an_id(self, tmp_dir):
         _seed(tmp_dir)
@@ -223,7 +253,7 @@ class TestThePreserveListCannotGoStale:
         emitted = canasta_registry.instance_to_dict({
             "id": "x", "path": "/x", "orchestrator": "compose",
             "host": "h", "devMode": True, "buildFrom": "/b",
-            "buildArgs": {"a": "1"}, "dockerHost": "d",
+            "buildArgs": {"a": "1"}, "buildBase": "b", "dockerHost": "d",
             "composeCommand": "c", "inspectCommand": "i",
         })
         optional = {k for k in emitted if k not in ("id", "path",

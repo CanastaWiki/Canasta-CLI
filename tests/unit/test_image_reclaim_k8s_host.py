@@ -63,6 +63,7 @@ def _run(tmp_path, k8s_pin="canasta:local", compose_pin=None):
     bin_dir.mkdir()
     _stub(bin_dir, "docker", DOCKER)
     _stub(bin_dir, "kubectl", "#!/bin/sh\nexit 1\n")
+    _stub(bin_dir, "podman", "#!/bin/sh\nexit 1\n")
 
     site = tmp_path / "site"
     site.mkdir()

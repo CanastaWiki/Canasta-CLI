@@ -259,6 +259,14 @@ def _read_instance_image(inst_id, inst):
     return image, running
 
 
+def _image_label(image, inst):
+    """The image tag, followed by the base it was built on when recorded."""
+    base = inst.get("buildBase")
+    if base:
+        return "%s (built on %s)" % (image, base)
+    return image
+
+
 def _detect_dev_build(script_dir, mode):
     """Whether this CLI is a development build rather than a tagged release.
 
@@ -366,7 +374,8 @@ def cmd_version(args):
         # Explicit -i: full-fidelity report (image tag + running runtime).
         inst_id, inst = _helpers._resolve_instance(args)
         image, running = _read_instance_image(inst_id, inst)
-        print("Instance '%s': %s (running: %s)" % (inst_id, image, running))
+        print("Instance '%s': %s (running: %s)"
+              % (inst_id, _image_label(image, inst), running))
         return 0
 
     # No -i: try cwd resolution. If inside an instance directory,
@@ -374,7 +383,8 @@ def cmd_version(args):
     iid, inst = _helpers._resolve_instance_by_cwd(args)
     if inst:
         image, running = _read_instance_image(iid, inst)
-        print("Instance '%s': %s (running: %s)" % (iid, image, running))
+        print("Instance '%s': %s (running: %s)"
+              % (iid, _image_label(image, inst), running))
         return 0
 
     config_dir = _helpers._get_config_dir()
@@ -395,7 +405,7 @@ def cmd_version(args):
         path = instances[iid].get("path", "")
         env_vars = _helpers._read_env_file(path, host)
         image = env_vars.get("CANASTA_IMAGE", "(unset)")
-        print("Instance '%s': %s" % (iid, image))
+        print("Instance '%s': %s" % (iid, _image_label(image, instances[iid])))
     return 0
 
 

@@ -59,6 +59,11 @@ options:
     description: Build args (list of KEY=VALUE) to replay on rebuild.
     type: list
     elements: str
+  build_base:
+    description: >-
+      Base image (the effective BASE_IMAGE) the instance's image was last
+      built on from source.
+    type: str
   host:
     description: SSH host (user@host or host) for instances on a remote machine.
     type: str
@@ -126,6 +131,7 @@ UPDATABLE_FIELDS = (
     ("devMode", "dev_mode"),
     ("buildFrom", "build_from"),
     ("buildArgs", "build_args"),
+    ("buildBase", "build_base"),
     ("dockerHost", "docker_host"),
     ("composeCommand", "compose_command"),
     ("inspectCommand", "inspect_command"),
@@ -147,6 +153,8 @@ def instance_to_dict(instance):
         result["buildFrom"] = instance["buildFrom"]
     if instance.get("buildArgs"):
         result["buildArgs"] = instance["buildArgs"]
+    if instance.get("buildBase"):
+        result["buildBase"] = instance["buildBase"]
     if instance.get("dockerHost"):
         result["dockerHost"] = instance["dockerHost"]
     if instance.get("composeCommand"):
@@ -174,7 +182,7 @@ def preserved_on_present():
     probe = instance_to_dict({
         "id": "probe", "path": "/probe", "orchestrator": "compose",
         "host": "probe", "devMode": True, "buildFrom": "/probe",
-        "buildArgs": {"probe": "1"}, "dockerHost": "probe",
+        "buildArgs": {"probe": "1"}, "buildBase": "probe", "dockerHost": "probe",
         "composeCommand": "probe", "inspectCommand": "probe",
     })
     return tuple(k for k in probe if k not in _ALWAYS_WRITTEN)
@@ -261,6 +269,7 @@ def _state_present(module, config_dir, data, instances):
         "devMode": bool(module.params["dev_mode"]),
         "buildFrom": module.params.get("build_from"),
         "buildArgs": module.params.get("build_args"),
+        "buildBase": module.params.get("build_base"),
         "dockerHost": module.params.get("docker_host"),
         "composeCommand": module.params.get("compose_command"),
         "inspectCommand": module.params.get("inspect_command"),
@@ -393,6 +402,7 @@ def run_module():
         dev_mode=dict(type="bool", required=False),
         build_from=dict(type="str", required=False),
         build_args=dict(type="list", elements="str", required=False),
+        build_base=dict(type="str", required=False),
         host=dict(type="str", required=False),
         docker_host=dict(type="str", required=False),
         compose_command=dict(type="str", required=False),
