@@ -489,6 +489,71 @@ def canasta_secret_checksums(secrets, values, instance_id):
     }
 
 
+# Fingerprint keys of the files a pull renders, and the path each names.
+_RENDERED_FILES = (
+    ("env", ".env"),
+    ("wikis", "config/wikis.yaml"),
+    ("mycnf", "my.cnf"),
+    ("media_hosts", "config/media-hosts.yaml"),
+)
+
+
+def canasta_fingerprint_changes(baseline, current):
+    """The files whose fingerprint differs between ``baseline`` and ``current``.
+
+    Both are _rendered_fingerprint results. A key or file the baseline has no
+    entry for was recorded before it was fingerprinted, so it is not a change;
+    .env and wikis.yaml are in every baseline, and a missing one means the
+    file did not exist.
+    """
+    baseline = baseline or {}
+    current = current or {}
+    changed = []
+    for key, path in _RENDERED_FILES:
+        default = "" if key in ("env", "wikis") else current.get(key, "")
+        if baseline.get(key, default) != current.get(key, ""):
+            changed.append(path)
+    if "files" in baseline:
+        before = baseline.get("files") or {}
+        after = current.get("files") or {}
+        changed.extend(sorted(p for p in set(before) | set(after)
+                              if before.get(p) != after.get(p)))
+    return changed
+
+
+_SETTINGS_YAML = re.compile(
+    r"^config/settings/(global|wikis/[^/]+)/settings\.yaml$")
+_GITLINK_MODE = "160000"
+
+
+def canasta_maintenance_triggers(raw_diff):
+    """What in a ``git diff --raw`` needs MediaWiki's update.php to run.
+
+    An extension or skin that was added, removed, or moved to another
+    version can bring schema changes: a submodule pointer change, its
+    extension.json or skin.json, or its SQL files. A changed settings.yaml
+    can load an extension that was not loaded before. Returns the
+    extensions/<name>, skins/<name> and settings.yaml paths, in order.
+    """
+    names = []
+    for line in raw_diff or []:
+        meta, _, path = str(line).partition("\t")
+        if not meta.startswith(":") or not path:
+            continue
+        parts = path.split("/")
+        if parts[0] in ("extensions", "skins") and len(parts) >= 2:
+            gitlink = _GITLINK_MODE in meta[1:].split()[:2]
+            registration = (len(parts) == 3
+                            and parts[2] in ("extension.json", "skin.json"))
+            schema = "sql" in parts[2:-1] or path.endswith(".sql")
+            name = "/".join(parts[:2])
+            if (gitlink or registration or schema) and name not in names:
+                names.append(name)
+        elif _SETTINGS_YAML.match(path) and path not in names:
+            names.append(path)
+    return names
+
+
 def canasta_gitops_unpushed_probe(instance_path):
     """Read-only shell that gathers what a gitops instance has not pushed."""
     return unpushed_probe_script(instance_path)
@@ -522,4 +587,6 @@ class FilterModule(object):
             "canasta_secret_checksums": canasta_secret_checksums,
             "canasta_gitops_unpushed_probe": canasta_gitops_unpushed_probe,
             "canasta_gitops_unpushed": canasta_gitops_unpushed,
+            "canasta_fingerprint_changes": canasta_fingerprint_changes,
+            "canasta_maintenance_triggers": canasta_maintenance_triggers,
         }
