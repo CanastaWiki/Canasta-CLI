@@ -236,3 +236,8 @@ class TestWiring:
     def test_config_regenerate_is_gone(self):
         assert not os.path.exists(
             os.path.join(REPO_ROOT, "playbooks", "config_regenerate.yml"))
+
+
+def test_render_ends_with_newline():
+    assert render(TEMPLATE, VARS).endswith("\n")
+    assert render(TEMPLATE.rstrip("\n"), VARS).endswith("\n")

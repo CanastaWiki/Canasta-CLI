@@ -100,7 +100,12 @@ def parse_env_lines(content):
 
 
 def lines_to_content(lines):
-    return "\n".join(lines)
+    """Join lines into .env content that ends with a newline, so a line
+    appended with `echo KEY=value >> .env` starts a line of its own."""
+    content = "\n".join(lines)
+    if content and not content.endswith("\n"):
+        content += "\n"
+    return content
 
 
 def set_line(lines, key, value):
@@ -126,7 +131,12 @@ def set_line(lines, key, value):
         else:
             new_lines.append(line)
     if not found:
-        new_lines.append("%s=%s" % (key, value))
+        # A trailing "" is the file's final newline; the new line goes
+        # before it.
+        at = len(new_lines)
+        if at and new_lines[-1] == "":
+            at -= 1
+        new_lines.insert(at, "%s=%s" % (key, value))
     return new_lines
 
 

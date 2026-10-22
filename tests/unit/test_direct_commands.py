@@ -1707,6 +1707,12 @@ class TestEnvFileWriter:
         with open(tmp_path / ".env") as f:
             assert f.read() == "K=v\n"
 
+    def test_write_env_content_ends_with_newline(self, tmp_path):
+        p = str(tmp_path)
+        assert direct_commands._write_env_content(p, "localhost", "A=1\nB=2")
+        with open(tmp_path / ".env") as f:
+            assert f.read() == "A=1\nB=2\n"
+
     def test_write_env_content_remote_resolves_ssh_target(self, monkeypatch):
         """A short-name remote host must be mapped to its real SSH target
         before the ssh argv is built, matching the read path."""
@@ -1754,6 +1760,11 @@ class TestEnvRawLineHelpers:
         assert direct_commands._helpers._set_env_lines(
             ["A=1"], "B", "2",
         ) == ["A=1", "B=2"]
+
+    def test_appends_before_final_newline(self):
+        lines = "A=1\n".split("\n")
+        out = direct_commands._helpers._set_env_lines(lines, "B", "2")
+        assert "\n".join(out) == "A=1\nB=2\n"
 
     def test_refuses_line_breaks(self):
         for value in ("2\nC=3", "2\rC=3"):
