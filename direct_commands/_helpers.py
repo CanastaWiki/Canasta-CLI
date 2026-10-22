@@ -281,16 +281,24 @@ def _set_env_lines(lines, key, value):
         else:
             new_lines.append(line)
     if not found:
-        new_lines.append("%s=%s" % (key, value))
+        # A trailing "" is the file's final newline; the new line goes
+        # before it.
+        at = len(new_lines)
+        if at and new_lines[-1] == "":
+            at -= 1
+        new_lines.insert(at, "%s=%s" % (key, value))
     return new_lines
 
 
 def _write_env_content(path, host, content):
-    """Write content to .env. Returns True on success.
+    """Write content to .env, ending it with a newline. Returns True on
+    success.
 
     Remote writes pipe stdin through 'cat > file' over SSH — avoids
     escaping the entire file content into a command line.
     """
+    if content and not content.endswith("\n"):
+        content += "\n"
     env_path = os.path.join(path, ".env")
     if _is_localhost(host):
         try:

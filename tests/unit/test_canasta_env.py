@@ -263,7 +263,7 @@ class TestSetQuoteHandling:
             "path": path, "state": "set", "key": "NEW", "value": "1",
             "keys": None,
         })
-        assert open(path).read() == 'A="q #x"\n\nNEW=1'
+        assert open(path).read() == 'A="q #x"\nNEW=1\n'
 
     def test_unset_keeps_other_quoted_values_intact(self, tmp_path):
         path = self._write(tmp_path, 'A="q #x"\nB=drop\n')
@@ -291,3 +291,73 @@ class TestArgumentSpec:
                 pass
         spec = ctor.call_args.kwargs["argument_spec"]
         assert spec["value"].get("no_log") is True
+
+
+class TestFinalNewline:
+    """Every .env the module writes ends with a newline, so a setting an
+    operator appends with `echo KEY=value >> .env` lands on its own line."""
+
+    def _set(self, path, key, value):
+        result, failed, msg = run_module_with_params(canasta_env, {
+            "path": path, "state": "set",
+            "key": key, "value": value, "keys": None,
+        })
+        assert not failed, msg
+        return result
+
+    def _keys(self, path):
+        content = open(path).read()
+        return canasta_env.entries_to_dict(canasta_env.parse_env_file(content))
+
+    def test_set_line_appends_before_final_newline(self):
+        assert canasta_env.set_line(["A=1", ""], "B", "2") == [
+            "A=1", "B=2", "",
+        ]
+        assert canasta_env.set_line([""], "B", "2") == ["B=2", ""]
+
+    def test_lines_to_content_ends_with_newline(self):
+        assert canasta_env.lines_to_content(["A=1", "B=2"]) == "A=1\nB=2\n"
+        assert canasta_env.lines_to_content(["A=1", ""]) == "A=1\n"
+        assert canasta_env.lines_to_content([""]) == ""
+        assert canasta_env.lines_to_content([]) == ""
+
+    def test_create_then_gitops_init_then_echo_append(self, tmp_path):
+        # create copies a .env that ends with a newline, then sets keys it
+        # does not have (CANASTA_CADDY_HTTPS_PUBLISH last); gitops init
+        # leaves .env as it finds it.
+        p = tmp_path / ".env"
+        p.write_text("# Canasta\nMW_SITE_SERVER=https://example.com\n")
+        path = str(p)
+        self._set(path, "MW_SITE_SERVER", "https://wiki.example.com")
+        self._set(path, "COMPOSE_PROFILES", "varnish")
+        self._set(path, "CANASTA_CADDY_HTTPS_PUBLISH", "443:443")
+        assert p.read_text() == (
+            "# Canasta\n"
+            "MW_SITE_SERVER=https://wiki.example.com\n"
+            "COMPOSE_PROFILES=varnish\n"
+            "CANASTA_CADDY_HTTPS_PUBLISH=443:443\n"
+        )
+        with open(path, "a") as f:
+            f.write("E2E_SYNC_TEST=1\n")
+        keys = self._keys(path)
+        assert keys["E2E_SYNC_TEST"] == "1"
+        assert keys["CANASTA_CADDY_HTTPS_PUBLISH"] == "443:443"
+
+    def test_write_repairs_file_without_final_newline(self, tmp_path):
+        p = tmp_path / ".env"
+        p.write_text("A=1\n\nB=2")
+        self._set(str(p), "B", "3")
+        assert p.read_text() == "A=1\n\nB=3\n"
+        p.write_text("A=1\n\nB=2")
+        self._set(str(p), "C", "3")
+        assert p.read_text() == "A=1\n\nB=2\nC=3\n"
+
+    def test_unset_ends_with_newline(self, tmp_path):
+        p = tmp_path / ".env"
+        p.write_text("A=1\nB=2")
+        result, failed, msg = run_module_with_params(canasta_env, {
+            "path": str(p), "state": "unset",
+            "key": "B", "value": None, "keys": None,
+        })
+        assert not failed, msg
+        assert p.read_text() == "A=1\n"
