@@ -1105,7 +1105,9 @@ commands:
       tries again on the next upgrade. `canasta config set
       CANASTA_DB_ROOT_ACCOUNT=true` keeps an instance on root. On a
       gitops-managed Kubernetes instance the move is staged with the rest
-      and takes effect at the push and sync.
+      and takes effect at the push and sync. A stopped instance is left
+      stopped and on root until an upgrade runs while it is running;
+      `--dry-run` and the end of the upgrade name each such instance.
 
       By default the CLI itself updates to the latest released version
       within the current major (the highest vX.Y.Z tag whose major matches
