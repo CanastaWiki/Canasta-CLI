@@ -1,0 +1,22 @@
+---
+# Validate a TLS_MODE_HOSTS value at set time, so a typo fails here rather
+# than in the edge render on the next start. Whether each host is one the
+# instance serves is checked by the edge, which knows its hostnames.
+# Input: _config_value (str)
+
+- name: Validate TLS_MODE_HOSTS value
+  ansible.builtin.fail:
+    msg: >-
+      TLS_MODE_HOSTS must be a comma-separated list of host=mode pairs,
+      where mode is 'acme', 'acme-dns' or 'internal'
+      (e.g. origin.example.net=acme). Got '{{ _config_value }}'.
+  vars:
+    _tmh_entries: >-
+      {{ (_config_value | default('') | trim) | split(',') | map('trim')
+         | reject('equalto', '') | list }}
+  when:
+    - _tmh_entries | length > 0
+    - >-
+      (_tmh_entries
+       | select('match', '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?=(acme|acme-dns|internal)$', ignorecase=True)
+       | list | length) != (_tmh_entries | length)

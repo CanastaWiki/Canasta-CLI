@@ -142,6 +142,17 @@ canasta_known_keys:
       config/certs/. "off" serves the instance over plain HTTP on its
       HTTP_PORT, behind your own TLS-terminating proxy.
     default: "acme"
+  - name: TLS_MODE_HOSTS
+    group: TLS
+    description: >-
+      Hostnames that take a different mode from TLS_MODE on Docker Compose,
+      as comma-separated host=mode pairs (e.g.
+      origin.example.net=acme,www.example.org=internal). Each host must be
+      one the instance serves: a wiki URL host, a media host or a
+      Caddyfile.global site. A mode is "acme", "acme-dns" or "internal";
+      with TLS_MODE=custom, the hosts listed here leave the custom
+      certificate. Not allowed with TLS_MODE=off. Unset = every hostname
+      uses TLS_MODE (default).
   - name: TLS_CERT
     group: TLS
     description: >-

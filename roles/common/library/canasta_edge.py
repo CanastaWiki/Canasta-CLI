@@ -119,8 +119,8 @@ from ansible.module_utils.canasta_config import get_config_dir, is_k8s_orchestra
 from ansible.module_utils.canasta_env_keys import modernize_values
 from ansible.module_utils.canasta_edge_render import (
     ACME_IMAGE, CERT_DIR, CONFIG_DIR, DENY_CIDR_FILE, DENY_UA_FILE, EdgeError,
-    HAPROXY_IMAGE, SPOA_IMAGE, cdn_providers, certificates, check_together,
-    crowdsec_enforced, frontends,
+    HAPROXY_IMAGE, SPOA_IMAGE, acme_hostnames, cdn_providers, certificates,
+    check_together, crowdsec_enforced, frontends, host_tls_mode,
     instance_from_config, rates_set, render,
 )
 from ansible.module_utils.canasta_caddyfile import (
@@ -1053,7 +1053,7 @@ def _sync_edge(run, inspect, edge_dir, instance_id, instance_path, member, resul
         return result
 
     thumbprint = None
-    if any(i["tls_mode"] in ("acme", "acme-dns") for i in instances):
+    if any(acme_hostnames(i) for i in instances):
         thumbprint = ensure_account(run, inspect, edge_dir)
     elif os.path.exists(os.path.join(edge_dir, "acme", "thumbprint")):
         thumbprint = _read(os.path.join(edge_dir, "acme", "thumbprint")).strip()
@@ -1244,9 +1244,9 @@ def _issue(run, inspect, edge_dir):
 
     wanted = {}
     for inst in instances:
-        if inst["tls_mode"] in ("acme", "acme-dns"):
-            for host in inst["hostnames"] + inst["media_hostnames"]:
-                wanted[host] = (inst["staging_certs"], inst["dns"])
+        for host in acme_hostnames(inst):
+            dns = inst["dns"] if host_tls_mode(inst, host) == "acme-dns" else None
+            wanted[host] = (inst["staging_certs"], dns)
     listed = acme_listed(run, inspect)
 
     for host in sorted(wanted):
@@ -1372,13 +1372,16 @@ def import_caddy_certificates(run, inspect, edge_dir, instance_id, instance_path
     renews it, so the switch to the edge needs no new certificates. Returns
     the hostnames imported."""
     inst = load_instance(instance_id, instance_path)
-    if inst is None or inst["tls_mode"] != "acme":
+    if inst is None:
+        return []
+    hosts = [h for h in acme_hostnames(inst) if host_tls_mode(inst, h) == "acme"]
+    if not hosts:
         return []
     held = _caddy_certificates(run, instance_path, compose_command)
     certs = os.path.join(edge_dir, "conf", "certs")
     os.makedirs(certs, mode=0o700, exist_ok=True)
     imported = []
-    for host in inst["hostnames"] + inst["media_hostnames"]:
+    for host in hosts:
         pair = next((held[d][host] for d in CADDY_ISSUER_DIRS[inst["staging_certs"]]
                      if host in held.get(d, {}) and len(held[d][host]) == 2), None)
         # acme.sh records hold ECDSA P-256 keys, Caddy's default.

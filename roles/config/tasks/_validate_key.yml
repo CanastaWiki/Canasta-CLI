@@ -80,7 +80,11 @@
       Ingress and cert-manager.
   when:
     - instance_is_k8s | bool
-    - _config_key in ['TLS_MODE', 'TLS_CERT', 'TLS_KEY']
+    - _config_key in ['TLS_MODE', 'TLS_MODE_HOSTS', 'TLS_CERT', 'TLS_KEY']
+
+- name: Validate TLS_MODE_HOSTS
+  ansible.builtin.include_tasks: _validate_tls_mode_hosts.yml
+  when: _config_key == 'TLS_MODE_HOSTS'
 
 - name: Validate TRUSTED_PROXIES
   ansible.builtin.include_tasks: _validate_trusted_proxies.yml
