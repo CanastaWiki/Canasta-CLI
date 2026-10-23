@@ -57,3 +57,4 @@ https://github.com/CanastaWiki/Canasta-Go/blob/main/RELEASE_NOTES.md
 - 4.26.5 - October 21, 2026 - Bump target Canasta version to 3.5.29.
 - 4.26.6 - October 22, 2026 - New: MediaWiki account on external databases (#2309); build base in `version` (#2299); upgrade disk check (#2303); `--purge-older-than` removed (#2312). Fixes: edge and Varnish after reboots (#2276, #2286); edge file ownership and `tls` directives (#2292, #2293); `--build-from` upgrades (#2291); `gitops pull` (#2294, #2295, #2297); upgrade and backup schedule reporting (#2290, #2310); maintenance as `www-data` (#2300); Podman image reclaim (#2302); `.env` final newline (#2296).
 - 4.26.7 - October 23, 2026 - New: `TRUSTED_PROXIES=<cdn>@<CIDRs>` (#2319). Fixes: imports on a small `/tmp` (#2320); `upgrade --dry-run` self-update (#2322); `doctor` probe timeouts (#2323).
+- 4.26.8 - October 23, 2026 - New: `TLS_MODE_HOSTS` gives single hostnames their own certificate mode on the edge (#2328).
