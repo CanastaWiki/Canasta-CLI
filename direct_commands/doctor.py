@@ -15,27 +15,36 @@ from . import _helpers
 from ._helpers import register
 
 
+# Seconds any one slow probe command may take, where the host has
+# timeout(1); a busy Docker daemon can stall `docker info` and
+# `docker system df`. The whole probe gets PROBE_TIMEOUT.
+PROBE_COMMAND_TIMEOUT = 10
+PROBE_TIMEOUT = 120
+
 _DOCTOR_SCRIPT = r"""
 D='%(delim)s'
+_t() { if command -v timeout >/dev/null 2>&1; then timeout %(cmd_timeout)d "$@"; else "$@"; fi; }
+_timedout() { [ "$1" -eq 124 ] || [ "$1" -eq 143 ]; }
+_check() { ok=$1; fail=$2; shift 2; _t "$@" >/dev/null 2>&1; r=$?; if [ $r -eq 0 ]; then echo "$ok"; elif _timedout $r; then echo TIMEOUT; else echo "$fail"; fi; }
 python3 --version 2>&1 || echo MISSING; echo "$D"
 docker --version 2>&1 || echo MISSING; echo "$D"
 docker compose version 2>&1 || echo MISSING; echo "$D"
-docker info >/dev/null 2>&1 && echo OK || echo NOT_RUNNING; echo "$D"
+_check OK NOT_RUNNING docker info; echo "$D"
 id -nG 2>/dev/null || echo ""; echo "$D"
 kubectl version --client --output=yaml >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 helm version --short 2>/dev/null || echo MISSING; echo "$D"
 k3s --version 2>/dev/null || echo MISSING; echo "$D"
-kubectl cluster-info >/dev/null 2>&1 && echo REACHABLE || echo UNREACHABLE; echo "$D"
-kubectl get deployment argocd-server -n argocd >/dev/null 2>&1 && echo INSTALLED || echo MISSING; echo "$D"
+_check REACHABLE UNREACHABLE kubectl cluster-info; echo "$D"
+_check INSTALLED MISSING kubectl get deployment argocd-server -n argocd; echo "$D"
 git --version 2>/dev/null || echo MISSING; echo "$D"
 git-crypt --version 2>/dev/null && echo OK || echo MISSING; echo "$D"
 command -v crontab >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 uname -s 2>/dev/null || echo unknown; echo "$D"
 python3 -c "import os; mem=os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')//(1024**3); print(str(mem)+' GB')" 2>/dev/null || echo unknown; echo "$D"
-_store=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || podman info --format '{{.Store.GraphRoot}}' 2>/dev/null); [ -n "$_store" ] && [ -d "$_store" ] || _store=/; printf '%%s|%%s\n' "$(df -h "$_store" 2>/dev/null | awk 'NR==2{print $4}')" "$_store"; echo "$D"
+_store=$(_t docker info --format '{{.DockerRootDir}}' 2>/dev/null); _timedout $? || [ -n "$_store" ] || _store=$(_t podman info --format '{{.Store.GraphRoot}}' 2>/dev/null); [ -n "$_store" ] && [ -d "$_store" ] || _store=/; printf '%%s|%%s\n' "$(df -h "$_store" 2>/dev/null | awk 'NR==2{print $4}')" "$_store"; echo "$D"
 cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown; echo "$D"
 runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; _sock=""; for s in "$runtime/docker.sock" "$runtime/podman/podman.sock"; do if [ -S "$s" ]; then _sock="unix://$s"; break; fi; done; echo "$_sock"; echo "$D"
-command -v canasta >/dev/null 2>&1 && { canasta version >/dev/null 2>&1 && echo OK || echo BROKEN; } || echo MISSING; echo "$D"
+command -v canasta >/dev/null 2>&1 && _check OK BROKEN canasta version || echo MISSING; echo "$D"
 cdir="$(dirname "$(readlink -f "$(command -v canasta 2>/dev/null)" 2>/dev/null)" 2>/dev/null)"; if [ -n "$cdir" ] && [ -d "$cdir/.git" ]; then { [ -w "$cdir/.git" ] && echo WRITABLE || echo NOT_WRITABLE; } else echo NA; fi; echo "$D"
 command -v sops >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 command -v age-keygen >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
@@ -43,7 +52,7 @@ command -v podman >/dev/null 2>&1 && podman --version 2>/dev/null || echo MISSIN
 command -v sudo >/dev/null 2>&1 && sudo --version 2>/dev/null | head -1 || echo MISSING; echo "$D"
 command -v sudo >/dev/null 2>&1 && { sudo -n true >/dev/null 2>&1 && echo OK || echo PASSWORD_REQUIRED; } || echo MISSING; echo "$D"
 command -v podman-compose >/dev/null 2>&1 && podman-compose version 2>/dev/null || echo MISSING; echo "$D"
-docker system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null || podman system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null || echo unknown
+_df=$(_t docker system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null); r=$?; if [ $r -eq 0 ]; then echo "$_df"; elif _timedout $r; then echo unknown; else _t podman system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null || echo unknown; fi
 """
 
 
@@ -168,7 +177,7 @@ def _has_container_runtime(docker, compose, daemon, podman_version):
     absence of the MISSING sentinel — a failed probe still prints text
     containing the word "podman".
     """
-    if "Docker" in docker and "Docker Compose" in compose and daemon == "OK":
+    if "Docker" in docker and "Docker Compose" in compose and daemon in ("OK", "TIMEOUT"):
         return True
     return "podman version" in podman_version.lower()
 
@@ -248,6 +257,10 @@ def _reclaimable_line(df_out, k3s):
     return "  Reclaimable:     %s" % amount
 
 
+def _timed_out(command):
+    return "unknown ('%s' took over %d seconds)" % (command, PROBE_COMMAND_TIMEOUT)
+
+
 def _doctor_probes(stdout):
     """Split the doctor probe output into its named fields."""
     d = _helpers._SENTINEL
@@ -312,7 +325,8 @@ def _doctor_core_lines(probes):
     lines.append("  Docker Compose:  %s" % (
         "OK (%s)" % compose if "Docker Compose" in compose else "MISSING"))
     lines.append("  Docker daemon:   %s" % (
-        "OK (running)" if daemon == "OK" else "NOT RUNNING"))
+        "OK (running)" if daemon == "OK"
+        else _timed_out("docker info") if daemon == "TIMEOUT" else "NOT RUNNING"))
     if rootless_sock:
         if daemon != "OK":
             create_use = "canasta create will auto-set --docker-host to this"
@@ -466,9 +480,12 @@ def _doctor_kubernetes_lines(probes):
     lines.append("  k3s:             %s" % (
         "OK" if k3s != "MISSING" else "not installed"))
     lines.append("  Cluster:         %s" % (
-        "reachable" if cluster.strip() == "REACHABLE" else "not reachable"))
+        "reachable" if cluster.strip() == "REACHABLE"
+        else _timed_out("kubectl cluster-info") if cluster.strip() == "TIMEOUT"
+        else "not reachable"))
     lines.append("  Argo CD:         %s" % (
-        "installed" if argocd.strip() == "INSTALLED" else "not found"))
+        "installed" if argocd.strip() == "INSTALLED"
+        else _timed_out("kubectl") if argocd.strip() == "TIMEOUT" else "not found"))
     return lines
 
 
@@ -529,6 +546,7 @@ def _doctor_backup_lines(probes):
     lines.append("  canasta on host: %s" % (
         "OK" if host_canasta == "OK"
         else "installed but not runnable" if host_canasta == "BROKEN"
+        else _timed_out("canasta version") if host_canasta == "TIMEOUT"
         else "not installed (scheduled backups run 'canasta backup create' "
              "on the host; install with 'canasta install canasta -H <host>' "
              "or canasta-docker)"))
@@ -1877,31 +1895,41 @@ def cmd_doctor(args):
         _, inst = _helpers._resolve_instance_by_cwd(args)
     if not host and inst:
         host = inst.get("host") or "localhost"
-    script = _DOCTOR_SCRIPT % {"delim": _helpers._SENTINEL}
+    script = _DOCTOR_SCRIPT % {"delim": _helpers._SENTINEL,
+                               "cmd_timeout": PROBE_COMMAND_TIMEOUT}
 
     # Under canasta-docker a local probe runs inside the CLI container,
     # not on the host.
     docker_mode = False
+    probe_timed_out = False
     if not host or host == "localhost":
         hostname = "localhost"
         docker_mode = os.environ.get("CANASTA_RUN_MODE") == "docker"
         try:
             result = subprocess.run(
                 ["bash", "-c", script],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, timeout=PROBE_TIMEOUT,
             )
             stdout = result.stdout
-        except (subprocess.TimeoutExpired, OSError) as e:
+        except subprocess.TimeoutExpired as e:
+            # Captured output arrives as bytes even with text=True.
+            partial = e.stdout or b""
+            stdout = partial.decode(errors="replace") if isinstance(partial, bytes) else partial
+            probe_timed_out = True
+        except OSError as e:
             print("Error: %s" % e, file=sys.stderr)
             return 1
     else:
         hostname = host
-        rc, stdout = _helpers._ssh_run(host, script)
+        rc, stdout = _helpers._ssh_run(host, script, timeout=PROBE_TIMEOUT)
         if rc != 0 and not stdout.strip():
             print("Error: failed to connect to %s" % host, file=sys.stderr)
             return 1
 
     print(_parse_doctor(stdout, hostname, docker_mode))
+    if probe_timed_out:
+        print("\nHost checks: FAIL — they did not finish within %d seconds; "
+              "those not reached show as unknown or missing." % PROBE_TIMEOUT)
 
     for line in _collection_integrity_lines():
         print(line)
@@ -1927,6 +1955,9 @@ def cmd_doctor(args):
 
         for line in _composer_failure_lines(inst):
             print(line)
+
+    if probe_timed_out:
+        return 1
 
     parts = stdout.split(_helpers._SENTINEL + "\n")
     docker = parts[1].strip() if len(parts) > 1 else "MISSING"

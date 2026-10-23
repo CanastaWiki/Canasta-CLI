@@ -43,7 +43,7 @@ def _run_doctor(monkeypatch, capsys, host=None):
     monkeypatch.setattr(
         subprocess, "run",
         lambda *a, **k: subprocess.CompletedProcess(a, 0, _STDOUT, ""))
-    monkeypatch.setattr(_helpers, "_ssh_run", lambda h, s: (0, _STDOUT))
+    monkeypatch.setattr(_helpers, "_ssh_run", lambda h, s, **k: (0, _STDOUT))
     args = type("Args", (), {"host": host, "id": None})()
     rc = doctor.cmd_doctor(args)
     assert rc == 0
