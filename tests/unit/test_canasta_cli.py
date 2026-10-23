@@ -1366,6 +1366,49 @@ class TestSelfUpdateCli:
         assert not any("checkout" in c for c in calls)
         assert execv_calls == []
 
+    def test_dry_run_reports_the_release_without_moving(
+        self, monkeypatch, tmp_path, capsys,
+    ):
+        self._patch_repo(monkeypatch, tmp_path)
+        execv_calls = []
+        monkeypatch.setattr(
+            canasta_cli.os, "execv", lambda *a: execv_calls.append(a),
+        )
+        runner, calls = self._make_runner([
+            {"stdout": "old1234\n"},          # rev-parse current HEAD
+            {"stdout": ""},                     # fetch --tags
+            {"stdout": "v4.0.0\nv4.1.0\n"},    # tag -l v* → latest is v4.1.0
+            {"stdout": "new1234\n"},          # rev-parse v4.1.0
+            {"returncode": 1},                  # merge-base: not contained
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+        canasta_cli.self_update_cli(dry_run=True)
+        out = capsys.readouterr().out
+        assert ("Dry run - would update Canasta CLI from 4.0.0 (old1234) to "
+                "v4.1.0 (new1234). This preview uses the installed version.") in out
+        assert "Updated Canasta CLI" not in out
+        assert not any("checkout" in c for c in calls)
+        assert execv_calls == []
+
+    def test_dry_run_on_dev_does_not_pull(self, monkeypatch, tmp_path, capsys):
+        self._patch_repo(monkeypatch, tmp_path)
+        execv_calls = []
+        monkeypatch.setattr(
+            canasta_cli.os, "execv", lambda *a: execv_calls.append(a),
+        )
+        runner, calls = self._make_runner([
+            {"stdout": "old1234\n"},   # rev-parse current HEAD
+            {"stdout": ""},              # fetch --tags
+            {"stdout": "new1234\n"},   # rev-parse origin/main
+            {"stdout": "main\n"},      # rev-parse --abbrev-ref HEAD
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+        canasta_cli.self_update_cli(dev=True, dry_run=True)
+        out = capsys.readouterr().out
+        assert "would update Canasta CLI from 4.0.0 (old1234) to origin/main (new1234)" in out
+        assert not any("checkout" in c or "pull" in c for c in calls)
+        assert execv_calls == []
+
     def test_dev_already_up_to_date(self, monkeypatch, tmp_path, capsys):
         # --dev tracks origin/main; up to date only when on main and at HEAD.
         self._patch_repo(monkeypatch, tmp_path)

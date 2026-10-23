@@ -464,10 +464,20 @@ def _self_update_target(git, dev, allow_major, current_version):
     return target_ref, major_hint
 
 
+def _self_update_dry_run(target_ref, target_commit, current_commit,
+                         current_version):
+    print(
+        "Dry run - would update Canasta CLI from %s (%s) to %s (%s). "
+        "This preview uses the installed version."
+        % (current_version, current_commit, target_ref, target_commit)
+    )
+
+
 def _self_update_move(git, repo, dev, target_ref, current_commit,
-                      current_version, major_hint):
+                      current_version, major_hint, dry_run=False):
     """Move the checkout to target_ref. False (after saying why) when
-    it is already current or the move failed."""
+    it is already current, the move failed, or dry_run says what the
+    move would be instead."""
     target_commit = git(
         ["rev-parse", "--short", target_ref], timeout=5,
     ).stdout.strip()
@@ -485,6 +495,10 @@ def _self_update_move(git, repo, dev, target_ref, current_commit,
                 "(version %s, commit %s, dev (main))."
                 % (current_version, current_commit)
             )
+            return False
+        if dry_run:
+            _self_update_dry_run(target_ref, target_commit, current_commit,
+                                 current_version)
             return False
         # Restore the main branch first — a previous release upgrade may
         # have left a detached HEAD at a tag — then fast-forward.
@@ -519,6 +533,10 @@ def _self_update_move(git, repo, dev, target_ref, current_commit,
             return False
         # HEAD is behind the latest release (or on a divergent line that
         # doesn't contain it) — move to the release tag.
+        if dry_run:
+            _self_update_dry_run(target_ref, target_commit, current_commit,
+                                 current_version)
+            return False
         co = git(["checkout", target_ref], timeout=60)
         move_failed = co.returncode != 0
 
@@ -624,7 +642,7 @@ def _self_update_reexec():
     )
 
 
-def self_update_cli(dev=False, allow_major=False):
+def self_update_cli(dev=False, allow_major=False, dry_run=False):
     """Update the CLI code before invoking ansible-playbook.
 
     By default the CLI moves to the latest released version that does not
@@ -634,7 +652,9 @@ def self_update_cli(dev=False, allow_major=False):
     to the latest release overall (which may be a new major with breaking
     changes). Pass ``dev=True`` to instead track the head of main
     (``git checkout main && git pull --ff-only``); ``allow_major`` has no
-    effect with ``dev``.
+    effect with ``dev``. With ``dry_run=True`` the checkout is not moved:
+    it reports the version it would move to, and the command runs on the
+    installed code.
     Release tags are used rather than the GitHub Releases API because the
     Releases API deliberately keeps v3.7.0 as 'latest' for legacy clients
     (see .github/workflows/docker.yml).
@@ -714,7 +734,7 @@ def self_update_cli(dev=False, allow_major=False):
     target_ref, major_hint = target
 
     if not _self_update_move(_git, repo, dev, target_ref, current_commit,
-                             current_version, major_hint):
+                             current_version, major_hint, dry_run):
         return
 
     new_version, new_commit = _self_update_record_build(_git, repo)
@@ -2580,6 +2600,7 @@ def main():
         self_update_cli(
             dev=getattr(args, "dev", False),
             allow_major=getattr(args, "allow_major", False),
+            dry_run=getattr(args, "dry_run", False),
         )
 
     sys.stdout.flush()
