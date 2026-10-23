@@ -81,6 +81,15 @@
           | split(',') | map('trim') | reject('equalto', '') | list)
          }}
 
+- name: Refuse the CDN-behind-proxy TRUSTED_PROXIES form without the edge
+  ansible.builtin.fail:
+    msg: >-
+      TRUSTED_PROXIES='{{ _tp_raw }}' is supported on Docker Compose only.
+      On Kubernetes, use 'cloudflare', 'imperva', or a CIDR list.
+  when:
+    - not (_behind_edge | bool)
+    - "'@' in _tp_raw"
+
 - name: Normalize trusted-proxy mode
   ansible.builtin.set_fact:
     # Behind the edge, the edge has already recovered the client address

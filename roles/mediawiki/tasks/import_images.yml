@@ -12,9 +12,13 @@
 # Input: instance_path, instance_orchestrator, instance_id,
 #        import_wiki_id, import_images_path
 
+# Next to the instance rather than in /tmp, which may be a tmpfs too
+# small for the tarball.
 - name: Create a private temp file on the target host for the tarball
   ansible.builtin.tempfile:
     state: file
+    path: "{{ instance_path }}"
+    prefix: .canasta-import-
     suffix: .tar
   register: _import_images_host_tmp
 
