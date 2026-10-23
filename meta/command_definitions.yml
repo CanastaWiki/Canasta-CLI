@@ -1086,6 +1086,9 @@ commands:
     long_description: |
       Upgrade all registered Canasta instances by refreshing configs,
       pulling latest images, running migrations, and restarting containers.
+      A native install first updates the CLI itself to the latest release;
+      with `--dry-run` it reports the release it would update to and
+      previews with the installed version.
       A restarted instance whose startup `composer update` failed is
       reported with a warning.
 
@@ -1156,7 +1159,7 @@ commands:
       - name: dry_run
         type: bool
         default: false
-        description: "Preview changes without applying"
+        description: "Preview changes without applying, including the CLI's own update"
       - name: dev
         type: bool
         default: false
