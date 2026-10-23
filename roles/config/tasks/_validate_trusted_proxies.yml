@@ -1,0 +1,36 @@
+---
+# Validate a TRUSTED_PROXIES value at set time, so a typo like 'cloudfalre'
+# fails here rather than in the edge render or Caddy on the next start.
+# Input: _config_value (str), instance_is_k8s (bool)
+
+- name: Validate TRUSTED_PROXIES value
+  ansible.builtin.fail:
+    msg: >-
+      TRUSTED_PROXIES must be 'cloudflare', 'imperva', a comma-separated
+      list of IP/CIDR ranges (e.g. 203.0.113.0/24,198.51.100.4), or
+      'cloudflare@' or 'imperva@' followed by such a list. Got
+      '{{ _config_value }}'.
+  vars:
+    _tp_value: "{{ _config_value | default('') | trim }}"
+    _tp_entries: >-
+      {{ _tp_value | regex_replace('^(cloudflare|imperva)@', '', ignorecase=True)
+         | split(',') | map('trim') | reject('equalto', '') | list }}
+  when:
+    - _tp_value | length > 0
+    - _tp_value | lower not in ['cloudflare', 'imperva']
+    - >-
+      (_tp_entries | length == 0)
+      or (_tp_entries | select('match', '^[0-9A-Fa-f:.]+(/[0-9]+)?$') | list | length)
+      != (_tp_entries | length)
+
+# The <cdn>@<CIDRs> form is the HAProxy edge's: it checks the peer before
+# believing the header. Caddy behind the Ingress sees only the Ingress as
+# its peer, so it could not tell the listed proxies from anyone else.
+- name: Refuse the CDN-behind-proxy form on Kubernetes
+  ansible.builtin.fail:
+    msg: >-
+      TRUSTED_PROXIES='{{ _config_value }}' is supported on Docker Compose
+      only. On Kubernetes, use 'cloudflare', 'imperva', or a CIDR list.
+  when:
+    - instance_is_k8s | bool
+    - "'@' in (_config_value | default(''))"

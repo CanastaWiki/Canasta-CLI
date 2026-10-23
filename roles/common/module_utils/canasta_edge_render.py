@@ -68,9 +68,10 @@ PRIVATE_SOURCES = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8
 BODY_WAIT = "5s"
 BODY_BUFFER = "2m"
 
-# CDNs whose client-address header the edge trusts, from their own address
-# ranges only. TRUSTED_PROXIES names one, or lists CIDRs to trust for
-# the last X-Forwarded-For entry.
+# CDNs whose client-address header the edge trusts. TRUSTED_PROXIES names
+# one, trusted from its own published ranges; lists CIDRs to trust for the
+# last X-Forwarded-For entry; or, as <cdn>@<CIDRs>, names a CDN whose header
+# to trust from the listed CIDRs.
 CDN_HEADERS = {"cloudflare": "CF-Connecting-IP", "imperva": "Incap-Client-IP"}
 
 # The edge's .env settings an instance can override.
@@ -309,9 +310,20 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
             % (instance_id, raw_children))
 
     trusted = (env.get("TRUSTED_PROXIES") or "").strip()
+    trusted_header = None
     if trusted.lower() in CDN_HEADERS:
         trusted_proxies, trusted_cidrs = trusted.lower(), []
     elif trusted:
+        cdn, at, cidrs = trusted.partition("@")
+        if at:
+            cdn = cdn.strip().lower()
+            if cdn not in CDN_HEADERS or not cidrs.strip(" ,"):
+                raise EdgeError(
+                    "Instance '%s': TRUSTED_PROXIES is '%s'. The form with '@' "
+                    "is <cdn>@<CIDRs>, where <cdn> is %s."
+                    % (instance_id, trusted, " or ".join(sorted(CDN_HEADERS))))
+            trusted_header = CDN_HEADERS[cdn]
+            trusted = cidrs
         trusted_proxies = "cidrs"
         trusted_cidrs = _networks(trusted.replace(",", "\n"), instance_id,
                                   "TRUSTED_PROXIES entry")
@@ -338,6 +350,9 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         "snippet": _snippet_lines(snippet, instance_id),
         "trusted_proxies": trusted_proxies,
         "trusted_cidrs": trusted_cidrs,
+        # The header trusted_cidrs may set the client address in; None is
+        # the last X-Forwarded-For entry.
+        "trusted_header": trusted_header,
         "crowdsec": crowdsec_enforced(env),
         "rates_set": rates_set(env),
         "deny_user_agents": _user_agents(deny_user_agents, instance_id),
@@ -482,7 +497,7 @@ def _client_address_rules(instances):
     """Behind a CDN the edge's peer is the CDN, so per-client limits would
     throttle the CDN itself. For an instance that names its CDN, take the
     client address from the CDN's header, on requests from the CDN's own
-    ranges only."""
+    ranges, or from the proxies the instance lists, only."""
     out = []
     for inst in instances:
         mode = inst["trusted_proxies"]
@@ -490,9 +505,10 @@ def _client_address_rules(instances):
             continue
         own = "{ var(txn.inst) -m str %s }" % inst["id"]
         if mode == "cidrs":
-            out.append("    http-request set-src req.hdr_ip(X-Forwarded-For,-1) "
+            out.append("    http-request set-src req.hdr_ip(%s) "
                        "if %s { src -f %s }"
-                       % (own, _list_path("trusted-%s.lst" % inst["id"])))
+                       % (inst["trusted_header"] or "X-Forwarded-For,-1", own,
+                          _list_path("trusted-%s.lst" % inst["id"])))
         else:
             out.append("    http-request set-src req.hdr_ip(%s) if %s { src -f %s }"
                        % (CDN_HEADERS[mode], own, _list_path("cdn-%s.lst" % mode)))
