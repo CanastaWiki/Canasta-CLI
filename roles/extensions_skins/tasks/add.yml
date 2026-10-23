@@ -12,8 +12,9 @@
 # (non-gitops) under extensions/ or skins/, commits it in gitops,
 # registers any composer.json in config/composer.local.json and best-effort
 # installs its non-dev requirements (--no-dev); a resolution failure is reported
-# and the registration reverted rather than aborting, and optionally enables it
-# (write settings + run update.php).
+# and the registration reverted rather than aborting, while an autoloader left
+# requiring a missing file is reverted and fails the command; and optionally
+# enables it (write settings + run update.php).
 #
 # Input: id, wiki (optional, passed to enable), names (comma-separated),
 #        mw_version (optional override), repository (optional override),
@@ -270,6 +271,24 @@
          | map('regex_replace', '^(.*)$', _item_dir ~ '/\1/composer.json')
          | list }}
 
+# Composer writes an autoload.files entry into vendor/ whether or not the file
+# exists, and every wiki then fails to load, so such an item is not registered.
+- name: "Check the autoload files of added {{ _item_type }}"
+  when: _composer_paths | length > 0
+  canasta_composer_autoload:
+    instance_path: "{{ instance_path }}"
+    include: "{{ _composer_paths }}"
+  register: _autoload_check
+
+- name: "Leave out {{ _item_type }} that autoload missing files"
+  ansible.builtin.set_fact:
+    _autoload_broken: "{{ _autoload_check.broken | default([]) }}"
+    _composer_paths: >-
+      {{ _composer_paths
+         | reject('in', _autoload_check.broken | default([])
+                        | map(attribute='include') | list)
+         | list }}
+
 - name: "Register composer requirements in composer.local.json"
   when: _composer_paths | length > 0
   canasta_composer_local:
@@ -315,10 +334,42 @@
     # exec_result so the caller can revert + warn).
     rx_fail: false
 
+# The checks below overwrite exec_result, and a block's when is
+# re-evaluated for every task in it.
+- name: "Record the composer install result"
+  when: _composer_paths | length > 0
+  ansible.builtin.set_fact:
+    _composer_install_result: "{{ exec_result }}"
+
+# composer exits 0 even when the autoloader it writes requires files that do
+# not exist.
+- name: "Check that the files the autoloader requires exist"
+  when:
+    - _composer_paths | length > 0
+    - _composer_install_result.rc | default(1) == 0
+  ansible.builtin.include_tasks:
+    file: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+    apply:
+      ignore_errors: true
+  vars:
+    exec_service: web
+    exec_command: "php --"
+    exec_stdin: "{{ canasta_root }}/roles/extensions_skins/files/missing_autoload_files.php"
+
+- name: "Record the files the autoloader requires that do not exist"
+  ansible.builtin.set_fact:
+    _autoload_missing: >-
+      {{ (exec_result.stdout_lines | default([]))
+         if (_composer_paths | length > 0
+             and _composer_install_result.rc | default(1) == 0
+             and exec_result.rc | default(0) == 1)
+         else [] }}
+
 - name: "Commit composer.local.json (gitops) on successful install"
   when:
     - _composer_paths | length > 0
-    - exec_result.rc | default(1) == 0
+    - _composer_install_result.rc | default(1) == 0
+    - _autoload_missing | length == 0
     - is_gitops | bool
   block:
     - name: "Stage composer.local.json (gitops)"
@@ -337,17 +388,10 @@
       changed_when: true
       ignore_errors: true  # nothing to commit if the file content was already committed
 
-# The rebuild below overwrites exec_result, and a block's when is
-# re-evaluated for every task in it.
-- name: "Record the composer install result"
-  when: _composer_paths | length > 0
-  ansible.builtin.set_fact:
-    _composer_install_result: "{{ exec_result }}"
-
 - name: "Revert composer registration when install failed"
   when:
     - _composer_paths | length > 0
-    - _composer_install_result.rc | default(1) != 0
+    - (_composer_install_result.rc | default(1) != 0) or (_autoload_missing | length > 0)
   block:
     # Only what this run added: items that were already registered were
     # working before and must stay.
@@ -359,8 +403,8 @@
         state: absent
 
     # Rebuild vendor/ from the restored list, which also clears
-    # composer-update.failed on success. A no-op on images without the
-    # script.
+    # composer-update.failed on success. On images without the script only a
+    # successful install changed vendor/.
     - name: "Rebuild composer state from the restored list"
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
       vars:
@@ -373,11 +417,16 @@
           [ $rc -ne 0 ] || rc=1;
           fi;
           exit $rc;
-          fi
+          {% if _autoload_missing | length > 0 %}else
+          cp /mediawiki/config/composer.local.json /var/www/mediawiki/w/composer.local.json &&
+          cd /var/www/mediawiki/w &&
+          composer update --no-dev --no-interaction;
+          {% endif %}fi
         exec_long: true
         rx_fail: false
 
     - name: "Warn that the composer install failed"
+      when: _composer_install_result.rc | default(1) != 0
       vars:
         _composer_failed_reason: >-
           {{ ((_composer_install_result.stderr | default('')).splitlines()
@@ -407,6 +456,35 @@
           instance's composer config valid. Resolve the conflict — usually a
           version pin that is incompatible with the instance's existing
           packages — then re-run the add or register the requirements manually.{{ _composer_rebuild_failure }}
+
+- name: "Fail: {{ _item_type }} autoload files that do not exist"
+  when: (_autoload_broken | length > 0) or (_autoload_missing | length > 0)
+  vars:
+    _autoload_left_out: >-
+      {{ (_autoload_broken | map(attribute='include') | list)
+         + ((_composer_local.added | default([]))
+            if (_autoload_missing | length > 0) else []) }}
+    _autoload_names: >-
+      {{ (_autoload_left_out | map('dirname') | map('basename') | list)
+         or (_to_add | map(attribute='name') | list) }}
+  ansible.builtin.fail:
+    msg: >-
+      {% for b in _autoload_broken %}{{ b.include }} autoloads files that
+      are not in the repository: {{ b.missing | join(', ') }}. {% endfor %}
+      {%- if _autoload_missing | length > 0 %}After composer update the
+      autoloader requires files that do not exist:
+      {{ _autoload_missing | join(', ') }}. {% endif %}
+      {%- if _autoload_left_out | length > 0 %}So that the wikis keep
+      loading, {{ _autoload_left_out | join(', ') }}
+      {{ 'was' if (_autoload_left_out | length == 1) else 'were' }} left out
+      of config/composer.local.json. {% endif %}The {{ _item_type }} code was added
+      {{- '' if (skip_enable | default(false) | bool) else (' but nothing was enabled') }}.
+      Fix the autoload.files entries of the composer.json and re-run the
+      add, or remove the {{ _item_type[:-1] }} with
+      'canasta {{ _item_type[:-1] }} remove {{ _autoload_names | join(',') }}'.
+      {%- if _autoload_missing | length > 0 and exec_result.rc | default(0) != 0 %}
+      Rebuilding composer state from the restored list failed (exit
+      {{ exec_result.rc }}); run 'canasta restart' to rebuild it.{% endif %}
 
 - name: "Enable added {{ _item_type }} (with containers up so the monitor has linked them)"
   when: not (skip_enable | default(false) | bool)

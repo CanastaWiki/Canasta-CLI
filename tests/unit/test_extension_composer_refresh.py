@@ -45,7 +45,8 @@ def _tasks(path):
 
 def _refresh_command(path):
     cmds = [(t.get("vars") or {}).get("exec_command", "")
-            for t in _tasks(path)]
+            for t in _tasks(path)
+            if t.get("name", "").startswith("Install composer")]
     cmds = [c for c in cmds if "composer update" in c]
     assert len(cmds) == 1
     return cmds[0]
@@ -209,10 +210,11 @@ def _revert_block():
     return tasks, i, tasks[i]
 
 
-def _rebuild_command():
+def _rebuild_command(autoload_missing=()):
     for t in _revert_block()[2]["block"]:
         if t.get("name") == "Rebuild composer state from the restored list":
-            return t["vars"]["exec_command"]
+            return _env().from_string(t["vars"]["exec_command"]).render(
+                _autoload_missing=list(autoload_missing))
     raise AssertionError("no rebuild task")
 
 
@@ -229,11 +231,17 @@ class TestAddRebuildAfterRevert:
         # The rebuild overwrites exec_result and block conditions are
         # re-evaluated per task, so the gate must not read exec_result.
         tasks, i, block = _revert_block()
-        assert "_composer_install_result.rc | default(1) != 0" in block["when"]
+        assert any("_composer_install_result.rc | default(1) != 0" in w
+                   for w in block["when"])
         assert "exec_result" not in str(block["when"])
-        record = tasks[i - 1]
+        # Recorded straight after the install, before the autoload check
+        # overwrites exec_result.
+        names = [t.get("name", "") for t in tasks]
+        install = names.index("Install composer requirements (--no-dev)")
+        record = tasks[install + 1]
         assert record["ansible.builtin.set_fact"] == {
             "_composer_install_result": "{{ exec_result }}"}
+        assert install + 1 < i
 
     def test_rebuild_is_best_effort(self):
         rebuild = [t for t in _revert_block()[2]["block"]
@@ -266,6 +274,15 @@ class TestAddRebuildAfterRevert:
         assert c.calls() == []
         assert (c.mw / "composer.local.json").read_text() == (
             '{"effective": true}')
+
+    def test_older_image_rebuilds_after_missing_autoload_files(self, tmp_path):
+        # composer succeeded there, so vendor/ holds the broken autoloader.
+        c = _Container(tmp_path)
+        result = c.run(_rebuild_command(["extensions/Foo/Foo.php"]))
+        assert result.returncode == 0, result.stderr
+        assert c.calls() == ["composer update --no-dev --no-interaction"]
+        assert (c.mw / "composer.local.json").read_text() == (
+            '{"operator": true}')
 
 
 class TestAddWarningMessage:
