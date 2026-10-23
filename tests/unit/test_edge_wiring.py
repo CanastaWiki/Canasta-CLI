@@ -84,3 +84,15 @@ def test_edge_reloads_signal_haproxy_through_exec():
     for task in reloads:
         argv = task["ansible.builtin.command"]["argv"]
         assert argv[1:] == ["exec", "canasta-edge", "kill", "-USR2", "1"]
+
+
+def test_the_edge_reloads_after_a_start_that_left_haproxy_running():
+    # A start that only brings up acme.sh does not touch a running HAProxy.
+    reload = next(t for t in _tasks("edge_sync.yml") if t.get("name") == "Reload the edge")
+    assert "_edge_up is skipped" not in reload["when"]
+
+
+def test_issuance_retries_on_the_edges_first_account():
+    issue = next(t for t in _tasks("edge_sync.yml")
+                 if t.get("name") == "Obtain the edge's Let's Encrypt certificates")
+    assert "acme_registered" in issue["canasta_edge"]["retry"]

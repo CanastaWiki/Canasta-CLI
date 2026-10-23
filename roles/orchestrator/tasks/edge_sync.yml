@@ -106,7 +106,8 @@
 # The image runs HAProxy in master-worker mode, where USR2 reloads the
 # configuration without dropping connections. The signal goes through exec:
 # Docker counts any `kill` as a manual stop, and then does not restart the
-# container when the daemon restarts.
+# container when the daemon restarts. Also after a start: one that only
+# starts acme.sh leaves a running HAProxy on its old configuration.
 - name: Reload the edge
   ansible.builtin.command:
     argv:
@@ -121,7 +122,6 @@
     - _edge.members | default([]) | length > 0
     - _edge.running | default(false) | bool
     - _edge.reload | default(false) | bool
-    - _edge_up is skipped
 
 # HAProxy answers the challenges, so this needs the edge serving the
 # hostnames first. acme.sh installs what it obtains over the stats socket,
@@ -130,6 +130,7 @@
   canasta_edge:
     state: issue
     inspect_command: "{{ inspect_command | default('docker') }}"
+    retry: "{{ _edge.acme_registered | default(false) | bool }}"
   register: _edge_issue
   when:
     - _edge.members | default([]) | length > 0
