@@ -166,8 +166,8 @@ def _run_import(tmp_path, fail_extract):
     (orch / "exec.yml").write_text(_EXEC_STUB)
     log = tmp_path / "log"
     log.mkdir()
-    hosttmp = tmp_path / "hosttmp"
-    hosttmp.mkdir()
+    inst = tmp_path / "inst"
+    inst.mkdir()
     tarball = tmp_path / "images.tar"
     tarball.write_bytes(b"x")
     play = tmp_path / "play.yml"
@@ -175,8 +175,8 @@ def _run_import(tmp_path, fail_extract):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "environment": {"TMPDIR": str(hosttmp)},
         "vars": {"canasta_root": str(root), "stub_log": str(log),
+                 "instance_path": str(inst),
                  "stub_fail_extract": fail_extract,
                  "import_images_path": str(tarball),
                  "import_wiki_id": "main"},
@@ -189,17 +189,18 @@ def _run_import(tmp_path, fail_extract):
         stdin=subprocess.DEVNULL)
     copy_src, mode, copy_dest = (log / "copy").read_text().split()
     execs = (log / "exec").read_text().splitlines()
-    return proc, hosttmp, copy_src, mode, copy_dest, execs
+    return proc, inst, copy_src, mode, copy_dest, execs
 
 
 @pytest.mark.skipif(not os.path.exists(ANSIBLE_PLAYBOOK),
                     reason="ansible-playbook not installed alongside python")
 @pytest.mark.parametrize("fail_extract", [False, True])
 def test_both_copies_removed_on_success_and_failure(tmp_path, fail_extract):
-    proc, hosttmp, copy_src, mode, copy_dest, execs = _run_import(
+    proc, inst, copy_src, mode, copy_dest, execs = _run_import(
         tmp_path, fail_extract)
     assert (proc.returncode != 0) == fail_extract, proc.stdout + proc.stderr
-    assert os.path.dirname(copy_src) == str(hosttmp)
+    assert os.path.dirname(copy_src) == str(inst)
+    assert os.path.basename(copy_src).startswith(".canasta-import-")
     assert mode == "0600"
     assert not os.path.exists(copy_src)
     assert copy_dest == "/tmp/" + os.path.basename(copy_src)
