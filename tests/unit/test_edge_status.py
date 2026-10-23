@@ -136,3 +136,20 @@ def test_rootless_docker_is_warned_and_rootless_podman_is_not():
     assert "rootless Docker" in rated and "no per-client rate limits" not in rated
     podman = "\n".join(doctor._edge_lines_from_probe("one", "acme", [], probe, docker=False))
     assert "rootless" not in podman
+
+
+def test_only_hostnames_on_lets_encrypt_are_checked_for_its_certificates():
+    probe = doctor._parse_edge_probe(_probe())
+    out = "\n".join(doctor._edge_lines_from_probe(
+        "one", "internal", ["www.example.com", "origin.example.net"], probe,
+        host_modes={"origin.example.net": "acme"}))
+    assert "acme.sh: running" in out
+    assert "origin.example.net: WARN — no Let's Encrypt certificate yet" in out
+    assert "www.example.com" not in out
+
+
+def test_an_acme_instance_with_every_host_internal_skips_the_acme_checks():
+    probe = doctor._parse_edge_probe(_probe(acme=""))
+    out = "\n".join(doctor._edge_lines_from_probe(
+        "one", "acme", ["example.com"], probe, host_modes={"example.com": "internal"}))
+    assert "acme.sh" not in out and "WARN" not in out

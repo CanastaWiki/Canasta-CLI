@@ -1527,3 +1527,35 @@ def test_the_edge_logs_are_capped_under_podman(tmp_path, user_units):
     assert services["acme"]["logging"] == CAPPED_LOG
     service = (user_units / mod.SERVICE_UNIT).read_text()
     assert "--log-driver k8s-file --log-opt max-size=50m" in service
+
+
+# --- TLS_MODE_HOSTS ------------------------------------------------------------ #
+
+def test_only_hostnames_set_to_acme_are_issued(tmp_path):
+    run = FakeRunner(running=True)
+    result = _issue(tmp_path, run, one={
+        "hosts": ("example.com", "www.example.com"),
+        "env": {"TLS_MODE": "internal", "TLS_MODE_HOSTS": "example.com=acme"}})
+    assert result["issued"] == ["example.com"]
+    assert [c[c.index("-d") + 1] for c in run.acme_calls("--issue")] == ["example.com"]
+
+
+def test_an_internal_edge_with_no_acme_host_never_contacts_lets_encrypt(tmp_path):
+    path = _instance(tmp_path, "one", hosts=("example.com", "www.example.com"),
+                     env={"TLS_MODE": "acme",
+                          "TLS_MODE_HOSTS": "example.com=internal,www.example.com=internal"})
+    run = FakeRunner()
+    result = _sync(run, tmp_path / "edge", "one", path)
+    assert not result["acme"]
+    assert not [c for c in run.calls if "--register-account" in c[-1]]
+
+
+def test_an_acme_dns_host_uses_the_dns_hook_and_the_rest_http(tmp_path):
+    run = FakeRunner(running=True)
+    _issue(tmp_path, run, one={
+        "hosts": ("example.com", "www.example.com"),
+        "env": {"TLS_MODE": "acme", "TLS_MODE_HOSTS": "www.example.com=acme-dns",
+                "CLOUDFLARE_API_TOKEN": "tok-secret"}})
+    methods = {c[c.index("-d") + 1]: c[c.index("--issue") + 1]
+               for c in run.acme_calls("--issue")}
+    assert methods == {"example.com": "--stateless", "www.example.com": "--dns"}

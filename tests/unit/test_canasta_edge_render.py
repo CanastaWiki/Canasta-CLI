@@ -457,3 +457,69 @@ def test_rootless_docker_limits_apply_to_every_address():
     inst = _inst("one", ["one.example.com"], env={"CANASTA_EDGE_RATE_DYNAMIC": "60"})
     cfg = edge.render([inst], rootless=True)["files"]["haproxy.cfg"]
     assert "    http-request track-sc0 src\n" in cfg
+
+
+# --- TLS_MODE_HOSTS ---------------------------------------------------------- #
+
+def test_tls_mode_hosts_parses_host_mode_pairs():
+    assert edge.parse_tls_mode_hosts(
+        " Origin.Example.net=ACME , www.example.com=internal,", "wiki1") == {
+            "origin.example.net": "acme", "www.example.com": "internal"}
+    assert edge.parse_tls_mode_hosts("", "wiki1") == {}
+
+
+@pytest.mark.parametrize("value,message", [
+    ("example.com", "is not host=mode"),
+    ("example.com=custom", "is not host=mode"),
+    ("example.com=off", "is not host=mode"),
+    ("=acme", "TLS_MODE_HOSTS host"),
+    ("example.com=acme,example.com=internal", "more than once"),
+])
+def test_tls_mode_hosts_refuses_bad_entries(value, message):
+    with pytest.raises(edge.EdgeError, match=message):
+        edge.parse_tls_mode_hosts(value, "wiki1")
+
+
+def test_tls_mode_hosts_must_name_the_instances_own_hostnames():
+    with pytest.raises(edge.EdgeError, match="'other.example.org', which is not"):
+        _inst(env={"TLS_MODE_HOSTS": "other.example.org=acme"})
+
+
+def test_tls_mode_hosts_is_refused_with_plain_http():
+    with pytest.raises(edge.EdgeError, match="TLS_MODE is 'off'"):
+        _inst(env={"TLS_MODE": "off", "TLS_MODE_HOSTS": "example.com=acme"})
+
+
+def test_a_caddyfile_global_site_can_take_its_own_mode():
+    inst = edge.instance_from_config(
+        "wiki1", {"TLS_MODE": "internal", "TLS_MODE_HOSTS": "origin.example.net=acme"},
+        [{"id": "w0", "url": "www.example.com/en"}],
+        extra_hostnames=["origin.example.net"])
+    certs = edge.certificates([inst])
+    assert [(c["file"], c["mode"]) for c in certs] == [
+        ("www.example.com.pem", "internal"), ("origin.example.net.pem", "acme")]
+    assert edge.acme_hostnames(inst) == ["origin.example.net"]
+
+
+def test_hosts_listed_leave_the_custom_certificate():
+    inst = _inst(urls=("example.com", "www.example.com"), media=("images.example.com",),
+                 env={"TLS_MODE": "custom", "TLS_MODE_HOSTS": "images.example.com=acme"})
+    certs = edge.certificates([inst])
+    assert certs[0]["mode"] == "custom"
+    assert certs[0]["hostnames"] == ["example.com", "www.example.com"]
+    assert [(c["file"], c["mode"]) for c in certs[1:]] == [
+        ("images.example.com.pem", "acme")]
+
+
+def test_a_custom_instance_with_every_host_listed_has_no_custom_certificate():
+    inst = _inst(env={"TLS_MODE": "custom", "TLS_MODE_HOSTS": "example.com=internal"})
+    assert [(c["file"], c["mode"]) for c in edge.certificates([inst])] == [
+        ("example.com.pem", "internal")]
+
+
+def test_an_acme_dns_host_needs_the_dns_token():
+    with pytest.raises(edge.EdgeError, match="TLS_MODE_HOSTS uses 'acme-dns'"):
+        _inst(env={"TLS_MODE": "internal", "TLS_MODE_HOSTS": "example.com=acme-dns"})
+    inst = _inst(env={"TLS_MODE": "internal", "TLS_MODE_HOSTS": "example.com=acme-dns",
+                      "CLOUDFLARE_API_TOKEN": "t"})
+    assert inst["dns"]["hook"] == "dns_cf"

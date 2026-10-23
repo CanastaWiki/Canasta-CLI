@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 import canasta_caddyfile
+import canasta_edge_render
 import canasta_web_cause
 import yaml
 
@@ -992,10 +993,14 @@ def _is_self_signed(issuer, subject):
 
 def _origin_tls_lines_from_entries(inst_id, entries, now,
                                    tls_internal=False, k8s=False,
-                                   cert_manager=None, edge=False):
+                                   cert_manager=None, edge=False,
+                                   internal_names=None):
     """doctor lines for the probed certificates. With `edge`, the HAProxy
-    edge served them, and `tls_internal` means TLS_MODE=internal."""
+    edge served them, and `tls_internal` means TLS_MODE=internal.
+    internal_names maps each name the edge serves from its CA on purpose
+    to the setting that asks for it."""
     ca = "the edge's internal CA" if edge else "Caddy internal CA"
+    internal_names = internal_names or {}
     title = ["", "Origin TLS (%s):" % inst_id]
     if entries is None:
         return title + [
@@ -1027,14 +1032,14 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
                 "  %s: OK (%s — expected for a name with no "
                 "public certificate)" % (name, ca))
             continue
-        if internal and tls_internal:
+        if internal and (tls_internal or name in internal_names):
             # `tls internal` is configured, so Caddy never contacts ACME.
             # An internal certificate is the requested outcome, not a
             # silent fallback.
             lines.append(
                 "  %s: OK (%s — %s is configured for this instance)"
-                % (name, ca, "TLS_MODE=internal" if edge
-                   else "'tls internal'"))
+                % (name, ca, internal_names.get(name, "TLS_MODE=internal")
+                   if edge else "'tls internal'"))
             continue
         if internal:
             fallback_names.append(name)
@@ -1182,11 +1187,13 @@ def _parse_edge_probe(stdout):
 
 
 def _edge_lines_from_probe(inst_id, tls_mode, names, probe, crowdsec=None,
-                           plain=False, trusted=True, docker=True, rates_set=False):
+                           plain=False, trusted=True, docker=True, rates_set=False,
+                           host_modes=None):
     """doctor lines for an instance behind the HAProxy edge. crowdsec is
     None when CrowdSec is off, else whether its edge bouncer is enrolled.
     plain is an instance served over plain HTTP; trusted, whether
-    TRUSTED_PROXIES names the proxy in front of it."""
+    TRUSTED_PROXIES names the proxy in front of it. host_modes holds the
+    TLS_MODE_HOSTS entries, which override tls_mode for their names."""
     lines = ["", "HAProxy edge (%s):" % inst_id]
     if probe["edge"]:
         lines.append("  edge: running (%s)" % probe["edge"])
@@ -1220,7 +1227,9 @@ def _edge_lines_from_probe(inst_id, tls_mode, names, probe, crowdsec=None,
                 "per-client rate limits are off. Set TRUSTED_PROXIES to the "
                 "proxy's addresses.")
         return lines
-    if tls_mode not in ("acme", "acme-dns"):
+    acme_names = [n for n in names if (host_modes or {}).get(n, tls_mode)
+                  in canasta_edge_render.ACME_MODES]
+    if not acme_names:
         return lines
     if probe["acme"]:
         lines.append("  acme.sh: running (%s)" % probe["acme"])
@@ -1228,7 +1237,7 @@ def _edge_lines_from_probe(inst_id, tls_mode, names, probe, crowdsec=None,
         lines.append(
             "  acme.sh: WARN — not running, so Let's Encrypt certificates "
             "are not renewed. Run 'canasta start -i %s' to start it." % inst_id)
-    for name in names:
+    for name in acme_names:
         cert = probe["certs"].get(name)
         if cert:
             ca = "staging" if cert[0].endswith("_test") else "production"
@@ -1278,6 +1287,7 @@ def _edge_lines(inst):
         return []
     tls_mode = (_helpers._read_env_for(inst, "TLS_MODE") or "acme").strip().lower()
     plain = tls_mode == "off"
+    host_modes = _tls_mode_hosts(inst)
     crowdsec = None
     if (_helpers._read_env_for(inst, "CANASTA_ENABLE_CROWDSEC") or "").strip().lower() == "true":
         crowdsec = bool((_helpers._read_env_for(inst, "CROWDSEC_SPOA_API_KEY") or "").strip())
@@ -1293,7 +1303,18 @@ def _edge_lines(inst):
         and not re.match(r"^[0-9.]+$", n)]
     return _edge_lines_from_probe(inst.get("id", "?"), tls_mode, names, probe,
                                   crowdsec, plain, trusted,
-                                  "podman" not in os.path.basename(inspect), rates_set)
+                                  "podman" not in os.path.basename(inspect), rates_set,
+                                  host_modes)
+
+
+def _tls_mode_hosts(inst):
+    """The instance's TLS_MODE_HOSTS as {hostname: mode}; {} when unset or
+    unreadable (the edge itself reports an unreadable value)."""
+    try:
+        return canasta_edge_render.parse_tls_mode_hosts(
+            _helpers._read_env_for(inst, "TLS_MODE_HOSTS"), inst.get("id", "?"))
+    except canasta_edge_render.EdgeError:
+        return {}
 
 
 def _caddy_tls_lines(inst):
@@ -1502,9 +1523,15 @@ def _origin_tls_lines(inst):
         return []
     if not stdout.strip():
         return []
+    internal_names = {}
     if edge:
-        tls_internal = (_helpers._read_env_for(inst, "TLS_MODE")
-                        or "acme").strip().lower() == "internal"
+        host_modes = _tls_mode_hosts(inst)
+        default = (_helpers._read_env_for(inst, "TLS_MODE") or "acme").strip().lower()
+        internal_names = {
+            n: ("TLS_MODE_HOSTS=%s=internal" % n if n in host_modes
+                else "TLS_MODE=internal")
+            for n in names if host_modes.get(n, default) == "internal"}
+        tls_internal = False
     else:
         tls_internal = _parse_tls_internal(stdout)
     return _origin_tls_lines_from_entries(
@@ -1512,7 +1539,7 @@ def _origin_tls_lines(inst):
         datetime.datetime.now(datetime.timezone.utc),
         tls_internal=tls_internal, k8s=is_k8s,
         cert_manager=_parse_cert_manager(stdout) if is_k8s else None,
-        edge=edge)
+        edge=edge, internal_names=internal_names)
 
 
 # --- Kubernetes config drift ------------------------------------------------

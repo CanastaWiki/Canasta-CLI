@@ -37,6 +37,10 @@ DEFAULT_CERT = CERT_DIR + "/default.pem"
 STATS_SOCKET = "/var/run/haproxy/admin.sock"
 
 TLS_MODES = ("acme", "acme-dns", "internal", "custom", "off")
+# The modes TLS_MODE_HOSTS can give one hostname: each is a certificate of
+# its own, unlike custom (the instance's one certificate) and off.
+HOST_TLS_MODES = ("acme", "acme-dns", "internal")
+ACME_MODES = ("acme", "acme-dns")
 # DNS providers acme-dns supports, as acme.sh names their hooks.
 DNS_PROVIDERS = {"cloudflare": "dns_cf"}
 
@@ -224,6 +228,43 @@ def _port(env, key, instance_id, default):
     return int(raw)
 
 
+def parse_tls_mode_hosts(value, instance_id):
+    """{hostname: mode} from a TLS_MODE_HOSTS value, a comma-separated list
+    of host=mode pairs."""
+    modes = {}
+    for pair in (value or "").split(","):
+        pair = pair.strip()
+        if not pair:
+            continue
+        name, eq, mode = pair.partition("=")
+        mode = mode.strip().lower()
+        if not eq or mode not in HOST_TLS_MODES:
+            raise EdgeError(
+                "Instance '%s': TLS_MODE_HOSTS entry '%s' is not host=mode, "
+                "where mode is %s."
+                % (instance_id, pair, ", ".join("'%s'" % m for m in HOST_TLS_MODES)))
+        host = _hostname(name.strip().lower(), instance_id, "TLS_MODE_HOSTS host")
+        if host in modes:
+            raise EdgeError("Instance '%s': TLS_MODE_HOSTS names '%s' more than once."
+                            % (instance_id, host))
+        modes[host] = mode
+    return modes
+
+
+def host_tls_mode(inst, host):
+    """The certificate mode the edge uses for one of the instance's
+    hostnames: its TLS_MODE_HOSTS entry, else TLS_MODE."""
+    return inst["tls_mode_hosts"].get(host, inst["tls_mode"])
+
+
+def acme_hostnames(inst):
+    """The instance's hostnames whose certificates come from Let's Encrypt."""
+    if inst["plain"]:
+        return []
+    return [h for h in inst["hostnames"] + inst["media_hostnames"]
+            if host_tls_mode(inst, h) in ACME_MODES]
+
+
 def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
                          deny_user_agents="", deny_cidrs="", extra_hostnames=()):
     """Build the edge's view of one instance.
@@ -281,8 +322,20 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         if host not in hostnames and host not in media:
             hostnames.append(host)
 
+    tls_mode_hosts = parse_tls_mode_hosts(env.get("TLS_MODE_HOSTS"), instance_id)
+    if tls_mode_hosts and plain:
+        raise EdgeError(
+            "Instance '%s': TLS_MODE_HOSTS is set, but TLS_MODE is 'off', so "
+            "nothing is served over HTTPS." % instance_id)
+    for host in tls_mode_hosts:
+        if host not in hostnames and host not in media:
+            raise EdgeError(
+                "Instance '%s': TLS_MODE_HOSTS names '%s', which is not a wiki "
+                "URL host, media host or Caddyfile.global site of the instance."
+                % (instance_id, host))
+
     dns = None
-    if tls_mode == "acme-dns":
+    if tls_mode == "acme-dns" or "acme-dns" in tls_mode_hosts.values():
         provider = (env.get("ACME_DNS_PROVIDER") or "cloudflare").strip().lower()
         if provider not in DNS_PROVIDERS:
             raise EdgeError(
@@ -291,10 +344,11 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         token = (env.get("CLOUDFLARE_API_TOKEN") or "").strip()
         if not token:
             raise EdgeError(
-                "Instance '%s': TLS_MODE is 'acme-dns' but "
+                "Instance '%s': %s 'acme-dns' but "
                 "CLOUDFLARE_API_TOKEN is not set. Set it to a Cloudflare API "
                 "token that can edit the DNS of the instance's zone."
-                % instance_id)
+                % (instance_id, "TLS_MODE is" if tls_mode == "acme-dns"
+                   else "TLS_MODE_HOSTS uses"))
         dns = {"provider": provider, "hook": DNS_PROVIDERS[provider],
                "token": token,
                "zone_id": (env.get("CLOUDFLARE_ZONE_ID") or "").strip()}
@@ -341,6 +395,7 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         "https_port": https_port,
         "media_hostnames": media,
         "tls_mode": tls_mode,
+        "tls_mode_hosts": tls_mode_hosts,
         "dns": dns,
         "staging_certs": _truthy(env.get("CANASTA_STAGING_CERTS"), False),
         "tls_cert": (env.get("TLS_CERT") or "origin.crt").strip(),
@@ -385,7 +440,8 @@ def certificates(instances):
     """The certificate files the edge serves, one entry per crt-list line.
 
     acme, acme-dns and internal certificates are one file per hostname. A custom
-    certificate is the instance's own, covering all its hostnames.
+    certificate is the instance's own, covering its hostnames that
+    TLS_MODE_HOSTS does not give a mode of their own.
     """
     entries = []
     for inst in instances:
@@ -394,16 +450,18 @@ def certificates(instances):
         # the edge's default certificate.
         if inst["plain"] or not names:
             continue
-        if inst["tls_mode"] == "custom":
+        custom = [h for h in names if host_tls_mode(inst, h) == "custom"]
+        if custom:
             entries.append({
                 "instance": inst["id"], "mode": "custom",
-                "file": "custom-%s.pem" % inst["id"], "hostnames": names,
+                "file": "custom-%s.pem" % inst["id"], "hostnames": custom,
                 "cert": inst["tls_cert"], "key": inst["tls_key"],
             })
-            continue
         for host in names:
+            if host in custom:
+                continue
             entries.append({
-                "instance": inst["id"], "mode": inst["tls_mode"],
+                "instance": inst["id"], "mode": host_tls_mode(inst, host),
                 "file": "%s.pem" % host, "hostnames": [host],
                 "staging": inst["staging_certs"],
             })
