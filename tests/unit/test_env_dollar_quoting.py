@@ -288,3 +288,14 @@ class TestCompose:
         # Compose escapes a literal `$` in its rendered output as `$$`.
         got = {k: v.replace("$$", "$") for k, v in environment.items()}
         assert got == VALUES
+
+
+def test_upgrade_restarts_when_values_were_quoted():
+    import yaml
+    with open(os.path.join(REPO_ROOT, "roles", "upgrade", "tasks",
+                           "main.yml")) as f:
+        tasks = yaml.safe_load(f)
+    task = next(t for t in tasks
+                if t.get("name") == "Decide whether a restart is needed")
+    assert "_mig_requote is changed" in str(
+        task["ansible.builtin.set_fact"]["_restart_needed"])
