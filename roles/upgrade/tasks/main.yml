@@ -60,6 +60,7 @@
     - backfill_compose_profiles.yml
     - backfill_hosts_yaml.yml
     - tighten_env_permissions.yml
+    - quote_env_dollar_values.yml
     - remove_enable_edge.yml
     - rename_tls_keys.yml
     - convert_backup_schedule_retention.yml

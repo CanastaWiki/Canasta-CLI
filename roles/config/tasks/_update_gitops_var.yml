@@ -68,7 +68,7 @@
       ansible.builtin.lineinfile:
         path: "{{ instance_path }}/env.template"
         regexp: "^{{ _ugv_key }}="
-        line: "{{ _ugv_key }}={{ _ugv_value }}"
+        line: "{{ _ugv_key }}={{ _ugv_value | canasta_env_quote }}"
         state: present
 
     - name: Stage updated env.template
