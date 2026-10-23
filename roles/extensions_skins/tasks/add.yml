@@ -464,8 +464,18 @@
       {{ (_autoload_broken | map(attribute='include') | list)
          + ((_composer_local.added | default([]))
             if (_autoload_missing | length > 0) else []) }}
+    # The items whose files are missing, which can be ones registered before
+    # this run; otherwise what this run left out or added.
+    _autoload_owners: >-
+      {{ ((_autoload_broken | map(attribute='include') | map('dirname')
+           | map('basename') | list)
+          + (_autoload_missing | select('match', _item_dir ~ '/[^/]+/')
+             | map('regex_replace', '^' ~ _item_dir ~ '/', '')
+             | map('regex_replace', '/.*$', '')
+             | list)) | unique | list }}
     _autoload_names: >-
-      {{ (_autoload_left_out | map('dirname') | map('basename') | list)
+      {{ _autoload_owners
+         or (_autoload_left_out | map('dirname') | map('basename') | list)
          or (_to_add | map(attribute='name') | list) }}
   ansible.builtin.fail:
     msg: >-
@@ -477,7 +487,7 @@
       {%- if _autoload_left_out | length > 0 %}So that the wikis keep
       loading, {{ _autoload_left_out | join(', ') }}
       {{ 'was' if (_autoload_left_out | length == 1) else 'were' }} left out
-      of config/composer.local.json. {% endif %}The {{ _item_type }} code was added
+      of config/composer.local.json. {% endif %}The {{ _item_type[:-1] }} code was added
       {{- '' if (skip_enable | default(false) | bool) else (' but nothing was enabled') }}.
       Fix the autoload.files entries of the composer.json and re-run the
       add, or remove the {{ _item_type[:-1] }} with

@@ -232,6 +232,7 @@ class TestFailMessage:
     def _message(self, **context):
         fail = _task("Fail: {{ _item_type }} autoload files that do not exist")
         context.setdefault("_item_type", "extensions")
+        context.setdefault("_item_dir", context["_item_type"])
         context.setdefault("_autoload_broken", [])
         context.setdefault("_autoload_missing", [])
         context.setdefault("exec_result", {"rc": 0})
@@ -241,8 +242,12 @@ class TestFailMessage:
         env.filters["bool"] = bool
         env.filters["dirname"] = os.path.dirname
         env.filters["basename"] = os.path.basename
+        env.filters["regex_replace"] = lambda v, p, r: re.sub(p, r, v)
+        env.filters["unique"] = lambda v: list(dict.fromkeys(v))
+        env.tests["match"] = lambda v, p: re.match(p, v) is not None
         context.setdefault("_to_add", [{"name": "Foo"}])
-        for key in ("_autoload_left_out", "_autoload_names"):
+        for key in ("_autoload_left_out", "_autoload_owners",
+                    "_autoload_names"):
             context[key] = yaml.safe_load(env.from_string(
                 fail["vars"][key]).render(**context))
         rendered = env.from_string(
@@ -258,7 +263,7 @@ class TestFailMessage:
             "extensions/Foo/composer.json autoloads files that are not in the "
             "repository: Foo.php. So that the wikis keep loading, "
             "extensions/Foo/composer.json was left out of "
-            "config/composer.local.json. The extensions code was added. Fix "
+            "config/composer.local.json. The extension code was added. Fix "
             "the autoload.files entries of the composer.json and re-run the "
             "add, or remove the extension with 'canasta extension remove "
             "Foo'.")
@@ -273,7 +278,7 @@ class TestFailMessage:
             "After composer update the autoloader requires files that do not "
             "exist: extensions/Foo/Foo.php. So that the wikis keep loading, "
             "extensions/Foo/composer.json, extensions/Bar/composer.json were "
-            "left out of config/composer.local.json. The skins code was added "
+            "left out of config/composer.local.json. The skin code was added "
             "but nothing was enabled.")
         assert "'canasta skin remove Foo,Bar'" in msg
         assert msg.endswith(
@@ -283,5 +288,12 @@ class TestFailMessage:
     def test_nothing_rolled_back(self):
         msg = self._message(_autoload_missing=["extensions/Foo/Foo.php"])
         assert "left out" not in msg
-        assert "Foo.php. The extensions code was added" in msg
+        assert "Foo.php. The extension code was added" in msg
         assert "'canasta extension remove Foo'" in msg
+
+    def test_names_the_registered_item_whose_file_is_missing(self):
+        msg = self._message(
+            _autoload_missing=["extensions/Bad/Bad.php"],
+            _composer_local={"added": ["extensions/Good/composer.json"]},
+            _to_add=[{"name": "Good"}])
+        assert "'canasta extension remove Bad'" in msg
