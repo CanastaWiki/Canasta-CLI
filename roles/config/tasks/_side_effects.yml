@@ -61,23 +61,6 @@
           {{ (_config_key == 'CANASTA_ENABLE_OBSERVABILITY')
              or (_se_mem_flags.results[1].value | default('false') | lower == 'true') }}
 
-# Catch typos like 'cloudfalre' at set time rather than letting an
-# unparseable trusted_proxies directive crash Caddy on next start.
-- name: Validate TRUSTED_PROXIES value
-  ansible.builtin.fail:
-    msg: >-
-      TRUSTED_PROXIES must be 'cloudflare', 'imperva', or a
-      comma-separated list of IP/CIDR ranges
-      (e.g. 10.0.0.0/8,192.0.2.0/24). Got '{{ _config_value }}'.
-  when:
-    - _config_key == 'TRUSTED_PROXIES'
-    - (_config_value | trim | length) > 0
-    - _config_value | trim | lower not in ['cloudflare', 'imperva']
-    - >-
-      (_config_value | split(',') | map('trim') | reject('equalto', '') | list
-       | select('match', '^[0-9A-Fa-f:.]+(/[0-9]+)?$') | list | length)
-      != (_config_value | split(',') | map('trim') | reject('equalto', '') | list | length)
-
 # Two incompatible-feature combinations are caught here at config-set
 # time, before the misconfiguration can land in .env. The runtime
 # FarmConfigLoader.php in the canasta image catches the same conditions

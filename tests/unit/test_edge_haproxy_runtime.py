@@ -61,6 +61,14 @@ def _instances():
         edge.instance_from_config(
             "cdn", {"TRUSTED_PROXIES": "cloudflare", "CANASTA_EDGE_RATE_DEFAULT": "3"},
             [{"id": "w0", "url": "cdn.example.org"}]),
+        edge.instance_from_config(
+            "proxied", {"TRUSTED_PROXIES": "imperva@0.0.0.0/0,::/0",
+                        "CANASTA_EDGE_RATE_DEFAULT": "3"},
+            [{"id": "w0", "url": "proxied.example.org"}]),
+        edge.instance_from_config(
+            "unlisted", {"TRUSTED_PROXIES": "imperva@203.0.113.10/32",
+                         "CANASTA_EDGE_RATE_DEFAULT": "3"},
+            [{"id": "w0", "url": "unlisted.example.org"}]),
     ]
 
 
@@ -282,6 +290,26 @@ def test_behind_a_cdn_limits_count_the_client_not_the_cdn(edge_ports):
     other = _request(edge_ports, "cdn.example.org", "/wiki/B",
                      headers={"CF-Connecting-IP": "198.51.100.8"})[0]
     assert first[-1] == 429 and other == 200
+
+
+def test_behind_listed_proxies_limits_count_the_cdn_client(edge_ports):
+    first = [_request(edge_ports, "proxied.example.org", "/wiki/A%d" % n,
+                      headers={"Incap-Client-IP": "198.51.100.11",
+                               "X-Forwarded-For": "198.51.100.11, 198.51.100.200"})[0]
+             for n in range(5)]
+    other = _request(edge_ports, "proxied.example.org", "/wiki/B",
+                     headers={"Incap-Client-IP": "198.51.100.12",
+                              "X-Forwarded-For": "198.51.100.12, 198.51.100.200"})[0]
+    assert first[-1] == 429 and other == 200
+
+
+def test_a_cdn_header_from_an_unlisted_peer_is_ignored(edge_ports):
+    # Believed, the forged public address would be rate-limited; ignored,
+    # the client stays the test client's private address, which is not.
+    codes = [_request(edge_ports, "unlisted.example.org", "/wiki/F%d" % n,
+                      headers={"Incap-Client-IP": "198.51.100.13"})[0]
+             for n in range(5)]
+    assert codes == [200] * 5
 
 
 def test_static_files_are_not_rate_limited(edge_ports):

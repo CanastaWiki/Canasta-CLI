@@ -270,6 +270,52 @@ def test_a_cdn_needs_its_ranges():
     assert cfg["cdn-imperva.lst"] == "192.0.2.0/24\n"
 
 
+@pytest.mark.parametrize("value,header", [
+    ("imperva@203.0.113.10/32, 203.0.113.11", "Incap-Client-IP"),
+    ("Cloudflare@203.0.113.10/32,203.0.113.11/32", "CF-Connecting-IP"),
+])
+def test_a_cdn_behind_listed_proxies_is_trusted_from_those_proxies(value, header):
+    inst = _inst(env={"TRUSTED_PROXIES": value})
+    assert (inst["trusted_proxies"], inst["trusted_header"]) == ("cidrs", header)
+    files = edge.render([inst])["files"]
+    assert files["trusted-wiki1.lst"] == "203.0.113.10/32\n203.0.113.11/32\n"
+    assert not [f for f in files if f.startswith("cdn-")]
+    rules = [line for line in files["haproxy.cfg"].splitlines() if "set-src" in line]
+    assert rules == ["    http-request set-src req.hdr_ip(%s) if { var(txn.inst) -m str wiki1 } "
+                     "{ src -f /usr/local/etc/haproxy/trusted-wiki1.lst }" % header]
+
+
+@pytest.mark.parametrize("value", [
+    "akamai@203.0.113.10/32", "imperva@", "imperva@ , ", "@203.0.113.10/32",
+])
+def test_a_bad_cdn_behind_proxies_form_is_refused(value):
+    with pytest.raises(edge.EdgeError, match="<cdn>@<CIDRs>"):
+        _inst(env={"TRUSTED_PROXIES": value})
+
+
+def test_a_bad_proxy_address_in_the_cdn_form_names_it():
+    with pytest.raises(edge.EdgeError, match="'203.0.113.300'"):
+        _inst(env={"TRUSTED_PROXIES": "imperva@203.0.113.300"})
+
+
+@pytest.mark.parametrize("value,rule,lists", [
+    ("cloudflare", "req.hdr_ip(CF-Connecting-IP) if { var(txn.inst) -m str wiki1 } "
+     "{ src -f /usr/local/etc/haproxy/cdn-cloudflare.lst }", {"cdn-cloudflare.lst"}),
+    ("imperva", "req.hdr_ip(Incap-Client-IP) if { var(txn.inst) -m str wiki1 } "
+     "{ src -f /usr/local/etc/haproxy/cdn-imperva.lst }", {"cdn-imperva.lst"}),
+    ("203.0.113.0/24", "req.hdr_ip(X-Forwarded-For,-1) if { var(txn.inst) -m str wiki1 } "
+     "{ src -f /usr/local/etc/haproxy/trusted-wiki1.lst }", {"trusted-wiki1.lst"}),
+])
+def test_the_existing_trusted_proxy_forms_render_as_before(value, rule, lists):
+    inst = _inst(env={"TRUSTED_PROXIES": value})
+    assert inst["trusted_header"] is None
+    files = edge.render([inst], cdn_ranges={"cloudflare": ["192.0.2.0/24"],
+                                            "imperva": ["192.0.2.0/24"]})["files"]
+    rules = [line for line in files["haproxy.cfg"].splitlines() if "set-src" in line]
+    assert rules == ["    http-request set-src " + rule]
+    assert {f for f in files if f.endswith(".lst")} == lists
+
+
 def test_uploads_skip_the_body_wait():
     cfg = edge.render([_inst()])["files"]["haproxy.cfg"]
     assert "http-request wait-for-body time 5s at-least 2m if !upload" in cfg
