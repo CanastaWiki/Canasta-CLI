@@ -33,9 +33,13 @@
     exec_dotenv: "{{ _db_admin_dotenv }}"
     exec_command: "{{ _db_admin_pwd }} mariadb {{ _db_admin_args }} -e 'CREATE DATABASE IF NOT EXISTS `{{ import_wiki_id }}`'"
 
+# Next to the instance rather than in /tmp, which may be a tmpfs too
+# small for the dump.
 - name: Create a private temp file on the target host for the dump
   ansible.builtin.tempfile:
     state: file
+    path: "{{ instance_path }}"
+    prefix: .canasta-import-
     suffix: "{{ _is_gzipped | bool | ternary('.sql.gz', '.sql') }}"
   register: _import_host_tmp
 

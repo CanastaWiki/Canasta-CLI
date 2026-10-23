@@ -41,6 +41,11 @@ def _stub_root(tmp_path):
             "ansible.builtin.shell": "printf 'COPY %s\\n' \"$P\" >> " + str(log),
             "environment": {"P": "{{ %s }}" % var},
         }]))
+    with open(tasks / "copy_into_container.yml", "a") as f:
+        f.write(yaml.safe_dump([{
+            "ansible.builtin.shell": "printf 'SRC %s\\n' \"$P\" >> " + str(log),
+            "environment": {"P": "{{ copy_src }}"},
+        }]))
     return str(tmp_path / "root"), log
 
 
@@ -110,6 +115,18 @@ class TestImport:
         assert len(copied) == 2 and copied[0] != copied[1]
         assert all(IMPORT_TMP.fullmatch(c) and c.endswith(".sql.gz")
                    for c in copied)
+
+    def test_the_dump_is_staged_next_to_the_instance(self, tmp_path):
+        inst = tmp_path / "inst"
+        inst.mkdir()
+        runs = [dict(r, instance_path=str(inst))
+                for r in self._imports(tmp_path, "d.sql.gz")[:1]]
+        lines = _run(tmp_path, IMPORT, runs)
+        staged = [ln.split(" ", 1)[1] for ln in lines if ln.startswith("SRC ")]
+        assert len(staged) == 1
+        assert os.path.dirname(staged[0]) == str(inst)
+        assert os.path.basename(staged[0]).startswith(".canasta-import-")
+        assert os.listdir(inst) == []
 
     def test_load_and_cleanup_use_the_copied_file(self, tmp_path):
         for name, load in (("d.sql.gz", "gunzip -c %s |"), ("d.sql", "< %s")):

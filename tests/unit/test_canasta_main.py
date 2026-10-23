@@ -343,3 +343,14 @@ class TestCommandOrchestrators:
             cmd_def, "devmode_enable", None) is None
         assert canasta.orchestrator_refusal(
             {}, "devmode_enable", "kubernetes") is None
+
+
+class TestUpgradeSelfUpdate:
+    @pytest.mark.parametrize("argv,dry_run", [
+        (["upgrade"], False), (["upgrade", "--dry-run"], True),
+    ])
+    def test_dry_run_reaches_the_self_update(self, harness, monkeypatch, argv, dry_run):
+        seen = []
+        monkeypatch.setattr(canasta, "self_update_cli", lambda **kw: seen.append(kw))
+        assert _run(monkeypatch, argv) == "exec"
+        assert seen == [{"dev": False, "allow_major": False, "dry_run": dry_run}]
