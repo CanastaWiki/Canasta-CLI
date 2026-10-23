@@ -260,9 +260,14 @@ class TestStagingCertificates:
 def test_a_host_set_to_internal_by_tls_mode_hosts_is_ok():
     entries = [("www.example.com", "CN=Canasta edge CA", "Aug  1 00:00:00 2026 GMT")]
     out = "\n".join(doctor._origin_tls_lines_from_entries(
-        "site", entries, NOW, edge=True, internal_names=["www.example.com"]))
+        "site", entries, NOW, edge=True,
+        internal_names={"www.example.com": "TLS_MODE_HOSTS=www.example.com=internal"}))
     assert "www.example.com: OK (the edge's internal CA — " \
         "TLS_MODE_HOSTS=www.example.com=internal is configured" in out
+    default = "\n".join(doctor._origin_tls_lines_from_entries(
+        "site", entries, NOW, edge=True,
+        internal_names={"www.example.com": "TLS_MODE=internal"}))
+    assert "TLS_MODE=internal is configured" in default
     unlisted = "\n".join(doctor._origin_tls_lines_from_entries(
         "site", entries, NOW, edge=True))
     assert "OK (the edge's internal CA" not in unlisted

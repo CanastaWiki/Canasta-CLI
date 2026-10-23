@@ -994,11 +994,13 @@ def _is_self_signed(issuer, subject):
 def _origin_tls_lines_from_entries(inst_id, entries, now,
                                    tls_internal=False, k8s=False,
                                    cert_manager=None, edge=False,
-                                   internal_names=()):
+                                   internal_names=None):
     """doctor lines for the probed certificates. With `edge`, the HAProxy
     edge served them, and `tls_internal` means TLS_MODE=internal.
-    internal_names are names TLS_MODE_HOSTS sets to internal."""
+    internal_names maps each name the edge serves from its CA on purpose
+    to the setting that asks for it."""
     ca = "the edge's internal CA" if edge else "Caddy internal CA"
+    internal_names = internal_names or {}
     title = ["", "Origin TLS (%s):" % inst_id]
     if entries is None:
         return title + [
@@ -1036,8 +1038,7 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
             # silent fallback.
             lines.append(
                 "  %s: OK (%s — %s is configured for this instance)"
-                % (name, ca, ("TLS_MODE=internal" if tls_internal
-                              else "TLS_MODE_HOSTS=%s=internal" % name)
+                % (name, ca, internal_names.get(name, "TLS_MODE=internal")
                    if edge else "'tls internal'"))
             continue
         if internal:
@@ -1522,11 +1523,14 @@ def _origin_tls_lines(inst):
         return []
     if not stdout.strip():
         return []
-    internal_names = ()
+    internal_names = {}
     if edge:
         host_modes = _tls_mode_hosts(inst)
         default = (_helpers._read_env_for(inst, "TLS_MODE") or "acme").strip().lower()
-        internal_names = [n for n in names if host_modes.get(n, default) == "internal"]
+        internal_names = {
+            n: ("TLS_MODE_HOSTS=%s=internal" % n if n in host_modes
+                else "TLS_MODE=internal")
+            for n in names if host_modes.get(n, default) == "internal"}
         tls_internal = False
     else:
         tls_internal = _parse_tls_internal(stdout)
