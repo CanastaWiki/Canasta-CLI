@@ -82,6 +82,10 @@
     - instance_is_k8s | bool
     - _config_key in ['TLS_MODE', 'TLS_CERT', 'TLS_KEY']
 
+- name: Validate TRUSTED_PROXIES
+  ansible.builtin.include_tasks: _validate_trusted_proxies.yml
+  when: _config_key == 'TRUSTED_PROXIES'
+
 # Refused even with --force: a value under the old name would be ignored.
 - name: Refuse a renamed key
   ansible.builtin.fail:

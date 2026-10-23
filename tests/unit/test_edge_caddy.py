@@ -65,6 +65,7 @@ EDGE_TRUST = "trusted_proxies static 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 fc0
     ["CANASTA_ENABLE_CROWDSEC=true"],
     ["TRUSTED_PROXIES=cloudflare"],
     ["TRUSTED_PROXIES=203.0.113.0/24"],
+    ["TRUSTED_PROXIES=imperva@203.0.113.0/24"],
 ])
 def test_behind_the_edge_caddy_trusts_only_the_edge_x_forwarded_for(tmp_path, extra):
     # The edge recovers the client address and appends it to

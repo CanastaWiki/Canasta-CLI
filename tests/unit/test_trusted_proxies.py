@@ -92,9 +92,9 @@ class TestTrustedProxiesConfigKey:
         names = [e["name"] for e in defaults["canasta_known_keys"]]
         assert "TRUSTED_PROXIES" in names
 
-    def test_side_effects_validates_value(self):
+    def test_config_set_validates_value(self):
         content = _read(os.path.join(
-            REPO_ROOT, "roles", "config", "tasks", "_side_effects.yml",
+            REPO_ROOT, "roles", "config", "tasks", "_validate_trusted_proxies.yml",
         ))
         assert "TRUSTED_PROXIES" in content
         assert "'cloudflare', 'imperva'" in content

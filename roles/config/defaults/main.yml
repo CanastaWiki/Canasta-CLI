@@ -160,8 +160,11 @@ canasta_known_keys:
     description: >-
       The CDN or proxy in front of the instance, whose client-address header
       to trust: "cloudflare", "imperva", or a comma-separated CIDR list of
-      proxies whose X-Forwarded-For to trust. Unset = nothing in front
-      (default).
+      proxies whose X-Forwarded-For to trust. For a CDN behind your own
+      proxies, "cloudflare@" or "imperva@" followed by the proxies' CIDR
+      list (e.g. imperva@203.0.113.10/32,203.0.113.11/32) trusts the CDN's
+      header from those proxies only (Docker Compose only). Unset = nothing
+      in front (default).
   - name: ACME_DNS_PROVIDER
     group: TLS
     description: >-
