@@ -81,9 +81,10 @@ def requote_raw(raw, defined):
     to be.
 
     Returns (new_raw, conflict). new_raw is None when the value is left as
-    is: it is quoted, has no `$`, or every `$` in it is a reference to a key
-    in `defined`, which is interpolation on purpose. `$$` is Compose's
-    escape for `$`. conflict is True when the value mixes references to
+    is: it is quoted, has no `$` other than `$$` (Compose's escape for `$`,
+    which already comes through as written), or every `$` in it is a
+    reference to a key in `defined`, which is interpolation on purpose.
+    conflict is True when the value mixes references to
     defined keys with other `$` text, or cannot be quoted, and is left for
     the operator.
     """
@@ -91,6 +92,8 @@ def requote_raw(raw, defined):
     if "$" not in raw or raw[:1] in ("'", '"'):
         return None, False
     text = raw.replace("$$", "")
+    if "$" not in text:
+        return None, False
     names = _REFERENCE.findall(text)
     known = [n for n in names if n in defined]
     if known:

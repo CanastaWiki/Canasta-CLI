@@ -167,8 +167,8 @@ def old_wiki_dirs(base):
 
 
 def env_has_bare_dollar(path):
-    """True if a bare (unquoted) .env value contains `$`, which Compose
-    expands."""
+    """True if a bare (unquoted) .env value contains a `$` other than the
+    `$$` escape, which Compose expands."""
     try:
         with open(path) as f:
             for raw in f:
@@ -176,7 +176,7 @@ def env_has_bare_dollar(path):
                 if not line or line.startswith("#") or "=" not in line:
                     continue
                 v = line.split("=", 1)[1].strip()
-                if "$" in v and v[:1] not in ("'", '"'):
+                if "$" in v.replace("$$", "") and v[:1] not in ("'", '"'):
                     return True
     except OSError:
         pass

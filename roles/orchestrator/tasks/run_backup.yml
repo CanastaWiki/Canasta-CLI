@@ -201,7 +201,7 @@
             cmd: |
               set -o pipefail
               {{ inspect_command }} run --rm -i \
-                --env-file {{ instance_path ~ '/.env' | canasta_dotenv_decoded }} \
+                --env-file {{ (instance_path ~ '/.env') | canasta_dotenv_decoded }} \
                 -e RESTIC_PROGRESS_FPS={{ backup_progress_fps | default('0.05') }} \
               {% if _backup_sources %}
               {% for src, dst in _backup_sources.items() %}

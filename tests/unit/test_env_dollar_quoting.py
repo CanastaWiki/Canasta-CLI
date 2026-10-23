@@ -180,6 +180,20 @@ class TestShellReaders:
                    if line.startswith("V_"))
         assert got == VALUES
 
+    def test_restic_task_passes_the_decoded_file(self, tmp_path):
+        import jinja2
+        with open(os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
+                               "run_backup.yml")) as f:
+            text = f.read()
+        line = next(l for l in text.splitlines() if "--env-file" in l
+                    and "{{" in l)
+        env = jinja2.Environment()
+        env.filters["canasta_dotenv_decoded"] = (
+            canasta_dotenv.canasta_dotenv_decoded)
+        rendered = env.from_string(line).render(instance_path="/srv/i")
+        assert rendered.strip() == "--env-file <(%s) \\" % (
+            canasta_env_quote.decode_sed_command("/srv/i/.env"))
+
     @pytest.mark.skipif(shutil.which("bash") is None, reason="needs bash")
     def test_env_file_substitution(self, env_path):
         sub = canasta_dotenv.canasta_dotenv_decoded(str(env_path))
@@ -207,8 +221,16 @@ class TestMigration:
         assert result["requoted_keys"] == ["OIDC_SECRET"]
 
     def test_double_dollar_keeps_what_compose_passed(self, tmp_path):
-        _, text = self._requote(tmp_path, "A=a$$b\n")
-        assert text == "A='a$b'\n"
+        _, text = self._requote(tmp_path, "A=a$$b$c\n")
+        assert text == "A='a$b$c'\n"
+
+    def test_escaped_only_value_is_left(self, tmp_path):
+        # Compose already passes `$$` through as `$`, as for the
+        # observability password hash the CLI writes escaped.
+        content = "OS_PASSWORD_HASH=$$2b$$12$$abc\n"
+        result, text = self._requote(tmp_path, content)
+        assert text == content
+        assert not result["changed"]
 
     def test_reference_to_a_defined_key_is_left(self, tmp_path):
         content = "FQDN=example.com\nURL=https://${FQDN}/$FQDN\n"
@@ -236,7 +258,7 @@ class TestMigration:
                                  capture_output=True, text=True, check=True)
             return json.loads(out.stdout)["files"]["env_has_bare_dollar"]
         assert probe("A=ab$cd\n") is True
-        assert probe("A='ab$cd'\nB=x\n# C=$y\n") is False
+        assert probe("A='ab$cd'\nB=x$$y\n# C=$y\n") is False
 
     def test_migration_is_in_the_upgrade_loop(self):
         with open(os.path.join(REPO_ROOT, "roles", "upgrade", "tasks",
