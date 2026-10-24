@@ -62,6 +62,9 @@
     exec_service: web
     exec_command: "php maintenance/update.php --wiki={{ wiki | quote }}"
     exec_long: true
+    exec_long_timeout_msg: >-
+      Once it ends, run 'canasta maintenance update -i {{ instance_id }}
+      -w {{ wiki }}' to complete it.
   when: not (skip_update | default(false) | bool)
 
 - name: Report import complete
