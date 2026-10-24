@@ -316,6 +316,55 @@ def test_the_existing_trusted_proxy_forms_render_as_before(value, rule, lists):
     assert {f for f in files if f.endswith(".lst")} == lists
 
 
+def test_dynamic_prefixes_are_encoded_both_ways():
+    inst = _inst(env={"CANASTA_EDGE_DYNAMIC_PREFIXES": " Spezial:, Spécial%3a,Sp%c3%a9cial:,特別:,"})
+    assert inst["dynamic_prefixes"] == [
+        "Spezial:", "Spezial%3A", "Sp%C3%A9cial:", "Sp%C3%A9cial%3A",
+        "%E7%89%B9%E5%88%A5:", "%E7%89%B9%E5%88%A5%3A"]
+
+
+def test_dynamic_prefixes_accept_combining_marks():
+    assert _inst(env={"CANASTA_EDGE_DYNAMIC_PREFIXES": "विशेष:"})["dynamic_prefixes"][0] == \
+        "%E0%A4%B5%E0%A4%BF%E0%A4%B6%E0%A5%87%E0%A4%B7:"
+
+
+def test_dynamic_prefixes_go_to_a_list_scoped_to_the_instance():
+    main = _two()[0]
+    other = _inst("other", ("other.example.org",),
+                  {"CANASTA_EDGE_DYNAMIC_PREFIXES": "Spezial:"})
+    files = edge.render([main, other])["files"]
+    assert files["dynamic-other.lst"] == "Spezial:\nSpezial%3A\n"
+    assert "dynamic-main.lst" not in files
+    rule = ("    use_backend be_other_dynamic if { var(txn.inst) -m str other } !media_host "
+            "{ url_sub -i -f /usr/local/etc/haproxy/dynamic-other.lst }")
+    lines = files["haproxy.cfg"].splitlines()
+    assert lines.count(rule) == 1
+    assert lines.index(rule) < lines.index("    use_backend be_%[var(txn.inst)]_default if known_site")
+    assert "dynamic-main.lst" not in files["haproxy.cfg"]
+
+
+def test_no_dynamic_prefixes_leave_the_routing_unchanged():
+    files = edge.render([_inst(env={"CANASTA_EDGE_DYNAMIC_PREFIXES": " , "})])["files"]
+    assert not [f for f in files if f.startswith("dynamic-")]
+    assert "url_sub -i -f" not in files["haproxy.cfg"]
+
+
+def test_a_plain_http_instance_gets_its_dynamic_prefixes():
+    inst = _inst(env={"TLS_MODE": "off", "CANASTA_EDGE_DYNAMIC_PREFIXES": "Spezial:"})
+    http = edge.render([inst])["files"]["haproxy.cfg"].split("frontend http\n", 1)[1]
+    assert "use_backend be_wiki1_dynamic if { var(txn.inst) -m str wiki1 }" in http
+
+
+@pytest.mark.parametrize("value", [
+    "Spe zial:", "Spezial:\nbackend x", 'Spezial"', "Spezial'", "Spe\\zial", "Spezial#",
+    "Spezial{", "Spezial|x", "/", ":", "%3A", "_-", "Sp%zzial", "Spezial%3", "a" * 65,
+    "Spezial\u200b", "Spezial\x00", ",".join("P%d:" % n for n in range(21)),
+])
+def test_bad_dynamic_prefixes_are_refused(value):
+    with pytest.raises(edge.EdgeError, match="CANASTA_EDGE_DYNAMIC_PREFIXES"):
+        _inst(env={"CANASTA_EDGE_DYNAMIC_PREFIXES": value})
+
+
 def test_uploads_skip_the_body_wait():
     cfg = edge.render([_inst()])["files"]["haproxy.cfg"]
     assert "http-request wait-for-body time 5s at-least 2m if !upload" in cfg

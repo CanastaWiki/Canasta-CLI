@@ -23,6 +23,8 @@ __metaclass__ = type
 import ipaddress
 import math
 import re
+import unicodedata
+from urllib.parse import unquote
 
 HAPROXY_IMAGE = "docker.io/library/haproxy:3.2.25-alpine"
 # Also the edge's openssl: the HAProxy image has none, and hosts may not.
@@ -87,12 +89,23 @@ LIMIT_KEYS = {
     "rate_default": "CANASTA_EDGE_RATE_DEFAULT",
 }
 
+# URL parts an instance adds to the requests the edge treats as dynamic,
+# such as its wiki's localized name for the Special: namespace.
+DYNAMIC_PREFIXES_KEY = "CANASTA_EDGE_DYNAMIC_PREFIXES"
+DYNAMIC_PREFIX_MAX = 64
+DYNAMIC_PREFIXES_MAX = 20
+
 DENY_UA_FILE = "config/edge-deny-user-agents.list"
 DENY_CIDR_FILE = "config/edge-deny-cidrs.list"
 
 _LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 _IPV4 = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 _INSTANCE_ID = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$")
+# The ASCII a namespace name or path needs; beyond ASCII, letters, marks and
+# digits in any script. The values land in a pattern file, never in
+# haproxy.cfg.
+_DYNAMIC_PREFIX_ASCII = re.compile(r"^[A-Za-z0-9_.:/~%-]$")
+_PERCENT_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
 
 # Lines of an instance snippet are inlined into its backends. A line that
 # opens a section would end the backend early and attach the rest of the
@@ -180,6 +193,53 @@ def _user_agents(text, instance_id):
                             "character." % (instance_id, DENY_UA_FILE, number))
         agents.append(line)
     return agents
+
+
+def _url_encoded(text):
+    """text with its non-ASCII characters percent-encoded as UTF-8, as a
+    browser sends them; HAProxy matches the URL as it arrives."""
+    return "".join(c if ord(c) < 128 else "".join("%%%02X" % b for b in c.encode("utf-8"))
+                   for c in text)
+
+
+def _prefix_char_ok(c):
+    if ord(c) < 128:
+        return bool(_DYNAMIC_PREFIX_ASCII.match(c))
+    return unicodedata.category(c)[0] in "LMN"
+
+
+def dynamic_prefixes(value):
+    """The URL substrings, from a CANASTA_EDGE_DYNAMIC_PREFIXES value, that
+    send a request to the instance's dynamic backend: each entry
+    percent-encoded, and with its colons both as typed and as %3A, the two
+    ways MediaWiki's links and forms send a namespace."""
+    entries = [e.strip() for e in (value or "").split(",") if e.strip()]
+    if len(entries) > DYNAMIC_PREFIXES_MAX:
+        raise EdgeError("%s lists %d entries; at most %d are allowed."
+                        % (DYNAMIC_PREFIXES_KEY, len(entries), DYNAMIC_PREFIXES_MAX))
+    patterns = []
+    for entry in entries:
+        if (len(entry) > DYNAMIC_PREFIX_MAX or not all(_prefix_char_ok(c) for c in entry)
+                or _PERCENT_ESCAPE.search(entry)
+                or not any(unicodedata.category(c)[0] in "LN" for c in unquote(entry))):
+            raise EdgeError(
+                "%s entry '%s' is not allowed. Each entry is up to %d letters, "
+                "digits and . : / ~ %% - _ characters, with at least one letter "
+                "or digit, such as Spezial: (write spaces as _)."
+                % (DYNAMIC_PREFIXES_KEY, entry, DYNAMIC_PREFIX_MAX))
+        typed = _url_encoded(re.sub(r"%[0-9A-Fa-f]{2}", lambda m: m.group(0).upper(), entry)
+                             .replace("%3A", ":"))
+        for pattern in (typed, typed.replace(":", "%3A")):
+            if pattern not in patterns:
+                patterns.append(pattern)
+    return patterns
+
+
+def _instance_dynamic_prefixes(env, instance_id):
+    try:
+        return dynamic_prefixes(env.get(DYNAMIC_PREFIXES_KEY))
+    except EdgeError as exc:
+        raise EdgeError("Instance '%s': %s" % (instance_id, exc))
 
 
 def rates_set(env):
@@ -412,6 +472,7 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         "rates_set": rates_set(env),
         "deny_user_agents": _user_agents(deny_user_agents, instance_id),
         "deny_cidrs": _networks(deny_cidrs, instance_id, DENY_CIDR_FILE),
+        "dynamic_prefixes": _instance_dynamic_prefixes(env, instance_id),
         "limits": {
             "dynamic_maxconn": _limit(env, LIMIT_KEYS["dynamic_maxconn"], instance_id, None, False),
             "default_maxconn": _limit(env, LIMIT_KEYS["default_maxconn"], instance_id, None, False),
@@ -712,9 +773,21 @@ _ROUTING = [
     "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host credentials php",
     "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host !METH_GET",
     "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host has_action !view_action",
+]
+
+_ROUTING_REST = [
     "    use_backend be_%[var(txn.inst)]_default if known_site",
     "    default_backend be_no_site",
 ]
+
+
+def _routing(instances):
+    """The routing rules, with each instance's own dynamic URL parts
+    applied to its hostnames only."""
+    own = ["    use_backend be_%s_dynamic if { var(txn.inst) -m str %s } !media_host "
+           "{ url_sub -i -f %s }" % (i["id"], i["id"], _list_path("dynamic-%s.lst" % i["id"]))
+           for i in instances if i.get("dynamic_prefixes")]
+    return _ROUTING + own + _ROUTING_REST
 
 
 def _frontend_name(port, tls):
@@ -746,7 +819,7 @@ def _render_frontend(port, tls, instances, thumbprint, binds):
         out += _acme_rule(thumbprint)
         out += _site_lookup(port)
         out += _client_address_rules(instances)
-        return out + _ROUTING
+        return out + _routing(instances)
     out += ["    bind %s" % b for b in binds]
     out += _acme_rule(thumbprint)
     plain = [i for i in instances if i["plain"] and i["http_port"] == port]
@@ -770,7 +843,7 @@ def _render_frontend(port, tls, instances, thumbprint, binds):
         return out + ["    http-request redirect scheme https code 301"]
     out += ["    http-request redirect scheme https code 301 if { var(txn.inst) -m str %s }"
             % i["id"] for i in secure if i["https_port"] == 443]
-    return out + _ROUTING
+    return out + _routing(plain)
 
 
 def _trusted_list(inst):
@@ -917,7 +990,8 @@ def render(instances, acme_thumbprint=None, cdn_ranges=None, ipv6=False, sockets
     for inst in instances:
         for name, entries_ in (("trusted-%s.lst", inst["trusted_cidrs"]),
                                ("deny-cidr-%s.lst", inst["deny_cidrs"]),
-                               ("deny-ua-%s.lst", inst["deny_user_agents"])):
+                               ("deny-ua-%s.lst", inst["deny_user_agents"]),
+                               ("dynamic-%s.lst", inst["dynamic_prefixes"])):
             if entries_:
                 files[name % inst["id"]] = _lines(entries_)
         if inst["crowdsec"]:

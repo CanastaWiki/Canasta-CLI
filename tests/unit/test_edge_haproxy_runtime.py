@@ -49,6 +49,9 @@ def _instances():
             "other", {"TLS_MODE": "custom"},
             [{"id": "w0", "url": "other.example.org"}]),
         edge.instance_from_config(
+            "german", {"CANASTA_EDGE_DYNAMIC_PREFIXES": "Spezial:,Spécial:"},
+            [{"id": "w0", "url": "german.example.org"}]),
+        edge.instance_from_config(
             "limited", {"CANASTA_EDGE_RATE_DEFAULT": "3"},
             [{"id": "w0", "url": "limited.example.org"}],
             [{"hostname": "img.limited.example.org", "bucket": "b", "endpoint": "e"}]),
@@ -215,6 +218,13 @@ def _request(ports, host, path, method="GET", headers=None, tls=True, sni=None):
     ("images.example.com", "/a/ab/Logo.png", "GET", {"Cookie": "wiki_session=abc"}, "be_main_media"),
     ("other.example.org", "/wiki/Special:Log", "GET", {}, "be_other_dynamic"),
     ("other.example.org", "/wiki/Main_Page", "GET", {}, "be_other_default"),
+    ("german.example.org", "/wiki/Spezial:Letzte_%C3%84nderungen", "GET", {}, "be_german_dynamic"),
+    ("german.example.org", "/wiki/spezial:suche", "GET", {}, "be_german_dynamic"),
+    ("german.example.org", "/w/index.php?title=Spezial%3ASuche", "GET", {}, "be_german_dynamic"),
+    ("german.example.org", "/wiki/Sp%c3%a9cial:Journal", "GET", {}, "be_german_dynamic"),
+    ("german.example.org", "/wiki/Special:Log", "GET", {}, "be_german_dynamic"),
+    ("german.example.org", "/wiki/Hauptseite", "GET", {}, "be_german_default"),
+    ("other.example.org", "/wiki/Spezial:Suche", "GET", {}, "be_other_default"),
 ])
 def test_requests_reach_the_expected_backend(edge_ports, host, path, method, headers, expected):
     status, body, _ = _request(edge_ports, host, path, method, headers)
