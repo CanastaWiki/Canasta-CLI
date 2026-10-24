@@ -555,7 +555,7 @@ def test_challenge_answered_reads_the_thumbprint_from_the_port(monkeypatch):
     class Redirect(Rule):
         def do_GET(self):
             self.send_response(301)
-            self.send_header("Location", "https://example.com" + self.path)
+            self.send_header("Location", "https://example.com/")
             self.send_header("Content-Length", "0")
             self.end_headers()
 
