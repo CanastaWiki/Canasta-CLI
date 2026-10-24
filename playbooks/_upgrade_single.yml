@@ -175,3 +175,14 @@
   when:
     - not (instance_is_k8s | bool)
     - (_upgrade_spoa_prune.removed | default([]) | length) > 0
+
+# Also for an instance the upgrade did not restart: the edge in front of it
+# may have been.
+- name: Report wikis that do not answer through the edge
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: edge_probe.yml
+  when:
+    - not (_upgrade_skip | bool)
+    - _was_running | default(false) | bool
+    - not (_upgrade_restart_failed | default(false) | bool)
