@@ -278,9 +278,9 @@ class TestComposerRequirements:
         assert "_item_dir ~ '/\\1/composer.json'" in text
 
     def test_install_waits_for_the_monitor_link(self):
-        exec_cmds = [(t.get("vars") or {}).get("exec_command", "")
-                     for t in _walk(_load(ADD))]
-        install = [c for c in exec_cmds if "composer update" in c]
+        install = [(t.get("vars") or {}).get("exec_command", "")
+                   for t in _walk(_load(ADD))
+                   if t.get("name") == "Install composer requirements (--no-dev)"]
         assert install and all('[ ! -e "$f" ]' in c for c in install)
 
     def test_failed_install_reverts_only_what_this_run_added(self):
