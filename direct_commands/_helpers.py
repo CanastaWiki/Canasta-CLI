@@ -483,6 +483,39 @@ def _uses_wiki_db_account(env):
     return (env.get("WIKI_DB_USER") or "").strip() not in ("", "root", admin)
 
 
+# The .env keys that decide whether MediaWiki still waits to move off the
+# database administrator account.
+_DB_ACCOUNT_KEYS = ("USE_EXTERNAL_DB", "MYSQL_USER", "WIKI_DB_USER",
+                    "CANASTA_DB_ROOT_ACCOUNT")
+
+
+def _db_account_env_grep(qpath):
+    """Shell command printing the _DB_ACCOUNT_KEYS lines of the .env of the
+    instance at qpath (already quoted), and none of its secrets."""
+    return "grep -E '^[[:space:]]*(%s)[[:space:]]*=' %s/.env 2>/dev/null" % (
+        "|".join(_DB_ACCOUNT_KEYS), qpath)
+
+
+def _parse_db_account_env(text):
+    return {k: v for k, v, c in _parse_env_entries(text or "")
+            if not c and k in _DB_ACCOUNT_KEYS}
+
+
+def _wiki_db_move_pending(env, k8s):
+    """True when `canasta upgrade` would still move MediaWiki off the
+    database administrator account. Mirrors
+    roles/upgrade/tasks/check_wiki_db_account.yml."""
+    if not env:
+        return False
+    external = (env.get("USE_EXTERNAL_DB") or "").strip().lower() == "true"
+    if external and k8s:
+        return False
+    if (env.get("CANASTA_DB_ROOT_ACCOUNT") or "").strip().lower() == "true":
+        return False
+    admin = ((env.get("MYSQL_USER") or "").strip() or "root") if external else "root"
+    return ((env.get("WIKI_DB_USER") or "").strip() or admin) == admin
+
+
 def _backfill_db_defaults(inst):
     """Add the bundled-DB MYSQL_* defaults missing from .env, and the
     WIKI_DB_ account keys every instance needs.
@@ -2464,7 +2497,9 @@ def _gather_instance_info(inst_id, inst):
         "echo \"$web_ps\" | while IFS='|' read -r cid cstate status; do "
         "case \"$status\" in " + _WEB_STARTING_CASE + ") "
         "echo \"$cid|$(" + restart_count + " \"$cid\" 2>/dev/null)\";; "
-        "esac; done; true"
+        "esac; done; true; "
+        "echo '%(d)s'; "
+        + _db_account_env_grep(qpath) + "; true"
     ) % {"p": qpath, "d": _SENTINEL, "m": RESTORE_MARKER}
 
     rc, stdout = _ssh_run(host, script)
@@ -2482,6 +2517,7 @@ def _gather_instance_info(inst_id, inst):
     interrupted = "RESTORE_INTERRUPTED" in flags
     pull_unfinished = "PULL_UNFINISHED" in flags
     restart_counts = _remote_restart_counts(parts[4] if len(parts) > 4 else "")
+    db_env = _parse_db_account_env(parts[5] if len(parts) > 5 else "")
 
     wikis = []
     if dir_ok and wikis_raw.strip() != "WIKIS_MISSING":
@@ -2495,7 +2531,8 @@ def _gather_instance_info(inst_id, inst):
               if dir_ok else "NOT FOUND")
 
     return _make_detail(inst_id, host, path, orchestrator, status, wikis,
-                       interrupted, pull_unfinished)
+                       interrupted, pull_unfinished,
+                       dir_ok and _wiki_db_move_pending(db_env, False))
 
 
 def _gather_local(inst_id, inst):
@@ -2510,29 +2547,37 @@ def _gather_local(inst_id, inst):
         os.path.join(path, RESTORE_MARKER))
     return _make_detail(inst_id, host, path, orchestrator, status, wikis,
                        interrupted,
-                       dir_exists and _unfinished_pull(path, host) is not None)
+                       dir_exists and _unfinished_pull(path, host) is not None,
+                       dir_exists and _wiki_db_move_pending(
+                           _read_env_file(path, host), _is_k8s(inst)))
 
 
 def _gather_k8s(inst_id, path, host):
     if _is_localhost(host):
         dir_exists = _check_dir_exists(path, host)
+        db_env = _read_env_file(path, host) if dir_exists else {}
     else:
-        rc, _ = _ssh_run(host, "test -d %s" % _shell_quote(path))
+        qpath = _shell_quote(path)
+        rc, stdout = _ssh_run(host, "test -d %s || exit 1; %s; true" % (
+            qpath, _db_account_env_grep(qpath)))
         if rc == _SSH_CONN_FAILURE_RC:
             return _make_detail(inst_id, host, path, "kubernetes",
                                 "UNREACHABLE", [])
         dir_exists = rc == 0
+        db_env = _parse_db_account_env(stdout) if dir_exists else {}
     wikis = _read_wikis(path, host) if dir_exists else []
 
     status = _web_state_k8s(inst_id, host) if dir_exists else "NOT FOUND"
 
     return _make_detail(inst_id, host, path, "kubernetes", status, wikis,
                        dir_exists and _read_restore_marker(path, host) is not None,
-                       dir_exists and _unfinished_pull(path, host) is not None)
+                       dir_exists and _unfinished_pull(path, host) is not None,
+                       _wiki_db_move_pending(db_env, True))
 
 
 def _make_detail(inst_id, host, path, orchestrator, status, wikis,
-                 interrupted_restore=False, unfinished_pull=False):
+                 interrupted_restore=False, unfinished_pull=False,
+                 db_move_pending=False):
     # An interrupted restore or an unfinished gitops pull leaves the instance
     # running on half-applied config, which otherwise reads here as plain
     # RUNNING.
@@ -2540,6 +2585,8 @@ def _make_detail(inst_id, host, path, orchestrator, status, wikis,
         status = "%s  [RESTORE INTERRUPTED]" % status
     if unfinished_pull:
         status = "%s  [GITOPS PULL UNFINISHED]" % status
+    if db_move_pending:
+        status = "%s  [DB ACCOUNT MOVE PENDING]" % status
     return {
         "id": inst_id,
         "host": host,
