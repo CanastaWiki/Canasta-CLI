@@ -18,6 +18,8 @@ import canasta_edge as mod
 # Pytest imports every test module before running any test, so this is the
 # environment the suite started with, before any test exported DOCKER_HOST.
 _DOCKER_ENV = dict(os.environ)
+# Before the fixture below stands in for it.
+_CHALLENGE_ANSWERED = mod.challenge_answered
 
 
 class FakeRunner:
@@ -130,6 +132,12 @@ def _instance(root, name, hosts=("example.com",), env=None, media=(), certs=None
 def _no_host_ipv6(monkeypatch):
     # The test host's own IPv6 must not change what is rendered.
     monkeypatch.setattr(mod, "host_has_ipv6", lambda: False)
+
+
+@pytest.fixture(autouse=True)
+def _challenges_answered(monkeypatch):
+    # No HAProxy listens on the test host's ports.
+    monkeypatch.setattr(mod, "challenge_answered", lambda port, thumbprint: True)
 
 
 def _sync(run, edge, inst_id, path, member=None):
@@ -434,6 +442,132 @@ def test_a_failed_first_issuance_is_retried(tmp_path):
     run = FakeRunner(running=True, listed={"example.com": ("LetsEncrypt.org", False)})
     result = _issue(tmp_path, run, one={})
     assert result["issued"] == ["example.com"]
+
+
+class FailsOnce(FakeRunner):
+    """Fails each hostname's first issuance as Let's Encrypt does when
+    HAProxy answers its challenge with the HTTPS redirect."""
+
+    def __init__(self, err="Verify error: Invalid response from http://example.com", **kwargs):
+        super().__init__(**kwargs)
+        self.err = err
+        self.failed = set()
+
+    def _acme(self, args):
+        if args[0] == "--issue":
+            host = args[args.index("-d") + 1]
+            if host not in self.failed:
+                self.failed.add(host)
+                return 1, "", self.err
+        return super()._acme(args)
+
+
+def test_issuance_waits_for_haproxy_to_answer_challenges(tmp_path, monkeypatch):
+    asked = []
+
+    def answered(port, thumbprint):
+        asked.append((port, thumbprint))
+        return False
+    run = FakeRunner(running=True)
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(running=True), edge, "one",
+          _instance(tmp_path, "one", env={"HTTP_PORT": "8080", "HTTPS_PORT": "8443"},
+                    media=("images.example.com",)))
+    monkeypatch.setattr(mod, "challenge_answered", answered)
+    result = mod.issue(run, "docker", str(edge))
+    assert run.acme_calls("--issue") == []
+    assert [u["hostname"] for u in result["unissued"]] == ["example.com", "images.example.com"]
+    assert "port 8080" in result["unissued"][0]["reason"]
+    # Asked once per port, with the account's thumbprint.
+    assert asked == [(8080, "THUMB123")]
+
+
+def test_acme_dns_issuance_does_not_wait_for_challenges(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "challenge_answered", lambda port, thumbprint: 1 / 0)
+    run = FakeRunner(running=True)
+    result = _issue(tmp_path, run, one={"env": {"TLS_MODE": "acme-dns",
+                                                "CLOUDFLARE_API_TOKEN": "t0k"}})
+    assert result["issued"] == ["example.com"]
+
+
+def test_a_failed_validation_is_retried_once_on_the_first_run(tmp_path, monkeypatch):
+    asked = []
+    monkeypatch.setattr(mod, "challenge_answered",
+                        lambda port, thumbprint: asked.append(port) or True)
+    run = FailsOnce(running=True)
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(running=True), edge, "one", _instance(tmp_path, "one"))
+    result = mod.issue(run, "docker", str(edge), retry=True)
+    assert result["issued"] == ["example.com"] and result["unissued"] == []
+    first, second = run.acme_calls("--issue")
+    assert "--force" not in first and "--force" in second
+    # HAProxy is asked again before the retry.
+    assert asked == [80, 80]
+
+
+def test_a_failed_validation_is_not_retried_after_the_first_run(tmp_path):
+    run = FailsOnce(running=True)
+    result = _issue(tmp_path, run, one={})
+    assert len(run.acme_calls("--issue")) == 1
+    assert result["unissued"][0]["hostname"] == "example.com"
+
+
+def test_a_rate_limit_is_not_retried(tmp_path):
+    run = FailsOnce(running=True, err=RATE_LIMITED)
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(running=True), edge, "one", _instance(tmp_path, "one"))
+    result = mod.issue(run, "docker", str(edge), retry=True)
+    assert len(run.acme_calls("--issue")) == 1
+    assert "retry after" in result["unissued"][0]["reason"]
+
+
+def test_sync_reports_a_newly_registered_account(tmp_path):
+    path = _instance(tmp_path, "one")
+    assert _sync(FakeRunner(), tmp_path / "edge", "one", path)["acme_registered"]
+    assert not _sync(FakeRunner(), tmp_path / "edge", "one", path)["acme_registered"]
+
+
+def _serve(handler):
+    import http.server
+    import threading
+    server = http.server.HTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def test_challenge_answered_reads_the_thumbprint_from_the_port(monkeypatch):
+    import http.server
+    monkeypatch.setattr(mod, "CHALLENGE_WAIT", 0)
+
+    class Rule(http.server.BaseHTTPRequestHandler):
+        thumbprint = "THUMB"
+
+        def do_GET(self):
+            body = ("%s.%s\n" % (self.path.rsplit("/", 1)[1], self.thumbprint)).encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    class Redirect(Rule):
+        def do_GET(self):
+            self.send_response(301)
+            self.send_header("Location", "https://example.com/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+    for handler, expected in ((Rule, True), (Redirect, False)):
+        server = _serve(handler)
+        try:
+            assert _CHALLENGE_ANSWERED(server.server_port, "THUMB") is expected
+            if expected:
+                assert not _CHALLENGE_ANSWERED(server.server_port, "OTHER")
+        finally:
+            server.shutdown()
+            server.server_close()
 
 
 def test_a_failure_is_reported_without_failing(tmp_path):

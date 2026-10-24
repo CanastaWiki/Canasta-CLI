@@ -94,11 +94,18 @@ options:
       service, for changed units.
     type: bool
     default: false
+  retry:
+    description: >-
+      With state=issue, request a certificate whose HTTP-01 validation
+      failed once more, as for the edge's first Let's Encrypt account.
+    type: bool
+    default: false
 """
 
 import base64
 import calendar
 import fcntl
+import http.client
 import io
 import ipaddress
 import json
@@ -1054,6 +1061,8 @@ def _sync_edge(run, inspect, edge_dir, instance_id, instance_path, member, resul
 
     thumbprint = None
     if any(acme_hostnames(i) for i in instances):
+        result["acme_registered"] = not (
+            _read(os.path.join(edge_dir, "acme", "thumbprint")) or "").strip()
         thumbprint = ensure_account(run, inspect, edge_dir)
     elif os.path.exists(os.path.join(edge_dir, "acme", "thumbprint")):
         thumbprint = _read(os.path.join(edge_dir, "acme", "thumbprint")).strip()
@@ -1175,6 +1184,9 @@ ACME_PROBLEM_HINTS = {
     "dns": "Check that %s has a DNS record.",
 }
 ACME_DEFAULT_HINT = "Check that %s resolves to this host and that port 80 reaches it."
+# The problems a first validation can meet while HAProxy takes in the
+# challenge rule; acme.sh names none for a response it found wrong.
+RETRIED_PROBLEMS = (None, "unauthorized", "incorrectResponse")
 
 
 def acme_failure(out, err):
@@ -1199,9 +1211,11 @@ def acme_hint(kind, host):
     return hint % host if "%s" in hint else hint
 
 
-def issue(run, inspect, edge_dir):
-    """Obtain, replace and remove certificates to match the members."""
-    return _locked(edge_dir, _issue, run, inspect, edge_dir)
+def issue(run, inspect, edge_dir, retry=False):
+    """Obtain, replace and remove certificates to match the members. With
+    retry, a stateless issuance whose validation failed is requested once
+    more, once HAProxy answers challenges again."""
+    return _locked(edge_dir, _issue, run, inspect, edge_dir, retry)
 
 
 # How long to wait for HAProxy to answer on its stats socket, which
@@ -1225,11 +1239,51 @@ def stats_socket_ready(run, inspect):
         time.sleep(1)
 
 
-def _issue(run, inspect, edge_dir):
+# How long to wait for HAProxy to answer challenges after a reload that
+# brought in the challenge rule.
+CHALLENGE_WAIT = 60
+
+
+def challenge_answered(port, thumbprint):
+    """Whether HAProxy answers an HTTP-01 challenge on the host's port with
+    the account's thumbprint, as Let's Encrypt will ask it, polled for up to
+    CHALLENGE_WAIT seconds. A configuration from before the rule answers with
+    its HTTPS redirect instead."""
+    probe = "canasta-probe-%d" % int(time.time())
+    expected = "%s.%s" % (probe, thumbprint)
+    deadline = time.monotonic() + CHALLENGE_WAIT
+    while True:
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        try:
+            conn.request("GET", "/.well-known/acme-challenge/" + probe)
+            response = conn.getresponse()
+            body = response.read().decode("utf-8", "replace").strip()
+            if response.status == 200 and body == expected:
+                return True
+        except (OSError, http.client.HTTPException):
+            pass
+        finally:
+            conn.close()
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(1)
+
+
+def _issue(run, inspect, edge_dir, retry=False):
     result = {"changed": False, "reload": False, "issued": [], "unissued": [],
               "unregistered": [], "removed": []}
     instances = _load_members(edge_dir, read_members(edge_dir))
     ready = []
+    thumbprint = (_read(os.path.join(edge_dir, "acme", "thumbprint")) or "").strip()
+    answering = {}
+
+    def answered(port, again=False):
+        """Each failed validation counts against Let's Encrypt's hourly
+        limit for the hostname, so none is requested before HAProxy
+        answers."""
+        if again or port not in answering:
+            answering[port] = bool(thumbprint) and challenge_answered(port, thumbprint)
+        return answering[port]
 
     def deploy(host):
         """Install a certificate in HAProxy, which also records HAProxy as
@@ -1246,11 +1300,11 @@ def _issue(run, inspect, edge_dir):
     for inst in instances:
         for host in acme_hostnames(inst):
             dns = inst["dns"] if host_tls_mode(inst, host) == "acme-dns" else None
-            wanted[host] = (inst["staging_certs"], dns)
+            wanted[host] = (inst["staging_certs"], dns, inst["http_port"])
     listed = acme_listed(run, inspect)
 
     for host in sorted(wanted):
-        staging, dns = wanted[host]
+        staging, dns, port = wanted[host]
         method = dns["hook"] if dns else "stateless"
         current = listed.get(host)
         # An unreadable record is left alone rather than spend a reissue.
@@ -1279,7 +1333,18 @@ def _issue(run, inspect, edge_dir):
         args += ["--server", ACME_SERVERS[staging]]
         if current:
             args.append("--force")
+        if not dns and not answered(port):
+            result["unissued"].append({
+                "hostname": host, "hint": "",
+                "reason": "HAProxy did not answer ACME challenges on port %d, so "
+                          "Let's Encrypt was not asked" % port})
+            continue
         rc, out, err = _acme(run, inspect, args, env=env)
+        if (rc != 0 and not dns and retry
+                and acme_failure(out, err)[0] in RETRIED_PROBLEMS and answered(port, True)):
+            if "--force" not in args:
+                args.append("--force")
+            rc, out, err = _acme(run, inspect, args, env=env)
         if rc != 0:
             kind, reason = acme_failure(out, err)
             result["unissued"].append({"hostname": host, "reason": reason,
@@ -1530,6 +1595,7 @@ def run_module():
                        default="sync"),
             recreate=dict(type="bool", default=False),
             restart=dict(type="bool", default=False),
+            retry=dict(type="bool", default=False),
             instances=dict(type="list", elements="dict"),
             compose_command=dict(type="str", default="docker compose"),
             instance_id=dict(type="str"),
@@ -1558,7 +1624,7 @@ def run_module():
             stop_edge(run, params["inspect_command"], params["compose_command"], edge_dir)
             result = {"changed": True}
         elif params["state"] == "issue":
-            result = issue(run, params["inspect_command"], edge_dir)
+            result = issue(run, params["inspect_command"], edge_dir, params["retry"])
         elif params["state"] == "plan":
             seen = {}
 
