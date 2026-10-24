@@ -16,6 +16,8 @@
 #     (update.php on a big wiki, a large mysqldump) so a controller-side
 #     SSH reset doesn't abort them. Default false (held single connection).
 #   exec_long_async (int, optional) - max seconds for a long exec (3600)
+#   exec_long_timeout_msg (str, optional) - on a long exec still running
+#     when the wait ends, warn with this text and continue instead of failing
 #   exec_user (str, optional) - container user to run as on Compose;
 #     ignored on K8s, where kubectl exec cannot switch users. Default: the
 #     image's user (root in the web container).
@@ -133,6 +135,7 @@
     # Poll for as long as the command may run (one poll every 10 seconds).
     rx_retries: "{{ ((exec_long_async | default(3600) | int) / 10) | int }}"
     rx_no_log: "{{ exec_no_log | default(false) }}"
+    rx_timeout_msg: "{{ exec_long_timeout_msg | default('') }}"
   when: exec_long | default(false) | bool
 
 - name: Map long-exec result to exec_result

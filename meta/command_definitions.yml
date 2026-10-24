@@ -1810,6 +1810,10 @@ commands:
       If the extension ships a composer.json, its non-dev requirements are
       installed: it is registered in config/composer.local.json (committed in
       gitops) and `composer update --no-dev` runs in the web container.
+      A composer.json whose autoload.files names a file the extension does
+      not ship is not registered, and the command fails; so does a composer
+      update after which the autoloader requires a missing file, with the
+      registration rolled back so the wikis keep loading.
 
       On a gitops instance the extension is added as a submodule and committed
       (run `canasta gitops push` to distribute it). The extension is then
@@ -1986,6 +1990,10 @@ commands:
       If the skin ships a composer.json, its non-dev requirements are
       installed: it is registered in config/composer.local.json (committed in
       gitops) and `composer update --no-dev` runs in the web container.
+      A composer.json whose autoload.files names a file the skin does
+      not ship is not registered, and the command fails; so does a composer
+      update after which the autoloader requires a missing file, with the
+      registration rolled back so the wikis keep loading.
 
       On a gitops instance the skin is added as a submodule and committed (run
       `canasta gitops push` to distribute it). The skin is then enabled
