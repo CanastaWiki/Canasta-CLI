@@ -26,28 +26,24 @@ def _run(host, cmd):
         except (subprocess.TimeoutExpired, OSError) as e:
             return 1, "", "Error: %s" % e
         return result.returncode, result.stdout, result.stderr
-    # _ssh_run prints the remote stderr itself on failure.
-    rc, stdout = _helpers._ssh_run(host, cmd, timeout=_RESTIC_TIMEOUT)
+    # _ssh_run prints the remote stderr itself on failure. The command uses
+    # process substitution, so it needs bash whatever the login shell is.
+    rc, stdout = _helpers._ssh_run(
+        host, "bash -c %s" % _helpers._shell_quote(cmd),
+        timeout=_RESTIC_TIMEOUT)
     return rc, stdout, ""
 
 
 def env_warning(path, content):
-    """Return the warning for quoted values or CRLF endings in .env, which
-    reach restic literally through --env-file, or "" when there are none."""
-    quoted_keys, has_crlf = _helpers._lint_env_content(content)
-    problems = []
-    if quoted_keys:
-        problems.append("quoted values (%s)" % ", ".join(quoted_keys))
-    if has_crlf:
-        problems.append("CRLF line endings")
-    if not problems:
+    """Return the warning for CRLF endings in .env, which reach restic
+    literally through --env-file, or "" when there are none."""
+    if not _helpers._lint_env_content(content):
         return ""
     return (
-        "Warning: %s/.env has %s. Docker --env-file passes these to restic "
-        "literally (unlike 'canasta config get', which strips them) — a "
-        "common cause of restic 'wrong password' or backend auth failures. "
-        "Remove surrounding quotes and use LF line endings."
-        % (path, " and ".join(problems))
+        "Warning: %s/.env has CRLF line endings. Docker --env-file passes "
+        "the CR to restic literally (unlike 'canasta config get', which "
+        "strips it) — a common cause of restic 'wrong password' or backend "
+        "auth failures. Use LF line endings." % path
     )
 
 
@@ -111,13 +107,15 @@ def cmd_backup_list(args):
             "%(mkdir)s"
             "%(rt)s volume create %(vol)s >/dev/null 2>&1; "
             "%(rt)s run --rm -i "
-            "--env-file %(path)s/.env "
+            "--env-file <(%(decode)s) "
             "-v %(vol)s:/currentsnapshot "
             "%(local_mount)s "
             "docker.io/restic/restic "
             "--cache-dir /tmp/restic-cache "
             "%(args)s"
-        ) % {"vol": _helpers._shell_quote(bvol), "path": qpath,
+        ) % {"vol": _helpers._shell_quote(bvol),
+             "decode": _helpers.canasta_env_quote.decode_sed_command(
+                 qpath + "/.env"),
              "local_mount": local_mount, "rt": runtime,
              "mkdir": mkdir_repo,
              "args": restic_args}

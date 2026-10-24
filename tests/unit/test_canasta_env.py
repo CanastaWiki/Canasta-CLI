@@ -140,44 +140,24 @@ class TestRunModuleUnset:
 
 class TestLintEnvFile:
     def test_clean_file_has_no_issues(self):
-        assert canasta_env.lint_env_file("A=1\nB=2\n# c\n") == ([], False)
+        assert canasta_env.lint_env_file("A=1\nB=2\n# c\n") is False
 
-    def test_double_quoted_value_flagged(self):
-        assert canasta_env.lint_env_file('PW="secret"\n') == (["PW"], False)
-
-    def test_single_quoted_value_flagged(self):
-        assert canasta_env.lint_env_file("PW='secret'\n") == (["PW"], False)
-
-    def test_unquoted_value_not_flagged(self):
-        assert canasta_env.lint_env_file("PW=secret\n") == ([], False)
+    def test_quoted_values_are_not_issues(self):
+        # Readers, including the restic --env-file, decode them.
+        assert canasta_env.lint_env_file('PW="x"\nQ=\'y\'\n') is False
 
     def test_crlf_detected(self):
-        quoted, crlf = canasta_env.lint_env_file("A=1\r\nB=2\r\n")
-        assert quoted == [] and crlf is True
-
-    def test_quoted_and_crlf_together(self):
-        # The trailing CR must not defeat quote detection.
-        quoted, crlf = canasta_env.lint_env_file('PW="x"\r\nA=1\r\n')
-        assert quoted == ["PW"] and crlf is True
-
-    def test_comments_and_blanks_ignored(self):
-        assert canasta_env.lint_env_file('# PW="x"\n\nA=1\n') == ([], False)
-
-    def test_multiple_quoted_keys(self):
-        assert canasta_env.lint_env_file('A="1"\nB=2\nC=\'3\'\n') == (
-            ["A", "C"], False
-        )
+        assert canasta_env.lint_env_file("A=1\r\nB=2\r\n") is True
 
 
 class TestRunModuleLint:
-    def test_lint_flags_quoted_values(self, sample_env_file):
+    def test_lint_reports_crlf_only(self, sample_env_file):
         result, failed, _ = run_module_with_params(canasta_env, {
             "path": sample_env_file, "state": "lint",
             "key": None, "value": None, "keys": None,
         })
         assert not failed
-        assert "QUOTED_VALUE" in result["quoted_keys"]
-        assert "MW_SITE_NAME" in result["quoted_keys"]
+        assert "quoted_keys" not in result
         assert result["has_crlf"] is False
 
 

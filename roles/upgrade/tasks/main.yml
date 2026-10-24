@@ -60,6 +60,7 @@
     - backfill_compose_profiles.yml
     - backfill_hosts_yaml.yml
     - tighten_env_permissions.yml
+    - quote_env_dollar_values.yml
     - remove_enable_edge.yml
     - rename_tls_keys.yml
     - convert_backup_schedule_retention.yml
@@ -335,8 +336,9 @@
   ansible.builtin.set_fact:
     _upgrade_incomplete: "{{ _upgrade_incomplete_marker.stat.exists }}"
 
-# A compose-only change (e.g. gaining the crowdsec service), or a chart-only
-# change on Kubernetes, must also trigger a recreate, not just an image bump.
+# A compose-only change (e.g. gaining the crowdsec service), a chart-only
+# change on Kubernetes, or .env values the migrations quoted, must also
+# trigger a recreate, not just an image bump.
 # A build_from instance pulls nothing, so _images_updated stays false for it;
 # it restarts when its rebuilt image differs from the one it runs.
 # An instance whose custom image failed to build keeps its current
@@ -349,7 +351,8 @@
           or (_compose_stack_copy is defined and _compose_stack_copy is changed)
           or (_k8s_chart_changed | default(false) | bool)
           or (_upgrade_rebuilt_image_changed | bool)
-          or (_upgrade_incomplete | default(false) | bool))
+          or (_upgrade_incomplete | default(false) | bool)
+          or (_mig_requote is defined and _mig_requote is changed))
          and (_upgrade_build_failed_services | default([]) | length) == 0 }}
 
 - name: Reset the restart failure signal for this instance

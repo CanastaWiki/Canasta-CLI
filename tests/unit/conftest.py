@@ -32,7 +32,8 @@ _module_utils_dir = os.path.join(ROLES_DIR, "common", "module_utils")
 sys.path.insert(0, _module_utils_dir)
 for _name in ("canasta_validate", "canasta_config", "canasta_sidecar_render",
               "canasta_edge_render", "canasta_caddyfile",
-              "canasta_override_migrate", "canasta_env_keys"):
+              "canasta_override_migrate", "canasta_env_keys",
+              "canasta_env_quote"):
     _mod = importlib.import_module(_name)
     sys.modules.setdefault("ansible.module_utils.%s" % _name, _mod)
 

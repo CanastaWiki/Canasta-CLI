@@ -166,6 +166,23 @@ def old_wiki_dirs(base):
     )
 
 
+def env_has_bare_dollar(path):
+    """True if a bare (unquoted) .env value contains a `$` other than the
+    `$$` escape, which Compose expands."""
+    try:
+        with open(path) as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                v = line.split("=", 1)[1].strip()
+                if "$" in v.replace("$$", "") and v[:1] not in ("'", '"'):
+                    return True
+    except OSError:
+        pass
+    return False
+
+
 def env_readable_beyond_owner(path):
     """True if .env carries any group or other permission bit.
 
@@ -215,6 +232,7 @@ def main():
             ),
             "hosts_yaml": os.path.isfile(hosts_yaml),
             "env_readable_beyond_owner": env_readable_beyond_owner(env_path),
+            "env_has_bare_dollar": env_has_bare_dollar(env_path),
             "backup_schedule_has_purge_older_than": file_contains(
                 backup_schedule, "purge_older_than"),
         },
