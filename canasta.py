@@ -131,7 +131,9 @@ SUBCOMMAND_GROUPS = {
     "host": ["add", "remove", "list"],
     "argocd": ["ui", "password", "apps"],
     "sidecar": ["add", "list", "remove", "migrate"],
-    "image": ["push", "prune"],
+    "image": [
+        "push", "prune", "build-args", "set-build-arg", "unset-build-arg",
+    ],
 }
 
 # Nested subcommand groups (backup schedule set|list|remove)
@@ -1120,6 +1122,8 @@ LOCKED_COMMANDS = {
     "stop": "stop",
     "restart": "restart",
     "rebuild": "rebuild",
+    "image_set_build_arg": "rebuild",
+    "image_unset_build_arg": "rebuild",
 }
 
 

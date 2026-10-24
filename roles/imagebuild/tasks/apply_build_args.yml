@@ -1,0 +1,106 @@
+---
+# Record an instance's new build arguments and, unless no_rebuild is set,
+# rebuild its image with them and restart the instance onto it.
+#
+# The image is built before the arguments are recorded, so a failed build
+# leaves the registry and the running image as they were. A rebuild that
+# yields the image the instance already runs does not restart it, and a
+# stopped instance is left stopped.
+# Input: instance_id, instance_path, _instance_result (resolve_instance.yml),
+#        _build_args_new (list of KEY=VALUE), no_rebuild (bool)
+
+- name: Compare the new build arguments with the recorded ones
+  ansible.builtin.set_fact:
+    _build_args_target: "{{ _build_args_new }}"
+    _build_args_changed: >-
+      {{ _build_args_new != (_instance_result.instance.buildArgs | default([])) }}
+    _build_args_rebuild: >-
+      {{ (_build_args_new != (_instance_result.instance.buildArgs | default([])))
+         and not (no_rebuild | default(false) | bool) }}
+
+- name: Report unchanged build arguments
+  ansible.builtin.debug:
+    msg: "Build arguments of '{{ instance_id }}' are unchanged."
+  when: not (_build_args_changed | bool)
+
+- name: Check whether the instance is running
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/check_running.yml
+  when: _build_args_rebuild | bool
+
+# The restart after the build would refuse these, and by then the image
+# would already be rebuilt and the arguments recorded.
+- name: Check for tls directives Caddy cannot use behind the edge
+  canasta_edge:
+    state: check
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+  when:
+    - _build_args_rebuild | bool
+    - _container_running | default(false) | bool
+    - not (instance_is_k8s | bool)
+
+- name: Ensure the in-cluster image registry (Kubernetes)
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_registry.yml
+  when:
+    - _build_args_rebuild | bool
+    - instance_is_k8s | bool
+
+- name: Report rebuilding
+  ansible.builtin.debug:
+    msg: "Rebuilding the image of '{{ instance_id }}'..."
+  when: _build_args_rebuild | bool
+
+- name: Rebuild the image from source
+  ansible.builtin.include_tasks: build_from_source.yml
+  vars:
+    build_from: "{{ _instance_result.instance.buildFrom }}"
+    build_arg: "{{ _build_args_target }}"
+  when: _build_args_rebuild | bool
+
+- name: Record the build arguments
+  canasta_registry:
+    id: "{{ instance_id }}"
+    state: update
+    build_args: "{{ _build_args_target }}"
+    build_base: >-
+      {{ _effective_base_image if (_build_args_rebuild | bool) else omit }}
+  delegate_to: canasta_controller
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  when: _build_args_changed | bool
+
+- name: Publish the rebuilt image for the orchestrator
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/upgrade_publish_rebuilt_image.yml
+  when: _build_args_rebuild | bool
+
+- name: Restart onto the rebuilt image
+  ansible.builtin.include_role:
+    name: instance_lifecycle
+    tasks_from: restart.yml
+  when:
+    - _build_args_rebuild | bool
+    - _container_running | default(false) | bool
+    - _upgrade_rebuilt_image_changed | bool
+
+- name: Report the result
+  ansible.builtin.debug:
+    msg: >-
+      {% if not (_build_args_rebuild | bool) -%}
+      Build arguments of '{{ instance_id }}' recorded. The image was not
+      rebuilt; the next `canasta upgrade` rebuilds it with them.
+      {%- elif not (_upgrade_rebuilt_image_changed | bool) -%}
+      Build arguments of '{{ instance_id }}' recorded. The rebuilt image is
+      the one the instance already runs, so it was not restarted.
+      {%- elif not (_container_running | default(false) | bool) -%}
+      Build arguments of '{{ instance_id }}' recorded and the image
+      rebuilt. The instance is stopped; it runs the new image when it
+      starts.
+      {%- else -%}
+      Build arguments of '{{ instance_id }}' recorded and the image
+      rebuilt.
+      {%- endif %}
+  when: _build_args_changed | bool
