@@ -1098,7 +1098,8 @@ def _k8s_get_pod(namespace, component="web"):
         return None
 
 
-def _k8s_remote_exec_cmd(inst_id, service, command, forward_stdin=True):
+def _k8s_remote_exec_cmd(inst_id, service, command, forward_stdin=True,
+                         user=None):
     """Shell command that resolves a Running pod and execs `command` in it,
     for running on the instance's host via ssh — the controller has no
     kubeconfig for a remote cluster, so both the pod lookup and the exec
@@ -1114,16 +1115,26 @@ def _k8s_remote_exec_cmd(inst_id, service, command, forward_stdin=True):
         'if [ -z "$pod" ]; then '
         "echo \"Error: no running pod found for service '%s'\" >&2; "
         "exit 1; fi; "
-        'exec kubectl exec%s "$pod" -n %s -c %s -- /bin/bash -c %s'
+        'exec kubectl exec%s "$pod" -n %s -c %s -- %s'
         % (lookup, service, " -i" if forward_stdin else "",
-           ns, service, _shell_quote(command))
+           ns, service, " ".join(
+               [shlex.quote(a) for a in _k8s_user_argv(user)]
+               + ["/bin/bash", "-c", _shell_quote(command)]))
     )
 
 
 # The web container's Apache, PHP-FPM, and job runner user. Maintenance
-# scripts run as it on Compose so the files they create stay changeable by
-# the web server.
+# scripts run as it so the files they create stay changeable by the web
+# server.
 WEB_USER = "www-data"
+
+
+def _k8s_user_argv(user):
+    """Prefix that runs the rest of a pod command as user. kubectl exec has
+    no user option and runs as the container's user, root in the web
+    container, so the switch happens inside the pod. runuser -u execs the
+    command directly, so the target's nologin shell does not matter."""
+    return ["runuser", "-u", user, "--"] if user else []
 
 
 def _compose_exec_args(service, user=None):
@@ -1138,21 +1149,21 @@ def _compose_exec_args(service, user=None):
 def _exec_in_container(inst_id, inst, command, service="web", user=None):
     """Execute a command inside a container/pod. Returns (rc, stdout).
 
-    user applies on Compose only; kubectl exec cannot switch users."""
+    user runs the command as that container user."""
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     if _is_k8s(inst):
         if not _is_localhost(host):
             return _ssh_run(host, _k8s_remote_exec_cmd(
-                inst_id, service, command, forward_stdin=False))
+                inst_id, service, command, forward_stdin=False, user=user))
         ns = _k8s_namespace(inst_id)
         pod = _k8s_get_pod(ns, service)
         if not pod:
             return 1, ""
         try:
             result = subprocess.run(
-                ["kubectl", "exec", pod, "-n", ns, "-c", service, "--",
-                 "/bin/bash", "-c", command],
+                ["kubectl", "exec", pod, "-n", ns, "-c", service, "--"]
+                + _k8s_user_argv(user) + ["/bin/bash", "-c", command],
                 capture_output=True, text=True, timeout=30,
             )
             return result.returncode, result.stdout
@@ -1240,8 +1251,7 @@ def _stream_in_container(inst_id, inst, command, service="web",
     by default but pipelines through grep/sed/awk are not, and a
     single un-flushed pipe ruins the stream.
 
-    user runs the command as that container user on Compose; Kubernetes
-    ignores it, since kubectl exec cannot switch users.
+    user runs the command as that container user.
     """
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
@@ -1255,7 +1265,8 @@ def _stream_in_container(inst_id, inst, command, service="web",
             # `... < probe.php` redirects still reach the pod.
             target = _resolve_ssh_target(host)
             argv = ["ssh"] + _ssh_args() + [
-                target, _k8s_remote_exec_cmd(inst_id, service, wrapped),
+                target, _k8s_remote_exec_cmd(inst_id, service, wrapped,
+                                             user=user),
             ]
             cwd = None
         else:
@@ -1273,8 +1284,7 @@ def _stream_in_container(inst_id, inst, command, service="web",
             # too.
             argv = [
                 "kubectl", "exec", "-i", pod, "-n", ns, "-c", service, "--",
-                "/bin/bash", "-c", wrapped,
-            ]
+            ] + _k8s_user_argv(user) + ["/bin/bash", "-c", wrapped]
             cwd = None
     elif _is_localhost(host):
         compose_cmd = _resolve_compose_cmd(inst)
