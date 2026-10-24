@@ -4,6 +4,8 @@
 """Ansible module for reading and writing Canasta .env files.
 
 Handles comments, quoted values, and values containing '=' characters.
+Values are written so Docker Compose passes them through literally
+(canasta_env_quote), and read back the way Compose reads them.
 """
 
 from __future__ import absolute_import, division, print_function
@@ -24,7 +26,7 @@ options:
   state:
     description: Action to perform.
     type: str
-    choices: [read, read_all, set, unset, lint]
+    choices: [read, read_all, set, unset, lint, requote]
     default: read_all
   key:
     description: Environment variable name.
@@ -42,12 +44,14 @@ import os
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.canasta_env_keys import modernize_values, old_names
+from ansible.module_utils.canasta_env_quote import (
+    quote_value, requote_raw, unquote_value)
 
 
 def parse_env_file(content):
     """Parse a .env file into an ordered list of (key, value, is_comment) tuples.
 
-    `value` has surrounding quotes stripped, for reads. Preserves ordering,
+    `value` is unquoted the way Compose reads it (unquote_value). Preserves ordering,
     comments, and blank lines. To rewrite the file while keeping untouched
     lines (and their quoting) verbatim, use parse_env_lines / set_line /
     unset_lines / lines_to_content instead.
@@ -61,13 +65,7 @@ def parse_env_file(content):
         parts = stripped.split("=", 1)
         if len(parts) == 2:
             key = parts[0].strip()
-            value = parts[1].strip()
-            # Strip surrounding quotes (double or single) for the read value.
-            if len(value) >= 2:
-                if (value.startswith('"') and value.endswith('"')) or \
-                   (value.startswith("'") and value.endswith("'")):
-                    value = value[1:-1]
-            entries.append((key, value, False))
+            entries.append((key, unquote_value(parts[1]), False))
         else:
             # Malformed line, preserve as-is
             entries.append((None, line, True))
@@ -109,17 +107,23 @@ def lines_to_content(lines):
 
 
 def set_line(lines, key, value):
-    """Rewrite the first line defining `key` as an unquoted 'key=value',
-    dropping later duplicates and appending if absent. Untouched lines are
-    kept verbatim so their quoting (and any inline '#') survives.
+    """Rewrite the first line defining `key` as 'key=value', the value
+    quoted only if Compose would otherwise change it (quote_value), dropping
+    later duplicates and appending if absent. Untouched lines are kept
+    verbatim so their quoting (and any inline '#') survives.
 
     Raises ValueError for a value containing CR or LF, which would write
-    lines of its own.
+    lines of its own, or one quote_value cannot store.
     """
     if "\n" in value or "\r" in value:
         raise ValueError(
             "The value of %s contains a line break; .env values must be "
             "a single line." % key)
+    try:
+        value = quote_value(value)
+    except ValueError as e:
+        raise ValueError("The value of %s cannot be stored in .env: %s."
+                         % (key, e))
     found = False
     new_lines = []
     for line in lines:
@@ -146,36 +150,35 @@ def unset_lines(lines, key):
 
 
 def lint_env_file(content):
-    """Find .env hygiene problems that survive read-time quote-stripping but
-    reach `docker --env-file` literally.
+    """True if .env uses CRLF line endings. Readers tolerate them, but a
+    consumer that takes the file as is (`docker run --env-file`) sees the
+    CR as part of each value; for restic that surfaces as an opaque "wrong
+    password" / auth failure."""
+    return "\r" in content
 
-    parse_env_file() strips surrounding quotes when reading, so a value like
-    RESTIC_PASSWORD="secret" looks correct via `canasta config get` — but
-    Docker's --env-file does NOT strip quotes, so the container sees the
-    quotes (and any trailing CR from CRLF endings) as part of the value. For
-    restic that surfaces as an opaque "wrong password" / auth failure.
 
-    Returns (quoted_keys, has_crlf): the keys whose values are wrapped in
-    matching quotes, and whether the file uses CRLF line endings.
+def requote_lines(lines):
+    """Quote each bare value that Compose expands but that was meant
+    literally (requote_raw), keeping every other line verbatim.
+
+    Returns (lines, requoted_keys, conflict_keys).
     """
-    has_crlf = "\r" in content
-    quoted_keys = []
-    for line in content.split("\n"):
-        # Tolerate a trailing CR so key detection still works on CRLF files.
-        stripped = line.rstrip("\r").strip()
-        if not stripped or stripped.startswith("#"):
+    defined = set(k for k in (_key_of(line) for line in lines) if k)
+    out, requoted, conflicts = [], [], []
+    for line in lines:
+        key = _key_of(line)
+        if key is None:
+            out.append(line)
             continue
-        parts = stripped.split("=", 1)
-        if len(parts) != 2:
-            continue
-        key = parts[0].strip()
-        value = parts[1].strip()
-        if len(value) >= 2 and (
-            (value.startswith('"') and value.endswith('"'))
-            or (value.startswith("'") and value.endswith("'"))
-        ):
-            quoted_keys.append(key)
-    return quoted_keys, has_crlf
+        new_raw, conflict = requote_raw(raw_value_of(line), defined)
+        if conflict:
+            conflicts.append(key)
+        if new_raw is None:
+            out.append(line)
+        else:
+            out.append("%s=%s" % (key, new_raw))
+            requoted.append(key)
+    return out, requoted, conflicts
 
 
 def entries_to_dict(entries):
@@ -190,7 +193,8 @@ def entries_to_dict(entries):
 def run_module():
     module_args = dict(
         path=dict(type="str", required=True),
-        state=dict(type="str", default="read_all", choices=["read", "read_all", "set", "unset", "lint"]),
+        state=dict(type="str", default="read_all",
+                   choices=["read", "read_all", "set", "unset", "lint", "requote"]),
         key=dict(type="str", required=False),
         value=dict(type="str", required=False, no_log=True),
         keys=dict(type="list", elements="str", required=False),
@@ -226,9 +230,18 @@ def run_module():
         result["variables"] = env_dict
 
     elif state == "lint":
-        quoted_keys, has_crlf = lint_env_file(content)
-        result["quoted_keys"] = quoted_keys
-        result["has_crlf"] = has_crlf
+        result["has_crlf"] = lint_env_file(content)
+
+    elif state == "requote":
+        lines, requoted, conflicts = requote_lines(parse_env_lines(content))
+        result["requoted_keys"] = requoted
+        result["conflict_keys"] = conflicts
+        if requoted:
+            changed = True
+            if not module.check_mode:
+                with open(path, "w") as f:
+                    f.write(lines_to_content(lines))
+        result["changed"] = changed
 
     elif state == "read":
         if not key:
@@ -249,22 +262,22 @@ def run_module():
             module.fail_json(msg="value is required when state=set")
             return
         lines = parse_env_lines(content)
-        # Compare against the raw (un-stripped) value so a quote-only change
-        # (KEY="secret" -> KEY=secret) is detected and repaired, and so an
-        # already-clean identical value stays idempotent.
+        try:
+            new_lines = set_line(lines, key, value)
+        except ValueError as e:
+            module.fail_json(msg=str(e))
+            return
+        # Compare against the raw value as it would be written, so a
+        # quote-only change (KEY="secret" -> KEY=secret) is detected and
+        # repaired, and an identical line stays idempotent.
         old_raw = None
         for line in lines:
             if _key_of(line) == key:
                 old_raw = raw_value_of(line)
                 break
         stale = [k for k in old_names(key) if k in file_dict]
-        if old_raw != value or stale:
+        if old_raw != quote_value(value) or stale:
             changed = True
-            try:
-                new_lines = set_line(lines, key, value)
-            except ValueError as e:
-                module.fail_json(msg=str(e))
-                return
             for k in stale:
                 new_lines = unset_lines(new_lines, k)
             if not module.check_mode:

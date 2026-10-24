@@ -805,10 +805,7 @@ def _gather_runtime(path, host, inst=None):
             if "=" not in line or line.startswith("#"):
                 continue
             key, val = line.split("=", 1)
-            val = val.strip()
-            if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
-                val = val[1:-1]
-            template_literals[key.strip()] = val
+            template_literals[key.strip()] = _helpers._unquote(val)
     return running, uses_cirrus, template_literals
 
 

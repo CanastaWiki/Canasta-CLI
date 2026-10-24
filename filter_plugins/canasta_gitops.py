@@ -24,6 +24,11 @@ from canasta_env_keys import (  # noqa: E402
     RENAMED_ENV_KEYS,
     modernize_text as canasta_env_modernize,
 )
+from canasta_env_quote import (  # noqa: E402
+    quote_value,
+    requote_raw,
+    unquote_value,
+)
 
 ENCRYPTION_FILTER = "git-crypt"
 
@@ -201,11 +206,14 @@ def canasta_chart_values_refresh(values, shipped, base=None, former=None,
 def canasta_env_render(template, env_vars):
     """Render env.template with a host's placeholder values.
 
-    A `KEY={{name}}` line takes the value of `name`; one with no value, or
-    a null, is left out rather than written as `KEY=`, so the reader's own
-    default applies. Every other line is copied as is.
+    A `KEY={{name}}` line takes the value of `name`, quoted as .env needs
+    it; one with no value, or a null, is left out rather than written as
+    `KEY=`, so the reader's own default applies. A literal whose bare `$`
+    Compose would expand is quoted (requote_raw); every other line is
+    copied as is.
     """
     env_vars = env_vars or {}
+    defined = _template_keys(template)
     out = []
     for line in str(template or "").split("\n"):
         if "={{" in line and "}}" in line:
@@ -213,7 +221,11 @@ def canasta_env_render(template, env_vars):
             placeholder = line.split("={{", 1)[1].split("}}", 1)[0]
             value = env_vars.get(placeholder, "")
             if value is not None and value != "":
-                out.append("%s=%s" % (key, value))
+                out.append("%s=%s" % (key, quote_value(str(value))))
+        elif "=" in line and not line.lstrip().startswith("#"):
+            key, raw = line.split("=", 1)
+            requoted, _ = requote_raw(raw, defined)
+            out.append(line if requoted is None else "%s=%s" % (key, requoted))
         else:
             out.append(line)
     return canasta_env_modernize("".join(line + "\n" for line in out))
@@ -268,13 +280,14 @@ def canasta_env_legacy_keys(names, template):
 
 
 def _env_values(content):
-    """Map each KEY of a .env-style text to its raw value."""
+    """Map each KEY of a .env-style text to its value, unquoted as
+    canasta_env reads it."""
     values = {}
     for line in str(content or "").splitlines():
         if not line.strip() or line.lstrip().startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        values[key.strip()] = value
+        values[key.strip()] = unquote_value(value)
     return values
 
 
