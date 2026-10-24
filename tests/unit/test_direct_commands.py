@@ -3525,14 +3525,23 @@ class TestBackupList:
         assert rc == 0
         assert "mkdir" not in calls[0][0][-1]
 
-    def test_quoted_and_crlf_env_warns(self, monkeypatch, capsys):
+    def test_crlf_env_warns(self, monkeypatch, capsys):
         rc, _ = self._list_with_env(
             monkeypatch,
             'RESTIC_REPOSITORY=s3:x/b\r\nRESTIC_PASSWORD="pw"\r\n')
         assert rc == 0
         err = capsys.readouterr().err
-        assert "quoted values (RESTIC_PASSWORD)" in err
+        assert "quoted" not in err
         assert "CRLF line endings" in err
+
+    def test_restic_gets_the_env_decoded(self, monkeypatch):
+        rc, calls = self._list_with_env(
+            monkeypatch,
+            "RESTIC_REPOSITORY=s3:x/b\nRESTIC_PASSWORD='p$w'\n")
+        assert rc == 0
+        cmd = calls[0][0][-1]
+        assert "--env-file <(sed -e " in cmd
+        assert "--env-file '" not in cmd
 
     def test_remote_run_gets_the_restic_timeout(self, monkeypatch):
         from direct_commands import backup as backup_cmd
@@ -5127,41 +5136,17 @@ class TestDockerHostPropagation:
 
 
 class TestLintEnvContent:
-    """_lint_env_content flags quoted values / CRLF that survive read-time
-    stripping but reach docker --env-file literally."""
+    """_lint_env_content flags CRLF, which survives read-time stripping but
+    reaches docker --env-file literally."""
 
     def test_clean(self):
-        assert direct_commands._lint_env_content("A=1\nB=2\n# c\n") == (
-            [], False
-        )
+        assert direct_commands._lint_env_content("A=1\nB=2\n# c\n") is False
 
-    def test_double_quoted(self):
-        assert direct_commands._lint_env_content('PW="x"\n') == (["PW"], False)
-
-    def test_single_quoted(self):
-        assert direct_commands._lint_env_content("PW='x'\n") == (["PW"], False)
-
-    def test_unquoted_not_flagged(self):
-        assert direct_commands._lint_env_content("PW=x\n") == ([], False)
+    def test_quoted_values_are_not_flagged(self):
+        assert direct_commands._lint_env_content('PW="x"\nQ=\'y\'\n') is False
 
     def test_crlf(self):
-        assert direct_commands._lint_env_content("A=1\r\n") == ([], True)
-
-    def test_quoted_and_crlf(self):
-        # Trailing CR must not defeat quote detection.
-        assert direct_commands._lint_env_content('PW="x"\r\nA=1\r\n') == (
-            ["PW"], True
-        )
-
-    def test_comments_and_blanks_ignored(self):
-        assert direct_commands._lint_env_content('# PW="x"\n\nA=1\n') == (
-            [], False
-        )
-
-    def test_multiple_quoted_keys(self):
-        assert direct_commands._lint_env_content('A="1"\nB=2\nC=\'3\'\n') == (
-            ["A", "C"], False
-        )
+        assert direct_commands._lint_env_content("A=1\r\n") is True
 
 
 class TestResolveInstanceByCwd:

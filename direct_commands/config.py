@@ -6,23 +6,17 @@ from . import _helpers
 from ._helpers import register
 
 
-def _warn_env_hygiene(quoted_keys, has_crlf):
+def _warn_env_hygiene(has_crlf):
     """Print a one-line .env hygiene advisory to stderr (never stdout, so
-    `V=$(canasta config get KEY)` stays clean). Quoted values and CRLF are
-    stripped on read — so the value printed above looks correct — but
-    containers (docker --env-file) receive them literally."""
-    parts = []
-    if quoted_keys:
-        parts.append("quoted values (%s)" % ", ".join(quoted_keys))
-    if has_crlf:
-        parts.append("CRLF line endings")
-    if not parts:
+    `V=$(canasta config get KEY)` stays clean). A CR is stripped on read —
+    so the value printed above looks correct — but containers
+    (docker --env-file) receive it literally."""
+    if not has_crlf:
         return
     print(
-        "Warning: .env has %s. Containers (docker --env-file) receive these "
-        "literally — the quotes / trailing CR become part of the value, "
-        "unlike what's shown above. Remove the quotes and use LF line endings."
-        % " and ".join(parts),
+        "Warning: .env has CRLF line endings. Containers (docker --env-file) "
+        "receive these literally — the trailing CR becomes part of the "
+        "value, unlike what's shown above. Use LF line endings.",
         file=sys.stderr,
     )
 
@@ -38,10 +32,10 @@ def cmd_config_get(args):
         print("No configuration found.", file=sys.stderr)
         return 1
 
-    # Lint the raw file so we can warn (to stderr) when a value the user is
-    # reading is quoted or the file is CRLF — those look fine here (stripped
-    # on read) but reach containers literally.
-    quoted_keys, has_crlf = _helpers._lint_env_content(
+    # Lint the raw file so we can warn (to stderr) when the file is CRLF —
+    # that looks fine here (stripped on read) but reaches containers
+    # literally.
+    has_crlf = _helpers._lint_env_content(
         _helpers._read_env_content(path, host)
     )
 
@@ -60,9 +54,7 @@ def cmd_config_get(args):
                 print("%s=%s" % (k, env_vars[k]))
             else:
                 print("Key '%s' not found." % k)
-        # Scope the quoted-value warning to the keys actually requested;
-        # CRLF is file-level so it always applies to the value(s) shown.
-        _warn_env_hygiene([k for k in keys if k in quoted_keys], has_crlf)
+        _warn_env_hygiene(has_crlf)
         return 0
 
     secret_keys = _helpers._read_secret_key_names(path, host)
@@ -78,5 +70,5 @@ def cmd_config_get(args):
             "--show-secrets for all of them." % redacted,
             file=sys.stderr,
         )
-    _warn_env_hygiene(quoted_keys, has_crlf)
+    _warn_env_hygiene(has_crlf)
     return 0
