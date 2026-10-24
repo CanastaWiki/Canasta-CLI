@@ -650,6 +650,9 @@
     - name: Reconcile caddy image and crowdsec.enabled in values.yaml
       ansible.builtin.include_tasks: k8s_reconcile_caddy.yml
 
+    - name: Reconcile the Elasticsearch heap in values.yaml
+      ansible.builtin.include_tasks: k8s_reconcile_elasticsearch.yml
+
     # Slurp values.yaml from the target host once and parse it. All
     # three downstream reads (web.replicaCount, db.enabled,
     # argocd.syncPolicy) used to call lookup('file', instance_path ~
