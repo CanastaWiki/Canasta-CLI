@@ -150,32 +150,24 @@
         (_backup_repo_env.value | default('')) == ''
         or (_backup_pw_env.value | default('')) == ''
 
-    # Quoted values and CRLF endings are stripped by canasta_env on read
-    # (so `canasta config get` looks fine) but pass through Docker's
-    # --env-file literally, a common cause of restic "wrong password".
-    # Surface it as an advisory rather than failing.
-    - name: Check .env for quoted or CRLF values
+    # CRLF endings are stripped by canasta_env on read (so `canasta config
+    # get` looks fine) but pass through Docker's --env-file literally, a
+    # common cause of restic "wrong password". Surface it as an advisory
+    # rather than failing.
+    - name: Check .env for CRLF line endings
       canasta_env:
         path: "{{ instance_path }}/.env"
         state: lint
       register: _backup_env_lint
 
-    - name: Build .env hygiene warning
-      ansible.builtin.set_fact:
-        _backup_env_warn: >-
-          {{ ([] if _backup_env_lint.quoted_keys | length == 0
-               else ['quoted values (' + (_backup_env_lint.quoted_keys | join(', ')) + ')'])
-             + ([] if not _backup_env_lint.has_crlf else ['CRLF line endings']) }}
-
-    - name: Warn about quoted or CRLF .env values
+    - name: Warn about CRLF .env line endings
       ansible.builtin.debug:
         msg: >-
-          Warning: {{ instance_path }}/.env has {{ _backup_env_warn | join(' and ') }}.
-          Docker --env-file passes these to restic literally (unlike
-          'canasta config get', which strips them) — a common cause of restic
-          'wrong password' or backend auth failures. Remove surrounding quotes
-          and use LF line endings.
-      when: _backup_env_warn | length > 0
+          Warning: {{ instance_path }}/.env has CRLF line endings.
+          Docker --env-file passes the CR to restic literally (unlike
+          'canasta config get', which strips it) — a common cause of restic
+          'wrong password' or backend auth failures. Use LF line endings.
+      when: _backup_env_lint.has_crlf
 
     # restic prints its progress line only to a terminal unless
     # RESTIC_PROGRESS_FPS is set, and the container has none here. A low
@@ -209,7 +201,7 @@
             cmd: |
               set -o pipefail
               {{ inspect_command }} run --rm -i \
-                --env-file {{ instance_path }}/.env \
+                --env-file {{ (instance_path ~ '/.env') | canasta_dotenv_decoded }} \
                 -e RESTIC_PROGRESS_FPS={{ backup_progress_fps | default('0.05') }} \
               {% if _backup_sources %}
               {% for src, dst in _backup_sources.items() %}
