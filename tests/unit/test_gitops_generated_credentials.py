@@ -123,7 +123,7 @@ class TestRoundTrip:
         rendered = (inst / ".env").read_text().splitlines()
         assert "OS_USER=admin" in rendered
         assert "OS_PASSWORD=s3cr#t-pw" in rendered
-        assert "OS_PASSWORD_HASH=" + HASH in rendered
+        assert "OS_PASSWORD_HASH='%s'" % HASH in rendered
 
         staged = subprocess.run(
             ["git", "diff", "--cached", "--name-only"], cwd=inst,

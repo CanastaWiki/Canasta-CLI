@@ -19,6 +19,7 @@ import urllib.request
 import canasta_caddyfile
 import canasta_config
 import canasta_env_keys
+import canasta_env_quote
 import canasta_web_cause
 import yaml
 
@@ -196,35 +197,15 @@ def _instance_has_sidecars(inst):
 
 
 def _lint_env_content(content):
-    """Find .env hygiene problems that survive read-time quote-stripping but
-    reach `docker --env-file` literally: quoted values and CRLF endings.
-    Mirrors canasta_env.lint_env_file() in the Ansible module. Returns
-    (quoted_keys, has_crlf).
-    """
-    has_crlf = "\r" in content
-    quoted_keys = []
-    for line in content.split("\n"):
-        # Tolerate a trailing CR so key detection works on CRLF files.
-        stripped = line.rstrip("\r").strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        parts = stripped.split("=", 1)
-        if len(parts) != 2:
-            continue
-        key = parts[0].strip()
-        value = parts[1].strip()
-        if len(value) >= 2 and (
-            (value.startswith('"') and value.endswith('"'))
-            or (value.startswith("'") and value.endswith("'"))
-        ):
-            quoted_keys.append(key)
-    return quoted_keys, has_crlf
+    """True if .env uses CRLF line endings, which reach `docker --env-file`
+    literally. Mirrors canasta_env.lint_env_file() in the Ansible module."""
+    return "\r" in content
 
 
 def _parse_env_entries(content):
     """Parse .env content into ordered (key, value, is_comment) tuples.
 
-    Values have surrounding quotes stripped, for reads. Mirrors
+    Values are unquoted the way Compose reads them. Mirrors
     canasta_env.parse_env_file() in the Ansible module.
     """
     entries = []
@@ -236,13 +217,8 @@ def _parse_env_entries(content):
         parts = stripped.split("=", 1)
         if len(parts) == 2:
             key = parts[0].strip()
-            value = parts[1].strip()
-            if len(value) >= 2 and (
-                (value.startswith('"') and value.endswith('"'))
-                or (value.startswith("'") and value.endswith("'"))
-            ):
-                value = value[1:-1]
-            entries.append((key, value, False))
+            entries.append(
+                (key, canasta_env_quote.unquote_value(parts[1]), False))
         else:
             entries.append((None, line, True))
     return entries
@@ -261,15 +237,20 @@ def _env_key_of(line):
 
 
 def _set_env_lines(lines, key, value):
-    """Rewrite the first line defining `key` as an unquoted 'key=value',
-    dropping later duplicates and appending if absent. Untouched lines are
-    kept verbatim so their quoting (and any inline '#') survives. Mirrors
-    canasta_env.set_line(), including its ValueError for a value containing
-    CR or LF."""
+    """Rewrite the first line defining `key` as 'key=value', the value
+    quoted only if Compose would otherwise change it, dropping later
+    duplicates and appending if absent. Untouched lines are kept verbatim so
+    their quoting (and any inline '#') survives. Mirrors
+    canasta_env.set_line(), including its ValueErrors."""
     if "\n" in value or "\r" in value:
         raise ValueError(
             "The value of %s contains a line break; .env values must be "
             "a single line." % key)
+    try:
+        value = canasta_env_quote.quote_value(value)
+    except ValueError as e:
+        raise ValueError("The value of %s cannot be stored in .env: %s."
+                         % (key, e))
     found = False
     new_lines = []
     for line in lines:
@@ -1542,10 +1523,8 @@ def _read_env(path, key):
 
 
 def _unquote(value):
-    """Strip one layer of surrounding single or double quotes."""
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-        return value[1:-1]
-    return value
+    """A raw .env value as canasta_env reads it."""
+    return canasta_env_quote.unquote_value(value)
 
 
 # Cache per (host, path, key): _resolve_compose_cmd is called on every

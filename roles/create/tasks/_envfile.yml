@@ -28,7 +28,7 @@
         path: "{{ instance_path }}/.env"
         state: set
         key: "{{ item.split('=', 1)[0] }}"
-        value: "{{ item.split('=', 1)[1] }}"
+        value: "{{ item.split('=', 1)[1] | canasta_env_unquote }}"
       loop: "{{ (_custom_env.content | b64decode).split('\n') | select('match', '^[A-Z].*=') | list }}"
       loop_control:
         label: "{{ item.split('=', 1)[0] }}"

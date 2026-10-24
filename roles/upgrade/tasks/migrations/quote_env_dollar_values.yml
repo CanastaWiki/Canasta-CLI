@@ -1,0 +1,33 @@
+---
+# Migration: quote the .env values whose `$` Compose expands.
+#
+# config set wrote values bare, so Compose read a `$` in one as the start of
+# a variable reference and passed the containers something else. A value
+# whose every `$` refers to another .env key is interpolation on purpose and
+# stays as it is.
+
+- name: Quote .env values containing $
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: requote
+  register: _mig_requote
+  when: _mig.files.env_has_bare_dollar | default(false)
+
+- name: Report quoted .env values
+  ansible.builtin.debug:
+    msg: >-
+      Quoted {{ _mig_requote.requoted_keys | join(', ') }} in .env so the
+      containers receive {{ 'its value' if _mig_requote.requoted_keys | length == 1
+      else 'their values' }} as written.
+  when: _mig_requote.requoted_keys | default([]) | length > 0
+
+- name: Warn about .env values left unquoted
+  ansible.builtin.debug:
+    msg: >-
+      Warning: {{ _mig_requote.conflict_keys | join(', ') }} in .env
+      {{ 'mixes' if _mig_requote.conflict_keys | length == 1 else 'mix' }}
+      references to other .env keys with other $ text, or cannot be quoted,
+      so Compose may pass the containers something other than what is
+      written. Check {{ 'it' if _mig_requote.conflict_keys | length == 1
+      else 'them' }} and set the intended value with 'canasta config set'.
+  when: _mig_requote.conflict_keys | default([]) | length > 0

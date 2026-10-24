@@ -24,6 +24,9 @@
 #   rx_retries  - number of completion polls (default: 180)
 #   rx_delay    - seconds between polls (default: 10)
 #   rx_fail     - fail the play on non-zero rc (default: true)
+#   rx_timeout_msg - when set, a job still running at the end of the wait
+#                 is reported as a warning ending with this text, and the
+#                 play continues, instead of failing
 #   rx_no_log   - hide the command and its output from Ansible's display
 #                 (default: false). It does not protect the async job file,
 #                 which holds the command line and output on the target
@@ -80,15 +83,45 @@
       # output, so honor rx_no_log here too.
       no_log: "{{ rx_no_log | default(false) | bool }}"
 
+    # A job still running when the polls run out, or killed by async_wrapper
+    # at the time limit, has no rc. The kill reaches only the client on the
+    # target (docker compose exec, kubectl exec), not necessarily the work
+    # it started in the container.
+    - name: "Check whether the wait ran out: {{ rx_name }}"
+      ansible.builtin.set_fact:
+        _rx_timed_out: >-
+          {{ rx_result.rc is not defined
+             and (not (rx_result.finished | default(false) | bool)
+                  or rx_result.msg | default('') == 'Timeout exceeded') }}
+        _rx_wait_minutes: >-
+          {{ (([rx_async | default(1800) | int,
+                (rx_retries | default(180) | int)
+                * (rx_delay | default(10) | int)] | min) / 60)
+             | round(0, 'ceil') | int }}
+
+    - name: "Report still running: {{ rx_name }}"
+      ansible.builtin.debug:
+        msg: >-
+          Warning: {{ rx_name }} did not finish within {{ _rx_wait_minutes }}
+          minute{{ '' if _rx_wait_minutes | int == 1 else 's' }} and may still
+          be running. {{ rx_timeout_msg }}
+      when:
+        - _rx_timed_out | bool
+        - rx_timeout_msg | default('') | length > 0
+
     - name: "Report failure: {{ rx_name }}"
       ansible.builtin.fail:
         msg: >-
-          {{ rx_name }} failed (rc={{ rx_result.rc | default('unknown') }}):
+          {% if _rx_timed_out | bool %}{{ rx_name }} did not finish within
+          {{ _rx_wait_minutes }} minute{{ '' if _rx_wait_minutes | int == 1 else 's' }}
+          and may still be running.{% else %}{{ rx_name }} failed
+          (rc={{ rx_result.rc | default('unknown') }}):
           {{ (rx_result.stderr | default('')) | trim
-             | default(rx_result.stdout | default(''), true) }}
+             | default(rx_result.stdout | default(''), true) }}{% endif %}
       when:
         - rx_fail | default(true) | bool
         - (rx_result.rc | default(1) | int) != 0
+        - not (_rx_timed_out | bool and rx_timeout_msg | default('') | length > 0)
       no_log: "{{ rx_no_log | default(false) | bool }}"
   always:
     - name: "Clean up async job file: {{ rx_name }}"

@@ -40,7 +40,7 @@ _SLOW_DOCKER = """#!/bin/sh
 case "$1" in
   --version) echo "Docker version 27.0.0" ;;
   compose) echo "Docker Compose version v2.30.0" ;;
-  info|system) exec sleep 5 ;;
+  info|system) exec sleep 60 ;;
 esac
 """
 
@@ -57,7 +57,7 @@ def _probe(tmp_path, monkeypatch):
     env = {"PATH": "%s:/usr/bin:/bin" % bin_dir, "HOME": str(tmp_path)}
     started = time.time()
     out = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
-                         env=env, timeout=60).stdout
+                         env=env, timeout=120).stdout
     return out, time.time() - started
 
 
@@ -67,8 +67,9 @@ def test_a_stalled_docker_reports_unknown_rather_than_not_running(tmp_path, monk
     assert probes["daemon"] == "TIMEOUT"
     assert probes["system_df"] == "unknown"
     assert not probes["disk"].endswith("|/var/lib/podman-store")
-    # docker info twice and docker system df, each cut off at 1 second.
-    assert elapsed < 10
+    # docker info twice and docker system df, each cut off at 1 second
+    # where the fake would hang for a minute.
+    assert elapsed < 30
     report = doctor._parse_doctor(out, "h")
     assert "Docker daemon:   unknown ('docker info' took over 1 seconds)" in report
     assert "NOT RUNNING" not in report
