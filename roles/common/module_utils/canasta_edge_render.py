@@ -23,6 +23,7 @@ __metaclass__ = type
 import ipaddress
 import math
 import re
+import unicodedata
 
 HAPROXY_IMAGE = "docker.io/library/haproxy:3.2.25-alpine"
 # Also the edge's openssl: the HAProxy image has none, and hosts may not.
@@ -89,12 +90,21 @@ LIMIT_KEYS = {
     "rate_default": "CANASTA_EDGE_RATE_DEFAULT",
 }
 
+# A wiki's localized names for the Special: namespace, as its API reports
+# them. They come from wiki configuration, so they are bounded and checked
+# before they reach the edge.
+SPECIAL_NAME_MAX = 64
+SPECIAL_NAMES_PER_WIKI = 10
+SPECIAL_NAMES_MAX = 100
+SPECIAL_NAMESPACE = "-1"
+
 DENY_UA_FILE = "config/edge-deny-user-agents.list"
 DENY_CIDR_FILE = "config/edge-deny-cidrs.list"
 
 _LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 _IPV4 = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 _INSTANCE_ID = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$")
+_SPECIAL_NAME_ASCII = re.compile(r"^[A-Za-z0-9_.~-]$")
 
 # Lines of an instance snippet are inlined into its backends. A line that
 # opens a section would end the backend early and attach the rest of the
@@ -184,6 +194,64 @@ def _user_agents(text, instance_id):
     return agents
 
 
+def _url_encoded(text):
+    """text with its non-ASCII characters percent-encoded as UTF-8, as a
+    browser sends them; HAProxy matches the URL as it arrives."""
+    return "".join(c if ord(c) < 128 else "".join("%%%02X" % b for b in c.encode("utf-8"))
+                   for c in text)
+
+
+def _special_name(value):
+    """value as it appears in a URL, or None unless it is a name made of
+    letters, marks, digits and _ . - ~ other than the canonical Special."""
+    if not isinstance(value, str):
+        return None
+    name = unicodedata.normalize("NFC", value.strip()).replace(" ", "_")
+    if not name or len(name) > SPECIAL_NAME_MAX or name.lower() == "special":
+        return None
+    for c in name:
+        if ord(c) < 128:
+            if not _SPECIAL_NAME_ASCII.match(c):
+                return None
+        elif unicodedata.category(c)[0] not in "LM" and unicodedata.category(c) != "Nd":
+            return None
+    if not any(c.isalnum() for c in name):
+        return None
+    return name
+
+
+def special_names(siteinfo):
+    """The localized names and aliases of the Special: namespace in a
+    siteinfo reply (namespaces|namespacealiases), cleaned for the edge, or
+    None when the reply has no namespaces."""
+    query = siteinfo.get("query") if isinstance(siteinfo, dict) else None
+    namespaces = query.get("namespaces") if isinstance(query, dict) else None
+    if not isinstance(namespaces, dict):
+        return None
+    special = namespaces.get(SPECIAL_NAMESPACE)
+    found = [special] if isinstance(special, dict) else []
+    aliases = query.get("namespacealiases")
+    found += [a for a in aliases if isinstance(a, dict) and str(a.get("id")) == SPECIAL_NAMESPACE] \
+        if isinstance(aliases, list) else []
+    names = []
+    for entry in found:
+        name = _special_name(entry.get("*", entry.get("name")))
+        if name and name not in names:
+            names.append(name)
+    return names[:SPECIAL_NAMES_PER_WIKI]
+
+
+def dynamic_patterns(names):
+    """The URL substrings that make a request for one of names' special
+    pages dynamic: each name percent-encoded, followed by its colon as typed
+    and as %3A, the two ways MediaWiki's links and forms send a namespace."""
+    clean = sorted({n for n in (_special_name(v) for v in names or ()) if n})
+    patterns = []
+    for name in clean[:SPECIAL_NAMES_MAX]:
+        patterns += [_url_encoded(name) + ":", _url_encoded(name) + "%3A"]
+    return patterns
+
+
 def rates_set(env):
     """Whether the operator set the per-client rates, which then apply even
     where client addresses may be lost (rootless Docker)."""
@@ -268,7 +336,8 @@ def acme_hostnames(inst):
 
 
 def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
-                         deny_user_agents="", deny_cidrs="", extra_hostnames=()):
+                         deny_user_agents="", deny_cidrs="", extra_hostnames=(),
+                         special_namespace_names=()):
     """Build the edge's view of one instance.
 
     env is the instance's .env as a dict, wikis the parsed wikis.yaml list,
@@ -276,6 +345,8 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
     edge snippet, and deny_user_agents and deny_cidrs the text of its deny
     lists (each empty when it has none). extra_hostnames are names its own
     Caddy serves besides its wikis, from site blocks in Caddyfile.global.
+    special_namespace_names are its wikis' localized names for the Special:
+    namespace.
     """
     if not _INSTANCE_ID.match(instance_id or ""):
         raise EdgeError("'%s' is not a valid instance ID." % instance_id)
@@ -414,6 +485,7 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         "rates_set": rates_set(env),
         "deny_user_agents": _user_agents(deny_user_agents, instance_id),
         "deny_cidrs": _networks(deny_cidrs, instance_id, DENY_CIDR_FILE),
+        "dynamic_patterns": dynamic_patterns(special_namespace_names),
         "limits": {
             "dynamic_maxconn": _limit(env, LIMIT_KEYS["dynamic_maxconn"], instance_id, None, False),
             "default_maxconn": _limit(env, LIMIT_KEYS["default_maxconn"], instance_id, None, False),
@@ -714,9 +786,21 @@ _ROUTING = [
     "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host credentials php",
     "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host !METH_GET",
     "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host has_action !view_action",
+]
+
+_ROUTING_REST = [
     "    use_backend be_%[var(txn.inst)]_default if known_site",
     "    default_backend be_no_site",
 ]
+
+
+def _routing(instances):
+    """The routing rules, with each instance's own dynamic URL parts
+    applied to its hostnames only."""
+    own = ["    use_backend be_%s_dynamic if { var(txn.inst) -m str %s } !media_host "
+           "{ url_sub -i -f %s }" % (i["id"], i["id"], _list_path("dynamic-%s.lst" % i["id"]))
+           for i in instances if i.get("dynamic_patterns")]
+    return _ROUTING + own + _ROUTING_REST
 
 
 def _frontend_name(port, tls):
@@ -748,7 +832,7 @@ def _render_frontend(port, tls, instances, thumbprint, binds):
         out += _acme_rule(thumbprint)
         out += _site_lookup(port)
         out += _client_address_rules(instances)
-        return out + _ROUTING
+        return out + _routing(instances)
     out += ["    bind %s" % b for b in binds]
     out += _acme_rule(thumbprint)
     plain = [i for i in instances if i["plain"] and i["http_port"] == port]
@@ -772,7 +856,7 @@ def _render_frontend(port, tls, instances, thumbprint, binds):
         return out + ["    http-request redirect scheme https code 301"]
     out += ["    http-request redirect scheme https code 301 if { var(txn.inst) -m str %s }"
             % i["id"] for i in secure if i["https_port"] == 443]
-    return out + _ROUTING
+    return out + _routing(plain)
 
 
 def _trusted_list(inst):
@@ -919,7 +1003,8 @@ def render(instances, acme_thumbprint=None, cdn_ranges=None, ipv6=False, sockets
     for inst in instances:
         for name, entries_ in (("trusted-%s.lst", inst["trusted_cidrs"]),
                                ("deny-cidr-%s.lst", inst["deny_cidrs"]),
-                               ("deny-ua-%s.lst", inst["deny_user_agents"])):
+                               ("deny-ua-%s.lst", inst["deny_user_agents"]),
+                               ("dynamic-%s.lst", inst["dynamic_patterns"])):
             if entries_:
                 files[name % inst["id"]] = _lines(entries_)
         if inst["crowdsec"]:

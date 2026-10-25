@@ -316,6 +316,109 @@ def test_the_existing_trusted_proxy_forms_render_as_before(value, rule, lists):
     assert {f for f in files if f.endswith(".lst")} == lists
 
 
+def _siteinfo(name, aliases=(), canonical="Special"):
+    return {"batchcomplete": "", "query": {
+        "namespaces": {"-1": {"id": -1, "case": "first-letter", "canonical": canonical, "*": name},
+                       "0": {"id": 0, "case": "first-letter", "content": "", "*": ""},
+                       "2": {"id": 2, "case": "first-letter", "canonical": "User", "*": "Benutzer"}},
+        "namespacealiases": [{"id": -1, "*": a} for a in aliases]
+        + [{"id": 2, "*": "Benutzerin"}]}}
+
+
+def test_special_names_come_from_the_namespace_and_its_aliases():
+    assert edge.special_names(_siteinfo("Spezial", ["Spécial", "Spezial"])) == ["Spezial", "Spécial"]
+
+
+def test_special_names_read_formatversion_2_too():
+    data = {"query": {"namespaces": {"-1": {"id": -1, "name": "Служебная"}},
+                      "namespacealiases": [{"id": -1, "alias": "x"}]}}
+    assert edge.special_names(data) == ["Служебная"]
+
+
+def test_the_canonical_special_is_left_to_the_built_in_rule():
+    assert edge.special_names(_siteinfo("Special")) == []
+    assert edge.special_names(_siteinfo("Spezial", ["special", "SPECIAL"])) == ["Spezial"]
+
+
+def test_spaces_become_underscores():
+    assert edge.special_names(_siteinfo(" Página especial ")) == ["Página_especial"]
+
+
+@pytest.mark.parametrize("name", [
+    "Spe:zial", "Spezial\nbackend x", 'Spezial"', "Spe\\zial", "Spezial#", "Spe%zial",
+    "Spezial{", "Spezial|x", "Spe/zial", "a" * 65, "Spezial\u200b", "Spezial\x00", "_-", "",
+    "Spezial?x=1", "Spe\tzial", "١٢\u2066", 42, None, ["Spezial"],
+])
+def test_hostile_special_names_are_dropped(name):
+    assert edge.special_names(_siteinfo(name, ["Spezial"])) == ["Spezial"]
+
+
+@pytest.mark.parametrize("reply", [
+    {}, [], "x", {"query": {}}, {"query": {"namespaces": []}},
+    {"error": {"code": "readapidenied"}},
+])
+def test_a_reply_without_namespaces_gives_no_answer(reply):
+    assert edge.special_names(reply) is None
+
+
+def test_a_wiki_gives_a_bounded_number_of_names():
+    names = edge.special_names(_siteinfo("S0", ["S%d" % n for n in range(1, 50)]))
+    assert len(names) == edge.SPECIAL_NAMES_PER_WIKI
+
+
+def test_dynamic_patterns_are_encoded_with_both_colons():
+    assert edge.dynamic_patterns(["Spezial", "Spécial", "特別", "Spezial", "विशेष"]) == [
+        "Spezial:", "Spezial%3A", "Sp%C3%A9cial:", "Sp%C3%A9cial%3A",
+        "%E0%A4%B5%E0%A4%BF%E0%A4%B6%E0%A5%87%E0%A4%B7:",
+        "%E0%A4%B5%E0%A4%BF%E0%A4%B6%E0%A5%87%E0%A4%B7%3A",
+        "%E7%89%B9%E5%88%A5:", "%E7%89%B9%E5%88%A5%3A"]
+
+
+def test_dynamic_patterns_drop_what_is_not_a_name():
+    assert edge.dynamic_patterns(["Spe:zial", "Special", "Spezial", 3]) == ["Spezial:", "Spezial%3A"]
+
+
+def test_dynamic_patterns_are_bounded():
+    names = ["S%d" % n for n in range(edge.SPECIAL_NAMES_MAX + 10)]
+    assert len(edge.dynamic_patterns(names)) == 2 * edge.SPECIAL_NAMES_MAX
+
+
+def _named(instance_id, urls, names, env=None):
+    return edge.instance_from_config(
+        instance_id, env or {}, [{"id": "w0", "url": u} for u in urls],
+        special_namespace_names=names)
+
+
+def test_special_names_go_to_a_list_scoped_to_the_instance():
+    main = _two()[0]
+    other = _named("other", ("other.example.org",), ["Spezial"])
+    files = edge.render([main, other])["files"]
+    assert files["dynamic-other.lst"] == "Spezial:\nSpezial%3A\n"
+    assert "dynamic-main.lst" not in files
+    rule = ("    use_backend be_other_dynamic if { var(txn.inst) -m str other } !media_host "
+            "{ url_sub -i -f /usr/local/etc/haproxy/dynamic-other.lst }")
+    lines = files["haproxy.cfg"].splitlines()
+    assert lines.count(rule) == 1
+    assert lines.index(rule) < lines.index("    use_backend be_%[var(txn.inst)]_default if known_site")
+    assert "dynamic-main.lst" not in files["haproxy.cfg"]
+
+
+def test_no_special_names_leave_the_edge_unchanged():
+    main, other = _two()
+    named = edge.instance_from_config(
+        "other", {"TLS_MODE": "custom", "PM_MAX_CHILDREN": "10", "CANASTA_ENABLE_VARNISH": "false"},
+        [{"id": "w0", "url": "other.example.org"}],
+        snippet="# tighter\nhttp-request deny if { path_beg /private }\n",
+        special_namespace_names=["Special", "special", ""])
+    assert edge.render([main, named])["files"] == edge.render([main, other])["files"]
+
+
+def test_a_plain_http_instance_gets_its_special_names():
+    inst = _named("wiki1", ("example.com",), ["Spezial"], {"TLS_MODE": "off"})
+    http = edge.render([inst])["files"]["haproxy.cfg"].split("frontend http\n", 1)[1]
+    assert "use_backend be_wiki1_dynamic if { var(txn.inst) -m str wiki1 }" in http
+
+
 def test_uploads_skip_the_body_wait():
     cfg = edge.render([_inst()])["files"]["haproxy.cfg"]
     assert "http-request wait-for-body time 5s at-least 2m if !upload" in cfg
