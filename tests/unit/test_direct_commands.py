@@ -304,6 +304,20 @@ class TestListCheckWikis:
         assert details[0]["wikis"][0]["liveness"] == "reachable"
         assert "liveness" not in details[1]["wikis"][0]
 
+    def test_probes_running_instance_with_status_suffix(self, monkeypatch):
+        details = [
+            {"id": "up", "host": "localhost",
+             "status": "RUNNING  [DB ACCOUNT MOVE PENDING]",
+             "wikis": [{"id": "main", "url": "up.example.com"}]},
+        ]
+        monkeypatch.setattr(
+            direct_commands._helpers, "_probe_wiki",
+            lambda url, host, instance_path="": direct_commands._helpers.WIKI_REACHABLE,
+        )
+        direct_commands.info._annotate_wiki_liveness(details, {"up": {"path": "/srv/up"}})
+
+        assert details[0]["wikis"][0]["liveness"] == "reachable"
+
     def test_table_shows_verdict(self, capsys):
         direct_commands._helpers._print_table([{
             "id": "mysite", "host": "localhost", "path": "/srv/mysite",
@@ -1642,7 +1656,7 @@ class TestLifecycleCommands:
             tasks = yaml.safe_load(f)
         steps = [t["ansible.builtin.include_role"]["tasks_from"]
                  for t in tasks if "ansible.builtin.include_role" in t]
-        assert steps == ["stop.yml", "update_config.yml", "start.yml"]
+        assert steps == ["stop.yml", "update_config.yml", "start.yml", "edge_probe.yml"]
 
     def test_k8s_start_falls_back(self, monkeypatch):
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",

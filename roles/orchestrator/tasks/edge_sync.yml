@@ -175,6 +175,18 @@
     label: "{{ item.hostname }}"
   when: _edge_issue is not skipped
 
+- name: Report Let's Encrypt certificates not installed in HAProxy
+  ansible.builtin.debug:
+    msg: >-
+      The edge holds a Let's Encrypt certificate for {{ item.hostname }}, but
+      could not install it in HAProxy ({{ item.reason }}). Until the next
+      start installs it, the edge serves a certificate from its own CA, which
+      browsers do not trust.
+  loop: "{{ _edge_issue.uninstalled | default([]) }}"
+  loop_control:
+    label: "{{ item.hostname }}"
+  when: _edge_issue is not skipped
+
 - name: Stop the edge when no instance is behind it
   canasta_edge:
     state: stop

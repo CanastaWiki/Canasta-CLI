@@ -61,6 +61,7 @@
   vars:
     exec_service: web
     exec_command: "php maintenance/update.php --wiki={{ wiki | quote }}"
+    exec_user: www-data
     exec_long: true
     exec_long_timeout_msg: >-
       Once it ends, run 'canasta maintenance update -i {{ instance_id }}

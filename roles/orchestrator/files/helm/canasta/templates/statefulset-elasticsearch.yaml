@@ -1,4 +1,16 @@
 {{- if .Values.elasticsearch.enabled }}
+{{- $heap := toString .Values.elasticsearch.heap }}
+{{- if not (regexMatch "^[1-9][0-9]*[mMgG]$" $heap) }}
+{{- fail (printf "elasticsearch.heap is '%s', but it must be a whole number of megabytes or gigabytes, such as 768m or 4g" $heap) }}
+{{- end }}
+{{- $heapMi := atoi (trimSuffix "m" (trimSuffix "g" (lower $heap))) }}
+{{- if hasSuffix "g" (lower $heap) }}
+{{- $heapMi = mul $heapMi 1024 }}
+{{- end }}
+{{- $resources := mustMergeOverwrite
+      (dict "requests" (dict "memory" (printf "%dMi" (mul $heapMi 2)))
+            "limits" (dict "memory" (printf "%dMi" (mul $heapMi 4))))
+      (deepCopy (.Values.elasticsearch.resources | default dict)) }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -36,14 +48,12 @@ spec:
             - name: discovery.type
               value: single-node
             - name: ES_JAVA_OPTS
-              value: "-Xms256m -Xmx256m"
+              value: {{ printf "-Xms%s -Xmx%s" $heap $heap | quote }}
           volumeMounts:
             - name: es-data
               mountPath: /usr/share/elasticsearch/data
-          {{- with .Values.elasticsearch.resources }}
           resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+            {{- toYaml $resources | nindent 12 }}
           # Elasticsearch under the CPU limit can take minutes to open
           # its port on first start; the liveness probe alone would kill
           # it at ~90s forever. The startup probe owns that window (up
