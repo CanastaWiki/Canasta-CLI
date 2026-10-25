@@ -18,18 +18,24 @@
   loop: "{{ settings }}"
   when: item is not match('^[A-Za-z_][A-Za-z0-9_]*=')
 
+- name: Name the image the rebuild produces
+  ansible.builtin.set_fact:
+    _set_build_arg_output: >-
+      {{ 'canasta:local' if (instance_is_k8s | bool)
+         else 'canasta:local-' ~ instance_id }}
+
 - name: Refuse a BASE_IMAGE that is the build-from output tag
   ansible.builtin.fail:
     msg: >-
-      BASE_IMAGE=canasta:local collides with the build-from output tag
-      (canasta:local): the overlay would build FROM its own output and
-      overwrite it. Tag the base under a distinct name, e.g.
-      `docker tag canasta:local canasta:merged`, and set
+      BASE_IMAGE={{ _set_build_arg_output }} collides with the build-from
+      output tag ({{ _set_build_arg_output }}): the overlay would build FROM
+      its own output and overwrite it. Tag the base under a distinct name,
+      e.g. `docker tag {{ _set_build_arg_output }} canasta:merged`, and set
       BASE_IMAGE=canasta:merged.
   when: >-
     (_instance_result.instance.buildArgs | default([])
      | canasta_set_build_args(settings)
-     | select('equalto', 'BASE_IMAGE=canasta:local') | list | length) > 0
+     | select('equalto', 'BASE_IMAGE=' ~ _set_build_arg_output) | list | length) > 0
 
 - name: Apply the new build arguments
   ansible.builtin.include_tasks: >-
