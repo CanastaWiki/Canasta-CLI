@@ -1,0 +1,84 @@
+---
+# Check a config key and its value, for config set and for the settings
+# of create's -e env file. Reads nothing from the instance.
+# Input: _config_key (str), _config_value (str; undefined on unset),
+#        instance_is_k8s (bool)
+
+# Listening ports are a Compose-only concept. On Kubernetes the Ingress
+# always serves on 80/443 and there is no per-instance port field in the
+# Helm chart, so a port change can never reach the cluster. Worse, the
+# Compose port side effects (_side_effects.yml) carry no orchestrator
+# guard, so on K8s they would rewrite MW_SITE_SERVER / MW_SITE_FQDN in
+# .env with a :port suffix nothing serves. Block the keys on K8s rather
+# than let the change silently mislead the operator.
+# Input validation, not action dispatch — kept here by design.
+- name: Block port keys on Kubernetes (Ingress serves 80/443)
+  ansible.builtin.fail:
+    msg: |
+      '{{ _config_key }}' cannot be set on a Kubernetes instance. The
+      Ingress always serves on ports 80 and 443; there is no configurable
+      listening port for a Kubernetes instance.
+
+      To expose the wiki on a different external port, configure it at the
+      load balancer or Ingress controller in front of the cluster.
+  when:
+    - instance_is_k8s | bool
+    - _config_key in ['HTTP_PORT', 'HTTPS_PORT']
+
+# TLS_MODE and its certificate files configure the HAProxy edge, which
+# Compose has and Kubernetes does not. Its _side_effects.yml scheme handler
+# carries no orchestrator guard, so on K8s TLS_MODE=off would rewrite
+# MW_SITE_SERVER to http:// (a scheme nothing serves).
+- name: Block the edge's TLS keys on Kubernetes (Ingress terminates TLS)
+  ansible.builtin.fail:
+    msg: |
+      '{{ _config_key }}' cannot be set on a Kubernetes instance. TLS for a
+      Kubernetes instance is handled by the Ingress and cert-manager.
+  when:
+    - instance_is_k8s | bool
+    - _config_key in ['TLS_MODE', 'TLS_MODE_HOSTS', 'TLS_CERT', 'TLS_KEY']
+
+- name: Validate TLS_MODE_HOSTS
+  ansible.builtin.include_tasks: _validate_tls_mode_hosts.yml
+  when: _config_key == 'TLS_MODE_HOSTS'
+
+- name: Validate TRUSTED_PROXIES
+  ansible.builtin.include_tasks: _validate_trusted_proxies.yml
+  when: _config_key == 'TRUSTED_PROXIES'
+
+- name: Validate CANASTA_ELASTICSEARCH_HEAP
+  ansible.builtin.fail:
+    msg: >-
+      CANASTA_ELASTICSEARCH_HEAP must be a whole number of megabytes or
+      gigabytes, such as 768m or 4g. Got '{{ _config_value }}'.
+  when:
+    - _config_key == 'CANASTA_ELASTICSEARCH_HEAP'
+    - _config_value is defined
+    - _config_value is not match('^[1-9][0-9]*[mMgG]$')
+
+- name: Validate port is numeric
+  ansible.builtin.fail:
+    msg: "{{ _config_key }} must be a number (got '{{ _config_value }}')"
+  when:
+    - _config_key in ['HTTP_PORT', 'HTTPS_PORT']
+    - _config_value is defined
+    - _config_value | regex_search('^[0-9]+$') is none
+
+- name: Validate port range for HTTP_PORT/HTTPS_PORT
+  ansible.builtin.fail:
+    msg: "{{ _config_key }} must be between 1 and 65535 (got '{{ _config_value }}')"
+  when:
+    - _config_key in ['HTTP_PORT', 'HTTPS_PORT']
+    - _config_value is defined
+    - _config_value | regex_search('^[0-9]+$') is not none
+    - _config_value | int < 1 or _config_value | int > 65535
+
+- name: Validate TLS_MODE value
+  ansible.builtin.fail:
+    msg: >-
+      TLS_MODE must be 'acme', 'acme-dns', 'internal', 'custom' or 'off'
+      (got '{{ _config_value }}')
+  when:
+    - _config_key == 'TLS_MODE'
+    - _config_value is defined
+    - _config_value | trim | lower not in ['acme', 'acme-dns', 'internal', 'custom', 'off']
