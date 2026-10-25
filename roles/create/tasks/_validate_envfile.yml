@@ -27,10 +27,25 @@
   vars:
     _config_key: "{{ _validate_env_setting.split('=', 1)[0] }}"
     _config_value: "{{ _validate_env_setting.split('=', 1)[1] | canasta_env_unquote }}"
+    _config_compose_only_ok: true
   loop: "{{ _validate_env_settings }}"
   loop_control:
     loop_var: _validate_env_setting
     label: "{{ _validate_env_setting.split('=', 1)[0] }}"
+
+# An env file shared with Compose instances may carry these; on Kubernetes
+# they reach .env but nothing reads them.
+- name: Warn about Compose-only keys on Kubernetes
+  ansible.builtin.debug:
+    msg: "Warning: {{ _validate_env_key }} does not apply to a Kubernetes instance; it is written to .env as is."
+  loop: >-
+    {{ _validate_env_settings | map('regex_replace', '=.*$', '') | unique
+       | select('in', ['HTTP_PORT', 'HTTPS_PORT', 'TLS_MODE', 'TLS_MODE_HOSTS',
+                       'TLS_CERT', 'TLS_KEY'])
+       | list }}
+  loop_control:
+    loop_var: _validate_env_key
+  when: instance_is_k8s | bool
 
 - name: List the keys create sets itself
   ansible.builtin.set_fact:

@@ -103,6 +103,41 @@ def _role_tasks(*parts):
         return yaml.safe_load(handle)
 
 
+LEARN = {"name": "orchestrator", "tasks_from": "edge_learn.yml"}
+
+
+def test_start_and_restart_learn_the_special_names_once_the_containers_are_up():
+    for name in ("start.yml", "restart.yml"):
+        tasks = _role_tasks("roles", "instance_lifecycle", "tasks", name)
+        up = _index(tasks, lambda t: t.get("name") == "Start containers")
+        learn = _index(tasks, lambda t: t.get("ansible.builtin.include_role") == LEARN)
+        assert up < learn and "when" not in tasks[learn]
+
+
+def test_create_learns_the_special_names_after_the_wiki_is_set_up():
+    tasks = _role_tasks("roles", "create", "tasks", "main.yml")
+    last_start = _index(tasks, lambda t: t.get("name") == "Start containers with full config")
+    update = _index(tasks, lambda t: t.get("name") == "Run update.php for the imported wiki")
+    learn = _index(tasks, lambda t: t.get("ansible.builtin.include_role") == LEARN)
+    assert last_start < update < learn and "when" not in tasks[learn]
+
+
+def test_upgrade_learns_the_special_names_of_instances_left_running():
+    tasks = _role_tasks("playbooks", "_upgrade_single.yml")
+    upgrade = _index(tasks, lambda t: t.get("ansible.builtin.include_role") == {"name": "upgrade"})
+    learn = _index(tasks, lambda t: t.get("ansible.builtin.include_role") == LEARN)
+    assert upgrade < learn
+    assert "_was_running | default(false) | bool" in tasks[learn]["when"]
+    assert "not (_upgrade_restart_failed | default(false) | bool)" in tasks[learn]["when"]
+
+
+def test_learning_is_a_no_op_on_kubernetes_and_never_fails_the_command():
+    task = _tasks("edge_learn.yml")[0]
+    assert task["canasta_edge"]["state"] == "learn"
+    assert task["when"] == "not (instance_is_k8s | bool)"
+    assert task["failed_when"] is False
+
+
 def _probes(task):
     return (task.get("ansible.builtin.include_role") or {}).get("tasks_from") == "edge_probe.yml"
 
