@@ -7,9 +7,10 @@
 # Sets _upgrade_rebuilt_image_changed: whether the running web containers run
 # something other than the rebuilt image. A rebuild of unchanged source yields
 # the same image, and restarting for it is a needless outage. The comparison is
-# against what runs, not against the image before the build, because every
-# build_from instance on a host shares the one output tag: an earlier instance
-# in the same upgrade run may already have moved it.
+# against what runs, not against the image before the build: on Kubernetes
+# every build_from instance shares the one output tag, so an earlier instance
+# in the same upgrade run may already have moved it, and on Compose an
+# instance still running canasta:local moves to its own tag in this upgrade.
 # When nothing can be compared (no running web container, or no image
 # reference read back), the image counts as changed.
 # Input: instance_orchestrator, instance_id, instance_path, _built_image

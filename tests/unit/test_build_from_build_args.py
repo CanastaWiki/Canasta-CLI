@@ -61,7 +61,7 @@ def test_build_args_forwarded_to_canasta_build_after_base_image():
     # order is what matters, not how the line happens to wrap.
     txt = " ".join(_text(BUILD_FROM).split())
     assert ("--build-arg BASE_IMAGE={{ _base_image_arg }} "
-            "{{ _build_arg_flags }} -t canasta:local") in txt
+            "{{ _build_arg_flags }} -t {{ _build_image_name }}") in txt
 
 
 def test_registry_persists_build_args():
@@ -81,8 +81,8 @@ def test_upgrade_replays_build_args():
 
 
 def test_build_from_guards_output_tag_collision():
-    # A user --build-arg BASE_IMAGE=canasta:local collides with the fixed
-    # canasta:local output tag (the overlay builds FROM its own output). The
+    # A user --build-arg BASE_IMAGE naming the output tag collides with it
+    # (the overlay builds FROM its own output). The
     # task must fail fast rather than silently overwrite the base / double-layer
     # on a repeat build. Guard the collision check and its order.
     with open(BUILD_FROM) as f:
@@ -92,5 +92,5 @@ def test_build_from_guards_output_tag_collision():
     guard_name = "Fail if the base image collides with the build-from output tag"
     guard = next(t for t in tasks if t.get("name") == guard_name)
     assert "ansible.builtin.fail" in guard
-    assert guard["when"] == "_effective_base_image == 'canasta:local'"
+    assert guard["when"] == "_effective_base_image == _build_image_name"
     assert names.index(guard_name) < names.index("Build Canasta image from source")

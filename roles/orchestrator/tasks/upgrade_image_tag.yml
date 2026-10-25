@@ -3,9 +3,10 @@
 # orchestrator. Kubernetes: update values.yaml image.tag and
 # CANASTA_IMAGE in .env. Compose:
 # update CANASTA_IMAGE in .env (only when it's the default ghcr.io
-# image and not a custom/local build).
+# image and not a custom/local build), and move a rebuilt --build-from
+# instance off the shared canasta:local tag.
 # Input: instance_path, instance_orchestrator, canasta_default_image,
-#        _upgrade_inst, _mig
+#        _upgrade_inst, _mig, _upgrade_rebuild, _built_image
 
 # Only a version-shaped tag under the official repository is a pin a
 # previous CLI wrote. A custom repository, a local build, or a tag the
@@ -205,3 +206,54 @@
           Run 'canasta gitops push' to share the new image pin with the other
           hosts.
       when: _upgrade_image_gitops_stat.stat.exists | default(false)
+
+# --- Move a rebuilt Compose instance onto its own image tag ---
+# An instance naming canasta:local runs whichever --build-from instance on
+# the host built that tag last. Once the rebuild has produced the instance's
+# own tag, point .env at it. An instance whose source is gone is not rebuilt
+# and keeps canasta:local.
+- name: Point a rebuilt Compose instance at its own image tag
+  when:
+    - not (instance_is_k8s | bool)
+    - _upgrade_rebuild | default(false) | bool
+    - _mig.env_present.CANASTA_IMAGE
+    - _mig.env.CANASTA_IMAGE == 'canasta:local'
+    - _built_image != 'canasta:local'
+  block:
+    - name: Update CANASTA_IMAGE to the instance's own image tag
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: CANASTA_IMAGE
+        value: "{{ _built_image }}"
+
+    - name: Report the image tag change
+      ansible.builtin.debug:
+        msg: "Updated CANASTA_IMAGE from canasta:local to {{ _built_image }}."
+
+    # As for the pin bump above: a gitops pull re-renders .env from
+    # env.template, which would put canasta:local back.
+    - name: Check if instance is gitops-managed
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/.gitops-host"
+      register: _upgrade_local_image_gitops_stat
+
+    - name: Persist the instance's image tag to env.template
+      ansible.builtin.lineinfile:
+        path: "{{ instance_path }}/env.template"
+        regexp: "^CANASTA_IMAGE="
+        line: "CANASTA_IMAGE={{ _built_image }}"
+        state: present
+      when: _upgrade_local_image_gitops_stat.stat.exists | default(false)
+
+    - name: Stage the updated env.template
+      ansible.builtin.command:
+        cmd: "git add env.template"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      when: _upgrade_local_image_gitops_stat.stat.exists | default(false)
+
+    - name: Report the staged image tag
+      ansible.builtin.debug:
+        msg: "Staged CANASTA_IMAGE={{ _built_image }} in env.template."
+      when: _upgrade_local_image_gitops_stat.stat.exists | default(false)
