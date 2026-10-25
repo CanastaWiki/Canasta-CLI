@@ -352,3 +352,14 @@ def test_the_change_is_recorded_on_the_controller():
     names = [t["name"] for t in tasks]
     assert names.index("Rebuild the image from source") < names.index(
         record["name"])
+
+
+def test_tasks_after_the_restart_do_not_read_container_running():
+    # The restart re-checks _container_running after stopping the
+    # instance, so the restart and the report use the value from before.
+    with open(APPLY) as f:
+        tasks = yaml.safe_load(f)
+    names = [t["name"] for t in tasks]
+    remembered = names.index("Remember whether the instance was running")
+    for task in tasks[remembered + 1:]:
+        assert "_container_running" not in yaml.safe_dump(task), task["name"]

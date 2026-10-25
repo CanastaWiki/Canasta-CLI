@@ -28,6 +28,12 @@
     {{ canasta_root }}/roles/orchestrator/tasks/check_running.yml
   when: _build_args_rebuild | bool
 
+# The restart re-checks _container_running after stopping the instance.
+- name: Remember whether the instance was running
+  ansible.builtin.set_fact:
+    _build_args_was_running: >-
+      {{ (_build_args_rebuild | bool) and (_container_running | default(false) | bool) }}
+
 # The restart after the build would refuse these, and by then the image
 # would already be rebuilt and the arguments recorded.
 - name: Check for tls directives Caddy cannot use behind the edge
@@ -37,7 +43,7 @@
     instance_path: "{{ instance_path }}"
   when:
     - _build_args_rebuild | bool
-    - _container_running | default(false) | bool
+    - _build_args_was_running | bool
     - not (instance_is_k8s | bool)
 
 - name: Ensure the in-cluster image registry (Kubernetes)
@@ -83,7 +89,7 @@
     tasks_from: restart.yml
   when:
     - _build_args_rebuild | bool
-    - _container_running | default(false) | bool
+    - _build_args_was_running | bool
     - _upgrade_rebuilt_image_changed | bool
 
 - name: Report the result
@@ -95,7 +101,7 @@
       {%- elif not (_upgrade_rebuilt_image_changed | bool) -%}
       Build arguments of '{{ instance_id }}' recorded. The rebuilt image is
       the one the instance already runs, so it was not restarted.
-      {%- elif not (_container_running | default(false) | bool) -%}
+      {%- elif not (_build_args_was_running | bool) -%}
       Build arguments of '{{ instance_id }}' recorded and the image
       rebuilt. The instance is stopped; it runs the new image when it
       starts.
