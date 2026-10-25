@@ -80,7 +80,7 @@ def _annotate_wiki_liveness(details, instances):
     """
     targets = []
     for detail in details:
-        if detail["status"] != "RUNNING":
+        if detail["status"].split()[0] != "RUNNING":
             continue
         inst = instances.get(detail["id"], {})
         for wiki in detail["wikis"]:

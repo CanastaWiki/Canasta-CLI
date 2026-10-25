@@ -90,6 +90,16 @@
   ansible.builtin.include_tasks: _validate_trusted_proxies.yml
   when: _config_key == 'TRUSTED_PROXIES'
 
+- name: Validate CANASTA_ELASTICSEARCH_HEAP
+  ansible.builtin.fail:
+    msg: >-
+      CANASTA_ELASTICSEARCH_HEAP must be a whole number of megabytes or
+      gigabytes, such as 768m or 4g. Got '{{ _config_value }}'.
+  when:
+    - _config_key == 'CANASTA_ELASTICSEARCH_HEAP'
+    - _config_value is defined
+    - _config_value is not match('^[1-9][0-9]*[mMgG]$')
+
 # Refused even with --force: a value under the old name would be ignored.
 - name: Refuse a renamed key
   ansible.builtin.fail:

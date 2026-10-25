@@ -304,6 +304,20 @@ class TestListCheckWikis:
         assert details[0]["wikis"][0]["liveness"] == "reachable"
         assert "liveness" not in details[1]["wikis"][0]
 
+    def test_probes_running_instance_with_status_suffix(self, monkeypatch):
+        details = [
+            {"id": "up", "host": "localhost",
+             "status": "RUNNING  [DB ACCOUNT MOVE PENDING]",
+             "wikis": [{"id": "main", "url": "up.example.com"}]},
+        ]
+        monkeypatch.setattr(
+            direct_commands._helpers, "_probe_wiki",
+            lambda url, host, instance_path="": direct_commands._helpers.WIKI_REACHABLE,
+        )
+        direct_commands.info._annotate_wiki_liveness(details, {"up": {"path": "/srv/up"}})
+
+        assert details[0]["wikis"][0]["liveness"] == "reachable"
+
     def test_table_shows_verdict(self, capsys):
         direct_commands._helpers._print_table([{
             "id": "mysite", "host": "localhost", "path": "/srv/mysite",

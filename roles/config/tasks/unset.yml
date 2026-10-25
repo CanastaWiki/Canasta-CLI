@@ -58,6 +58,12 @@
     tasks_from: k8s_reconcile_caddy.yml
   when: _config_unset_stage_only | bool
 
+- name: Reconcile the Elasticsearch heap for the gitops push
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: k8s_reconcile_elasticsearch.yml
+  when: _config_unset_stage_only | bool
+
 - name: Check whether the instance is running
   ansible.builtin.include_role:
     name: orchestrator
