@@ -114,6 +114,14 @@ def test_start_and_restart_learn_the_special_names_once_the_containers_are_up():
         assert up < learn and "when" not in tasks[learn]
 
 
+def test_create_learns_the_special_names_after_the_wiki_is_set_up():
+    tasks = _yaml("roles", "create", "tasks", "main.yml")
+    last_start = _index(tasks, lambda t: t.get("name") == "Start containers with full config")
+    update = _index(tasks, lambda t: t.get("name") == "Run update.php for the imported wiki")
+    learn = _index(tasks, lambda t: t.get("ansible.builtin.include_role") == LEARN)
+    assert last_start < update < learn and "when" not in tasks[learn]
+
+
 def test_upgrade_learns_the_special_names_of_instances_left_running():
     tasks = _yaml("playbooks", "_upgrade_single.yml")
     upgrade = _index(tasks, lambda t: t.get("ansible.builtin.include_role") == {"name": "upgrade"})
