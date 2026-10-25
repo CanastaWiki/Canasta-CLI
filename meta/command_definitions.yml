@@ -739,6 +739,14 @@ commands:
       or UNKNOWN — the last meaning the instance's host could not be
       reached, so the wiki's state is unknown rather than known-bad.
       This costs one request per wiki, so it is off by default.
+
+      DB ACCOUNT MOVE PENDING after the status means MediaWiki still
+      connects as the database administrator account (root on the bundled
+      database), which `canasta upgrade` moves it off. An upgrade skips the
+      move for an instance that is stopped, so start the instance and run
+      `canasta upgrade` again to complete it. Setting
+      CANASTA_DB_ROOT_ACCOUNT=true keeps the instance on the administrator
+      account and clears the indicator.
     examples:
       - "canasta list"
       - "canasta list --check-wikis"
@@ -3927,7 +3935,9 @@ commands:
       Nothing else ever collects them, so the disk only grows until this runs.
 
       On a Docker or Podman host, removes the Canasta image tags no instance
-      registered on the host is pinned to, then prunes dangling layers. A
+      registered on the host is pinned to, and the `--build-from` images
+      (`canasta:local-<id>`) of instances no longer registered, then prunes
+      dangling layers. A
       host carrying both runtimes is reclaimed in each. On a Kubernetes
       host, prunes containerd images no pod references, then runs the
       in-cluster registry's garbage collector (with `--delete-untagged`) and

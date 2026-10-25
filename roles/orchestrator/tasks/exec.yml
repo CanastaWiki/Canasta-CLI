@@ -18,9 +18,10 @@
 #   exec_long_async (int, optional) - max seconds for a long exec (3600)
 #   exec_long_timeout_msg (str, optional) - on a long exec still running
 #     when the wait ends, warn with this text and continue instead of failing
-#   exec_user (str, optional) - container user to run as on Compose;
-#     ignored on K8s, where kubectl exec cannot switch users. Default: the
-#     image's user (root in the web container).
+#   exec_user (str, optional) - container user to run as. kubectl exec
+#     cannot switch users, so on K8s the pod command runs under
+#     `runuser -u`, which the image's container user must be root to use.
+#     Default: the image's user (root in the web container).
 #   exec_dotenv (dict, optional) - variables to pass into the command on
 #     Compose, each read from the .env key it maps to when the command runs
 #     (canasta_dotenv_exec), so the value is never on a command line. Ignored
@@ -92,6 +93,7 @@
         _exec_full_cmd: >-
           kubectl exec {{ '-i ' if (exec_stdin | default('')) | length > 0 else '' }}{{ _k8s_pod_name }}
           -n {{ _k8s_namespace }} -c {{ exec_service | default('web') }} --
+          {{ ('runuser -u ' ~ (exec_user | quote) ~ ' --') if (exec_user | default('')) | length > 0 else '' }}
           {{ _exec_shell }} {{ exec_command | quote }}
         _exec_chdir: null
       no_log: "{{ exec_no_log | default(false) }}"
