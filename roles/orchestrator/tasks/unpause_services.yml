@@ -1,0 +1,66 @@
+---
+# Unpause an instance's paused Compose containers. `up -d` refuses a paused
+# container, so start unpauses them before deciding what else to start.
+# Input: instance_path, instance_id, inspect_command
+# Output: _unpaused_services (list of service names)
+
+- name: List the instance's paused containers
+  ansible.builtin.command:
+    argv:
+      - "{{ inspect_command | default('docker') }}"
+      - ps
+      - --filter
+      - status=paused
+      - --filter
+      - "label=com.docker.compose.project={{ instance_path | basename | lower }}"
+      - --format
+      - >-
+        {% if 'podman' in (inspect_command | default('docker') | basename) -%}
+        {% raw %}{{.ID}} {{index .Labels "com.docker.compose.service"}}{% endraw %}
+        {%- else -%}
+        {% raw %}{{.ID}} {{.Label "com.docker.compose.service"}}{% endraw %}
+        {%- endif %}
+    chdir: "{{ instance_path }}"
+  register: _paused_list
+  changed_when: false
+  failed_when: false
+
+- name: Collect the paused containers
+  ansible.builtin.set_fact:
+    _paused_containers: >-
+      {{ (_paused_list.stdout | default('')).splitlines()
+         | map('trim') | reject('equalto', '') | map('split') | list
+         if _paused_list.rc | default(1) == 0 else [] }}
+
+- name: Unpause the paused containers
+  ansible.builtin.command:
+    argv: "{{ [inspect_command | default('docker'), 'unpause']
+              + (_paused_containers | map('first') | list) }}"
+    chdir: "{{ instance_path }}"
+  register: _unpause_result
+  changed_when: true
+  failed_when: false
+  when: _paused_containers | length > 0
+
+- name: Record the unpaused services
+  ansible.builtin.set_fact:
+    _unpaused_services: >-
+      {{ _paused_containers | map('last') | unique | sort }}
+
+- name: Fail when the paused containers could not be unpaused
+  ansible.builtin.fail:
+    msg: >-
+      The {{ _unpaused_services | join(', ') }}
+      {{ 'container' if _unpaused_services | length == 1 else 'containers' }}
+      of instance '{{ instance_id }}'
+      {{ 'is' if _unpaused_services | length == 1 else 'are' }} paused and
+      could not be unpaused:
+      {{ _unpause_result.stderr | default('') | trim | default('(no output)', true) }}
+  when:
+    - _unpause_result is not skipped
+    - _unpause_result.rc | default(0) != 0
+
+- name: Report the unpaused services
+  ansible.builtin.debug:
+    msg: "Unpaused {{ _unpaused_services | join(', ') }}."
+  when: _unpaused_services | length > 0
