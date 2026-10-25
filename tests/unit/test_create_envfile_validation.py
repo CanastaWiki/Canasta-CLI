@@ -142,6 +142,21 @@ def test_an_unknown_key_is_warned_about_once(tmp_path):
     assert SECRET not in out, out
 
 
+def test_host_gateway_passes_without_a_warning(tmp_path):
+    code, out = _create(tmp_path, ["HOST_GATEWAY=10.88.0.1"])
+    assert code == 0, out
+    assert "Warning:" not in out, out
+
+
+def test_compose_profiles_is_reported_as_not_used(tmp_path):
+    code, out = _create(tmp_path, ["COMPOSE_PROFILES=elasticsearch"])
+    assert code == 0, out
+    warnings = [line for line in out.splitlines() if line.startswith("Warning:")]
+    assert warnings == [
+        "Warning: create sets COMPOSE_PROFILES itself; the env file's value is not used.",
+    ], out
+
+
 def test_an_env_file_of_known_keys_passes_quietly(tmp_path):
     code, out = _create(tmp_path, ["CANASTA_ENABLE_ELASTICSEARCH=true", "",
                                    "MW_SITE_FQDN=wiki.example.com"])
