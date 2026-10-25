@@ -1,0 +1,40 @@
+---
+# canasta image set-build-arg - Set build arguments of an instance built
+# from source, then rebuild its image with them.
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
+
+- name: Require an instance built from source
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/imagebuild/tasks/require_build_from.yml
+
+- name: Validate build-arg format (KEY=VALUE)
+  ansible.builtin.fail:
+    msg: >-
+      Invalid build argument '{{ item }}': expected KEY=VALUE, with a KEY
+      of letters, digits and underscores that does not start with a digit.
+  loop: "{{ settings }}"
+  when: item is not match('^[A-Za-z_][A-Za-z0-9_]*=')
+
+- name: Refuse a BASE_IMAGE that is the build-from output tag
+  ansible.builtin.fail:
+    msg: >-
+      BASE_IMAGE=canasta:local collides with the build-from output tag
+      (canasta:local): the overlay would build FROM its own output and
+      overwrite it. Tag the base under a distinct name, e.g.
+      `docker tag canasta:local canasta:merged`, and set
+      BASE_IMAGE=canasta:merged.
+  when: >-
+    (_instance_result.instance.buildArgs | default([])
+     | canasta_set_build_args(settings)
+     | select('equalto', 'BASE_IMAGE=canasta:local') | list | length) > 0
+
+- name: Apply the new build arguments
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/imagebuild/tasks/apply_build_args.yml
+  vars:
+    _build_args_new: >-
+      {{ _instance_result.instance.buildArgs | default([])
+         | canasta_set_build_args(settings) }}
