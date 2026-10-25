@@ -59,6 +59,14 @@
     handle @purge {
         respond 405
     }
+{% for _sm in _sitemap_rewrites | default([]) %}
+
+    @sitemap{{ loop.index }} {
+        host {{ _sm.host }}
+        path {{ _sm.path }}/*
+    }
+    uri @sitemap{{ loop.index }} path_regexp {{ _sm.pattern }} {{ _sm.target }}/
+{% endfor %}
 
 {% if _crowdsec_active | default(false) %}
     crowdsec

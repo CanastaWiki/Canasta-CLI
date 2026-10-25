@@ -24,6 +24,11 @@ import ipaddress
 import math
 import re
 
+try:
+    from ansible.module_utils.canasta_sitemap import URL_PATH_KEY, rewrites, url_path_error
+except ImportError:  # direct_commands and unit tests import module_utils directly
+    from canasta_sitemap import URL_PATH_KEY, rewrites, url_path_error
+
 HAPROXY_IMAGE = "docker.io/library/haproxy:3.2.25-alpine"
 # Also the edge's openssl: the HAProxy image has none, and hosts may not.
 ACME_IMAGE = "docker.io/neilpang/acme.sh:3.1.6"
@@ -386,6 +391,11 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
     else:
         trusted_proxies, trusted_cidrs = None, []
 
+    sitemap_url_path = env.get(URL_PATH_KEY) or ""
+    if sitemap_url_path and url_path_error(sitemap_url_path):
+        raise EdgeError("Instance '%s': %s" % (instance_id, url_path_error(sitemap_url_path)))
+    sitemap_paths = sorted({r["path"] + "/" for r in rewrites(wikis, sitemap_url_path)})
+
     return {
         "id": instance_id,
         "hostnames": hostnames,
@@ -396,6 +406,8 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         "http_port": http_port,
         "https_port": https_port,
         "media_hostnames": media,
+        # Where its sitemaps are served, when not under /public_assets/.
+        "sitemap_paths": sitemap_paths,
         "tls_mode": tls_mode,
         "tls_mode_hosts": tls_mode_hosts,
         "dns": dns,
@@ -719,6 +731,20 @@ _ROUTING = [
 ]
 
 
+def _routing(instances):
+    """_ROUTING, plus the sitemap paths instances serve outside
+    /public_assets/, which are static files of that instance only."""
+    rules = ["    http-request set-var(txn.sitemap) bool(true) if "
+             "{ var(txn.inst) -m str %s } { path_beg %s }"
+             % (i["id"], " ".join(i["sitemap_paths"]))
+             for i in instances if i["sitemap_paths"]]
+    if not rules:
+        return _ROUTING
+    at = _ROUTING.index("    acl php path_end .php")
+    return (_ROUTING[:at] + rules + ["    acl static_file var(txn.sitemap) -m bool"]
+            + _ROUTING[at:])
+
+
 def _frontend_name(port, tls):
     base = "https" if tls else "http"
     return base if port == (443 if tls else 80) else "%s_%d" % (base, port)
@@ -748,7 +774,8 @@ def _render_frontend(port, tls, instances, thumbprint, binds):
         out += _acme_rule(thumbprint)
         out += _site_lookup(port)
         out += _client_address_rules(instances)
-        return out + _ROUTING
+        return out + _routing([i for i in instances
+                               if not i["plain"] and i["https_port"] == port])
     out += ["    bind %s" % b for b in binds]
     out += _acme_rule(thumbprint)
     plain = [i for i in instances if i["plain"] and i["http_port"] == port]
@@ -772,7 +799,7 @@ def _render_frontend(port, tls, instances, thumbprint, binds):
         return out + ["    http-request redirect scheme https code 301"]
     out += ["    http-request redirect scheme https code 301 if { var(txn.inst) -m str %s }"
             % i["id"] for i in secure if i["https_port"] == 443]
-    return out + _ROUTING
+    return out + _routing(plain)
 
 
 def _trusted_list(inst):

@@ -59,6 +59,12 @@ canasta_known_keys:
     group: Sitemaps
     description: Days between sitemap refreshes
     default: "1"
+  - name: MW_SITEMAP_URL_PATH
+    group: Sitemaps
+    description: >-
+      URL path, relative to each wiki's URL, at which its sitemaps are
+      published and served (e.g. /wiki/sitemap)
+    default: /public_assets/sitemap
 
   - name: MW_ENABLE_JOB_RUNNER
     group: Maintenance scripts

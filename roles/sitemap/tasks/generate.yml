@@ -1,7 +1,7 @@
 ---
 # canasta sitemap generate - Generate XML sitemaps.
 # Sitemap paths: /mediawiki/public_assets/<wiki>/sitemap
-# Input: id (optional), wiki (optional)
+# Input: id (optional), wiki (optional), identifier (optional; needs wiki)
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
@@ -21,16 +21,86 @@
     - wiki | default('') != ''
     - wiki not in _sitemap_wikis.wiki_ids
 
+- name: Require --wiki with --identifier
+  ansible.builtin.fail:
+    msg: "--identifier names one wiki's sitemaps; pass it together with --wiki."
+  when:
+    - identifier | default('') != ''
+    - wiki | default('') == ''
+
+- name: Refuse an unusable identifier
+  ansible.builtin.fail:
+    msg: "{{ identifier | sitemap_identifier_error }}"
+  when:
+    - identifier | default('') != ''
+    - (identifier | sitemap_identifier_error) | length > 0
+
+- name: Determine wikis for sitemap generation
+  ansible.builtin.set_fact:
+    _sitemap_targets: "{{ [wiki] if (wiki | default('') != '') else _sitemap_wikis.wiki_ids }}"
+
+- name: Store the wiki's sitemap identifier
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: set_sitemap_identifier
+    wiki_id: "{{ wiki }}"
+    sitemap_identifier: "{{ identifier }}"
+  register: _sitemap_identifier_set
+  when: identifier | default('') != ''
+
+- name: Read the wikis with the stored identifier
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _sitemap_wikis
+
+# The background generator skips a wiki whose identifier is unusable.
+- name: Refuse an unusable sitemap_identifier in wikis.yaml
+  ansible.builtin.fail:
+    msg: >-
+      config/wikis.yaml gives wiki '{{ item.id }}' an unusable
+      sitemap_identifier: {{ item | sitemap_identifier | sitemap_identifier_error }}
+  loop: "{{ _sitemap_wikis.wikis | selectattr('id', 'in', _sitemap_targets) | list }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: (item | sitemap_identifier | sitemap_identifier_error) | length > 0
+
+- name: Capture the identifier change for gitops
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/capture_wikis_yaml.yml
+  when: _sitemap_identifier_set is changed
+
+# Argo CD deploys a gitops-managed Kubernetes instance from its repo and
+# self-heals back to it, so a direct deploy would be reverted until the
+# change is pushed. Until then the pods' background generator would keep
+# naming the files after the old identifier, so nothing is generated.
+- name: Check whether the instance is gitops-managed
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _sitemap_gitops_marker
+
+- name: Decide whether the identifier change is only staged for a gitops push
+  ansible.builtin.set_fact:
+    _sitemap_stage_only: >-
+      {{ (_sitemap_identifier_set is changed) and (instance_is_k8s | bool)
+         and _sitemap_gitops_marker.stat.exists }}
+
+# The background generator reads the identifier from the web container's
+# wikis.yaml.
+- name: Apply the identifier change to the running instance
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: apply_config.yml
+  when:
+    - _sitemap_identifier_set is changed
+    - not (_sitemap_stage_only | bool)
+
 - name: Read MW_SITE_SERVER from .env
   canasta_env:
     path: "{{ instance_path }}/.env"
     state: read
     key: MW_SITE_SERVER
   register: _sitemap_server
-
-- name: Determine wikis for sitemap generation
-  ansible.builtin.set_fact:
-    _sitemap_targets: "{{ [wiki] if (wiki | default('') != '') else _sitemap_wikis.wiki_ids }}"
 
 - name: Determine URL scheme for sitemap URLs
   ansible.builtin.set_fact:
@@ -41,7 +111,31 @@
   loop: "{{ _sitemap_targets }}"
   loop_control:
     loop_var: _sitemap_wiki
+  when: not (_sitemap_stage_only | bool)
 
 - name: Report sitemaps generated
   ansible.builtin.debug:
     msg: "Sitemaps generated for: {{ _sitemap_targets | join(', ') }}"
+  when: not (_sitemap_stage_only | bool)
+
+- name: Check whether the instance is running
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: check_running.yml
+  when: _sitemap_stage_only | bool
+
+- name: Report the identifier change staged for a gitops push
+  ansible.builtin.debug:
+    msg: >-
+      Set the sitemap identifier of wiki '{{ wiki }}' to '{{ identifier }}'.
+      The change to '{{ instance_id }}' is staged in its gitops repo but not
+      deployed, so no sitemaps were generated.
+      {% if _container_running | default(false) | bool -%}
+      Run 'canasta gitops push -i {{ instance_id }}', then
+      'canasta gitops sync -i {{ instance_id }}', to deploy it.
+      {%- else -%}
+      The instance is stopped, so it was left stopped. Run
+      'canasta gitops push -i {{ instance_id }}'; the change deploys the
+      next time it starts.
+      {%- endif %}
+  when: _sitemap_stage_only | bool

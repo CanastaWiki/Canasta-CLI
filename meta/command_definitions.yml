@@ -2509,9 +2509,19 @@ commands:
       Otherwise, generates sitemaps for all wikis in the instance.
       Once generated, the background generator will automatically
       refresh them.
+
+      The sitemaps are published at `MW_SITEMAP_URL_PATH` (default
+      `/public_assets/sitemap`), relative to each wiki's URL. A wiki's
+      sitemap files are named after its identifier, which defaults to
+      the wiki ID: the index is `sitemap-index-<identifier>.xml`.
+      `--identifier` stores a different one for the `--wiki` wiki in
+      `wikis.yaml` (its `sitemap_identifier`), so that an existing index
+      URL can be kept; the files of its previous identifier are removed.
+      Passing the wiki ID as the identifier restores the default.
     examples:
       - "canasta sitemap generate"
       - "canasta sitemap generate -w mywiki"
+      - "canasta sitemap generate -w mywiki --identifier mediawiki"
     playbook: sitemap_generate.yml
     parameters:
       - name: id
@@ -2522,6 +2532,12 @@ commands:
         short: w
         type: string
         description: "Wiki ID (omit to generate for all wikis)"
+      - name: identifier
+        type: string
+        description: >-
+          Name the --wiki wiki's sitemap files after this identifier
+          (letters, digits, '_', '-' and '.', starting with a letter or
+          digit) from now on
 
   - name: sitemap_remove
     description: "Remove sitemaps for one or all wikis"
