@@ -42,8 +42,10 @@ options:
       obtains, renews and removes Let's Encrypt certificates through
       acme.sh, once the edge is running and answering challenges. plan
       decides which of a host's instances move behind the edge; import
-      moves an instance's Caddy certificates to the edge. check fails when
-      the instance's Caddyfile.site or Caddyfile.global has a tls directive,
+      moves an instance's Caddy certificates to the edge. current fails
+      when the instance's docker-compose.yml predates the edge, which only
+      upgrade replaces. check fails as current does, and when the
+      instance's Caddyfile.site or Caddyfile.global has a tls directive,
       which Caddy cannot use behind the edge. writable fails, naming them,
       when the user running canasta cannot write the edge's files or the
       instance's files the edge writes, and when canasta runs as root on a
@@ -51,14 +53,23 @@ options:
       instance's wikis through the edge on this host and returns those that
       do not answer.
     type: str
-    choices: [sync, start, stop, issue, plan, import, check, writable, probe]
+    choices: [sync, start, stop, issue, plan, import, current, check, writable, probe]
     default: sync
   instance_id:
-    description: The instance's registry ID (required for sync, check and probe).
+    description: The instance's registry ID (required for sync, current, check and probe).
     type: str
   instance_path:
-    description: Path to the instance directory (required for sync, check and probe).
+    description: >-
+      Path to the instance directory (required for sync, current, check and
+      probe).
     type: str
+  allow_pre_edge:
+    description: >-
+      With state=check, check only the tls directives of an instance whose
+      docker-compose.yml may predate the edge, as the upgrade that replaces
+      it does.
+    type: bool
+    default: false
   member:
     description: >-
       present adds the instance to the edge, absent removes it (and its
@@ -131,8 +142,8 @@ from ansible.module_utils.canasta_env_keys import modernize_values
 from ansible.module_utils.canasta_edge_render import (
     ACME_IMAGE, CERT_DIR, CONFIG_DIR, DENY_CIDR_FILE, DENY_UA_FILE, EdgeError,
     HAPROXY_IMAGE, NO_SITE, SPOA_IMAGE, acme_hostnames, cdn_providers, certificates,
-    check_together, crowdsec_enforced, frontends, host_tls_mode,
-    instance_from_config, rates_set, render,
+    check_together, compose_predates_edge, crowdsec_enforced, frontends, host_tls_mode,
+    instance_from_config, predates_edge_problem, rates_set, render,
 )
 from ansible.module_utils.canasta_caddyfile import (
     instance_tls_directives, site_hostnames, tls_directives_problem,
@@ -1627,6 +1638,11 @@ def daemon_rootless(run, inspect, docker_host=""):
     return rc == 0 and "name=rootless" in out
 
 
+def predates_edge(path):
+    """Whether the instance's docker-compose.yml predates the edge."""
+    return compose_predates_edge(_read(os.path.join(path, "docker-compose.yml")))
+
+
 def behind_edge(path):
     """Whether an instance is behind the edge already: its edge layer
     exists, which only the edge sync writes."""
@@ -1710,8 +1726,9 @@ def run_module():
         argument_spec=dict(
             state=dict(type="str",
                        choices=["sync", "start", "stop", "issue", "plan", "import", "prune",
-                                "check", "writable", "probe"],
+                                "current", "check", "writable", "probe"],
                        default="sync"),
+            allow_pre_edge=dict(type="bool", default=False),
             recreate=dict(type="bool", default=False),
             restart=dict(type="bool", default=False),
             retry=dict(type="bool", default=False),
@@ -1725,6 +1742,7 @@ def run_module():
         ),
         required_if=[("state", "sync", ("instance_id", "instance_path")),
                      ("state", "import", ("instance_id", "instance_path")),
+                     ("state", "current", ("instance_id", "instance_path")),
                      ("state", "check", ("instance_id", "instance_path")),
                      ("state", "probe", ("instance_id", "instance_path")),
                      ("state", "plan", ("instances",))],
@@ -1762,8 +1780,13 @@ def run_module():
                 return podman
             result = dict(plan_conversion(params["instances"] or [], rootless, podman_ready),
                           changed=False)
-        elif params["state"] == "check":
-            found = tls_directives(params["instance_path"])
+        elif params["state"] in ("current", "check"):
+            if not params["allow_pre_edge"] and predates_edge(params["instance_path"]):
+                module.fail_json(msg=predates_edge_problem(params["instance_id"]),
+                                 predates_edge=True)
+                return
+            found = (tls_directives(params["instance_path"])
+                     if params["state"] == "check" else [])
             if found:
                 problem = tls_directives_problem(found)
                 module.fail_json(msg="Instance '%s' %s." % (params["instance_id"], problem),

@@ -58,6 +58,7 @@
     state: check
     instance_id: "{{ instance_id }}"
     instance_path: "{{ instance_path }}"
+    allow_pre_edge: true
   register: _upgrade_caddy_tls
   failed_when: false
   when:
