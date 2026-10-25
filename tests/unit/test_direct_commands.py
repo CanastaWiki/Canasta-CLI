@@ -1656,7 +1656,7 @@ class TestLifecycleCommands:
             tasks = yaml.safe_load(f)
         steps = [t["ansible.builtin.include_role"]["tasks_from"]
                  for t in tasks if "ansible.builtin.include_role" in t]
-        assert steps == ["stop.yml", "update_config.yml", "start.yml"]
+        assert steps == ["stop.yml", "update_config.yml", "start.yml", "edge_probe.yml"]
 
     def test_k8s_start_falls_back(self, monkeypatch):
         monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
