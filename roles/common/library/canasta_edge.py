@@ -51,15 +51,16 @@ options:
       instance's files the edge writes, and when canasta runs as root on a
       host whose edge belongs to another user. learn asks each of the
       instance's wikis for its localized Special: names, and brings the edge
-      in line when they changed.
+      in line when they changed. probe requests each of the instance's wikis
+      through the edge on this host and returns those that do not answer.
     type: str
-    choices: [sync, start, stop, issue, plan, import, check, writable, learn]
+    choices: [sync, start, stop, issue, plan, import, check, writable, learn, probe]
     default: sync
   instance_id:
-    description: The instance's registry ID (required for sync, check and learn).
+    description: The instance's registry ID (required for sync, check, learn and probe).
     type: str
   instance_path:
-    description: Path to the instance directory (required for sync, check and learn).
+    description: Path to the instance directory (required for sync, check, learn and probe).
     type: str
   member:
     description: >-
@@ -118,6 +119,8 @@ import pwd
 import re
 import shlex
 import shutil
+import socket
+import ssl
 import stat
 import tarfile
 import tempfile
@@ -130,7 +133,7 @@ from ansible.module_utils.canasta_config import get_config_dir, is_k8s_orchestra
 from ansible.module_utils.canasta_env_keys import modernize_values
 from ansible.module_utils.canasta_edge_render import (
     ACME_IMAGE, CERT_DIR, CONFIG_DIR, DENY_CIDR_FILE, DENY_UA_FILE, EdgeError,
-    HAPROXY_IMAGE, SPOA_IMAGE, acme_hostnames, cdn_providers, certificates,
+    HAPROXY_IMAGE, NO_SITE, SPOA_IMAGE, acme_hostnames, cdn_providers, certificates,
     check_together, crowdsec_enforced, frontends, host_tls_mode,
     dynamic_patterns, instance_from_config, rates_set, render, special_names,
 )
@@ -1133,6 +1136,25 @@ def _domain_conf(edge_dir, host):
     return _read(os.path.join(edge_dir, "acme", "%s_ecc" % host, "%s.conf" % host)) or ""
 
 
+def _leaf(pem):
+    """The first certificate in PEM text, without whitespace, or None."""
+    begin, end = "-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----"
+    start = (pem or "").find(begin)
+    stop = (pem or "").find(end, start)
+    if start < 0 or stop < 0:
+        return None
+    return "".join(pem[start:stop + len(end)].split())
+
+
+def served(edge_dir, host):
+    """Whether HAProxy's PEM for host holds the certificate acme.sh keeps for
+    it. True when acme.sh's copy cannot be read, as there is nothing to
+    install then."""
+    leaf = _leaf(_read(os.path.join(edge_dir, "acme", "%s_ecc" % host, "%s.cer" % host)))
+    pem = _read(os.path.join(edge_dir, "conf", "certs", "%s.pem" % host)) or ""
+    return leaf is None or leaf in "".join(pem.split())
+
+
 def _set_conf(path, key, value):
     """Set (or, with value None, remove) one KEY='value' line of an acme.sh
     conf file, as acme.sh's own _setopt writes them. Returns whether it
@@ -1281,7 +1303,7 @@ def challenge_answered(port, thumbprint):
 
 def _issue(run, inspect, edge_dir, retry=False):
     result = {"changed": False, "reload": False, "issued": [], "unissued": [],
-              "unregistered": [], "removed": []}
+              "unregistered": [], "uninstalled": [], "removed": []}
     instances = _load_members(edge_dir, read_members(edge_dir))
     ready = []
     thumbprint = (_read(os.path.join(edge_dir, "acme", "thumbprint")) or "").strip()
@@ -1329,6 +1351,15 @@ def _issue(run, inspect, edge_dir, retry=False):
                 if rc != 0:
                     result["unregistered"].append({"hostname": host,
                                                    "reason": _tail(out, err)})
+            # A conf/certs created after acme.sh issued the certificate holds
+            # a CA-signed stand-in for it.
+            elif not served(edge_dir, host):
+                rc, out, err = deploy(host)
+                if rc != 0:
+                    result["uninstalled"].append({"hostname": host,
+                                                  "reason": _tail(out, err)})
+                else:
+                    result["changed"] = True
             continue
         if dns:
             args = ["--issue", "--dns", dns["hook"], "-d", host]
@@ -1506,6 +1537,93 @@ def _learn(run, inspect, edge_dir, instance_id, instance_path, learned, silent, 
             return result
         result["reload"] = True
     return result
+
+
+# How long a started instance's wikis have to answer through the edge, while
+# HAProxy finds its Caddy, and how long one request may take.
+ANSWER_WAIT = 60
+ANSWER_TIMEOUT = 15
+SITEINFO = "/w/api.php?action=query&meta=siteinfo&format=json"
+NO_ANSWER = "no answer"
+
+
+def wiki_requests(wikis):
+    """(wiki ID, URL, Host header, request path) for each wiki of wikis.yaml."""
+    requests = []
+    for wiki in wikis or []:
+        url = str(wiki.get("url") or "").strip().rstrip("/")
+        server, _, path = url.partition("/")
+        if server:
+            requests.append((str(wiki.get("id") or "?"), url, server,
+                             ("/" + path if path else "") + SITEINFO))
+    return requests
+
+
+def wiki_answer(port, tls, server, path, timeout=ANSWER_TIMEOUT):
+    """None when a request for the wiki on the host's port gets an answer
+    from behind the edge, else why not. The certificate is not checked: the
+    question is whether the wiki answers, not whether this host trusts it."""
+    host = server.partition(":")[0]
+    conn = http.client.HTTPConnection(host, port, timeout=timeout)
+    try:
+        sock = socket.create_connection(("127.0.0.1", port), timeout=timeout)
+        if tls:
+            context = ssl.create_default_context()
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            sock = context.wrap_socket(sock, server_hostname=host)
+        conn.sock = sock
+        conn.request("GET", path, headers={"Host": server})
+        response = conn.getresponse()
+        body = response.read(4096).decode("utf-8", "replace").strip()
+    except socket.timeout:
+        return NO_ANSWER
+    except (OSError, http.client.HTTPException) as exc:
+        return "port %d: %s" % (port, exc)
+    finally:
+        conn.close()
+    if response.status == 404 and body == NO_SITE:
+        return "the edge serves no site at this address"
+    if response.status >= 500:
+        text = body if "\n" not in body and len(body) <= 100 and (
+            response.getheader("Content-Type") or "").startswith("text/plain") else ""
+        return "HTTP %d%s" % (response.status, ": " + text.rstrip(".") if text else "")
+    return None
+
+
+def unanswered_wikis(instance_id, instance_path):
+    """[{wiki, url, reason}] for the instance's wikis that do not answer
+    through the edge within ANSWER_WAIT seconds."""
+    inst = load_instance(instance_id, instance_path)
+    if inst is None:
+        return []
+    wikis = (yaml.safe_load(_read(os.path.join(instance_path, "config", "wikis.yaml")) or "")
+             or {}).get("wikis") or []
+    port, tls = (inst["http_port"], False) if inst["plain"] else (inst["https_port"], True)
+    pending = wiki_requests(wikis)
+    deadline = time.monotonic() + ANSWER_WAIT
+    while True:
+        failed = []
+        for wiki in pending:
+            timeout = max(1, min(ANSWER_TIMEOUT, int(deadline - time.monotonic())))
+            reason = wiki_answer(port, tls, wiki[2], wiki[3], timeout)
+            if reason:
+                failed.append((wiki, reason))
+        if not failed or time.monotonic() >= deadline:
+            return [{"wiki": w[0], "url": w[1],
+                     "reason": "no answer within %ds" % ANSWER_WAIT if r == NO_ANSWER else r}
+                    for w, r in failed]
+        pending = [w for w, _ in failed]
+        time.sleep(2)
+
+
+def probe(instance_id, instance_path):
+    # Inside the canasta-docker container, 127.0.0.1 is the container's own
+    # loopback, not the host the edge listens on.
+    probed = os.environ.get("CANASTA_RUN_MODE") != "docker"
+    return {"changed": False, "probed": probed,
+            "unanswered": unanswered_wikis(instance_id, instance_path) if probed else []}
 
 
 # Where Caddy keeps the certificates each CA issued, in its data volume.
@@ -1723,7 +1841,7 @@ def run_module():
         argument_spec=dict(
             state=dict(type="str",
                        choices=["sync", "start", "stop", "issue", "plan", "import", "prune",
-                                "check", "writable", "learn"],
+                                "check", "writable", "learn", "probe"],
                        default="sync"),
             recreate=dict(type="bool", default=False),
             restart=dict(type="bool", default=False),
@@ -1740,6 +1858,7 @@ def run_module():
                      ("state", "learn", ("instance_id", "instance_path")),
                      ("state", "import", ("instance_id", "instance_path")),
                      ("state", "check", ("instance_id", "instance_path")),
+                     ("state", "probe", ("instance_id", "instance_path")),
                      ("state", "plan", ("instances",))],
     )
     params = module.params
@@ -1786,6 +1905,8 @@ def run_module():
                                  reason="it %s." % problem, tls_directives=found)
                 return
             result = {"changed": False, "tls_directives": []}
+        elif params["state"] == "probe":
+            result = probe(params["instance_id"], params["instance_path"])
         elif params["state"] == "writable":
             check_writable(edge_dir, params["instance_path"])
             result = {"changed": False}

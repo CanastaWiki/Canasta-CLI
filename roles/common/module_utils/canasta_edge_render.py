@@ -36,6 +36,8 @@ CONFIG_DIR = "/usr/local/etc/haproxy"
 CERT_DIR = CONFIG_DIR + "/certs"
 DEFAULT_CERT = CERT_DIR + "/default.pem"
 STATS_SOCKET = "/var/run/haproxy/admin.sock"
+# What the edge answers for a hostname it serves no instance under.
+NO_SITE = "No site is served at this address."
 
 TLS_MODES = ("acme", "acme-dns", "internal", "custom", "off")
 # The modes TLS_MODE_HOSTS can give one hostname: each is a certificate of
@@ -907,7 +909,7 @@ def _render_cfg(instances, thumbprint, listeners, rootless=False):
         out += _render_frontend(port, tls, instances, thumbprint, listeners[port]) + [""]
     out += [
         "backend be_no_site",
-        "    http-request return status 404 content-type text/plain string \"No site is served at this address.\\n\"",
+        "    http-request return status 404 content-type text/plain string \"%s\\n\"" % NO_SITE,
     ]
 
     for inst, (dynamic_cap, default_cap) in zip(instances, limits):

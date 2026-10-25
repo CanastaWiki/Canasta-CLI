@@ -98,7 +98,7 @@ def test_issuance_retries_on_the_edges_first_account():
     assert "acme_registered" in issue["canasta_edge"]["retry"]
 
 
-def _yaml(*parts):
+def _role_tasks(*parts):
     with open(os.path.join(ROOT, *parts)) as handle:
         return yaml.safe_load(handle)
 
@@ -108,14 +108,14 @@ LEARN = {"name": "orchestrator", "tasks_from": "edge_learn.yml"}
 
 def test_start_and_restart_learn_the_special_names_once_the_containers_are_up():
     for name in ("start.yml", "restart.yml"):
-        tasks = _yaml("roles", "instance_lifecycle", "tasks", name)
+        tasks = _role_tasks("roles", "instance_lifecycle", "tasks", name)
         up = _index(tasks, lambda t: t.get("name") == "Start containers")
         learn = _index(tasks, lambda t: t.get("ansible.builtin.include_role") == LEARN)
         assert up < learn and "when" not in tasks[learn]
 
 
 def test_create_learns_the_special_names_after_the_wiki_is_set_up():
-    tasks = _yaml("roles", "create", "tasks", "main.yml")
+    tasks = _role_tasks("roles", "create", "tasks", "main.yml")
     last_start = _index(tasks, lambda t: t.get("name") == "Start containers with full config")
     update = _index(tasks, lambda t: t.get("name") == "Run update.php for the imported wiki")
     learn = _index(tasks, lambda t: t.get("ansible.builtin.include_role") == LEARN)
@@ -123,7 +123,7 @@ def test_create_learns_the_special_names_after_the_wiki_is_set_up():
 
 
 def test_upgrade_learns_the_special_names_of_instances_left_running():
-    tasks = _yaml("playbooks", "_upgrade_single.yml")
+    tasks = _role_tasks("playbooks", "_upgrade_single.yml")
     upgrade = _index(tasks, lambda t: t.get("ansible.builtin.include_role") == {"name": "upgrade"})
     learn = _index(tasks, lambda t: t.get("ansible.builtin.include_role") == LEARN)
     assert upgrade < learn
@@ -136,3 +136,28 @@ def test_learning_is_a_no_op_on_kubernetes_and_never_fails_the_command():
     assert task["canasta_edge"]["state"] == "learn"
     assert task["when"] == "not (instance_is_k8s | bool)"
     assert task["failed_when"] is False
+
+
+def _probes(task):
+    return (task.get("ansible.builtin.include_role") or {}).get("tasks_from") == "edge_probe.yml"
+
+
+def test_start_and_restart_report_wikis_the_edge_does_not_answer_for():
+    for name, report in (("start.yml", "Report started"), ("restart.yml", "Report restarted")):
+        tasks = _role_tasks("roles", "instance_lifecycle", "tasks", name)
+        assert _index(tasks, _probes) > _index(tasks, lambda t: t.get("name") == report)
+
+
+def test_upgrade_reports_wikis_of_the_running_instances_it_upgraded():
+    tasks = _role_tasks("playbooks", "_upgrade_single.yml")
+    probe = tasks[_index(tasks, _probes)]
+    assert tasks[-1] is probe
+    assert "not (_upgrade_skip | bool)" in probe["when"]
+    assert any("_was_running" in w for w in probe["when"])
+    assert any("_upgrade_restart_failed" in w for w in probe["when"])
+
+
+def test_the_probe_runs_only_for_compose():
+    probe = _tasks("edge_probe.yml")[0]
+    assert probe["canasta_edge"]["state"] == "probe"
+    assert probe["when"] == "not (instance_is_k8s | bool)"

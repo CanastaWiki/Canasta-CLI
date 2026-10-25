@@ -59,5 +59,10 @@
   ansible.builtin.debug:
     msg: "Instance '{{ instance_id }}' restarted."
 
+- name: Report wikis that do not answer through the edge
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: edge_probe.yml
+
 - name: Report a failed startup composer update
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/mediawiki/tasks/report_composer_failure.yml"
