@@ -5,6 +5,7 @@ test, which runs the pinned images to create real certificates and check the
 rendered configuration.
 """
 
+import json
 import os
 import re
 import shutil
@@ -1693,3 +1694,205 @@ def test_an_acme_dns_host_uses_the_dns_hook_and_the_rest_http(tmp_path):
     methods = {c[c.index("-d") + 1]: c[c.index("--issue") + 1]
                for c in run.acme_calls("--issue")}
     assert methods == {"example.com": "--stateless", "www.example.com": "--dns"}
+
+
+# --- localized Special: names ------------------------------------------------- #
+
+def _siteinfo(name, aliases=()):
+    return json.dumps({"query": {
+        "namespaces": {"-1": {"id": -1, "canonical": "Special", "*": name},
+                       "0": {"id": 0, "*": ""}},
+        "namespacealiases": [{"id": -1, "*": a} for a in aliases]}}, ensure_ascii=False)
+
+
+class WikiRunner(FakeRunner):
+    """Answers siteinfo requests made in the web container from `replies`,
+    {wikis.yaml url: reply body, or None for no answer}."""
+
+    def __init__(self, replies, web=True, **kwargs):
+        super().__init__(**kwargs)
+        self.replies = dict(replies)
+        self.web = web
+
+    @staticmethod
+    def _url(argv):
+        path = argv[-1][len("http://127.0.0.1"):-len(mod.NAMES_QUERY)]
+        return argv[argv.index("--header") + 1][len("Host: "):] + path
+
+    def asked(self):
+        return [self._url(c) for c in self.calls if c[1] == "exec" and "wget" in c]
+
+    def reloads(self):
+        return [c for c in self.calls if c[1:3] == ["exec", mod.CONTAINER] and "-USR2" in c]
+
+    def __call__(self, argv, env=None, cwd=None):
+        if argv[1] == "ps" and "label=com.docker.compose.service=web" in argv:
+            self.calls.append(argv)
+            return 0, "webid\n" if self.web else "", ""
+        if argv[1] == "exec" and "wget" in argv:
+            self.calls.append(argv)
+            reply = self.replies.get(self._url(argv))
+            return (0, reply, "") if reply is not None else (4, "", "")
+        return super().__call__(argv, env, cwd)
+
+
+@pytest.fixture(autouse=True)
+def _no_retry_delay(monkeypatch):
+    monkeypatch.setattr(mod, "NAMES_RETRY_DELAY", 0)
+
+
+def _learn(run, edge, inst_id, path):
+    return mod.learn(run, "docker", str(edge), inst_id, path)
+
+
+def _german(tmp_path, hosts=("de.example.org",)):
+    path = _instance(tmp_path, "de", hosts=hosts)
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(), edge, "de", path)
+    return path, edge
+
+
+def test_learned_names_become_the_instances_dynamic_list(tmp_path):
+    path, edge = _german(tmp_path, ("de.example.org", "de.example.org/fr"))
+    run = WikiRunner({"de.example.org": _siteinfo("Spezial", ["Spécial"]),
+                      "de.example.org/fr": None}, running=True)
+    result = _learn(run, edge, "de", path)
+    assert result["changed"] and result["reload"] and "warning" not in result
+    assert (edge / "conf" / "dynamic-de.lst").read_text() == \
+        "Spezial:\nSpezial%3A\nSp%C3%A9cial:\nSp%C3%A9cial%3A\n"
+    assert "url_sub -i -f /usr/local/etc/haproxy/dynamic-de.lst" in \
+        (edge / "conf" / "haproxy.cfg").read_text()
+    assert len(run.reloads()) == 1
+    assert json.loads((edge / "special-names" / "de.json").read_text()) == \
+        {"w0": ["Spezial", "Spécial"]}
+
+
+def test_the_request_goes_to_the_web_container_by_hostname_and_path(tmp_path):
+    path, edge = _german(tmp_path, ("de.example.org", "de.example.org/fr"))
+    run = WikiRunner({"de.example.org": _siteinfo("Spezial")})
+    _learn(run, edge, "de", path)
+    urls = [c[-1] for c in run.calls if c[1] == "exec" and "wget" in c]
+    assert urls[0] == "http://127.0.0.1" + mod.NAMES_QUERY
+    assert urls[1] == "http://127.0.0.1/fr" + mod.NAMES_QUERY
+    assert all(c[2] == "webid" for c in run.calls if c[1] == "exec" and "wget" in c)
+
+
+def test_unchanged_names_neither_render_nor_reload(tmp_path):
+    path, edge = _german(tmp_path)
+    _learn(WikiRunner({"de.example.org": _siteinfo("Spezial")}, running=True), edge, "de", path)
+    run = WikiRunner({"de.example.org": _siteinfo("Spezial")}, running=True)
+    result = _learn(run, edge, "de", path)
+    assert not result["changed"] and not result["reload"]
+    assert run.runs("haproxy") == [] and run.reloads() == []
+    assert [c for c in run.calls if c[1] != "exec" and "service=web" not in " ".join(c)] == []
+
+
+def test_an_english_wiki_leaves_the_edge_as_it_was(tmp_path):
+    path, edge = _german(tmp_path)
+    before = (edge / "conf" / "haproxy.cfg").read_text()
+    run = WikiRunner({"de.example.org": _siteinfo("Special")}, running=True)
+    result = _learn(run, edge, "de", path)
+    assert not result["reload"] and run.reloads() == [] and run.runs("haproxy") == []
+    assert (edge / "conf" / "haproxy.cfg").read_text() == before
+    assert not (edge / "conf" / "dynamic-de.lst").exists()
+
+
+def test_a_silent_wiki_keeps_its_last_names(tmp_path):
+    path, edge = _german(tmp_path, ("de.example.org", "fr.example.org"))
+    _learn(WikiRunner({"de.example.org": _siteinfo("Spezial"),
+                       "fr.example.org": _siteinfo("Spécial")}), edge, "de", path)
+    run = WikiRunner({"de.example.org": _siteinfo("Spezial"), "fr.example.org": None})
+    result = _learn(run, edge, "de", path)
+    assert not result["changed"]
+    assert run.asked().count("fr.example.org") == mod.NAMES_ATTEMPTS
+    assert "Sp%C3%A9cial:" in (edge / "conf" / "dynamic-de.lst").read_text()
+
+
+def test_a_language_change_replaces_the_names(tmp_path):
+    path, edge = _german(tmp_path)
+    _learn(WikiRunner({"de.example.org": _siteinfo("Spezial")}), edge, "de", path)
+    run = WikiRunner({"de.example.org": _siteinfo("Special")}, running=True)
+    assert _learn(run, edge, "de", path)["reload"]
+    assert not (edge / "conf" / "dynamic-de.lst").exists()
+    assert "dynamic-de.lst" not in (edge / "conf" / "haproxy.cfg").read_text()
+
+
+def test_a_wiki_that_answers_late_is_asked_again(tmp_path):
+    path, edge = _german(tmp_path)
+
+    class Late(WikiRunner):
+        def __call__(self, argv, env=None, cwd=None):
+            if argv[1] == "exec" and "wget" in argv and not self.asked():
+                self.calls.append(argv)
+                return 8, "", ""
+            return super().__call__(argv, env, cwd)
+    run = Late({"de.example.org": _siteinfo("Spezial")})
+    _learn(run, edge, "de", path)
+    assert run.asked() == ["de.example.org", "de.example.org"]
+    assert (edge / "conf" / "dynamic-de.lst").exists()
+
+
+def test_names_survive_the_edge_stopping(tmp_path):
+    path, edge = _german(tmp_path)
+    _learn(WikiRunner({"de.example.org": _siteinfo("Spezial")}), edge, "de", path)
+    mod.stop_edge(FakeRunner(), "docker", "docker compose", str(edge))
+    assert not (edge / "conf").exists()
+    _sync(FakeRunner(), edge, "de", path)
+    assert (edge / "conf" / "dynamic-de.lst").read_text() == "Spezial:\nSpezial%3A\n"
+
+
+def test_leaving_the_edge_forgets_the_names(tmp_path):
+    path, edge = _german(tmp_path)
+    _learn(WikiRunner({"de.example.org": _siteinfo("Spezial")}), edge, "de", path)
+    _sync(FakeRunner(), edge, "de", path, member="absent")
+    assert not (edge / "special-names" / "de.json").exists()
+
+
+def test_an_instance_not_behind_the_edge_is_not_asked(tmp_path):
+    path = _instance(tmp_path, "k8s")
+    run = WikiRunner({"example.com": _siteinfo("Spezial")})
+    assert _learn(run, tmp_path / "edge", "k8s", path) == {"changed": False, "reload": False}
+    assert run.calls == [] and not (tmp_path / "edge").exists()
+
+
+def test_without_a_running_web_container_nothing_changes(tmp_path):
+    path, edge = _german(tmp_path)
+    run = WikiRunner({"de.example.org": _siteinfo("Spezial")}, web=False)
+    assert not _learn(run, edge, "de", path)["changed"]
+    assert run.asked() == [] and not (edge / "special-names").exists()
+
+
+@pytest.mark.parametrize("reply", ["not json", "", '{"error": {"code": "readapidenied"}}',
+                                   "<html>500</html>"])
+def test_an_answer_without_names_counts_as_silence(tmp_path, reply):
+    path, edge = _german(tmp_path)
+    _learn(WikiRunner({"de.example.org": _siteinfo("Spezial")}), edge, "de", path)
+    assert not _learn(WikiRunner({"de.example.org": reply}), edge, "de", path)["changed"]
+    assert (edge / "conf" / "dynamic-de.lst").exists()
+
+
+@pytest.mark.parametrize("url", ["de.example.org\nHost: evil", "de.example.org/a b",
+                                 "de.example.org/$(id)", "-O/tmp/x", "http://de.example.org"])
+def test_an_unusable_wiki_url_is_not_requested(tmp_path, url):
+    path, edge = _german(tmp_path)
+    run = WikiRunner({})
+    assert mod.wiki_special_names(run, "docker", "webid", url) is None
+    assert run.calls == []
+
+
+def test_hostile_names_never_reach_the_edge(tmp_path):
+    path, edge = _german(tmp_path)
+    reply = _siteinfo("Spezial\nbackend x", ["} or 1", "Spe%zial", "Spezial"])
+    _learn(WikiRunner({"de.example.org": reply}), edge, "de", path)
+    assert (edge / "conf" / "dynamic-de.lst").read_text() == "Spezial:\nSpezial%3A\n"
+
+
+def test_a_render_error_keeps_the_previous_names(tmp_path):
+    path, edge = _german(tmp_path)
+    _learn(WikiRunner({"de.example.org": _siteinfo("Spezial")}), edge, "de", path)
+    before = (edge / "special-names" / "de.json").read_text()
+    run = WikiRunner({"de.example.org": _siteinfo("Spécial")}, running=True, invalid=True)
+    result = _learn(run, edge, "de", path)
+    assert "bad config" in result["warning"] and not result["reload"]
+    assert (edge / "special-names" / "de.json").read_text() == before
+    assert (edge / "conf" / "dynamic-de.lst").read_text() == "Spezial:\nSpezial%3A\n"

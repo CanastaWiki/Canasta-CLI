@@ -90,15 +90,6 @@
   ansible.builtin.include_tasks: _validate_trusted_proxies.yml
   when: _config_key == 'TRUSTED_PROXIES'
 
-# Checked with the edge renderer's own parser, so a value refused on the
-# next start is refused here instead.
-- name: Validate CANASTA_EDGE_DYNAMIC_PREFIXES
-  ansible.builtin.fail:
-    msg: "{{ _config_value | default('') | edge_dynamic_prefixes_problem }}"
-  when:
-    - _config_key == 'CANASTA_EDGE_DYNAMIC_PREFIXES'
-    - _config_value | default('') | edge_dynamic_prefixes_problem | length > 0
-
 # Refused even with --force: a value under the old name would be ignored.
 - name: Refuse a renamed key
   ansible.builtin.fail:

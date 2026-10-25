@@ -101,6 +101,15 @@
   ansible.builtin.include_role:
     name: upgrade
 
+- name: Learn the wikis' localized Special namespace names for the edge
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: edge_learn.yml
+  when:
+    - not (_upgrade_skip | bool)
+    - _was_running | default(false) | bool
+    - not (_upgrade_restart_failed | default(false) | bool)
+
 # A bouncer created before the edge layer mounted tmpfs over the image's
 # volumes still holds two anonymous volumes. Rewrite the layer, and replace
 # the container with its volumes, rather than wait for the next restart.

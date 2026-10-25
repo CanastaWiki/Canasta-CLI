@@ -49,8 +49,10 @@ def _instances():
             "other", {"TLS_MODE": "custom"},
             [{"id": "w0", "url": "other.example.org"}]),
         edge.instance_from_config(
-            "german", {"CANASTA_EDGE_DYNAMIC_PREFIXES": "Spezial:,Spécial:"},
-            [{"id": "w0", "url": "german.example.org"}]),
+            "german", {}, [{"id": "w0", "url": "german.example.org"}],
+            special_namespace_names=edge.special_names({"query": {
+                "namespaces": {"-1": {"id": -1, "canonical": "Special", "*": "Spezial"}},
+                "namespacealiases": [{"id": -1, "*": "Spécial"}]}})),
         edge.instance_from_config(
             "limited", {"CANASTA_EDGE_RATE_DEFAULT": "3"},
             [{"id": "w0", "url": "limited.example.org"}],

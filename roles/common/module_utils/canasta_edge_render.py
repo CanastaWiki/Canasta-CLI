@@ -24,7 +24,6 @@ import ipaddress
 import math
 import re
 import unicodedata
-from urllib.parse import unquote
 
 HAPROXY_IMAGE = "docker.io/library/haproxy:3.2.25-alpine"
 # Also the edge's openssl: the HAProxy image has none, and hosts may not.
@@ -89,11 +88,13 @@ LIMIT_KEYS = {
     "rate_default": "CANASTA_EDGE_RATE_DEFAULT",
 }
 
-# URL parts an instance adds to the requests the edge treats as dynamic,
-# such as its wiki's localized name for the Special: namespace.
-DYNAMIC_PREFIXES_KEY = "CANASTA_EDGE_DYNAMIC_PREFIXES"
-DYNAMIC_PREFIX_MAX = 64
-DYNAMIC_PREFIXES_MAX = 20
+# A wiki's localized names for the Special: namespace, as its API reports
+# them. They come from wiki configuration, so they are bounded and checked
+# before they reach the edge.
+SPECIAL_NAME_MAX = 64
+SPECIAL_NAMES_PER_WIKI = 10
+SPECIAL_NAMES_MAX = 100
+SPECIAL_NAMESPACE = "-1"
 
 DENY_UA_FILE = "config/edge-deny-user-agents.list"
 DENY_CIDR_FILE = "config/edge-deny-cidrs.list"
@@ -101,11 +102,7 @@ DENY_CIDR_FILE = "config/edge-deny-cidrs.list"
 _LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 _IPV4 = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 _INSTANCE_ID = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-_]*[a-zA-Z0-9])?$")
-# The ASCII a namespace name or path needs; beyond ASCII, letters, marks and
-# digits in any script. The values land in a pattern file, never in
-# haproxy.cfg.
-_DYNAMIC_PREFIX_ASCII = re.compile(r"^[A-Za-z0-9_.:/~%-]$")
-_PERCENT_ESCAPE = re.compile(r"%(?![0-9A-Fa-f]{2})")
+_SPECIAL_NAME_ASCII = re.compile(r"^[A-Za-z0-9_.~-]$")
 
 # Lines of an instance snippet are inlined into its backends. A line that
 # opens a section would end the backend early and attach the rest of the
@@ -202,44 +199,55 @@ def _url_encoded(text):
                    for c in text)
 
 
-def _prefix_char_ok(c):
-    if ord(c) < 128:
-        return bool(_DYNAMIC_PREFIX_ASCII.match(c))
-    return unicodedata.category(c)[0] in "LMN"
+def _special_name(value):
+    """value as it appears in a URL, or None unless it is a name made of
+    letters, marks, digits and _ . - ~ other than the canonical Special."""
+    if not isinstance(value, str):
+        return None
+    name = unicodedata.normalize("NFC", value.strip()).replace(" ", "_")
+    if not name or len(name) > SPECIAL_NAME_MAX or name.lower() == "special":
+        return None
+    for c in name:
+        if ord(c) < 128:
+            if not _SPECIAL_NAME_ASCII.match(c):
+                return None
+        elif unicodedata.category(c)[0] not in "LM" and unicodedata.category(c) != "Nd":
+            return None
+    if not any(c.isalnum() for c in name):
+        return None
+    return name
 
 
-def dynamic_prefixes(value):
-    """The URL substrings, from a CANASTA_EDGE_DYNAMIC_PREFIXES value, that
-    send a request to the instance's dynamic backend: each entry
-    percent-encoded, and with its colons both as typed and as %3A, the two
-    ways MediaWiki's links and forms send a namespace."""
-    entries = [e.strip() for e in (value or "").split(",") if e.strip()]
-    if len(entries) > DYNAMIC_PREFIXES_MAX:
-        raise EdgeError("%s lists %d entries; at most %d are allowed."
-                        % (DYNAMIC_PREFIXES_KEY, len(entries), DYNAMIC_PREFIXES_MAX))
+def special_names(siteinfo):
+    """The localized names and aliases of the Special: namespace in a
+    siteinfo reply (namespaces|namespacealiases), cleaned for the edge, or
+    None when the reply has no namespaces."""
+    query = siteinfo.get("query") if isinstance(siteinfo, dict) else None
+    namespaces = query.get("namespaces") if isinstance(query, dict) else None
+    if not isinstance(namespaces, dict):
+        return None
+    special = namespaces.get(SPECIAL_NAMESPACE)
+    found = [special] if isinstance(special, dict) else []
+    aliases = query.get("namespacealiases")
+    found += [a for a in aliases if isinstance(a, dict) and str(a.get("id")) == SPECIAL_NAMESPACE] \
+        if isinstance(aliases, list) else []
+    names = []
+    for entry in found:
+        name = _special_name(entry.get("*", entry.get("name")))
+        if name and name not in names:
+            names.append(name)
+    return names[:SPECIAL_NAMES_PER_WIKI]
+
+
+def dynamic_patterns(names):
+    """The URL substrings that make a request for one of names' special
+    pages dynamic: each name percent-encoded, followed by its colon as typed
+    and as %3A, the two ways MediaWiki's links and forms send a namespace."""
+    clean = sorted({n for n in (_special_name(v) for v in names or ()) if n})
     patterns = []
-    for entry in entries:
-        if (len(entry) > DYNAMIC_PREFIX_MAX or not all(_prefix_char_ok(c) for c in entry)
-                or _PERCENT_ESCAPE.search(entry)
-                or not any(unicodedata.category(c)[0] in "LN" for c in unquote(entry))):
-            raise EdgeError(
-                "%s entry '%s' is not allowed. Each entry is up to %d letters, "
-                "digits and . : / ~ %% - _ characters, with at least one letter "
-                "or digit, such as Spezial: (write spaces as _)."
-                % (DYNAMIC_PREFIXES_KEY, entry, DYNAMIC_PREFIX_MAX))
-        typed = _url_encoded(re.sub(r"%[0-9A-Fa-f]{2}", lambda m: m.group(0).upper(), entry)
-                             .replace("%3A", ":"))
-        for pattern in (typed, typed.replace(":", "%3A")):
-            if pattern not in patterns:
-                patterns.append(pattern)
+    for name in clean[:SPECIAL_NAMES_MAX]:
+        patterns += [_url_encoded(name) + ":", _url_encoded(name) + "%3A"]
     return patterns
-
-
-def _instance_dynamic_prefixes(env, instance_id):
-    try:
-        return dynamic_prefixes(env.get(DYNAMIC_PREFIXES_KEY))
-    except EdgeError as exc:
-        raise EdgeError("Instance '%s': %s" % (instance_id, exc))
 
 
 def rates_set(env):
@@ -326,7 +334,8 @@ def acme_hostnames(inst):
 
 
 def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
-                         deny_user_agents="", deny_cidrs="", extra_hostnames=()):
+                         deny_user_agents="", deny_cidrs="", extra_hostnames=(),
+                         special_namespace_names=()):
     """Build the edge's view of one instance.
 
     env is the instance's .env as a dict, wikis the parsed wikis.yaml list,
@@ -334,6 +343,8 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
     edge snippet, and deny_user_agents and deny_cidrs the text of its deny
     lists (each empty when it has none). extra_hostnames are names its own
     Caddy serves besides its wikis, from site blocks in Caddyfile.global.
+    special_namespace_names are its wikis' localized names for the Special:
+    namespace.
     """
     if not _INSTANCE_ID.match(instance_id or ""):
         raise EdgeError("'%s' is not a valid instance ID." % instance_id)
@@ -472,7 +483,7 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         "rates_set": rates_set(env),
         "deny_user_agents": _user_agents(deny_user_agents, instance_id),
         "deny_cidrs": _networks(deny_cidrs, instance_id, DENY_CIDR_FILE),
-        "dynamic_prefixes": _instance_dynamic_prefixes(env, instance_id),
+        "dynamic_patterns": dynamic_patterns(special_namespace_names),
         "limits": {
             "dynamic_maxconn": _limit(env, LIMIT_KEYS["dynamic_maxconn"], instance_id, None, False),
             "default_maxconn": _limit(env, LIMIT_KEYS["default_maxconn"], instance_id, None, False),
@@ -786,7 +797,7 @@ def _routing(instances):
     applied to its hostnames only."""
     own = ["    use_backend be_%s_dynamic if { var(txn.inst) -m str %s } !media_host "
            "{ url_sub -i -f %s }" % (i["id"], i["id"], _list_path("dynamic-%s.lst" % i["id"]))
-           for i in instances if i.get("dynamic_prefixes")]
+           for i in instances if i.get("dynamic_patterns")]
     return _ROUTING + own + _ROUTING_REST
 
 
@@ -991,7 +1002,7 @@ def render(instances, acme_thumbprint=None, cdn_ranges=None, ipv6=False, sockets
         for name, entries_ in (("trusted-%s.lst", inst["trusted_cidrs"]),
                                ("deny-cidr-%s.lst", inst["deny_cidrs"]),
                                ("deny-ua-%s.lst", inst["deny_user_agents"]),
-                               ("dynamic-%s.lst", inst["dynamic_prefixes"])):
+                               ("dynamic-%s.lst", inst["dynamic_patterns"])):
             if entries_:
                 files[name % inst["id"]] = _lines(entries_)
         if inst["crowdsec"]:

@@ -1,0 +1,25 @@
+---
+# Learn the localized Special: names of a running instance's wikis, which
+# the HAProxy edge then treats as dynamic like Special: itself. A wiki that
+# does not answer keeps the names it last answered with.
+# Input: instance_id, instance_path
+
+- name: Learn the wikis' localized Special namespace names
+  canasta_edge:
+    state: learn
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+    inspect_command: "{{ inspect_command | default('docker') }}"
+  register: _edge_learn
+  failed_when: false
+  when: not (instance_is_k8s | bool)
+
+- name: Report why the edge did not take the wikis' Special namespace names
+  ansible.builtin.debug:
+    msg: >-
+      The HAProxy edge did not take the localized Special: namespace names
+      of instance '{{ instance_id }}':
+      {{ _edge_learn.warning | default(_edge_learn.msg | default('')) }}
+  when:
+    - _edge_learn is not skipped
+    - _edge_learn.warning is defined or _edge_learn.msg is defined

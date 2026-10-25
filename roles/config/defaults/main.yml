@@ -223,16 +223,6 @@ canasta_known_keys:
       passes on; more wait in a queue. Media hostnames are not rate-limited
       per client, since they never reach PHP
     default: "500"
-  - name: CANASTA_EDGE_DYNAMIC_PREFIXES
-    group: HAProxy edge
-    description: >-
-      Comma-separated URL parts the edge treats as always reaching PHP,
-      besides Special: (e.g. Spezial: for a German-language wiki). Matched
-      anywhere in the URL, ignoring case, with or without the colon written
-      as %3A; non-ASCII names may be given as typed. Each entry is up to 64
-      letters, digits and . : / ~ % - _ characters (write spaces as _).
-      Changes only which queue and rate limit a request gets, never whether
-      it is served
   - name: CADDY_TRUSTED_PROXY_CIDRS
     group: Caddy
     description: >-

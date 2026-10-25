@@ -96,3 +96,35 @@ def test_issuance_retries_on_the_edges_first_account():
     issue = next(t for t in _tasks("edge_sync.yml")
                  if t.get("name") == "Obtain the edge's Let's Encrypt certificates")
     assert "acme_registered" in issue["canasta_edge"]["retry"]
+
+
+def _yaml(*parts):
+    with open(os.path.join(ROOT, *parts)) as handle:
+        return yaml.safe_load(handle)
+
+
+LEARN = {"name": "orchestrator", "tasks_from": "edge_learn.yml"}
+
+
+def test_start_and_restart_learn_the_special_names_once_the_containers_are_up():
+    for name in ("start.yml", "restart.yml"):
+        tasks = _yaml("roles", "instance_lifecycle", "tasks", name)
+        up = _index(tasks, lambda t: t.get("name") == "Start containers")
+        learn = _index(tasks, lambda t: t.get("ansible.builtin.include_role") == LEARN)
+        assert up < learn and "when" not in tasks[learn]
+
+
+def test_upgrade_learns_the_special_names_of_instances_left_running():
+    tasks = _yaml("playbooks", "_upgrade_single.yml")
+    upgrade = _index(tasks, lambda t: t.get("ansible.builtin.include_role") == {"name": "upgrade"})
+    learn = _index(tasks, lambda t: t.get("ansible.builtin.include_role") == LEARN)
+    assert upgrade < learn
+    assert "_was_running | default(false) | bool" in tasks[learn]["when"]
+    assert "not (_upgrade_restart_failed | default(false) | bool)" in tasks[learn]["when"]
+
+
+def test_learning_is_a_no_op_on_kubernetes_and_never_fails_the_command():
+    task = _tasks("edge_learn.yml")[0]
+    assert task["canasta_edge"]["state"] == "learn"
+    assert task["when"] == "not (instance_is_k8s | bool)"
+    assert task["failed_when"] is False

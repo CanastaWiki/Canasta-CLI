@@ -10,6 +10,8 @@ instances behind it, so it can be deleted and rebuilt at any time:
   members.yaml         instances that joined, so a stopped one keeps its route
   conf/                mounted into HAProxy: haproxy.cfg, crt-list, hosts.map
   conf/certs/          one PEM per crt-list line
+  special-names/       each instance's wikis' localized Special: names, as
+                       they last answered, so a new conf/ has them too
   ca/                  the local CA that signs internal certificates
   acme/                acme.sh's account, certificates and renewal state
 
@@ -47,15 +49,17 @@ options:
       which Caddy cannot use behind the edge. writable fails, naming them,
       when the user running canasta cannot write the edge's files or the
       instance's files the edge writes, and when canasta runs as root on a
-      host whose edge belongs to another user.
+      host whose edge belongs to another user. learn asks each of the
+      instance's wikis for its localized Special: names, and brings the edge
+      in line when they changed.
     type: str
-    choices: [sync, start, stop, issue, plan, import, check, writable]
+    choices: [sync, start, stop, issue, plan, import, check, writable, learn]
     default: sync
   instance_id:
-    description: The instance's registry ID (required for sync and check).
+    description: The instance's registry ID (required for sync, check and learn).
     type: str
   instance_path:
-    description: Path to the instance directory (required for sync and check).
+    description: Path to the instance directory (required for sync, check and learn).
     type: str
   member:
     description: >-
@@ -128,7 +132,7 @@ from ansible.module_utils.canasta_edge_render import (
     ACME_IMAGE, CERT_DIR, CONFIG_DIR, DENY_CIDR_FILE, DENY_UA_FILE, EdgeError,
     HAPROXY_IMAGE, SPOA_IMAGE, acme_hostnames, cdn_providers, certificates,
     check_together, crowdsec_enforced, frontends, host_tls_mode,
-    instance_from_config, rates_set, render,
+    dynamic_patterns, instance_from_config, rates_set, render, special_names,
 )
 from ansible.module_utils.canasta_caddyfile import (
     instance_tls_directives, site_hostnames, tls_directives_problem,
@@ -502,7 +506,7 @@ def tls_directives(path):
     return instance_tls_directives(lambda rel: _read(os.path.join(path, rel)))
 
 
-def load_instance(instance_id, path):
+def load_instance(instance_id, path, special_namespace_names=()):
     """The renderer's view of an instance, or None when it is not (or no
     longer) behind the edge."""
     env = read_env(path)
@@ -520,7 +524,8 @@ def load_instance(instance_id, path):
         instance_id, env, wikis, media, snippet,
         deny_user_agents=_read(os.path.join(path, DENY_UA_FILE)) or "",
         deny_cidrs=_read(os.path.join(path, DENY_CIDR_FILE)) or "",
-        extra_hostnames=global_sites(path)[0])
+        extra_hostnames=global_sites(path)[0],
+        special_namespace_names=special_namespace_names)
     inst["path"] = path
     return inst
 
@@ -806,7 +811,8 @@ def sync(run, inspect, edge_dir, instance_id, instance_path, member):
 def _load_members(edge_dir, members):
     instances = []
     for inst_id in sorted(members):
-        inst = load_instance(inst_id, members[inst_id])
+        inst = load_instance(inst_id, members[inst_id],
+                             _all_names(read_special_names(edge_dir, inst_id)))
         if inst is not None:
             instances.append(inst)
     return instances
@@ -1010,6 +1016,10 @@ def _sync_edge(run, inspect, edge_dir, instance_id, instance_path, member, resul
 
     instances = _load_members(edge_dir, members)
     members = {i["id"]: i["path"] for i in instances}
+    names_dir = os.path.join(edge_dir, NAMES_DIR)
+    for name in os.listdir(names_dir) if os.path.isdir(names_dir) else []:
+        if name.endswith(".json") and name[:-len(".json")] not in members:
+            os.remove(os.path.join(names_dir, name))
     # Site addresses the edge cannot route by name stay with Caddy, which
     # can no longer obtain certificates for them behind the edge.
     result["unrouted_sites"] = [
@@ -1376,6 +1386,128 @@ def _issue(run, inspect, edge_dir, retry=False):
     return result
 
 
+NAMES_DIR = "special-names"
+NAMES_QUERY = ("/w/api.php?action=query&meta=siteinfo"
+               "&siprop=namespaces%7Cnamespacealiases&format=json")
+NAMES_ATTEMPTS = 3
+NAMES_RETRY_DELAY = 5
+_WIKI_SERVER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?$")
+_WIKI_PATH = re.compile(r"^[A-Za-z0-9._~-]+(/[A-Za-z0-9._~-]+)*$")
+
+
+def _names_path(edge_dir, instance_id):
+    return os.path.join(edge_dir, NAMES_DIR, "%s.json" % instance_id)
+
+
+def read_special_names(edge_dir, instance_id):
+    """{wiki ID: names} the instance's wikis last answered with."""
+    try:
+        data = json.loads(_read(_names_path(edge_dir, instance_id)) or "{}")
+    except ValueError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(w): [n for n in names if isinstance(n, str)]
+            for w, names in data.items() if isinstance(names, list)}
+
+
+def _all_names(names):
+    return sorted({n for wiki in names for n in names[wiki]})
+
+
+def web_container(run, inspect, instance_path):
+    """The ID of the instance's running web container, or None."""
+    project = os.path.basename(instance_path.rstrip("/")).lower()
+    rc, out, _ = run([inspect, "ps", "-q",
+                      "--filter", "label=com.docker.compose.project=%s" % project,
+                      "--filter", "label=com.docker.compose.service=web"])
+    ids = out.split() if rc == 0 else []
+    return ids[0] if ids else None
+
+
+def wiki_special_names(run, inspect, container, url):
+    """The localized Special: names of the wiki at a wikis.yaml url, asked of
+    the instance's web container by the wiki's hostname, or None when it
+    does not answer with them. Inside the container the request needs no
+    certificate, DNS or published port, and passes neither the edge's rate
+    limits nor Varnish."""
+    server, _, path = str(url or "").strip().rstrip("/").partition("/")
+    if not _WIKI_SERVER.match(server) or (path and not _WIKI_PATH.match(path)):
+        return None
+    rc, out, _ = run([inspect, "exec", container, "wget", "-q", "-O", "-", "-T", "15", "-t", "1",
+                      "--header", "Host: " + server,
+                      "http://127.0.0.1" + ("/" + path if path else "") + NAMES_QUERY])
+    if rc != 0:
+        return None
+    try:
+        return special_names(json.loads(out))
+    except ValueError:
+        return None
+
+
+def learn(run, inspect, edge_dir, instance_id, instance_path):
+    """Record the localized Special: names the instance's wikis answer with,
+    keeping a silent wiki's last ones, and bring the edge in line when they
+    changed."""
+    result = {"changed": False, "reload": False}
+    if instance_id not in read_members(edge_dir):
+        return result
+    container = web_container(run, inspect, instance_path)
+    if not container:
+        return result
+    wikis = (yaml.safe_load(_read(os.path.join(instance_path, "config", "wikis.yaml")) or "")
+             or {}).get("wikis") or []
+    pending = [(str(w.get("id")), w.get("url")) for w in wikis
+               if isinstance(w, dict) and w.get("id")]
+    learned = {}
+    for attempt in range(NAMES_ATTEMPTS):
+        if attempt:
+            time.sleep(NAMES_RETRY_DELAY)
+        silent = []
+        for wiki_id, url in pending:
+            names = wiki_special_names(run, inspect, container, url)
+            if names is None:
+                silent.append((wiki_id, url))
+            else:
+                learned[wiki_id] = names
+        pending = silent
+        if not pending:
+            break
+    return _locked(edge_dir, _learn, run, inspect, edge_dir, instance_id, instance_path,
+                   learned, [w for w, _ in pending], result)
+
+
+def _learn(run, inspect, edge_dir, instance_id, instance_path, learned, silent, result):
+    known = read_special_names(edge_dir, instance_id)
+    learned.update({w: known[w] for w in silent if w in known})
+    path = _names_path(edge_dir, instance_id)
+    before = _read(path)
+    if before is None and not learned:
+        return result
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if not _write_if_changed(path, json.dumps(learned, sort_keys=True, indent=2) + "\n"):
+        return result
+    result["changed"] = True
+    if dynamic_patterns(_all_names(learned)) == dynamic_patterns(_all_names(known)):
+        return result
+    synced = _sync(run, inspect, edge_dir, instance_id, instance_path, "present")
+    if "error" in synced:
+        # Restored, so that the next start does not fail on the same names.
+        if before is None:
+            os.remove(path)
+        else:
+            _write_if_changed(path, before)
+        result["warning"] = synced["error"]
+        return result
+    if synced["reload"] and synced["running"]:
+        rc, out, err = run([inspect, "exec", CONTAINER, "kill", "-USR2", "1"])
+        if rc != 0:
+            result["warning"] = "Could not reload the HAProxy edge: %s" % _tail(out, err)
+            return result
+        result["reload"] = True
+    return result
+
+
 # Where Caddy keeps the certificates each CA issued, in its data volume.
 CADDY_CERT_ROOT = "/data/caddy/certificates"
 CADDY_ISSUER_DIRS = {
@@ -1591,7 +1723,7 @@ def run_module():
         argument_spec=dict(
             state=dict(type="str",
                        choices=["sync", "start", "stop", "issue", "plan", "import", "prune",
-                                "check", "writable"],
+                                "check", "writable", "learn"],
                        default="sync"),
             recreate=dict(type="bool", default=False),
             restart=dict(type="bool", default=False),
@@ -1605,6 +1737,7 @@ def run_module():
             edge_dir=dict(type="str"),
         ),
         required_if=[("state", "sync", ("instance_id", "instance_path")),
+                     ("state", "learn", ("instance_id", "instance_path")),
                      ("state", "import", ("instance_id", "instance_path")),
                      ("state", "check", ("instance_id", "instance_path")),
                      ("state", "plan", ("instances",))],
@@ -1625,6 +1758,9 @@ def run_module():
             result = {"changed": True}
         elif params["state"] == "issue":
             result = issue(run, params["inspect_command"], edge_dir, params["retry"])
+        elif params["state"] == "learn":
+            result = learn(run, params["inspect_command"], edge_dir,
+                           params["instance_id"], params["instance_path"])
         elif params["state"] == "plan":
             seen = {}
 
