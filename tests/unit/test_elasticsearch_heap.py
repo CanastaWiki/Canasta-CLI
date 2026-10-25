@@ -19,7 +19,7 @@ COMPOSE = os.path.join(REPO_ROOT, "roles", "orchestrator", "files", "compose",
                        "docker-compose.yml")
 DEFAULTS = os.path.join(REPO_ROOT, "roles", "config", "defaults", "main.yml")
 CLASSIFIER = os.path.join(REPO_ROOT, "vars", "secret_classification.yml")
-VALIDATE_KEY = os.path.join(REPO_ROOT, "roles", "config", "tasks", "_validate_key.yml")
+VALIDATE_VALUE = os.path.join(REPO_ROOT, "roles", "config", "tasks", "_validate_value.yml")
 RECONCILE = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
                          "k8s_reconcile_elasticsearch.yml")
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
@@ -79,7 +79,7 @@ class TestCompose:
 
 
 def _validate_task():
-    return next(t for t in _load(VALIDATE_KEY)
+    return next(t for t in _load(VALIDATE_VALUE)
                 if t.get("name") == "Validate CANASTA_ELASTICSEARCH_HEAP")
 
 

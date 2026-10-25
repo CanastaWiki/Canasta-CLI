@@ -1,0 +1,70 @@
+---
+# Check the -e env file's settings as config set checks them, before create
+# writes anything. A key config set does not know is written as is, with a
+# warning: an env file may carry keys of its own for Settings.php or a
+# sidecar. Old TLS key names are checked under the names create renames
+# them to.
+# Input: envfile (a controller-side path)
+
+- name: Read the env file to validate
+  ansible.builtin.slurp:
+    src: "{{ envfile }}"
+  delegate_to: canasta_controller
+  vars:
+    ansible_connection: local
+  register: _validate_env_raw
+
+# The same lines _envfile.yml writes to .env.
+- name: List the env file's settings
+  ansible.builtin.set_fact:
+    _validate_env_settings: >-
+      {{ (_validate_env_raw.content | b64decode | canasta_env_modernize).splitlines()
+         | select('match', '^[A-Z].*=') | list }}
+  no_log: true  # holds the env file's passwords
+
+- name: Check each setting
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/config/tasks/_validate_value.yml"
+  vars:
+    _config_key: "{{ _validate_env_setting.split('=', 1)[0] }}"
+    _config_value: "{{ _validate_env_setting.split('=', 1)[1] | canasta_env_unquote }}"
+  loop: "{{ _validate_env_settings }}"
+  loop_control:
+    loop_var: _validate_env_setting
+    label: "{{ _validate_env_setting.split('=', 1)[0] }}"
+
+- name: List the keys create sets itself
+  ansible.builtin.set_fact:
+    _validate_env_create_sets: ["COMPOSE_PROFILES"]
+
+- name: Load the configuration keys config set knows
+  ansible.builtin.include_vars:
+    file: "{{ canasta_root }}/roles/config/defaults/main.yml"
+    name: _validate_env_config
+
+# create keeps an MW_SECRET_KEY the env file supplies, and a HOST_GATEWAY
+# except where it pins its own.
+- name: Warn about keys config set does not know
+  ansible.builtin.debug:
+    msg: "Warning: {{ _validate_env_key }} is not a known configuration key; it is written to .env as is."
+  loop: >-
+    {{ _validate_env_settings | map('regex_replace', '=.*$', '') | unique
+       | reject('in', _validate_env_known + _validate_env_replaced)
+       | reject('match', '(' + canasta_secret_prefixes | join('|') + ')')
+       | list }}
+  loop_control:
+    loop_var: _validate_env_key
+  vars:
+    _validate_env_known: >-
+      {{ (_validate_env_config.canasta_known_keys | map(attribute='name') | list)
+         + _validate_env_config.canasta_create_only_keys
+         + ['MW_SECRET_KEY', 'HOST_GATEWAY'] }}
+    _validate_env_replaced: "{{ _validate_env_create_sets }}"
+
+- name: Warn about keys create sets itself
+  ansible.builtin.debug:
+    msg: "Warning: create sets {{ _validate_env_key }} itself; the env file's value is not used."
+  loop: >-
+    {{ _validate_env_settings | map('regex_replace', '=.*$', '') | unique
+       | select('in', _validate_env_create_sets) | list }}
+  loop_control:
+    loop_var: _validate_env_key

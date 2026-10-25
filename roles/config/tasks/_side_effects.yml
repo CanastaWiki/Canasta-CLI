@@ -2,30 +2,6 @@
 # Apply side effects when specific config keys are changed.
 # Input: _config_key (str), _config_value (str), instance_path
 
-- name: Validate port is numeric
-  ansible.builtin.fail:
-    msg: "{{ _config_key }} must be a number (got '{{ _config_value }}')"
-  when:
-    - _config_key in ['HTTP_PORT', 'HTTPS_PORT']
-    - _config_value | regex_search('^[0-9]+$') is none
-
-- name: Validate port range for HTTP_PORT/HTTPS_PORT
-  ansible.builtin.fail:
-    msg: "{{ _config_key }} must be between 1 and 65535 (got '{{ _config_value }}')"
-  when:
-    - _config_key in ['HTTP_PORT', 'HTTPS_PORT']
-    - _config_value | regex_search('^[0-9]+$') is not none
-    - _config_value | int < 1 or _config_value | int > 65535
-
-- name: Validate TLS_MODE value
-  ansible.builtin.fail:
-    msg: >-
-      TLS_MODE must be 'acme', 'acme-dns', 'internal', 'custom' or 'off'
-      (got '{{ _config_value }}')
-  when:
-    - _config_key == 'TLS_MODE'
-    - _config_value | trim | lower not in ['acme', 'acme-dns', 'internal', 'custom', 'off']
-
 # Enabling Elasticsearch or the observability stack raises the host memory a
 # Canasta instance needs (either -> ~4 GiB, both -> ~8 GiB). Enforce it BEFORE
 # the flag is written to .env (this runs earlier in _set_single than the

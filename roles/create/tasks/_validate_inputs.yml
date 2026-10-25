@@ -36,6 +36,10 @@
       - label: Settings file
         path: "{{ wiki_settings | default('') }}"
 
+- name: Validate the env file's settings
+  ansible.builtin.include_tasks: _validate_envfile.yml
+  when: envfile is defined and envfile != ''
+
 - name: Validate instance ID
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/validate_instance_id.yml"
 

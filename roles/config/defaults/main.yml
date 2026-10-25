@@ -285,3 +285,12 @@ canasta_known_keys:
 # canasta_secret_key_regex, canasta_backup_backend_prefixes, ...) lives
 # play-global in vars/secret_classification.yml so config, gitops, and the K8s
 # sync share one definition. Config validation + no_log reference it from there.
+
+# The database connection every wiki of an instance shares. Only create sets
+# these (from its -e env file); config set refuses them.
+canasta_create_only_keys:
+  - USE_EXTERNAL_DB
+  - MYSQL_HOST
+  - MYSQL_PORT
+  - MYSQL_USER
+  - MYSQL_SSL

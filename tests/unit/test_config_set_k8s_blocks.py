@@ -4,20 +4,20 @@ On k8s the Ingress terminates TLS and serves 80/443, and Caddy always runs
 behind it in http-only mode. The Compose scheme/port side-effects in
 _side_effects.yml carry no orchestrator guard, so setting these keys on k8s
 would wrongly rewrite MW_SITE_SERVER to a scheme/port nothing serves. They are
-blocked up front in _validate_key.yml."""
+blocked up front in _validate_value.yml, which _validate_key.yml includes."""
 
 import os
 
 import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-VALIDATE_KEY = os.path.join(
-    REPO_ROOT, "roles", "config", "tasks", "_validate_key.yml",
+VALIDATE_VALUE = os.path.join(
+    REPO_ROOT, "roles", "config", "tasks", "_validate_value.yml",
 )
 
 
 def _tasks():
-    with open(VALIDATE_KEY) as f:
+    with open(VALIDATE_VALUE) as f:
         return yaml.safe_load(f)
 
 
