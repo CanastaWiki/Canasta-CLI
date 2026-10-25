@@ -12,7 +12,7 @@ from _orchestrator import INSTANCE_IS_K8S_VARS
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 VALIDATE = os.path.join(REPO_ROOT, "roles", "config", "tasks",
                         "_validate_tls_mode_hosts.yml")
-VALIDATE_KEY = os.path.join(REPO_ROOT, "roles", "config", "tasks", "_validate_key.yml")
+VALIDATE_VALUE = os.path.join(REPO_ROOT, "roles", "config", "tasks", "_validate_value.yml")
 
 
 def _validate(tmp_path, value, orchestrator="compose"):
@@ -54,7 +54,7 @@ def test_refused_values(tmp_path, value):
 
 
 def test_config_set_runs_the_check_and_refuses_it_on_kubernetes():
-    with open(VALIDATE_KEY) as f:
+    with open(VALIDATE_VALUE) as f:
         tasks = yaml.safe_load(f)
     assert any(t.get("ansible.builtin.include_tasks") == "_validate_tls_mode_hosts.yml"
                and t.get("when") == "_config_key == 'TLS_MODE_HOSTS'" for t in tasks)
