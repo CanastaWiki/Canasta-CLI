@@ -39,6 +39,11 @@
         name: orchestrator
         tasks_from: k8s_reconcile_caddy.yml
 
+    - name: Reconcile the Elasticsearch heap in values.yaml
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_reconcile_elasticsearch.yml
+
     - name: Sync config to Kubernetes ConfigMaps
       ansible.builtin.include_role:
         name: orchestrator

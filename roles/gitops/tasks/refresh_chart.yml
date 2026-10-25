@@ -61,6 +61,8 @@
            ({} if _rc_reads.results[1].content is defined else {
              'elasticsearch.image': ['elasticsearch:7.10.2'],
              'crowdsec.image': ['crowdsecurity/crowdsec:v1.6.11'],
+             'elasticsearch.resources.requests.memory': ['512Mi'],
+             'elasticsearch.resources.limits.memory': ['1Gi'],
            }),
            _rc_reads.results[2:] | selectattr('content', 'defined')
            | map(attribute='content') | map('b64decode') | map('from_yaml')

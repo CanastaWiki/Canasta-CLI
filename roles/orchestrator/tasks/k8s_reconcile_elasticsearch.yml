@@ -1,0 +1,42 @@
+---
+# Reconcile elasticsearch.heap in values.yaml from CANASTA_ELASTICSEARCH_HEAP
+# in the instance .env before every helm deploy, so the heap follows .env
+# however it got there (create -e, config set or unset, or a hand edit).
+# Without the key, the heap is the chart's default. The chart derives the
+# container's memory request and limit from the heap.
+#
+# Runs on the target host (instance_path lives there). Input: instance_path.
+
+- name: Read the Elasticsearch heap from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: CANASTA_ELASTICSEARCH_HEAP
+  register: _reconcile_es_heap_env
+
+- name: Read values.yaml for the Elasticsearch heap
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values.yaml"
+  register: _reconcile_es_values_raw
+
+- name: Compute the desired Elasticsearch heap
+  ansible.builtin.set_fact:
+    _reconcile_es_values: "{{ _reconcile_es_values_raw.content | b64decode | from_yaml }}"
+    _reconcile_es_heap: >-
+      {{ _reconcile_es_heap_env.value | default(_chart_heap, true) | trim }}
+  vars:
+    _chart_heap: >-
+      {{ (lookup('file', canasta_root ~ '/roles/orchestrator/files/helm/canasta/values.yaml')
+          | from_yaml).elasticsearch.heap }}
+
+- name: Write the Elasticsearch heap to values.yaml
+  ansible.builtin.copy:
+    content: >-
+      {{ _reconcile_es_values
+         | combine({'elasticsearch': {'heap': _reconcile_es_heap}}, recursive=True)
+         | to_nice_yaml(indent=2) }}
+    dest: "{{ instance_path }}/values.yaml"
+    mode: "0644"
+  when: >-
+    (_reconcile_es_values.elasticsearch | default({})).heap | default('') | string
+    != _reconcile_es_heap
