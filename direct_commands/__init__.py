@@ -18,6 +18,7 @@ Layout:
   doctor.py         — doctor
   argocd.py         — argocd password/apps/ui
   rebuild.py        — rebuild
+  image.py          — image build-args
   wiki_check.py     — wiki-check
 
 Test code that does `monkeypatch.setattr(direct_commands, "_ssh_run", …)`
@@ -82,6 +83,7 @@ from . import backup      # noqa: F401
 from . import doctor      # noqa: F401
 from . import argocd      # noqa: F401
 from . import rebuild     # noqa: F401
+from . import image       # noqa: F401
 from . import wiki_check  # noqa: F401
 
 # Per-handler symbols re-exported so test code can reach
@@ -121,4 +123,5 @@ from .argocd import (  # noqa: F401
     cmd_argocd_ui,
 )
 from .rebuild import cmd_rebuild, _list_buildable_services  # noqa: F401
+from .image import cmd_image_build_args  # noqa: F401
 from .wiki_check import cmd_wiki_check  # noqa: F401

@@ -120,6 +120,15 @@ canasta_known_keys:
     description: Use /wiki/Page (no /w/) URLs
     default: "false"
 
+  - name: CANASTA_ELASTICSEARCH_HEAP
+    group: Elasticsearch
+    description: >-
+      Elasticsearch heap size, a whole number of megabytes or gigabytes
+      (e.g. 768m or 4g), used for both its minimum and maximum heap. On
+      Kubernetes the Elasticsearch container requests twice this much
+      memory and is limited to four times it. Defaults to 512m on Docker
+      Compose and 256m on Kubernetes
+
   - name: MW_SITE_SERVER
     group: MediaWiki site
     description: Site URL (e.g., https://example.com)

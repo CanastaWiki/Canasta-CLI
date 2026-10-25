@@ -4,8 +4,8 @@ instance only.
 Argo CD deploys such an instance from its gitops repo and self-heals back to
 it, so a direct restart is reverted until the change is pushed. These run the
 config role's set.yml and unset.yml as a localhost play against a stub
-orchestrator and instance_lifecycle: restart, the caddy values reconcile and
-the running check only log what they were asked to do.
+orchestrator and instance_lifecycle: restart, the caddy and Elasticsearch
+values reconciles and the running check only log what they were asked to do.
 """
 
 import os
@@ -38,6 +38,7 @@ def _stub_root(tmp_path, running):
         "orchestrator": {
             "update_config.yml": [_log(log, "UPDATE_CONFIG")],
             "k8s_reconcile_caddy.yml": [_log(log, "RECONCILE_CADDY")],
+            "k8s_reconcile_elasticsearch.yml": [_log(log, "RECONCILE_ES")],
             "config_set_secret.yml": [_log(log, "SET_SECRET")],
             "config_unset_secret.yml": [_log(log, "UNSET_SECRET")],
             "check_running.yml": [{"ansible.builtin.set_fact": {
@@ -132,6 +133,7 @@ class TestConfigSetGitopsKubernetes:
         assert "RESTART" not in lines
         assert "Restarting instance" not in out
         assert "RECONCILE_CADDY" in lines
+        assert "RECONCILE_ES" in lines
         assert "MW_ENABLE_JOB_RUNNER=false" in (inst / ".env").read_text()
         assert ("Settings updated. The change to 'inst' is staged in its "
                 "gitops repo but not deployed.") in out
@@ -170,6 +172,7 @@ class TestConfigSetGitopsKubernetes:
         out, lines, _ = _set(tmp_path, config_set_caller_reports=True)
         assert "RESTART" in lines
         assert "RECONCILE_CADDY" not in lines
+        assert "RECONCILE_ES" not in lines
         assert "staged in its gitops repo" not in out
         # The caller reports the outcome and the push it needs itself.
         assert WARNING not in out
@@ -240,6 +243,7 @@ class TestConfigUnsetGitopsKubernetes:
         assert "RESTART" not in lines
         assert "Restarting instance" not in out
         assert "RECONCILE_CADDY" in lines
+        assert "RECONCILE_ES" in lines
         assert "MW_ENABLE_JOB_RUNNER" not in (inst / ".env").read_text()
         assert ("Keys removed. The change to 'inst' is staged in its gitops "
                 "repo but not deployed.") in out

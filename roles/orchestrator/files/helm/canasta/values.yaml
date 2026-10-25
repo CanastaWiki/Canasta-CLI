@@ -120,13 +120,15 @@ elasticsearch:
   image: docker.elastic.co/elasticsearch/elasticsearch:7.10.2
   storage: 5Gi
   storageClass: ""
+  # Both the minimum and maximum JVM heap. The container's memory request
+  # defaults to twice the heap and its limit to four times it; a memory
+  # set under resources takes precedence.
+  heap: 256m
   resources:
     requests:
       cpu: 250m
-      memory: 512Mi
     limits:
       cpu: 500m
-      memory: 1Gi
 
 # CrowdSec (optional). When enabled, the local API runs as its own
 # Deployment holding the PVC, an agent sidecar in the Caddy pod parses the

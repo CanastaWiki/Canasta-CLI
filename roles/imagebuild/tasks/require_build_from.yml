@@ -1,0 +1,11 @@
+---
+# Refuse an instance that was not created with --build-from: it has no
+# image of its own to build, so it has no build arguments.
+# Input: instance_id, _instance_result (resolve_instance.yml)
+
+- name: Fail if the instance is not built from source
+  ansible.builtin.fail:
+    msg: >-
+      Instance '{{ instance_id }}' is not built from source
+      (canasta create --build-from), so it has no build arguments.
+  when: _instance_result.instance.buildFrom | default('') == ''
