@@ -289,7 +289,7 @@ command_groups:
       `config/sidecars.yaml` directly.
 
   - name: image
-    description: "Push locally built images and reclaim image storage"
+    description: "Manage locally built images and reclaim image storage"
     long_description: |
       `image push` pushes a locally built image to the in-cluster registry
       of a Kubernetes host, the registry that serves locally built images
@@ -297,6 +297,10 @@ command_groups:
       pods. It is Kubernetes only: on Docker Compose, a locally built tag is
       directly usable with no push. `image prune` reclaims image storage on
       Docker Compose and Kubernetes hosts alike.
+
+      `image build-args`, `image set-build-arg` and `image unset-build-arg`
+      show and change the build arguments an instance created with
+      `--build-from` is built with, on both orchestrators.
 
 commands:
   # ---------------------------------------------------------------------------
@@ -746,6 +750,14 @@ commands:
       or UNKNOWN — the last meaning the instance's host could not be
       reached, so the wiki's state is unknown rather than known-bad.
       This costs one request per wiki, so it is off by default.
+
+      DB ACCOUNT MOVE PENDING after the status means MediaWiki still
+      connects as the database administrator account (root on the bundled
+      database), which `canasta upgrade` moves it off. An upgrade skips the
+      move for an instance that is stopped, so start the instance and run
+      `canasta upgrade` again to complete it. Setting
+      CANASTA_DB_ROOT_ACCOUNT=true keeps the instance on the administrator
+      account and clears the indicator.
     examples:
       - "canasta list"
       - "canasta list --check-wikis"
@@ -3936,7 +3948,9 @@ commands:
       Nothing else ever collects them, so the disk only grows until this runs.
 
       On a Docker or Podman host, removes the Canasta image tags no instance
-      registered on the host is pinned to, then prunes dangling layers. A
+      registered on the host is pinned to, and the `--build-from` images
+      (`canasta:local-<id>`) of instances no longer registered, then prunes
+      dangling layers. A
       host carrying both runtimes is reclaimed in each. On a Kubernetes
       host, prunes containerd images no pod references, then runs the
       in-cluster registry's garbage collector (with `--delete-untagged`) and
@@ -3970,3 +3984,100 @@ commands:
         type: bool
         default: false
         description: "Report what would be removed without removing anything"
+
+  - name: image_build_args
+    description: "Show the build arguments of an instance built from source"
+    long_description: |
+      Print the build arguments (`KEY=VALUE`, one per line) recorded for an
+      instance created with `canasta create --build-from`. They are the
+      `--build-arg` values given at create, as changed since by
+      `canasta image set-build-arg` and `canasta image unset-build-arg`
+      and by `canasta upgrade` moving a `BASE_IMAGE` pinned to an older
+      Canasta release. `canasta upgrade` rebuilds the instance's image
+      with them.
+    examples:
+      - "canasta image build-args"
+      - "canasta image build-args -i mywiki"
+    direct_only: true
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: image_set_build_arg
+    description: "Set build arguments of an instance built from source and rebuild it"
+    long_description: |
+      Set one or more build arguments of an instance created with
+      `canasta create --build-from`, replacing any value already recorded
+      for the same key, then rebuild the instance's image with them and
+      restart the instance onto it. The rebuild runs on the instance's
+      host, from the source directory recorded at create; on Kubernetes
+      the image is pushed to the in-cluster registry as on upgrade.
+
+      The image is rebuilt before the new arguments are recorded, so a
+      failed build leaves both the recorded arguments and the running
+      image as they were. A rebuild that yields the image the instance
+      already runs does not restart it, and a stopped instance is left
+      stopped. With `--no-rebuild`, the arguments are only recorded, and
+      the next `canasta upgrade` rebuilds with them.
+
+      The usual reason to set one is `BASE_IMAGE`, the image an overlay's
+      Dockerfile builds `FROM`. Build arguments are kept in the instance
+      registry on the controller, not in gitops.
+    examples:
+      - "canasta image set-build-arg BASE_IMAGE=ghcr.io/canastawiki/canasta:3.5.29"
+      - "canasta image set-build-arg -i mywiki MW_VERSION=master --no-rebuild"
+    playbook: image_set_build_arg.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: settings
+        type: string
+        positional: true
+        multi: true
+        as_list: true
+        required: true
+        description: "KEY=VALUE build argument(s) to set"
+      - name: no_rebuild
+        type: bool
+        default: false
+        description: "Record the build arguments without rebuilding the image"
+
+  - name: image_unset_build_arg
+    description: "Remove build arguments of an instance built from source and rebuild it"
+    long_description: |
+      Remove one or more build arguments, by key, from an instance created
+      with `canasta create --build-from`, then rebuild the instance's
+      image without them and restart the instance onto it. A key that is
+      not recorded is reported and otherwise ignored.
+
+      Without a `BASE_IMAGE` build argument, the image builds on the
+      auto-detected base: the local CanastaBase build when CanastaBase/ is
+      in the source directory, else the published CanastaBase image for
+      Canasta source and the current Canasta release image for an overlay.
+
+      The rebuild, recording and restart behave as for
+      `canasta image set-build-arg`, including `--no-rebuild`.
+    examples:
+      - "canasta image unset-build-arg MW_VERSION"
+      - "canasta image unset-build-arg -i mywiki BASE_IMAGE --no-rebuild"
+    playbook: image_unset_build_arg.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: keys
+        type: string
+        positional: true
+        multi: true
+        as_list: true
+        required: true
+        description: "Key(s) of the build argument(s) to remove"
+      - name: no_rebuild
+        type: bool
+        default: false
+        description: "Record the change without rebuilding the image"

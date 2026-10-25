@@ -42,6 +42,7 @@ def _build(tmp_path, runtime, env_extra=None, build_arg=None):
         "gather_facts": False,
         "vars": {"inspect_command": runtime, "build_from": str(src),
                  "build_arg": build_arg or [],
+                 "instance_is_k8s": False, "id": "site",
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_tasks": BUILD_FROM}],
     }]))
@@ -61,8 +62,10 @@ def _build(tmp_path, runtime, env_extra=None, build_arg=None):
 
 
 def test_buildkit_builds_drop_the_attestation(tmp_path):
-    for line in _build(tmp_path, "docker"):
+    builds = _build(tmp_path, "docker")
+    for line in builds:
         assert "--provenance=false" in line.split()
+    assert builds[-1].split()[-2:] == ["canasta:local-site", "."]
 
 
 def test_user_build_args_still_follow(tmp_path):
