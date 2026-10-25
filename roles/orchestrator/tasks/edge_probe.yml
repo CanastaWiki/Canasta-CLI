@@ -1,0 +1,22 @@
+---
+# Report the wikis of a running instance that do not answer through the
+# HAProxy edge. Healthy containers do not mean the wikis answer: Varnish can
+# hold a wrong address for web, or Caddy can be restarting.
+# Input: instance_id, instance_path
+
+- name: Request each wiki through the edge
+  canasta_edge:
+    state: probe
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+  register: _edge_probe
+  when: not (instance_is_k8s | bool)
+
+- name: Report the wikis that do not answer through the edge
+  ansible.builtin.debug:
+    msg: >-
+      Wiki '{{ item.wiki }}' of instance '{{ instance_id }}' does not answer
+      through the HAProxy edge at {{ item.url }}: {{ item.reason }}.
+  loop: "{{ _edge_probe.unanswered | default([]) }}"
+  loop_control:
+    label: "{{ item.wiki }}"

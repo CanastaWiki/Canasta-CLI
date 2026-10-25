@@ -1,0 +1,26 @@
+---
+# canasta image unset-build-arg - Remove build arguments of an instance
+# built from source, then rebuild its image without them.
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
+
+- name: Require an instance built from source
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/imagebuild/tasks/require_build_from.yml
+
+- name: Report keys that are not recorded
+  ansible.builtin.debug:
+    msg: "Build argument '{{ item }}' is not recorded for '{{ instance_id }}'."
+  loop: >-
+    {{ keys | reject('in', _instance_result.instance.buildArgs | default([])
+       | canasta_build_arg_keys) | list }}
+
+- name: Apply the new build arguments
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/imagebuild/tasks/apply_build_args.yml
+  vars:
+    _build_args_new: >-
+      {{ _instance_result.instance.buildArgs | default([])
+         | canasta_unset_build_args(keys) }}

@@ -37,8 +37,49 @@ def canasta_retarget_base_image(build_args, target_image):
     return result
 
 
+def _build_arg_key(arg):
+    return str(arg).partition("=")[0]
+
+
+def canasta_set_build_args(build_args, settings):
+    """Build args with each KEY=VALUE in settings recorded for its KEY.
+
+    A KEY already present keeps its position and takes the new value, and
+    any later entry for it is dropped. A new KEY is appended. Within
+    settings, the last value given for a KEY wins.
+    """
+    new = {}
+    for setting in settings or []:
+        new[_build_arg_key(setting)] = str(setting)
+    result = []
+    placed = set()
+    for arg in build_args or []:
+        key = _build_arg_key(arg)
+        if key not in new:
+            result.append(arg)
+        elif key not in placed:
+            result.append(new[key])
+            placed.add(key)
+    result.extend(value for key, value in new.items() if key not in placed)
+    return result
+
+
+def canasta_unset_build_args(build_args, keys):
+    """Build args without any entry whose KEY is in keys."""
+    drop = {str(key) for key in keys or []}
+    return [arg for arg in build_args or [] if _build_arg_key(arg) not in drop]
+
+
+def canasta_build_arg_keys(build_args):
+    """The KEY of each build arg, in order."""
+    return [_build_arg_key(arg) for arg in build_args or []]
+
+
 class FilterModule:
     def filters(self):
         return {
             "canasta_retarget_base_image": canasta_retarget_base_image,
+            "canasta_set_build_args": canasta_set_build_args,
+            "canasta_unset_build_args": canasta_unset_build_args,
+            "canasta_build_arg_keys": canasta_build_arg_keys,
         }

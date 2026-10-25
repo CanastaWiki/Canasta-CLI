@@ -130,7 +130,7 @@ services:
     environment:
       - discovery.type=single-node
       - bootstrap.memory_lock=true
-      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - "ES_JAVA_OPTS=-Xms${CANASTA_ELASTICSEARCH_HEAP:-512m} -Xmx${CANASTA_ELASTICSEARCH_HEAP:-512m}"
     ulimits:
       memlock:
         soft: -1

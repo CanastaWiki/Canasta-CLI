@@ -96,3 +96,33 @@ def test_issuance_retries_on_the_edges_first_account():
     issue = next(t for t in _tasks("edge_sync.yml")
                  if t.get("name") == "Obtain the edge's Let's Encrypt certificates")
     assert "acme_registered" in issue["canasta_edge"]["retry"]
+
+
+def _role_tasks(*parts):
+    with open(os.path.join(ROOT, *parts)) as handle:
+        return yaml.safe_load(handle)
+
+
+def _probes(task):
+    return (task.get("ansible.builtin.include_role") or {}).get("tasks_from") == "edge_probe.yml"
+
+
+def test_start_and_restart_report_wikis_the_edge_does_not_answer_for():
+    for name, report in (("start.yml", "Report started"), ("restart.yml", "Report restarted")):
+        tasks = _role_tasks("roles", "instance_lifecycle", "tasks", name)
+        assert _index(tasks, _probes) > _index(tasks, lambda t: t.get("name") == report)
+
+
+def test_upgrade_reports_wikis_of_the_running_instances_it_upgraded():
+    tasks = _role_tasks("playbooks", "_upgrade_single.yml")
+    probe = tasks[_index(tasks, _probes)]
+    assert tasks[-1] is probe
+    assert "not (_upgrade_skip | bool)" in probe["when"]
+    assert any("_was_running" in w for w in probe["when"])
+    assert any("_upgrade_restart_failed" in w for w in probe["when"])
+
+
+def test_the_probe_runs_only_for_compose():
+    probe = _tasks("edge_probe.yml")[0]
+    assert probe["canasta_edge"]["state"] == "probe"
+    assert probe["when"] == "not (instance_is_k8s | bool)"
