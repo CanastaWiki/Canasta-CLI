@@ -1222,6 +1222,64 @@ def test_a_silent_haproxy_leaves_imports_unregistered_not_unissued(tmp_path, mon
         {"hostname": "example.com", "reason": "HAProxy's stats socket did not answer"}]
 
 
+def _deployed_before(tmp_path, host="example.com", staging=False):
+    """acme.sh's record of a certificate it issued and deployed, kept in
+    acme/ while conf/ was removed with the last instance."""
+    record = tmp_path / "edge" / "acme" / ("%s_ecc" % host)
+    record.mkdir(parents=True)
+    (record / ("%s.conf" % host)).write_text(
+        "Le_Webroot='stateless'\nLe_DeployHook='haproxy,'\n")
+    (record / ("%s.cer" % host)).write_text(LEAF)
+    (record / "fullchain.cer").write_text(CHAIN)
+    return {host: (mod.ACME_CA_NAMES[staging], True)}
+
+
+@pytest.mark.parametrize("staging", [False, True])
+def test_a_cached_certificate_replaces_the_edge_ca_stand_in(tmp_path, staging):
+    env = {"CANASTA_STAGING_CERTS": "true"} if staging else {}
+    run = FakeRunner(running=True, listed=_deployed_before(tmp_path, staging=staging))
+    result = _issue(tmp_path, run, one={"env": env})
+    assert run.acme_calls("--issue") == []
+    deploy = run.acme_calls("--deploy")
+    assert len(deploy) == 1 and deploy[0][deploy[0].index("-d") + 1] == "example.com"
+    assert result["changed"] and result["uninstalled"] == []
+
+
+def test_a_cached_certificate_already_served_is_not_deployed_again(tmp_path):
+    run = FakeRunner(running=True, listed=_deployed_before(tmp_path))
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(running=True), edge, "one", _instance(tmp_path, "one"))
+    # As acme.sh's HAProxy hook writes it: no blank lines, chain then key.
+    (edge / "conf" / "certs" / "example.com.pem").write_text(
+        (CHAIN + EC_KEY).replace("\n", "\r\n"))
+    result = mod.issue(run, "docker", str(edge))
+    assert run.acme_calls("--deploy") == [] and run.acme_calls("--issue") == []
+    assert not result["changed"]
+
+
+def test_a_silent_haproxy_leaves_a_cached_certificate_uninstalled(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod.time, "sleep", lambda s: None)
+    monkeypatch.setattr(mod, "STATS_SOCKET_WAIT", 0)
+    run = FakeRunner(running=True, listed=_deployed_before(tmp_path), stats_down=99)
+    result = _issue(tmp_path, run, one={})
+    assert run.acme_calls("--deploy") == []
+    assert result["unissued"] == [] and result["unregistered"] == []
+    assert result["uninstalled"] == [
+        {"hostname": "example.com", "reason": "HAProxy's stats socket did not answer"}]
+
+
+def test_a_custom_hostname_beside_a_cached_one_is_left_alone(tmp_path):
+    run = FakeRunner(running=True, listed=_deployed_before(tmp_path))
+    _deployed_before(tmp_path, host="custom.example.com")
+    _issue(tmp_path, run, one={
+        "hosts": ("example.com", "custom.example.com"),
+        "env": {"TLS_MODE": "custom", "TLS_MODE_HOSTS": "example.com=acme",
+                "TLS_CERT": "c.pem", "TLS_KEY": "k.pem"},
+        "certs": {"c.pem": LEAF, "k.pem": EC_KEY}})
+    hosts = [c[c.index("-d") + 1] for c in run.acme_calls("--deploy")]
+    assert hosts == ["example.com"]
+
+
 def test_kubernetes_instances_are_left_out_of_the_plan(tmp_path):
     one = _plain(tmp_path, "one")
     entry = dict(_entry("one", one), orchestrator="kubernetes")

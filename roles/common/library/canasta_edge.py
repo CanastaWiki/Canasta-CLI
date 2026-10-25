@@ -1123,6 +1123,25 @@ def _domain_conf(edge_dir, host):
     return _read(os.path.join(edge_dir, "acme", "%s_ecc" % host, "%s.conf" % host)) or ""
 
 
+def _leaf(pem):
+    """The first certificate in PEM text, without whitespace, or None."""
+    begin, end = "-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----"
+    start = (pem or "").find(begin)
+    stop = (pem or "").find(end, start)
+    if start < 0 or stop < 0:
+        return None
+    return "".join(pem[start:stop + len(end)].split())
+
+
+def served(edge_dir, host):
+    """Whether HAProxy's PEM for host holds the certificate acme.sh keeps for
+    it. True when acme.sh's copy cannot be read, as there is nothing to
+    install then."""
+    leaf = _leaf(_read(os.path.join(edge_dir, "acme", "%s_ecc" % host, "%s.cer" % host)))
+    pem = _read(os.path.join(edge_dir, "conf", "certs", "%s.pem" % host)) or ""
+    return leaf is None or leaf in "".join(pem.split())
+
+
 def _set_conf(path, key, value):
     """Set (or, with value None, remove) one KEY='value' line of an acme.sh
     conf file, as acme.sh's own _setopt writes them. Returns whether it
@@ -1271,7 +1290,7 @@ def challenge_answered(port, thumbprint):
 
 def _issue(run, inspect, edge_dir, retry=False):
     result = {"changed": False, "reload": False, "issued": [], "unissued": [],
-              "unregistered": [], "removed": []}
+              "unregistered": [], "uninstalled": [], "removed": []}
     instances = _load_members(edge_dir, read_members(edge_dir))
     ready = []
     thumbprint = (_read(os.path.join(edge_dir, "acme", "thumbprint")) or "").strip()
@@ -1319,6 +1338,15 @@ def _issue(run, inspect, edge_dir, retry=False):
                 if rc != 0:
                     result["unregistered"].append({"hostname": host,
                                                    "reason": _tail(out, err)})
+            # A conf/certs created after acme.sh issued the certificate holds
+            # a CA-signed stand-in for it.
+            elif not served(edge_dir, host):
+                rc, out, err = deploy(host)
+                if rc != 0:
+                    result["uninstalled"].append({"hostname": host,
+                                                  "reason": _tail(out, err)})
+                else:
+                    result["changed"] = True
             continue
         if dns:
             args = ["--issue", "--dns", dns["hook"], "-d", host]
