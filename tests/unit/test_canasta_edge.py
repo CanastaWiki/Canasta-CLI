@@ -1793,7 +1793,7 @@ def test_a_wiki_that_does_not_answer_in_time_is_a_reason():
         sock.listen()
         reason = mod.wiki_answer(sock.getsockname()[1], False, "example.com",
                                  mod.SITEINFO, timeout=1)
-    assert reason == "no answer within 1s"
+    assert reason == mod.NO_ANSWER
 
 
 @pytest.mark.skipif(not shutil.which("openssl"), reason="needs openssl")
@@ -1837,6 +1837,15 @@ def test_the_wikis_still_not_answering_are_reported(tmp_path, monkeypatch):
             {"wiki": "w0", "url": "example.com", "reason": "HTTP 502"}]
     finally:
         _stop(server)
+
+
+def test_a_wiki_that_never_answers_is_reported_with_the_whole_wait(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "ANSWER_WAIT", 0)
+    monkeypatch.setattr(mod, "wiki_answer",
+                        lambda port, tls, server, path, timeout: mod.NO_ANSWER)
+    path = _instance(tmp_path, "one", hosts=("example.com",), env={"TLS_MODE": "off"})
+    assert mod.unanswered_wikis("one", path) == [
+        {"wiki": "w0", "url": "example.com", "reason": "no answer within 0s"}]
 
 
 def test_an_instance_served_over_https_is_asked_on_its_https_port(tmp_path, monkeypatch):

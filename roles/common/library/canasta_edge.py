@@ -1385,6 +1385,7 @@ def _issue(run, inspect, edge_dir, retry=False):
 ANSWER_WAIT = 60
 ANSWER_TIMEOUT = 15
 SITEINFO = "/w/api.php?action=query&meta=siteinfo&format=json"
+NO_ANSWER = "no answer"
 
 
 def wiki_requests(wikis):
@@ -1417,7 +1418,7 @@ def wiki_answer(port, tls, server, path, timeout=ANSWER_TIMEOUT):
         response = conn.getresponse()
         body = response.read(4096).decode("utf-8", "replace").strip()
     except socket.timeout:
-        return "no answer within %ds" % timeout
+        return NO_ANSWER
     except (OSError, http.client.HTTPException) as exc:
         return "port %d: %s" % (port, exc)
     finally:
@@ -1450,7 +1451,9 @@ def unanswered_wikis(instance_id, instance_path):
             if reason:
                 failed.append((wiki, reason))
         if not failed or time.monotonic() >= deadline:
-            return [{"wiki": w[0], "url": w[1], "reason": r} for w, r in failed]
+            return [{"wiki": w[0], "url": w[1],
+                     "reason": "no answer within %ds" % ANSWER_WAIT if r == NO_ANSWER else r}
+                    for w, r in failed]
         pending = [w for w, _ in failed]
         time.sleep(2)
 
