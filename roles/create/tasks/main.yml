@@ -273,6 +273,11 @@
     - database is defined and database != ''
     - wiki | default('') in _created_wikis.wiki_ids
 
+- name: Learn the wikis' localized Special namespace names for the edge
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: edge_learn.yml
+
 - name: SMTP note
   ansible.builtin.debug:
     msg: >-

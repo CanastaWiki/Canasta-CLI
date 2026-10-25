@@ -2,7 +2,8 @@
 # Check a config key and its value, for config set and for the settings
 # of create's -e env file. Reads nothing from the instance.
 # Input: _config_key (str), _config_value (str; undefined on unset),
-#        instance_is_k8s (bool)
+#        instance_is_k8s (bool), _config_compose_only_ok (bool, default
+#        false: create writes Compose-only keys on Kubernetes with a warning)
 
 # Listening ports are a Compose-only concept. On Kubernetes the Ingress
 # always serves on 80/443 and there is no per-instance port field in the
@@ -23,6 +24,7 @@
       load balancer or Ingress controller in front of the cluster.
   when:
     - instance_is_k8s | bool
+    - not (_config_compose_only_ok | default(false) | bool)
     - _config_key in ['HTTP_PORT', 'HTTPS_PORT']
 
 # TLS_MODE and its certificate files configure the HAProxy edge, which
@@ -36,6 +38,7 @@
       Kubernetes instance is handled by the Ingress and cert-manager.
   when:
     - instance_is_k8s | bool
+    - not (_config_compose_only_ok | default(false) | bool)
     - _config_key in ['TLS_MODE', 'TLS_MODE_HOSTS', 'TLS_CERT', 'TLS_KEY']
 
 - name: Validate TLS_MODE_HOSTS

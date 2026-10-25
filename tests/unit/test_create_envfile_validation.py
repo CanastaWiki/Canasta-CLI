@@ -93,16 +93,32 @@ def test_bad_values_fail_with_config_set_messages(tmp_path, line, message):
     assert message in out, out
 
 
-@pytest.mark.parametrize("line", [
-    "TLS_MODE=acme", "TLS_MODE_HOSTS=origin.example.net=acme", "TLS_CERT=origin.crt",
-    "TLS_KEY=origin.key", "HTTP_PORT=80", "HTTPS_PORT=443", "CADDY_TLS_MODE=internal",
+@pytest.mark.parametrize("line, key", [
+    ("TLS_MODE=acme", "TLS_MODE"), ("TLS_MODE_HOSTS=origin.example.net=acme", "TLS_MODE_HOSTS"),
+    ("TLS_CERT=origin.crt", "TLS_CERT"), ("TLS_KEY=origin.key", "TLS_KEY"),
+    ("HTTP_PORT=80", "HTTP_PORT"), ("HTTPS_PORT=443", "HTTPS_PORT"),
+    ("CADDY_TLS_MODE=internal", "TLS_MODE"),
 ])
-def test_compose_only_keys_are_refused_on_kubernetes(tmp_path, line):
+def test_compose_only_keys_are_warned_about_on_kubernetes(tmp_path, line, key):
     code, out = _create(tmp_path, [line], "kubernetes")
-    assert code != 0, out
-    assert "cannot be set on a Kubernetes instance" in out, out
+    assert code == 0, out
+    assert ("Warning: %s does not apply to a Kubernetes instance;"
+            " it is written to .env as is." % key) in out, out
     code, out = _create(tmp_path, [line], "compose")
     assert code == 0, out
+    assert "does not apply to a Kubernetes instance" not in out, out
+
+
+def test_an_env_file_shared_with_compose_creates_on_kubernetes(tmp_path):
+    code, out = _create(tmp_path, ["HTTP_PORT=8080", "HTTPS_PORT=8443", "TLS_MODE=off"],
+                        "kubernetes")
+    assert code == 0, out
+
+
+@pytest.mark.parametrize("line", ["HTTP_PORT=44x", "TLS_MODE=acmee"])
+def test_malformed_compose_only_values_still_fail_on_kubernetes(tmp_path, line):
+    code, out = _create(tmp_path, [line], "kubernetes")
+    assert code != 0, out
 
 
 def test_the_cdn_behind_proxy_form_is_refused_on_kubernetes(tmp_path):
