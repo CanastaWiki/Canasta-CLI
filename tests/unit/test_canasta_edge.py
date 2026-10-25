@@ -1722,6 +1722,7 @@ def _wiki_server(answers, tls_dir=None, seen=None):
     server = _serve(Wiki)
     if tls_dir:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.load_cert_chain(os.path.join(tls_dir, "c.pem"), os.path.join(tls_dir, "k.pem"))
         if seen is not None:
             context.sni_callback = lambda sock, name, ctx: seen.append(("sni", name))

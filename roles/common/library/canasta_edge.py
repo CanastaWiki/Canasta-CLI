@@ -1410,6 +1410,7 @@ def wiki_answer(port, tls, server, path, timeout=ANSWER_TIMEOUT):
         sock = socket.create_connection(("127.0.0.1", port), timeout=timeout)
         if tls:
             context = ssl.create_default_context()
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
             sock = context.wrap_socket(sock, server_hostname=host)
