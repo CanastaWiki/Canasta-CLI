@@ -300,10 +300,26 @@ class TestSet:
     def test_rejects_the_output_tag_as_base(self, tmp_path):
         rc, out, entry = _run(
             tmp_path, SET_PLAYBOOK,
-            {"settings": ["BASE_IMAGE=canasta:local"], "no_rebuild": True})
+            {"settings": ["BASE_IMAGE=canasta:local-site"], "no_rebuild": True})
         assert rc != 0
-        assert "collides with the build-from output tag" in out
+        assert "collides with the build-from output tag (canasta:local-site)" in out
         assert "buildArgs" not in entry
+
+    def test_rejects_the_kubernetes_output_tag_as_base(self, tmp_path):
+        rc, out, entry = _run(
+            tmp_path, SET_PLAYBOOK,
+            {"settings": ["BASE_IMAGE=canasta:local"], "no_rebuild": True,
+             "instance_is_k8s": True})
+        assert rc != 0
+        assert "collides with the build-from output tag (canasta:local)" in out
+        assert "buildArgs" not in entry
+
+    def test_accepts_another_instances_tag_as_base(self, tmp_path):
+        rc, out, entry = _run(
+            tmp_path, SET_PLAYBOOK,
+            {"settings": ["BASE_IMAGE=canasta:local"], "no_rebuild": True})
+        assert rc == 0, out
+        assert entry["buildArgs"] == ["BASE_IMAGE=canasta:local"]
 
     def test_refuses_an_instance_not_built_from_source(self, tmp_path):
         rc, out, entry = _run(
