@@ -597,6 +597,15 @@ commands:
       If the web container's startup `composer update` failed, so the
       packages in `config/composer.local.json` are not installed, a
       warning names the failure and how to read its details.
+
+      On Docker Compose, each wiki's API is then requested through the
+      HAProxy edge on the instance's host, and a warning names each wiki
+      that does not answer within a minute, with the reason. Any
+      response from behind the edge other than a server error (5xx)
+      counts as an answer, so a private or password-protected wiki
+      answers too. The certificate is not checked. The CLI run with
+      canasta-docker does not make these requests for an instance on its
+      own host.
     examples:
       - "canasta start"
     playbook: start.yml
@@ -630,7 +639,9 @@ commands:
       applied during the restart. Use `canasta devmode enable` or
       `canasta devmode disable` to change the development mode
       setting. The command returns once the web container reports
-      healthy, and warns if its startup `composer update` failed.
+      healthy, and warns if its startup `composer update` failed. On
+      Docker Compose, it also warns about each wiki that does not answer
+      through the HAProxy edge, as `canasta start` does.
     examples:
       - "canasta restart"
     playbook: restart.yml
@@ -1102,7 +1113,9 @@ commands:
       with `--dry-run` it reports the release it would update to and
       previews with the installed version.
       A restarted instance whose startup `composer update` failed is
-      reported with a warning.
+      reported with a warning, and so is each wiki of a running Docker
+      Compose instance that does not answer through the HAProxy edge
+      after the upgrade, as `canasta start` reports it.
 
       On Docker Compose, an instance whose new image may not fit on the
       filesystem that holds container images is not upgraded and keeps

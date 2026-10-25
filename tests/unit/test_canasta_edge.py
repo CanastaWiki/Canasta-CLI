@@ -1693,3 +1693,177 @@ def test_an_acme_dns_host_uses_the_dns_hook_and_the_rest_http(tmp_path):
     methods = {c[c.index("-d") + 1]: c[c.index("--issue") + 1]
                for c in run.acme_calls("--issue")}
     assert methods == {"example.com": "--stateless", "www.example.com": "--dns"}
+
+
+# --- wikis answering through the edge ----------------------------------------- #
+
+def _wiki_server(answers, tls_dir=None, seen=None):
+    """A server on the loopback that answers each request with the next
+    (status, content type, body) of answers, repeating the last one."""
+    import http.server
+    import ssl
+    answers = list(answers)
+
+    class Wiki(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if seen is not None:
+                seen.append((self.headers.get("Host"), self.path))
+            status, ctype, body = answers.pop(0) if len(answers) > 1 else answers[0]
+            body = body.encode()
+            self.send_response(status)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = _serve(Wiki)
+    if tls_dir:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(os.path.join(tls_dir, "c.pem"), os.path.join(tls_dir, "k.pem"))
+        if seen is not None:
+            context.sni_callback = lambda sock, name, ctx: seen.append(("sni", name))
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+    return server
+
+
+def _stop(server):
+    server.shutdown()
+    server.server_close()
+
+
+SITEINFO_OK = (200, "application/json", '{"batchcomplete": ""}')
+
+
+def test_each_wiki_is_requested_under_its_host_and_path():
+    assert mod.wiki_requests([
+        {"id": "main", "url": "example.com"},
+        {"id": "docs", "url": "example.com/docs/"},
+        {"id": "alt", "url": "localhost:8443"},
+        {"id": "none", "url": None},
+    ]) == [
+        ("main", "example.com", "example.com", mod.SITEINFO),
+        ("docs", "example.com/docs", "example.com", "/docs" + mod.SITEINFO),
+        ("alt", "localhost:8443", "localhost:8443", mod.SITEINFO),
+    ]
+
+
+def test_an_answer_from_behind_the_edge_counts_whatever_its_status():
+    for answer in (SITEINFO_OK, (301, "text/html", ""), (401, "text/html", "auth"),
+                   (404, "text/html", "Not Found")):
+        server = _wiki_server([answer])
+        try:
+            assert mod.wiki_answer(server.server_port, False, "example.com",
+                                   mod.SITEINFO) is None
+        finally:
+            _stop(server)
+
+
+def test_the_edges_own_refusals_and_server_errors_are_reasons():
+    cases = (
+        ((503, "text/plain", "This site is not running.\n"),
+         "HTTP 503: This site is not running"),
+        ((503, "text/html", "<html>\n<h1>Backend fetch failed</h1>\n</html>"), "HTTP 503"),
+        ((404, "text/plain", mod.NO_SITE + "\n"), "the edge serves no site at this address"),
+    )
+    for answer, reason in cases:
+        server = _wiki_server([answer])
+        try:
+            assert mod.wiki_answer(server.server_port, False, "example.com",
+                                   mod.SITEINFO) == reason
+        finally:
+            _stop(server)
+
+
+def test_a_port_nothing_listens_on_is_a_reason():
+    import socket
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    assert mod.wiki_answer(port, False, "example.com", mod.SITEINFO).startswith(
+        "port %d: " % port)
+
+
+def test_a_wiki_that_does_not_answer_in_time_is_a_reason():
+    import socket
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        sock.listen()
+        reason = mod.wiki_answer(sock.getsockname()[1], False, "example.com",
+                                 mod.SITEINFO, timeout=1)
+    assert reason == mod.NO_ANSWER
+
+
+@pytest.mark.skipif(not shutil.which("openssl"), reason="needs openssl")
+def test_https_names_the_wiki_and_skips_the_certificate_check(tmp_path):
+    subprocess.run(
+        ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+         "-subj", "/CN=other.example", "-keyout", str(tmp_path / "k.pem"),
+         "-out", str(tmp_path / "c.pem")], check=True, capture_output=True)
+    seen = []
+    server = _wiki_server([SITEINFO_OK], tls_dir=str(tmp_path), seen=seen)
+    try:
+        assert mod.wiki_answer(server.server_port, True, "example.com",
+                               "/docs" + mod.SITEINFO) is None
+    finally:
+        _stop(server)
+    assert seen == [("sni", "example.com"), ("example.com", "/docs" + mod.SITEINFO)]
+
+
+def test_wikis_are_asked_again_until_they_answer(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod.time, "sleep", lambda seconds: None)
+    seen = []
+    server = _wiki_server([(503, "text/plain", "This site is not running.\n")] * 3
+                          + [SITEINFO_OK], seen=seen)
+    try:
+        path = _instance(tmp_path, "one", hosts=("example.com", "example.com/docs"),
+                         env={"TLS_MODE": "off", "HTTP_PORT": str(server.server_port)})
+        assert mod.unanswered_wikis("one", path) == []
+    finally:
+        _stop(server)
+    # Each wiki until it answers, and not again after.
+    assert [p for _, p in seen] == [mod.SITEINFO, "/docs" + mod.SITEINFO] * 2 + [mod.SITEINFO]
+
+
+def test_the_wikis_still_not_answering_are_reported(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "ANSWER_WAIT", 0)
+    server = _wiki_server([(502, "text/plain", "")])
+    try:
+        path = _instance(tmp_path, "one", hosts=("example.com",),
+                         env={"TLS_MODE": "off", "HTTP_PORT": str(server.server_port)})
+        assert mod.unanswered_wikis("one", path) == [
+            {"wiki": "w0", "url": "example.com", "reason": "HTTP 502"}]
+    finally:
+        _stop(server)
+
+
+def test_a_wiki_that_never_answers_is_reported_with_the_whole_wait(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "ANSWER_WAIT", 0)
+    monkeypatch.setattr(mod, "wiki_answer",
+                        lambda port, tls, server, path, timeout: mod.NO_ANSWER)
+    path = _instance(tmp_path, "one", hosts=("example.com",), env={"TLS_MODE": "off"})
+    assert mod.unanswered_wikis("one", path) == [
+        {"wiki": "w0", "url": "example.com", "reason": "no answer within 0s"}]
+
+
+def test_an_instance_served_over_https_is_asked_on_its_https_port(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "ANSWER_WAIT", 0)
+    asked = []
+    monkeypatch.setattr(mod, "wiki_answer",
+                        lambda port, tls, server, path, timeout: asked.append((port, tls)))
+    path = _instance(tmp_path, "one", env={"HTTP_PORT": "8080", "HTTPS_PORT": "8443"})
+    assert mod.unanswered_wikis("one", path) == []
+    assert asked == [(8443, True)]
+
+
+def test_the_cli_container_does_not_probe_its_own_loopback(tmp_path, monkeypatch):
+    monkeypatch.setattr(mod, "unanswered_wikis", lambda inst_id, path: 1 / 0)
+    monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
+    assert mod.probe("one", str(tmp_path)) == {"changed": False, "probed": False,
+                                               "unanswered": []}
+    monkeypatch.delenv("CANASTA_RUN_MODE")
+    monkeypatch.setattr(mod, "unanswered_wikis", lambda inst_id, path: ["w0"])
+    assert mod.probe("one", str(tmp_path))["unanswered"] == ["w0"]
