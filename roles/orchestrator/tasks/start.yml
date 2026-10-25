@@ -73,6 +73,9 @@
              (_override_exists.stat.exists | ternary(['-f', 'docker-compose.override.yml'], [])) +
              ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
 
+    - name: Unpause paused containers
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/unpause_services.yml"
+
     - name: Report starting containers
       ansible.builtin.debug:
         msg: "Starting containers..."
