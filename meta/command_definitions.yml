@@ -2512,7 +2512,8 @@ commands:
 
       The sitemaps are published at `MW_SITEMAP_URL_PATH` (default
       `/public_assets/sitemap`), relative to each wiki's URL. A wiki's
-      sitemap path cannot overlap another wiki's path on the same host.
+      sitemap path cannot contain another wiki's URL on the same host,
+      or lie inside one other than a URL its own wiki's URL lies within.
       A path under the article path, such as `/wiki/sitemap`, is served
       from the sitemap files, so a page whose title starts with
       `sitemap/` is reachable only by its capitalized title

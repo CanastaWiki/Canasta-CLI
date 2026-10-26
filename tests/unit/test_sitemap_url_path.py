@@ -41,6 +41,9 @@ FARM = [{"id": "main", "url": "example.com", "name": "Main"},
 # A root wiki and a wiki at a path on the same host.
 PATH_FARM = [{"id": "main", "url": "example.com", "name": "Main"},
              {"id": "docs", "url": "example.com/docs", "name": "Docs"}]
+# A wiki at a path and another nested under it.
+NESTED_FARM = [{"id": "docs", "url": "example.com/docs", "name": "Docs"},
+               {"id": "sub", "url": "example.com/docs/sub", "name": "Sub"}]
 
 
 def _load(path):
@@ -168,6 +171,33 @@ class TestFarmCollision:
         assert "wiki 'main' at example.com/docs/sitemap" in (
             rules.farm_collision_error(wikis, "/docs/sitemap"))
 
+    def test_a_nested_wikis_sitemaps_inside_the_enclosing_wiki_are_fine(self):
+        assert rules.farm_collision_error(NESTED_FARM, "/wiki/sitemap") is None
+        assert rules.farm_collision_warnings(NESTED_FARM, "/wiki/sitemap") == []
+        assert [r["path"] for r in rules.rewrites(NESTED_FARM, "/wiki/sitemap")] == [
+            "/docs/sub/wiki/sitemap", "/docs/wiki/sitemap"]
+
+    def test_sitemaps_at_a_nested_wikis_path_are_refused(self):
+        assert rules.farm_collision_error(NESTED_FARM, "/sub") == (
+            "MW_SITEMAP_URL_PATH=/sub would publish the sitemaps of wiki 'docs' "
+            "at example.com/docs/sub, inside the URL of wiki 'sub' "
+            "(example.com/docs/sub).")
+        assert [r["path"] for r in rules.rewrites(NESTED_FARM, "/sub")] == [
+            "/docs/sub/sub"]
+
+    def test_sitemaps_containing_a_nested_wiki_are_refused(self):
+        wikis = [NESTED_FARM[0], {"id": "x", "url": "example.com/docs/sub/x"}]
+        assert rules.farm_collision_error(wikis, "/sub") == (
+            "MW_SITEMAP_URL_PATH=/sub would publish the sitemaps of wiki 'docs' "
+            "at example.com/docs/sub, which contains the URL of wiki 'x' "
+            "(example.com/docs/sub/x).")
+
+    def test_warnings_can_be_limited_to_some_wikis(self):
+        wikis = [{"id": "main", "url": "example.com"},
+                 {"id": "x", "url": "example.com/wiki/sitemap/x"}]
+        assert len(rules.farm_collision_warnings(wikis, "/wiki/sitemap", ["main"])) == 1
+        assert rules.farm_collision_warnings(wikis, "/wiki/sitemap", ["x"]) == []
+
     def test_a_path_wikis_own_sitemaps_are_fine(self):
         assert rules.farm_collision_error(PATH_FARM[1:], "/docs/sitemap") is None
         assert rules.farm_collision_error(FARM, "/wiki/sitemap") is None
@@ -257,6 +287,17 @@ class TestConfigSetFarm:
         assert code == 0, out
         assert "MW_SITEMAP_URL_PATH=/wiki/sitemap" in env
 
+    def test_accepts_a_nested_wikis_sitemaps_inside_the_enclosing_wiki(self, tmp_path):
+        code, out, env = _config_set(tmp_path, "/wiki/sitemap", NESTED_FARM)
+        assert code == 0, out
+        assert "MW_SITEMAP_URL_PATH=/wiki/sitemap" in env
+
+    def test_refuses_sitemaps_at_a_nested_wikis_path(self, tmp_path):
+        code, out, env = _config_set(tmp_path, "/sub", NESTED_FARM)
+        assert code != 0, out
+        assert "would publish the sitemaps of wiki 'docs' at example.com/docs/sub" in out, out
+        assert env == "MW_SITE_SERVER=https://example.com\n"
+
 
 ADD_TASKS = ("Read the instance's ports from .env", "Parse URL into domain and path",
              "Read the wikis to check the sitemap paths",
@@ -297,6 +338,18 @@ class TestAddFarm:
     def test_other_wikis_are_added(self, tmp_path, env_lines, url):
         code, out = _add(tmp_path, url, env_lines, PATH_FARM[:1])
         assert code == 0, out
+
+    def test_a_wiki_nested_under_another_is_added(self, tmp_path):
+        code, out = _add(tmp_path, "example.com/docs/sub",
+                         ["MW_SITEMAP_URL_PATH=/wiki/sitemap"], NESTED_FARM[:1])
+        assert code == 0, out
+
+    def test_a_nested_wiki_at_the_enclosing_wikis_sitemaps_is_refused(self, tmp_path):
+        code, out = _add(tmp_path, "example.com/docs/sub",
+                         ["MW_SITEMAP_URL_PATH=/sub"], NESTED_FARM[:1])
+        assert code != 0, out
+        assert ("Cannot add wiki 'new': MW_SITEMAP_URL_PATH=/sub would publish the "
+                "sitemaps of wiki 'docs' at example.com/docs/sub") in out, out
 
 
 # --- serving: Caddy -------------------------------------------------------- #
@@ -484,7 +537,7 @@ STUB_EXEC = """\
 """
 
 
-def _generate(tmp_path, extra_vars, wikis=FARM, k8s=False, gitops=False):
+def _generate(tmp_path, extra_vars, wikis=FARM, k8s=False, gitops=False, env_lines=()):
     root = tmp_path / "root"
     (root / "roles" / "common" / "tasks").mkdir(parents=True)
     (root / "roles" / "common" / "tasks" / "resolve_instance.yml").write_text(
@@ -506,7 +559,8 @@ def _generate(tmp_path, extra_vars, wikis=FARM, k8s=False, gitops=False):
     inst = tmp_path / "inst"
     (inst / "config").mkdir(parents=True)
     (inst / "config" / "wikis.yaml").write_text(yaml.safe_dump({"wikis": wikis}))
-    (inst / ".env").write_text("MW_SITE_SERVER=https://example.com\n")
+    (inst / ".env").write_text("".join(
+        line + "\n" for line in ("MW_SITE_SERVER=https://example.com",) + tuple(env_lines)))
     if gitops:
         (inst / ".gitops-host").write_text("")
     play_vars = dict(instance_path=str(inst), canasta_root=str(root),
@@ -525,13 +579,63 @@ def _php_call(log, wiki):
                 and "--wiki=%s " % wiki in line)
 
 
+def _arg(call, name, container_env):
+    """The value of --name in call, expanded as the web container's shell
+    expands it."""
+    word = next(w for w in call.split(" ") if w.startswith("--%s=" % name))
+    env = {"PATH": os.environ["PATH"]}
+    env.update(container_env)
+    return subprocess.run(["bash", "-c", "printf %s " + word.split("=", 1)[1]],
+                          capture_output=True, text=True, env=env, check=True).stdout
+
+
 class TestGenerate:
+    @pytest.mark.parametrize("container_env,root_urlpath,path_urlpath", [
+        ({}, "/public_assets/sitemap", "/en/public_assets/sitemap"),
+        ({KEY: "/wiki/sitemap"}, "/wiki/sitemap", "/en/wiki/sitemap"),
+    ])
+    def test_server_is_the_host_and_urlpath_starts_with_the_wikis_path(
+            self, tmp_path, container_env, root_urlpath, path_urlpath):
+        code, out, _, log = _generate(tmp_path, {})
+        assert code == 0, out
+        main, en, docs = (_php_call(log, w) for w in ("main", "en", "docs"))
+        assert '--urlpath="${MW_SITEMAP_URL_PATH:-/public_assets/sitemap}" ' in main
+        assert '--urlpath=/en"${MW_SITEMAP_URL_PATH:-/public_assets/sitemap}" ' in en
+        assert "--server=https://example.com " in main
+        assert "--server=https://example.com " in en
+        assert "--server=https://docs.example.org:8443 " in docs
+        assert _arg(main, "urlpath", container_env) == root_urlpath
+        assert _arg(en, "urlpath", container_env) == path_urlpath
+        assert _arg(docs, "urlpath", container_env) == root_urlpath
+
+    def test_a_wiki_without_a_url_uses_mw_site_server(self, tmp_path):
+        code, out, _, log = _generate(tmp_path, {}, wikis=[{"id": "main", "name": "Main"}])
+        assert code == 0, out
+        call = _php_call(log, "main")
+        assert "--server=https://example.com " in call
+        assert '--urlpath="${MW_SITEMAP_URL_PATH:-/public_assets/sitemap}" ' in call
+
+    def test_warns_about_a_wiki_whose_sitemaps_are_not_served(self, tmp_path):
+        wikis = PATH_FARM + [{"id": "o", "url": "other.example.org"}]
+        code, out, _, log = _generate(tmp_path, {}, wikis=wikis,
+                                      env_lines=["MW_SITEMAP_URL_PATH=/docs/sitemap"])
+        assert code == 0, out
+        assert ("Warning: MW_SITEMAP_URL_PATH=/docs/sitemap: the sitemaps of wiki 'main' "
+                "are not served at example.com/docs/sitemap, which is inside the URL "
+                "of wiki 'docs' (example.com/docs).") in out, out
+        assert out.count("Warning: MW_SITEMAP_URL_PATH") == 1
+        assert _php_call(log, "main")
+
+    def test_warns_only_about_the_wikis_generated(self, tmp_path):
+        code, out, _, log = _generate(tmp_path, {"wiki": "docs"}, wikis=PATH_FARM,
+                                      env_lines=["MW_SITEMAP_URL_PATH=/docs/sitemap"])
+        assert code == 0, out
+        assert "Warning: MW_SITEMAP_URL_PATH" not in out, out
+
     def test_passes_the_background_generators_arguments(self, tmp_path):
         code, out, _, log = _generate(tmp_path, {})
         assert code == 0, out
         call = _php_call(log, "en")
-        assert '--urlpath="${MW_SITEMAP_URL_PATH:-/public_assets/sitemap}"' in call
-        assert "--server=https://example.com/en " in call
         assert "--fspath=/mediawiki/public_assets/en/sitemap " in call
         assert "--identifier=en " in call
         assert "--identifier=main " in _php_call(log, "main")

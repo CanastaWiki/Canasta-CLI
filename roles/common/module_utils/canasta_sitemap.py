@@ -75,7 +75,9 @@ def _segments(path):
 def _farm_collisions(wikis, url_path):
     """For each wiki whose sitemap path is at, under or above another
     wiki's path on the same host: (wiki ID, its sitemap URL, whether it is
-    inside the other wiki's path, the other wiki's ID, its URL)."""
+    inside the other wiki's path, the other wiki's ID, its URL). A URL
+    belongs to the wiki with the longest path it falls under, so a wiki's
+    sitemap path inside its own path or an enclosing wiki's path is fine."""
     if not url_path or url_path == DEFAULT_URL_PATH:
         return []
     located = [(str(w.get("id", "")),) + _wiki_location(w) for w in wikis or []]
@@ -83,12 +85,14 @@ def _farm_collisions(wikis, url_path):
     for wiki_id, host, prefix in located:
         if not host:
             continue
+        own = _segments(prefix)
         sitemap = _segments(prefix + url_path)
         for other_id, other_host, other_prefix in located:
             other = _segments(other_prefix)
             if other_id == wiki_id or other_host != host or not other:
                 continue
-            inside = sitemap[:len(other)] == other
+            inside = (sitemap[:len(other)] == other
+                      and own[:len(other)] != other)
             if inside or other[:len(sitemap)] == sitemap:
                 found.append((wiki_id, host + prefix + url_path, inside,
                               other_id, host + other_prefix))
@@ -110,14 +114,16 @@ def farm_collision_error(wikis, url_path):
     return None
 
 
-def farm_collision_warnings(wikis, url_path):
-    """Why rewrites() leaves out each wiki it leaves out."""
+def farm_collision_warnings(wikis, url_path, wiki_ids=None):
+    """Why rewrites() leaves out each wiki it leaves out, or only those of
+    wiki_ids."""
     return ["%s=%s: the sitemaps of wiki '%s' are not served at %s, %s wiki "
             "'%s' (%s)." % (URL_PATH_KEY, url_path, wiki_id, at,
                             ("which is " if inside else "") + _relation(inside),
                             other_id, other_url)
             for wiki_id, at, inside, other_id, other_url
-            in _farm_collisions(wikis, url_path)]
+            in _farm_collisions(wikis, url_path)
+            if wiki_ids is None or wiki_id in wiki_ids]
 
 
 def rewrites(wikis, url_path):

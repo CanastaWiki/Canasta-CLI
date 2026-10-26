@@ -64,7 +64,8 @@ canasta_known_keys:
     description: >-
       URL path, relative to each wiki's URL, at which its sitemaps are
       published and served (e.g. /wiki/sitemap). A wiki's sitemap path
-      cannot overlap another wiki's path on the same host. Under the
+      cannot contain another wiki's URL on the same host, or lie inside
+      one other than a URL its own wiki's URL lies within. Under the
       article path, the sitemap files take over that path: with
       /wiki/sitemap, a page whose title starts with "sitemap/" is
       reachable only as "Sitemap/...", and not at all on a wiki with

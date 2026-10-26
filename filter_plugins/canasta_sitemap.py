@@ -50,9 +50,10 @@ def sitemap_farm_collision_error(wikis, url_path):
     return _rules.farm_collision_error(wikis, url_path or "") or ""
 
 
-def sitemap_farm_collision_warnings(wikis, url_path):
-    """Why sitemap_rewrites leaves out each wiki it leaves out."""
-    return _rules.farm_collision_warnings(wikis, url_path or "")
+def sitemap_farm_collision_warnings(wikis, url_path, wiki_ids=None):
+    """Why sitemap_rewrites leaves out each wiki it leaves out, or only
+    those of wiki_ids."""
+    return _rules.farm_collision_warnings(wikis, url_path or "", wiki_ids)
 
 
 class FilterModule(object):

@@ -106,6 +106,22 @@
   ansible.builtin.set_fact:
     _sitemap_scheme: "{{ (_sitemap_server.value | default('', true) | regex_search('^https?://')) or 'https://' }}"
 
+- name: Read MW_SITEMAP_URL_PATH from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: MW_SITEMAP_URL_PATH
+  register: _sitemap_url_path_env
+
+- name: Report sitemap paths left to the wikis that own them
+  ansible.builtin.debug:
+    msg: "Warning: {{ item }}"
+  loop: >-
+    {{ _sitemap_wikis.wikis
+       | sitemap_farm_collision_warnings(_sitemap_url_path_env.value | default('', true),
+                                         _sitemap_targets) }}
+  when: not (_sitemap_stage_only | bool)
+
 - name: Create sitemap directories and generate for each wiki
   ansible.builtin.include_tasks: _generate_single.yml
   loop: "{{ _sitemap_targets }}"
