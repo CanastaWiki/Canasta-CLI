@@ -59,6 +59,14 @@
     - _config_value is defined
     - _config_value is not match('^[1-9][0-9]*[mMgG]$')
 
+- name: Validate MW_SITEMAP_URL_PATH
+  ansible.builtin.fail:
+    msg: "{{ _config_value | sitemap_url_path_error }}"
+  when:
+    - _config_key == 'MW_SITEMAP_URL_PATH'
+    - _config_value is defined
+    - (_config_value | sitemap_url_path_error) | length > 0
+
 - name: Validate port is numeric
   ansible.builtin.fail:
     msg: "{{ _config_key }} must be a number (got '{{ _config_value }}')"

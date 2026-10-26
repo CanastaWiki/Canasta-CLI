@@ -47,7 +47,8 @@
     # name: it is a property of the wiki rather than of this host, and a
     # field this emitter does not know about is dropped at the next
     # render — which for a backup declaration means the Cargo database
-    # quietly stops being captured.
+    # quietly stops being captured. sitemap_identifier is copied through for
+    # the same reason: it names the wiki's published sitemap files.
     - name: Write wikis.yaml.template from live wikis.yaml
       ansible.builtin.copy:
         content: |
@@ -62,6 +63,9 @@
           {% for db in extras %}
             - {{ db }}
           {% endfor %}
+          {% endif %}
+          {% if w.sitemap_identifier is defined %}
+            sitemap_identifier: {{ w.sitemap_identifier | string | to_json }}
           {% endif %}
           {% endfor %}
         dest: "{{ instance_path }}/wikis.yaml.template"

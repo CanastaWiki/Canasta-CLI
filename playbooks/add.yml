@@ -85,6 +85,24 @@
     - _add_vsu.value | default('false') | lower == 'true'
     - _add_path | length > 0
 
+# MW_SITEMAP_URL_PATH applies relative to every wiki's URL, so a new wiki's
+# path can land inside another wiki's sitemap path, or the reverse.
+- name: Read the wikis to check the sitemap paths
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _add_sitemap_wikis
+
+- name: Fail if the new wiki would overlap another wiki's sitemaps
+  ansible.builtin.fail:
+    msg: "Cannot add wiki '{{ wiki }}': {{ _add_sitemap_error }}"
+  vars:
+    _add_sitemap_error: >-
+      {{ (_add_sitemap_wikis.wikis
+          + [{'id': wiki, 'url': _add_domain | trim ~ (('/' ~ _add_path | trim) if _add_path | trim else '')}])
+         | sitemap_farm_collision_error(_add_port_env.variables.MW_SITEMAP_URL_PATH | default('', true)) }}
+  when: _add_sitemap_error | length > 0
+
 - name: Check wiki ID doesn't already exist
   canasta_wikis_yaml:
     instance_path: "{{ instance_path }}"

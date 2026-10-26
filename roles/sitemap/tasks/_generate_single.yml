@@ -1,17 +1,26 @@
 ---
-# Generate sitemap for a single wiki.
+# Generate sitemap for a single wiki, as the image's background generator
+# does: the same --server, --urlpath (the wiki's path followed by
+# MW_SITEMAP_URL_PATH in the web container) and --identifier, and the
+# files of any other identifier removed afterward.
 # Input: _sitemap_wiki (str), instance_path, _sitemap_server, _sitemap_wikis,
 #        _sitemap_scheme
 
-- name: "Determine server URL for {{ _sitemap_wiki }}"
+- name: "Determine server URL and identifier for {{ _sitemap_wiki }}"
   ansible.builtin.set_fact:
     _sitemap_wiki_url: >-
       {{ (_sitemap_wikis.wikis | selectattr('id', 'equalto', _sitemap_wiki)
           | map(attribute='url', default='') | first) | default('', true) }}
+    _sitemap_identifier: >-
+      {{ _sitemap_wikis.wikis | selectattr('id', 'equalto', _sitemap_wiki)
+         | first | sitemap_identifier }}
 
-- name: "Set server URL for {{ _sitemap_wiki }}"
+# Page URLs already carry the wiki's path from its article path, and the
+# index links to its sitemaps as the server followed by --urlpath.
+- name: "Set server URL and wiki path for {{ _sitemap_wiki }}"
   ansible.builtin.set_fact:
-    _sitemap_wiki_server: "{{ (_sitemap_scheme ~ _sitemap_wiki_url) if _sitemap_wiki_url else _sitemap_server.value }}"
+    _sitemap_wiki_server: "{{ (_sitemap_scheme ~ _sitemap_wiki_url.split('/', 1)[0]) if _sitemap_wiki_url else _sitemap_server.value }}"
+    _sitemap_wiki_path: "{{ ('/' ~ _sitemap_wiki_url.split('/', 1)[1]) if '/' in _sitemap_wiki_url else '' }}"
 
 - name: "Create sitemap directory for {{ _sitemap_wiki }}"
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
@@ -23,13 +32,20 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
   vars:
     exec_service: web
+    _sitemap_dir: "/mediawiki/public_assets/{{ _sitemap_wiki | quote }}/sitemap"
     exec_command: >-
       php maintenance/generateSitemap.php
       --wiki={{ _sitemap_wiki | quote }}
-      --fspath=/mediawiki/public_assets/{{ _sitemap_wiki | quote }}/sitemap
-      --urlpath=/public_assets/sitemap
+      --fspath={{ _sitemap_dir }}
+      --urlpath={{ (_sitemap_wiki_path | quote) if _sitemap_wiki_path else '' }}"${MW_SITEMAP_URL_PATH:-/public_assets/sitemap}"
       --server={{ _sitemap_wiki_server | quote }}
       --skip-redirects
+      --identifier={{ _sitemap_identifier | quote }}
+      && for f in {{ _sitemap_dir }}/sitemap-*; do
+      n="${f##*/}"; case "$n" in
+      sitemap-index-{{ _sitemap_identifier | quote }}.xml | sitemap-{{ _sitemap_identifier | quote }}-NS_*) ;;
+      sitemap-index-*.xml | sitemap-*-NS_*) rm -f -- "$f" ;;
+      esac; done
 
 - name: "Set ownership for {{ _sitemap_wiki }} sitemap"
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"

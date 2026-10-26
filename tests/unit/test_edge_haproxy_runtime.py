@@ -74,6 +74,11 @@ def _instances():
             "unlisted", {"TRUSTED_PROXIES": "imperva@203.0.113.10/32",
                          "CANASTA_EDGE_RATE_DEFAULT": "3"},
             [{"id": "w0", "url": "unlisted.example.org"}]),
+        edge.instance_from_config(
+            "mapped", {"TRUSTED_PROXIES": "cloudflare", "CANASTA_EDGE_RATE_DEFAULT": "3",
+                       "MW_SITEMAP_URL_PATH": "/wiki/sitemap"},
+            [{"id": "w0", "url": "mapped.example.org"},
+             {"id": "w1", "url": "mapped.example.org/en"}]),
     ]
 
 
@@ -338,6 +343,20 @@ def test_static_files_are_not_rate_limited(edge_ports):
     assert pages[:3] == [200] * 3 and pages[-1] == 429
     assert _request(edge_ports, "cdn.example.org", "/public_assets/logo.png",
                     headers=client)[0] == 200
+
+
+def test_a_configured_sitemap_path_is_static_for_its_instance_only(edge_ports):
+    client = {"CF-Connecting-IP": "198.51.100.14"}
+    files = ["/wiki/sitemap/sitemap-w0-NS_0-%d.xml.gz" % n for n in range(4)] + [
+        "/en/wiki/sitemap/sitemap-index-mediawiki.xml"] * 2
+    assert [_request(edge_ports, "mapped.example.org", p, headers=client)[0]
+            for p in files] == [200] * len(files)
+    assert _request(edge_ports, "mapped.example.org", "/wiki/sitemap/a.xml",
+                    headers=dict(client, Cookie="wiki_session=abc"))[1] == "be_mapped_default"
+    elsewhere = {"CF-Connecting-IP": "198.51.100.15"}
+    codes = [_request(edge_ports, "cdn.example.org", "/wiki/sitemap/a%d.xml" % n,
+                      headers=elsewhere)[0] for n in range(5)]
+    assert codes[-1] == 429
 
 
 def test_php_under_a_static_path_is_rate_limited(edge_ports):

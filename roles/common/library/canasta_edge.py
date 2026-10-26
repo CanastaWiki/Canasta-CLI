@@ -1042,6 +1042,8 @@ def _sync_edge(run, inspect, edge_dir, instance_id, instance_path, member, resul
     result["unrouted_sites"] = [
         {"instance": i["id"], "address": addr, "reason": reason}
         for i in instances for addr, reason in global_sites(i["path"])[1]]
+    result["sitemap_overlaps"] = next(
+        (i["sitemap_overlaps"] for i in instances if i["id"] == instance_id), [])
     result["changed"] |= write_members(edge_dir, members)
     result["members"] = sorted(members)
     result["running"] = edge_running(run, inspect)

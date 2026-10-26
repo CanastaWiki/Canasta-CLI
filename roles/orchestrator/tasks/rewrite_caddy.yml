@@ -60,6 +60,28 @@
   ansible.builtin.set_fact:
     _backend: "{{ (_varnish_enabled | bool) | ternary('varnish:80', 'web:80') }}"
 
+- name: Read the sitemap URL path
+  ansible.builtin.set_fact:
+    _sitemap_url_path: "{{ _env_caddy.variables.MW_SITEMAP_URL_PATH | default('', true) }}"
+
+- name: Refuse an unusable sitemap URL path
+  ansible.builtin.fail:
+    msg: "{{ _sitemap_url_path | sitemap_url_path_error }}"
+  when: (_sitemap_url_path | sitemap_url_path_error) | length > 0
+
+# On Compose the edge render, which every start runs, reports these.
+- name: Report sitemap paths left to the wikis that own them
+  ansible.builtin.debug:
+    msg: "Warning: {{ item }}"
+  loop: "{{ _wikis_caddy.wikis | sitemap_farm_collision_warnings(_sitemap_url_path) }}"
+  when: instance_is_k8s | bool
+
+# The image serves each wiki's sitemap files at
+# <wiki path>/public_assets/sitemap; another URL path is rewritten onto it.
+- name: Determine the sitemap rewrites
+  ansible.builtin.set_fact:
+    _sitemap_rewrites: "{{ _wikis_caddy.wikis | sitemap_rewrites(_sitemap_url_path) }}"
+
 # Trusted-proxy handling: Caddy's peer is always a proxy (the Compose edge
 # or the K8s ingress), whose addresses it trusts to recover the real client
 # IP. On K8s, 'cloudflare'/'imperva' combine the ingress's addresses with

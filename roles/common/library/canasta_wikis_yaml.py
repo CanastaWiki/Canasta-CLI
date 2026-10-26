@@ -26,7 +26,7 @@ options:
     description: Action to perform.
     type: str
     choices: [read, generate, add, remove, query, update_port, update_domain,
-              add_database, remove_database]
+              add_database, remove_database, set_sitemap_identifier]
     default: read
   wiki_id:
     description: Wiki ID.
@@ -51,6 +51,11 @@ options:
       With state=add_database or state=remove_database, the extra database
       to include in (or drop from) the wiki's backup group.
     type: str
+  sitemap_identifier:
+    description: >-
+      With state=set_sitemap_identifier, the name of the wiki's sitemap
+      files. The wiki ID, its default, removes the setting.
+    type: str
   port:
     description: With state=update_port, the new port for the wiki URL(s).
     type: str
@@ -67,6 +72,7 @@ import os
 import yaml
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.canasta_sitemap import identifier_error
 from ansible.module_utils.canasta_validate import (
     validate_extra_database,
     validate_wiki_id,
@@ -432,6 +438,38 @@ def _state_database(module, instance_path, state):
     }
 
 
+def _state_sitemap_identifier(module, instance_path, state):
+    if not _require(module, state, "wiki_id", "sitemap_identifier"):
+        return None
+    wiki_id = module.params["wiki_id"]
+    identifier = module.params["sitemap_identifier"]
+    err = identifier_error(identifier)
+    if err:
+        module.fail_json(msg=err)
+        return None
+    wikis = _read_or_fail(module, instance_path)
+    if not wiki_id_exists(wikis, wiki_id):
+        module.fail_json(
+            msg="Wiki ID '%s' not found (present: %s)"
+                % (wiki_id, ", ".join(get_wiki_ids(wikis)))
+        )
+        return None
+    updated = []
+    changed = False
+    for wiki in wikis:
+        wiki = dict(wiki)
+        if wiki.get("id") == wiki_id:
+            before = wiki.get("sitemap_identifier")
+            if identifier == wiki_id:
+                wiki.pop("sitemap_identifier", None)
+            else:
+                wiki["sitemap_identifier"] = identifier
+            changed = wiki.get("sitemap_identifier") != before
+        updated.append(wiki)
+    _write_if_changed(module, instance_path, updated, changed)
+    return {"changed": changed, "wikis": updated}
+
+
 def _state_update_port(module, instance_path, state):
     if not _require(module, state, "port"):
         return None
@@ -492,6 +530,7 @@ STATE_HANDLERS = {
     "remove_database": _state_database,
     "update_port": _state_update_port,
     "update_domain": _state_update_domain,
+    "set_sitemap_identifier": _state_sitemap_identifier,
 }
 
 
@@ -501,13 +540,15 @@ def run_module():
         state=dict(type="str", default="read",
                    choices=["read", "generate", "add", "remove", "query",
                             "update_port", "update_domain",
-                            "add_database", "remove_database"]),
+                            "add_database", "remove_database",
+                            "set_sitemap_identifier"]),
         wiki_id=dict(type="str", required=False),
         domain=dict(type="str", required=False),
         old_domain=dict(type="str", required=False),
         wiki_path=dict(type="str", required=False),
         site_name=dict(type="str", required=False),
         database=dict(type="str", required=False),
+        sitemap_identifier=dict(type="str", required=False),
         port=dict(type="str", required=False),
         default_port=dict(type="str", required=False, default="443"),
     )

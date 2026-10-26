@@ -25,6 +25,12 @@ import math
 import re
 import unicodedata
 
+try:
+    from ansible.module_utils.canasta_sitemap import (
+        URL_PATH_KEY, farm_collision_warnings, rewrites, url_path_error)
+except ImportError:  # direct_commands and unit tests import module_utils directly
+    from canasta_sitemap import URL_PATH_KEY, farm_collision_warnings, rewrites, url_path_error
+
 HAPROXY_IMAGE = "docker.io/library/haproxy:3.2.25-alpine"
 # Also the edge's openssl: the HAProxy image has none, and hosts may not.
 ACME_IMAGE = "docker.io/neilpang/acme.sh:3.1.6"
@@ -470,6 +476,11 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
     else:
         trusted_proxies, trusted_cidrs = None, []
 
+    sitemap_url_path = env.get(URL_PATH_KEY) or ""
+    if sitemap_url_path and url_path_error(sitemap_url_path):
+        raise EdgeError("Instance '%s': %s" % (instance_id, url_path_error(sitemap_url_path)))
+    sitemap_paths = sorted({r["path"] + "/" for r in rewrites(wikis, sitemap_url_path)})
+
     return {
         "id": instance_id,
         "hostnames": hostnames,
@@ -480,6 +491,9 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         "http_port": http_port,
         "https_port": https_port,
         "media_hostnames": media,
+        # Where its sitemaps are served, when not under /public_assets/.
+        "sitemap_paths": sitemap_paths,
+        "sitemap_overlaps": farm_collision_warnings(wikis, sitemap_url_path),
         "tls_mode": tls_mode,
         "tls_mode_hosts": tls_mode_hosts,
         "dns": dns,
@@ -808,12 +822,22 @@ _ROUTING_REST = [
 
 
 def _routing(instances):
-    """The routing rules, with each instance's own dynamic URL parts
-    applied to its hostnames only."""
+    """The routing rules, with each instance's own dynamic URL parts applied
+    to its hostnames only, and the sitemap paths instances serve outside
+    /public_assets/ as static files of that instance only."""
+    routing = _ROUTING
+    sitemap = ["    http-request set-var(txn.sitemap) bool(true) if "
+               "{ var(txn.inst) -m str %s } { path_beg %s }"
+               % (i["id"], " ".join(i["sitemap_paths"]))
+               for i in instances if i["sitemap_paths"]]
+    if sitemap:
+        at = _ROUTING.index("    acl php path_end .php")
+        routing = (_ROUTING[:at] + sitemap + ["    acl static_file var(txn.sitemap) -m bool"]
+                   + _ROUTING[at:])
     own = ["    use_backend be_%s_dynamic if { var(txn.inst) -m str %s } !media_host "
            "{ url_sub -i -f %s }" % (i["id"], i["id"], _list_path("dynamic-%s.lst" % i["id"]))
            for i in instances if i.get("dynamic_patterns")]
-    return _ROUTING + own + _ROUTING_REST
+    return routing + own + _ROUTING_REST
 
 
 def _frontend_name(port, tls):
