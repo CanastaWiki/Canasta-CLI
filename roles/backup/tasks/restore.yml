@@ -9,6 +9,14 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
 
+# Before anything is restored: the restore ends in a restart.
+- name: Refuse an instance that predates the edge
+  canasta_edge:
+    state: current
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+  when: not (instance_is_k8s | bool)
+
 # A marker left behind means a previous restore never finished. Say what it
 # reached before starting another one over the top of it.
 - name: Check for an interrupted restore

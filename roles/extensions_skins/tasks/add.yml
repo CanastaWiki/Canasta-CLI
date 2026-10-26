@@ -24,6 +24,16 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+# The enable below starts the instance.
+- name: Refuse an instance that predates the edge
+  canasta_edge:
+    state: current
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+  when:
+    - not (instance_is_k8s | bool)
+    - not (skip_enable | default(false) | bool)
+
 - name: Refuse --repository/--branch with several names
   ansible.builtin.fail:
     msg: >-

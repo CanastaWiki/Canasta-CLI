@@ -11,6 +11,13 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/common/tasks/validate_wiki_id.yml
 
+- name: Refuse an instance that predates the edge
+  canasta_edge:
+    state: current
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+  when: not (instance_is_k8s | bool)
+
 - name: Read wikis.yaml
   canasta_wikis_yaml:
     instance_path: "{{ instance_path }}"

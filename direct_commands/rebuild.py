@@ -126,7 +126,9 @@ def cmd_rebuild(args):
         )
         return 0
 
-    if not getattr(args, "no_restart", False) and _helpers._refuse_caddy_tls(inst_id, inst):
+    if not getattr(args, "no_restart", False) and (
+            _helpers._refuse_pre_edge(inst_id, inst)
+            or _helpers._refuse_caddy_tls(inst_id, inst)):
         return 1
 
     build_argv = ["build"]
