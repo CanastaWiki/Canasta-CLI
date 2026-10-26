@@ -28,3 +28,4 @@
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: update_config.yml
+  when: not (_config_pre_edge | default(false) | bool)

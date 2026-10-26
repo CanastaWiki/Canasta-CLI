@@ -127,7 +127,7 @@ def _check(tmp_path, path):
         "state": "check", "instance_id": "one", "instance_path": path,
         "edge_dir": str(tmp_path / "edge"), "inspect_command": "docker",
         "compose_command": "docker compose", "member": None, "instances": None,
-        "recreate": False, "restart": False})
+        "recreate": False, "restart": False, "allow_pre_edge": False})
 
 
 def test_check_refuses_an_instance_with_a_tls_directive(tmp_path):

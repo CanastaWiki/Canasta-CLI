@@ -23,7 +23,7 @@
     secret_key_regex: "{{ canasta_secret_key_regex }}"
   check_mode: true
 
-- name: Check for tls directives before stopping
+- name: Check that Caddy can start behind the edge before stopping
   canasta_edge:
     state: check
     instance_id: "{{ instance_id }}"

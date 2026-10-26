@@ -5,6 +5,22 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+# As in config set.
+- name: Check whether the instance predates the edge
+  canasta_edge:
+    state: current
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+  register: _config_edge_current
+  failed_when:
+    - _config_edge_current.predates_edge | default(false)
+    - not (no_restart | default(false) | bool)
+  when: not (instance_is_k8s | bool)
+
+- name: Note whether the instance predates the edge
+  ansible.builtin.set_fact:
+    _config_pre_edge: "{{ _config_edge_current.predates_edge | default(false) }}"
+
 # Argo CD deploys a gitops-managed Kubernetes instance from its repo and
 # self-heals back to it, so a direct restart would be reverted until the
 # change is pushed. Such an instance is staged only.
@@ -47,7 +63,10 @@
 
 - name: Report keys removed
   ansible.builtin.debug:
-    msg: "Keys removed.{{ (no_restart | default(false) | bool) | ternary(' Restart skipped.', '') }}"
+    msg: >-
+      Keys removed.{% if no_restart | default(false) | bool %}{{
+      " Run 'canasta upgrade' to apply the change." if _config_pre_edge | default(false) | bool
+      else ' Restart skipped.' }}{% endif %}
   when: not (_config_unset_stage_only | bool)
 
 # A start reconciles these into values.yaml before it deploys; gitops push

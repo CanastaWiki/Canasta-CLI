@@ -10,6 +10,13 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
   when: instance_path is not defined
 
+- name: Refuse an instance that predates the edge
+  canasta_edge:
+    state: current
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+  when: not (instance_is_k8s | bool)
+
 # Bring env.template's CANASTA_IMAGE up to the live .env value. A gitops pull
 # re-renders .env from env.template, so a stale env.template would revert the
 # running image to its older tag; syncing it here keeps the running image on

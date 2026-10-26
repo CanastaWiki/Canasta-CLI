@@ -18,6 +18,7 @@ import urllib.request
 
 import canasta_caddyfile
 import canasta_config
+import canasta_edge_render
 import canasta_env_keys
 import canasta_env_quote
 import canasta_web_cause
@@ -2460,6 +2461,17 @@ def _refuse_caddy_tls(inst_id, inst):
         return False
     print("Error: Instance '%s' %s." % (
         inst_id, canasta_caddyfile.tls_directives_problem(found)), file=sys.stderr)
+    return True
+
+
+def _refuse_pre_edge(inst_id, inst):
+    """Print why the instance cannot start, and return True, when its
+    docker-compose.yml predates the HAProxy edge."""
+    compose = _read_instance_file(
+        inst.get("path", ""), inst.get("host") or "localhost", "docker-compose.yml")
+    if not canasta_edge_render.compose_predates_edge(compose or None):
+        return False
+    print("Error: %s" % canasta_edge_render.predates_edge_problem(inst_id), file=sys.stderr)
     return True
 
 

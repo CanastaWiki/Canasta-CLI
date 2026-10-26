@@ -120,6 +120,19 @@ class EdgeError(Exception):
     """An instance's settings cannot be served by the edge."""
 
 
+def compose_predates_edge(compose):
+    """Whether an instance's docker-compose.yml, given as text, is one from
+    before the edge: its Caddy publishes 80 and 443 whatever the edge needs.
+    None (no file) does not."""
+    return compose is not None and "CANASTA_CADDY_HTTP_PUBLISH" not in compose
+
+
+def predates_edge_problem(instance_id):
+    """Why an instance compose_predates_edge cannot start."""
+    return ("Instance '%s' predates the HAProxy edge; run 'canasta upgrade' first."
+            % instance_id)
+
+
 def _truthy(value, default):
     if value is None or str(value).strip() == "":
         return default
