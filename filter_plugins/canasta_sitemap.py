@@ -44,6 +44,17 @@ def sitemap_rewrites(wikis, url_path):
     return _rules.rewrites(wikis, url_path or "")
 
 
+def sitemap_farm_collision_error(wikis, url_path):
+    """'' unless url_path puts a wiki's sitemaps inside another wiki's
+    path on the same host, or another wiki's path inside them."""
+    return _rules.farm_collision_error(wikis, url_path or "") or ""
+
+
+def sitemap_farm_collision_warnings(wikis, url_path):
+    """Why sitemap_rewrites leaves out each wiki it leaves out."""
+    return _rules.farm_collision_warnings(wikis, url_path or "")
+
+
 class FilterModule(object):
     def filters(self):
         return {
@@ -51,4 +62,6 @@ class FilterModule(object):
             "sitemap_identifier_error": sitemap_identifier_error,
             "sitemap_identifier": sitemap_identifier,
             "sitemap_rewrites": sitemap_rewrites,
+            "sitemap_farm_collision_error": sitemap_farm_collision_error,
+            "sitemap_farm_collision_warnings": sitemap_farm_collision_warnings,
         }

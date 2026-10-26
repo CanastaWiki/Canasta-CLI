@@ -26,9 +26,10 @@ import re
 import unicodedata
 
 try:
-    from ansible.module_utils.canasta_sitemap import URL_PATH_KEY, rewrites, url_path_error
+    from ansible.module_utils.canasta_sitemap import (
+        URL_PATH_KEY, farm_collision_warnings, rewrites, url_path_error)
 except ImportError:  # direct_commands and unit tests import module_utils directly
-    from canasta_sitemap import URL_PATH_KEY, rewrites, url_path_error
+    from canasta_sitemap import URL_PATH_KEY, farm_collision_warnings, rewrites, url_path_error
 
 HAPROXY_IMAGE = "docker.io/library/haproxy:3.2.25-alpine"
 # Also the edge's openssl: the HAProxy image has none, and hosts may not.
@@ -479,6 +480,7 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         "media_hostnames": media,
         # Where its sitemaps are served, when not under /public_assets/.
         "sitemap_paths": sitemap_paths,
+        "sitemap_overlaps": farm_collision_warnings(wikis, sitemap_url_path),
         "tls_mode": tls_mode,
         "tls_mode_hosts": tls_mode_hosts,
         "dns": dns,

@@ -2512,11 +2512,19 @@ commands:
 
       The sitemaps are published at `MW_SITEMAP_URL_PATH` (default
       `/public_assets/sitemap`), relative to each wiki's URL. A wiki's
-      sitemap files are named after its identifier, which defaults to
-      the wiki ID: the index is `sitemap-index-<identifier>.xml`.
-      `--identifier` stores a different one for the `--wiki` wiki in
-      `wikis.yaml` (its `sitemap_identifier`), so that an existing index
-      URL can be kept; the files of its previous identifier are removed.
+      sitemap path cannot overlap another wiki's path on the same host.
+      A path under the article path, such as `/wiki/sitemap`, is served
+      from the sitemap files, so a page whose title starts with
+      `sitemap/` is reachable only by its capitalized title
+      (`Sitemap/...`), and not at all on a wiki with
+      `$wgCapitalLinks = false`.
+
+      A wiki's sitemap files are named after its identifier, which
+      defaults to the wiki ID: the index is
+      `sitemap-index-<identifier>.xml`. `--identifier` stores a
+      different one for the `--wiki` wiki in `wikis.yaml` (its
+      `sitemap_identifier`), so that an existing index URL can be kept;
+      the files of its previous identifier are removed.
       Passing the wiki ID as the identifier restores the default.
     examples:
       - "canasta sitemap generate"

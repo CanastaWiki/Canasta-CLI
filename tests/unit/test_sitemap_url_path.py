@@ -31,11 +31,16 @@ VALIDATE_VALUE = os.path.join(ROLES, "config", "tasks", "_validate_value.yml")
 REWRITE = os.path.join(ROLES, "orchestrator", "tasks", "rewrite_caddy.yml")
 GENERATE = os.path.join(ROLES, "sitemap", "tasks", "generate.yml")
 RECONCILE = os.path.join(ROLES, "gitops", "tasks", "_reconcile_wikis_template.yml")
+SET_SINGLE = os.path.join(ROLES, "config", "tasks", "_set_single.yml")
+ADD = os.path.join(REPO_ROOT, "playbooks", "add.yml")
 KEY = "MW_SITEMAP_URL_PATH"
 
 FARM = [{"id": "main", "url": "example.com", "name": "Main"},
         {"id": "en", "url": "example.com/en", "name": "English"},
         {"id": "docs", "url": "docs.example.org:8443", "name": "Docs"}]
+# A root wiki and a wiki at a path on the same host.
+PATH_FARM = [{"id": "main", "url": "example.com", "name": "Main"},
+             {"id": "docs", "url": "example.com/docs", "name": "Docs"}]
 
 
 def _load(path):
@@ -128,6 +133,67 @@ class TestRewrites:
 
 # --- the setting ----------------------------------------------------------- #
 
+class TestFarmCollision:
+    def test_a_root_wikis_sitemaps_inside_a_path_wiki_are_refused(self):
+        assert rules.farm_collision_error(PATH_FARM, "/docs/sitemap") == (
+            "MW_SITEMAP_URL_PATH=/docs/sitemap would publish the sitemaps of "
+            "wiki 'main' at example.com/docs/sitemap, inside the URL of wiki "
+            "'docs' (example.com/docs).")
+
+    def test_the_path_itself_is_refused(self):
+        assert "inside the URL of wiki 'docs'" in rules.farm_collision_error(
+            PATH_FARM, "/docs")
+
+    def test_a_wiki_under_another_wikis_sitemaps_is_refused(self):
+        wikis = [{"id": "main", "url": "example.com"},
+                 {"id": "x", "url": "example.com/wiki/sitemap/x"}]
+        assert rules.farm_collision_error(wikis, "/wiki/sitemap") == (
+            "MW_SITEMAP_URL_PATH=/wiki/sitemap would publish the sitemaps of "
+            "wiki 'main' at example.com/wiki/sitemap, which contains the URL "
+            "of wiki 'x' (example.com/wiki/sitemap/x).")
+
+    @pytest.mark.parametrize("url_path", ["/docs2/sitemap", "/doc", "/Docs/sitemap",
+                                          "/wiki/sitemap"])
+    def test_whole_segments_are_compared_case_sensitively(self, url_path):
+        assert rules.farm_collision_error(PATH_FARM, url_path) is None
+
+    def test_other_hosts_do_not_collide(self):
+        wikis = [{"id": "main", "url": "example.com"},
+                 {"id": "docs", "url": "other.example.org/docs"}]
+        assert rules.farm_collision_error(wikis, "/docs/sitemap") is None
+
+    def test_hosts_are_compared_without_case_or_port(self):
+        wikis = [{"id": "main", "url": "Example.com:8443"},
+                 {"id": "docs", "url": "example.com/docs"}]
+        assert "wiki 'main' at example.com/docs/sitemap" in (
+            rules.farm_collision_error(wikis, "/docs/sitemap"))
+
+    def test_a_path_wikis_own_sitemaps_are_fine(self):
+        assert rules.farm_collision_error(PATH_FARM[1:], "/docs/sitemap") is None
+        assert rules.farm_collision_error(FARM, "/wiki/sitemap") is None
+
+    def test_the_rewrites_leave_out_only_the_overlapping_wiki(self):
+        wikis = PATH_FARM + [{"id": "o", "url": "other.example.org"}]
+        assert [r["path"] for r in rules.rewrites(wikis, "/docs/sitemap")] == [
+            "/docs/docs/sitemap", "/docs/sitemap"]
+        assert [r["host"] for r in rules.rewrites(wikis, "/docs/sitemap")] == [
+            "example.com", "other.example.org"]
+
+    def test_a_warning_names_both_wikis(self):
+        wikis = [{"id": "main", "url": "example.com"},
+                 {"id": "x", "url": "example.com/wiki/sitemap/x"}]
+        assert rules.farm_collision_warnings(wikis, "/wiki/sitemap") == [
+            "MW_SITEMAP_URL_PATH=/wiki/sitemap: the sitemaps of wiki 'main' are not "
+            "served at example.com/wiki/sitemap, which contains the URL of wiki 'x' "
+            "(example.com/wiki/sitemap/x)."]
+        assert rules.farm_collision_warnings(PATH_FARM, "/wiki/sitemap") == []
+
+    @pytest.mark.parametrize("url_path", ["", None, "/public_assets/sitemap"])
+    def test_none_by_default(self, url_path):
+        wikis = PATH_FARM + [{"id": "p", "url": "example.com/public_assets"}]
+        assert rules.farm_collision_error(wikis, url_path) is None
+
+
 class TestSetting:
     def test_key_is_known_and_documented(self):
         keys = {k["name"]: k for k in _load(DEFAULTS)["canasta_known_keys"]}
@@ -163,6 +229,74 @@ class TestSetting:
     def test_config_set_refuses(self, tmp_path, value):
         code, out = self._validate(tmp_path, value)
         assert code != 0 and "MW_SITEMAP_URL_PATH" in out, out
+
+
+def _config_set(tmp_path, value, wikis=PATH_FARM):
+    inst = tmp_path / "inst"
+    (inst / "config").mkdir(parents=True)
+    (inst / ".env").write_text("MW_SITE_SERVER=https://example.com\n")
+    (inst / "config" / "wikis.yaml").write_text(yaml.safe_dump({"wikis": wikis}))
+    play_vars = dict(_load(DEFAULTS), **_load(CLASSIFIER))
+    play_vars.update(instance_path=str(inst), canasta_root=REPO_ROOT,
+                     instance_orchestrator="compose",
+                     _setting="%s=%s" % (KEY, value))
+    code, out = _play(tmp_path, [{"ansible.builtin.include_tasks": SET_SINGLE}],
+                      play_vars)
+    return code, out, (inst / ".env").read_text()
+
+
+class TestConfigSetFarm:
+    def test_refuses_before_writing_env(self, tmp_path):
+        code, out, env = _config_set(tmp_path, "/docs/sitemap")
+        assert code != 0, out
+        assert "would publish the sitemaps of wiki 'main'" in out, out
+        assert env == "MW_SITE_SERVER=https://example.com\n"
+
+    def test_accepts_a_path_that_overlaps_no_wiki(self, tmp_path):
+        code, out, env = _config_set(tmp_path, "/wiki/sitemap")
+        assert code == 0, out
+        assert "MW_SITEMAP_URL_PATH=/wiki/sitemap" in env
+
+
+ADD_TASKS = ("Read the instance's ports from .env", "Parse URL into domain and path",
+             "Read the wikis to check the sitemap paths",
+             "Fail if the new wiki would overlap another wiki's sitemaps")
+
+
+def _add(tmp_path, url, env_lines, wikis):
+    inst = tmp_path / "inst"
+    (inst / "config").mkdir(parents=True)
+    (inst / ".env").write_text("".join(line + "\n" for line in env_lines))
+    (inst / "config" / "wikis.yaml").write_text(yaml.safe_dump({"wikis": wikis}))
+    found = {t.get("name"): t for t in _load(ADD)}
+    return _play(tmp_path, [found[n] for n in ADD_TASKS],
+                 {"instance_path": str(inst), "url": url, "wiki": "new"})
+
+
+class TestAddFarm:
+    def test_a_path_wiki_over_an_existing_sitemap_path_is_refused(self, tmp_path):
+        code, out = _add(tmp_path, "example.com/docs", ["MW_SITEMAP_URL_PATH=/docs/sitemap"],
+                         PATH_FARM[:1])
+        assert code != 0, out
+        assert ("Cannot add wiki 'new': MW_SITEMAP_URL_PATH=/docs/sitemap would "
+                "publish the sitemaps of wiki 'main'") in out, out
+
+    def test_a_wiki_whose_sitemaps_land_in_another_wiki_is_refused(self, tmp_path):
+        wikis = [{"id": "main", "url": "example.com/docs", "name": "Main"}]
+        code, out = _add(tmp_path, "example.com", ["MW_SITEMAP_URL_PATH=/docs/sitemap"], wikis)
+        assert code != 0, out
+        assert ("would publish the sitemaps of wiki 'new' at example.com/docs/sitemap, "
+                "inside the URL of wiki 'main'") in out, out
+
+    @pytest.mark.parametrize("env_lines,url", [
+        ([], "example.com/docs"),
+        (["MW_SITEMAP_URL_PATH="], "example.com/docs"),
+        (["MW_SITEMAP_URL_PATH=/docs/sitemap"], "example.com/docs2"),
+        (["MW_SITEMAP_URL_PATH=/docs/sitemap"], "other.example.org/docs"),
+    ])
+    def test_other_wikis_are_added(self, tmp_path, env_lines, url):
+        code, out = _add(tmp_path, url, env_lines, PATH_FARM[:1])
+        assert code == 0, out
 
 
 # --- serving: Caddy -------------------------------------------------------- #
@@ -217,6 +351,20 @@ class TestCaddy:
         assert code != 0 and "MW_SITEMAP_URL_PATH must be a URL path" in out, out
         assert not path.exists()
 
+    @pytest.mark.parametrize("k8s", [False, True])
+    def test_an_overlapping_wikis_rewrite_is_left_out(self, tmp_path, k8s):
+        code, out, path = _caddyfile(tmp_path, ["MW_SITEMAP_URL_PATH=/docs/sitemap"],
+                                     wikis=PATH_FARM, k8s=k8s)
+        assert code == 0, out
+        text = path.read_text()
+        assert "path /docs/docs/sitemap/*" in text
+        assert "path /docs/sitemap/*" not in text
+        warning = ("Warning: MW_SITEMAP_URL_PATH=/docs/sitemap: the sitemaps of wiki "
+                   "'main' are not served at example.com/docs/sitemap, which is inside "
+                   "the URL of wiki 'docs' (example.com/docs).")
+        # On Compose the edge render reports it.
+        assert (warning in out) == k8s, out
+
 
 # --- serving: the HAProxy edge -------------------------------------------- #
 
@@ -254,6 +402,15 @@ class TestEdge:
     def test_an_unusable_path_is_refused(self):
         with pytest.raises(edge.EdgeError, match="Instance 'a': MW_SITEMAP_URL_PATH"):
             _edge_inst("a", {KEY: "/wiki/sitemap/"})
+
+    def test_an_overlapping_wikis_path_is_left_out_and_reported(self):
+        inst = _edge_inst("a", {KEY: "/docs/sitemap"}, PATH_FARM)
+        assert inst["sitemap_paths"] == ["/docs/docs/sitemap/"]
+        assert inst["sitemap_overlaps"] == [
+            "MW_SITEMAP_URL_PATH=/docs/sitemap: the sitemaps of wiki 'main' are not "
+            "served at example.com/docs/sitemap, which is inside the URL of wiki "
+            "'docs' (example.com/docs)."]
+        assert _edge_inst("a", {KEY: "/wiki/sitemap"}, PATH_FARM)["sitemap_overlaps"] == []
 
 
 # --- the identifier in wikis.yaml ----------------------------------------- #

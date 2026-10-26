@@ -955,6 +955,19 @@ def test_caddyfile_global_sites_are_routed_and_certified(tmp_path):
         {"instance": "one", "address": "*.example.org", "reason": "it is a wildcard"}]
 
 
+def test_an_overlapping_sitemap_path_is_left_out_and_reported(tmp_path):
+    path = _instance(tmp_path, "one", hosts=("example.com", "example.com/docs"),
+                     env={"MW_SITEMAP_URL_PATH": "/docs/sitemap"})
+    edge = tmp_path / "edge"
+    result = _sync(FakeRunner(), edge, "one", path)
+    assert "error" not in result, result
+    assert "{ path_beg /docs/docs/sitemap/ }" in (edge / "conf" / "haproxy.cfg").read_text()
+    assert result["sitemap_overlaps"] == [
+        "MW_SITEMAP_URL_PATH=/docs/sitemap: the sitemaps of wiki 'w0' are not served "
+        "at example.com/docs/sitemap, which is inside the URL of wiki 'w1' "
+        "(example.com/docs)."]
+
+
 # --- moving existing instances behind the edge -------------------------------- #
 
 def _plain(root, name, env=None, hosts=("example.com",)):

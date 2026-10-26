@@ -69,6 +69,13 @@
     msg: "{{ _sitemap_url_path | sitemap_url_path_error }}"
   when: (_sitemap_url_path | sitemap_url_path_error) | length > 0
 
+# On Compose the edge render, which every start runs, reports these.
+- name: Report sitemap paths left to the wikis that own them
+  ansible.builtin.debug:
+    msg: "Warning: {{ item }}"
+  loop: "{{ _wikis_caddy.wikis | sitemap_farm_collision_warnings(_sitemap_url_path) }}"
+  when: instance_is_k8s | bool
+
 # The image serves each wiki's sitemap files at
 # <wiki path>/public_assets/sitemap; another URL path is rewritten onto it.
 - name: Determine the sitemap rewrites

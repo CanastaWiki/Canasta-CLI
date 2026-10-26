@@ -53,6 +53,11 @@
   loop_control:
     label: "{{ item.instance }}: {{ item.address }}"
 
+- name: Report sitemap paths left to the wikis that own them
+  ansible.builtin.debug:
+    msg: "Warning: {{ item }}"
+  loop: "{{ _edge.sitemap_overlaps | default([]) }}"
+
 - name: Find what else listens on the edge's ports
   ansible.builtin.script:
     cmd: >-

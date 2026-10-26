@@ -118,6 +118,24 @@
           or leave the directory disabled.
       when: _se_wd_vsu.value | default('false') | lower == 'true'
 
+# The path applies relative to every wiki's URL, so in a farm it can land
+# inside another wiki's path on the same host.
+- name: Validate MW_SITEMAP_URL_PATH does not overlap another wiki
+  when:
+    - _config_key == 'MW_SITEMAP_URL_PATH'
+    - _config_value | length > 0
+  block:
+    - name: Read wikis.yaml to check the sitemap paths
+      canasta_wikis_yaml:
+        instance_path: "{{ instance_path }}"
+        state: read
+      register: _se_sitemap_wikis
+
+    - name: Fail if a wiki's sitemaps would overlap another wiki
+      ansible.builtin.fail:
+        msg: "{{ _se_sitemap_wikis.wikis | sitemap_farm_collision_error(_config_value) }}"
+      when: (_se_sitemap_wikis.wikis | sitemap_farm_collision_error(_config_value)) | length > 0
+
 - name: Apply HTTP_PORT/HTTPS_PORT side effects
   when: _config_key in ['HTTP_PORT', 'HTTPS_PORT']
   block:
