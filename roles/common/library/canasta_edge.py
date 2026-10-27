@@ -214,12 +214,14 @@ services:
     # The edge is only ever removed, never left stopped; "always" also
     # brings back a container Docker counts as manually stopped.
     restart: always
-    # HAProxy logs every request.
+    # HAProxy logs every request. Rotated files are compressed, so days of
+    # a busy host's requests fit in a few hundred megabytes.
     logging: &logging
       driver: json-file
       options:
-        max-size: "50m"
-        max-file: "3"
+        max-size: "100m"
+        max-file: "20"
+        compress: "true"
     ports:
 %(ports)s    volumes:
       - ./conf:%(config_dir)s:ro
