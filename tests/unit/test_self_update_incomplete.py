@@ -315,6 +315,44 @@ def test_root_repair_normalizes_the_shared_install(
     assert capsys.readouterr().out == ""
 
 
+@needs_non_root
+def test_root_repair_leaves_object_and_bytecode_modes_alone(
+        tmp_path, monkeypatch, capsys):
+    gid = _other_group()
+    monkeypatch.setattr(canasta_cli.grp, "getgrnam",
+                        lambda name: type("G", (), {"gr_gid": gid})())
+    repo = tmp_path / "install"
+    (repo / ".git" / "objects" / "ab").mkdir(parents=True)
+    (repo / "filter_plugins" / "__pycache__").mkdir(parents=True)
+    canasta_cli._repair_shared_install(str(repo))
+    assert "Repaired" in capsys.readouterr().out
+
+    obj = repo / ".git" / "objects" / "ab" / "cdef"
+    obj.write_text("")
+    obj.chmod(0o444)
+    pyc = repo / "filter_plugins" / "__pycache__" / "m.cpython-312.pyc"
+    pyc.write_text("")
+    pyc.chmod(0o644)
+    canasta_cli._repair_shared_install(str(repo))
+    assert capsys.readouterr().out == ""
+    assert obj.stat().st_mode & 0o777 == 0o444
+    assert pyc.stat().st_mode & 0o777 == 0o644
+    assert obj.stat().st_gid == gid and pyc.stat().st_gid == gid
+
+    # Their directories, and the group of the files, are still repaired.
+    (repo / ".git" / "objects" / "ab").chmod(0o755)
+    canasta_cli._repair_shared_install(str(repo))
+    assert "Repaired" in capsys.readouterr().out
+    assert (repo / ".git" / "objects" / "ab").stat().st_mode & 0o2020 == 0o2020
+    assert obj.stat().st_mode & 0o777 == 0o444
+
+    os.chown(pyc, -1, os.getgid())
+    canasta_cli._repair_shared_install(str(repo))
+    assert "Repaired" in capsys.readouterr().out
+    assert pyc.stat().st_gid == gid
+    assert pyc.stat().st_mode & 0o777 == 0o644
+
+
 def test_root_repair_runs_only_for_root_on_a_shared_install(
         tmp_path, monkeypatch, capsys):
     repo = _install(tmp_path, monkeypatch)

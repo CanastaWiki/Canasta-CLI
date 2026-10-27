@@ -597,16 +597,26 @@ def _repair_shared_install(repo):
         gid = grp.getgrnam("canasta").gr_gid
     except KeyError:
         return
+    objects = os.path.join(repo, ".git", "objects")
     repaired = False
     try:
         for root, _, files in _install_walk(repo):
+            # git's loose objects and Python's bytecode are written
+            # read-only or 644 on purpose and replaced through their
+            # directory, so their own modes stay as written.
+            keep_file_modes = (
+                root == objects or root.startswith(objects + os.sep)
+                or "__pycache__" in root.split(os.sep)
+            )
             for path in [root] + [os.path.join(root, f) for f in files]:
                 st = os.lstat(path)
                 if stat.S_ISLNK(st.st_mode):
                     continue
-                mode = stat.S_IMODE(st.st_mode) | stat.S_IWGRP
+                mode = stat.S_IMODE(st.st_mode)
                 if stat.S_ISDIR(st.st_mode):
-                    mode |= stat.S_ISGID
+                    mode |= stat.S_IWGRP | stat.S_ISGID
+                elif not keep_file_modes:
+                    mode |= stat.S_IWGRP
                 # chown can clear the setgid bit, so chmod after it.
                 if st.st_gid != gid:
                     os.chown(path, -1, gid)
