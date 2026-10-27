@@ -73,10 +73,18 @@ def test_rhel_adds_the_gid_33_group_by_its_own_name(tmp_path):
     assert err == ""
 
 
-def test_a_missing_group_is_reported_and_the_rest_still_added(tmp_path):
+def test_without_docker_the_gid_33_group_is_skipped(tmp_path):
     calls, out, err = _run(tmp_path, {"canasta": 990, "tape": 33})
-    assert calls == ["USERMOD -aG canasta alice", "USERMOD -aG tape alice"]
+    assert calls == ["USERMOD -aG canasta alice"]
     assert "Group 'docker' does not exist; alice was not added to it." in err
+    assert "which only rootful Docker needs" in err
+
+
+def test_a_failed_docker_add_skips_the_gid_33_group(tmp_path):
+    calls, out, err = _run(tmp_path, {"canasta": 990, "docker": 991, "tape": 33},
+                           failing=("docker",))
+    assert calls == ["USERMOD -aG canasta alice"]
+    assert "which only rootful Docker needs" in err
 
 
 def test_no_gid_33_group_is_reported(tmp_path):

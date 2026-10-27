@@ -636,7 +636,13 @@ def _doctor_system_lines(probes):
     # Only report membership on Linux, where host-side file permissions
     # matter for volume mounts into the Canasta containers.
     if host_os == "Linux":
-        lines.append(_www_data_line(groups, probes.get("web_gid", "")))
+        if probes.get("rootless_sock"):
+            # A rootless runtime maps the containers' gid 33 to one of the
+            # user's own subordinate gids, not to the host's gid 33.
+            lines.append("  www-data group:  N/A (the rootless runtime maps "
+                         "container groups to your own)")
+        else:
+            lines.append(_www_data_line(groups, probes.get("web_gid", "")))
         canasta_member = "canasta" in groups.split()
         if canasta_member:
             lines.append("  canasta group:   OK (member)")
