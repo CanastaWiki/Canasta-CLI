@@ -24,7 +24,9 @@
 #               docker mode ignores it. Defaults to /opt/canasta-ansible on
 #               Linux and ~/canasta-ansible on macOS.
 #
-# Linux native installs create a 'canasta' system group. Add users with:
+# Linux native installs create a 'canasta' system group and add the
+# installing user to it, to 'docker', and to the group with gid 33 (the
+# containers' www-data; RHEL names it 'tape'). Add other users with:
 #   sudo usermod -aG canasta $USER
 #
 # macOS native installs use a user-owned path (no group needed).
@@ -406,10 +408,34 @@ install_native_linux() {
         canasta install docker
     fi
 
-    # Add current user to required groups
-    local _user="${SUDO_USER:-$(whoami)}"
-    info "Adding ${_user} to canasta, docker, and www-data groups..."
-    $SUDO usermod -aG canasta,docker,www-data "$_user" 2>/dev/null || true
+    add_user_to_groups "${SUDO_USER:-$(whoami)}"
+}
+
+# One usermod per group: given a list, usermod rejects all of it when any
+# one group is missing. The containers write files as gid 33, which is
+# www-data on Debian but tape on RHEL, so that group is found by number.
+add_user_to_groups() {
+    local _user="$1" _web_group _group _label _err
+    _web_group="$(getent group 33 2>/dev/null | cut -d: -f1 || true)"
+    local _groups=(canasta docker)
+    if [[ -n "$_web_group" ]]; then
+        _groups+=("$_web_group")
+    else
+        warn "No group has gid 33 on this host, so ${_user} cannot be added to the group the Canasta containers write files as."
+    fi
+    for _group in "${_groups[@]}"; do
+        _label="'${_group}'"
+        if [[ "$_group" == "$_web_group" && "$_group" != www-data ]]; then
+            _label+=" (gid 33, www-data in the containers)"
+        fi
+        if ! getent group "$_group" >/dev/null 2>&1; then
+            warn "Group ${_label} does not exist; ${_user} was not added to it."
+        elif _err="$($SUDO usermod -aG "$_group" "$_user" 2>&1)"; then
+            info "Added ${_user} to the ${_label} group."
+        else
+            warn "Could not add ${_user} to the ${_label} group: ${_err}"
+        fi
+    done
 }
 
 # --- Native mode install (macOS) --------------------------------------------
