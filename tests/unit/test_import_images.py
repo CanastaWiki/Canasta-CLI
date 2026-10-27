@@ -8,6 +8,7 @@ k8s). These tests lock the wiring; runtime behavior is covered by the e2e.
 """
 
 import os
+import re
 import subprocess
 import sys
 
@@ -100,17 +101,23 @@ def test_add_wires_images_import_conditionally():
     assert (img["vars"]["import_wiki_id"]) == "{{ wiki }}"
 
 
-def test_tarball_uses_a_private_temp_file_not_a_fixed_tmp_path():
+def test_tarball_uses_a_private_temp_dir_not_a_fixed_tmp_path():
     body = _text(IMPORT)
     assert "canasta-images-import" not in body
     tasks = _load(IMPORT)
     tmp = next((t for t in tasks if "ansible.builtin.tempfile" in t), None)
     assert tmp is not None, "the host copy must use ansible.builtin.tempfile"
-    copies = [t["ansible.builtin.copy"] for t in _walk(tasks)
-              if "ansible.builtin.copy" in t]
-    assert copies and all(c["mode"] == "0600" for c in copies)
-    assert all(c["dest"] == "{{ _import_images_host_tmp.path }}"
-               for c in copies)
+    assert tmp["ansible.builtin.tempfile"]["state"] == "directory"
+    assert tmp["when"] == "not _import_images_local"
+    copies = [t for t in _walk(tasks) if "ansible.builtin.copy" in t]
+    assert copies
+    for c in copies:
+        assert c["ansible.builtin.copy"]["mode"] == "0600"
+        assert c["ansible.builtin.copy"]["dest"] == "{{ _import_images_src }}"
+        assert c["when"] == "not _import_images_local"
+        # The upload is staged in the temp dir, not ansible_remote_tmp.
+        assert c["vars"]["ansible_remote_tmp"] == (
+            "{{ _import_images_host_tmp.path }}")
 
 
 def test_host_and_container_copies_are_removed_in_always():
@@ -121,6 +128,8 @@ def test_host_and_container_copies_are_removed_in_always():
     host = [t for t in always if "ansible.builtin.file" in t]
     assert host and host[0]["ansible.builtin.file"] == {
         "path": "{{ _import_images_host_tmp.path }}", "state": "absent"}
+    # Never the operator's own tarball.
+    assert host[0]["when"] == "not _import_images_local"
     container = [t for t in always
                  if (t.get("vars") or {}).get("exec_service") == "web"]
     assert container
@@ -140,9 +149,10 @@ _COPY_STUB = """
 - ansible.builtin.stat:
     path: "{{ copy_src }}"
   register: _stub_src
-- ansible.builtin.copy:
-    content: "{{ copy_src }} {{ _stub_src.stat.mode }} {{ copy_dest }}"
-    dest: "{{ stub_log }}/copy"
+- ansible.builtin.lineinfile:
+    path: "{{ stub_log }}/copy"
+    line: "{{ copy_src }} {{ _stub_src.stat.mode }} {{ copy_dest }}"
+    create: true
     mode: "0644"
 """
 
@@ -158,7 +168,7 @@ _EXEC_STUB = """
 """
 
 
-def _run_import(tmp_path, fail_extract):
+def _run_import(tmp_path, fail_extract, local):
     root = tmp_path / "root"
     orch = root / "roles" / "orchestrator" / "tasks"
     orch.mkdir(parents=True)
@@ -170,39 +180,71 @@ def _run_import(tmp_path, fail_extract):
     inst.mkdir()
     tarball = tmp_path / "images.tar"
     tarball.write_bytes(b"x")
+    link = tmp_path / "link.tar"
+    link.symlink_to(tarball)
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
         "hosts": "localhost",
-        "connection": "local",
         "gather_facts": False,
         "vars": {"canasta_root": str(root), "stub_log": str(log),
+                 "ansible_connection": "local",
+                 "ansible_python_interpreter": sys.executable,
                  "instance_path": str(inst),
                  "stub_fail_extract": fail_extract,
-                 "import_images_path": str(tarball),
+                 "import_images_path": str(link),
                  "import_wiki_id": "main"},
         "tasks": [{"ansible.builtin.include_tasks": os.path.abspath(IMPORT)}],
     }]))
-    env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0")
+    env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
+               ANSIBLE_REMOTE_TEMP=str(tmp_path / "remote-tmp"))
+    # The remote path runs over the local connection with the
+    # local-connection check overridden.
+    extra = [] if local else ["-e", '{"_import_images_local": false}']
     proc = subprocess.run(
-        [ANSIBLE_PLAYBOOK, "-i", "localhost,", str(play)],
+        [ANSIBLE_PLAYBOOK, "-vvv", "-i", "localhost,", str(play)] + extra,
         capture_output=True, text=True, env=env, cwd=tmp_path,
         stdin=subprocess.DEVNULL)
+    assert (log / "copy").exists(), proc.stdout + proc.stderr
     copy_src, mode, copy_dest = (log / "copy").read_text().split()
     execs = (log / "exec").read_text().splitlines()
-    return proc, inst, copy_src, mode, copy_dest, execs
+    # Where the copy action uploaded the tarball on its way to the target.
+    puts = re.findall(r"PUT \S+ TO (\S+/\.source\S*)", proc.stdout)
+    return proc, inst, tarball, copy_src, mode, copy_dest, execs, puts
+
+
+def _check_container_copy(proc, fail_extract, copy_dest, execs):
+    assert (proc.returncode != 0) == fail_extract, proc.stdout + proc.stderr
+    assert re.fullmatch(r"/tmp/canasta-import-[a-z0-9]{16}\.tar", copy_dest)
+    assert any(copy_dest in c and "tar xf" in c for c in execs)
+    assert execs[-1] == "rm -f " + copy_dest
 
 
 @pytest.mark.skipif(not os.path.exists(ANSIBLE_PLAYBOOK),
                     reason="ansible-playbook not installed alongside python")
 @pytest.mark.parametrize("fail_extract", [False, True])
-def test_both_copies_removed_on_success_and_failure(tmp_path, fail_extract):
-    proc, inst, copy_src, mode, copy_dest, execs = _run_import(
-        tmp_path, fail_extract)
-    assert (proc.returncode != 0) == fail_extract, proc.stdout + proc.stderr
-    assert os.path.dirname(copy_src) == str(inst)
-    assert os.path.basename(copy_src).startswith(".canasta-import-")
+def test_remote_stages_beside_instance_and_cleans_up(tmp_path, fail_extract):
+    proc, inst, tarball, copy_src, mode, copy_dest, execs, puts = (
+        _run_import(tmp_path, fail_extract, local=False))
+    _check_container_copy(proc, fail_extract, copy_dest, execs)
+    stage = os.path.dirname(copy_src)
+    assert os.path.dirname(stage) == str(inst)
+    assert os.path.basename(stage).startswith(".canasta-import-")
     assert mode == "0600"
-    assert not os.path.exists(copy_src)
-    assert copy_dest == "/tmp/" + os.path.basename(copy_src)
-    assert any(copy_dest in c and "tar xf" in c for c in execs)
-    assert execs[-1] == "rm -f " + copy_dest
+    # The upload is staged in the same dir, not in ansible_remote_tmp.
+    assert puts and all(p.startswith(stage + os.sep) for p in puts)
+    assert os.listdir(inst) == []
+    assert tarball.exists()
+
+
+@pytest.mark.skipif(not os.path.exists(ANSIBLE_PLAYBOOK),
+                    reason="ansible-playbook not installed alongside python")
+@pytest.mark.parametrize("fail_extract", [False, True])
+def test_local_copies_tarball_in_place(tmp_path, fail_extract):
+    proc, inst, tarball, copy_src, mode, copy_dest, execs, puts = (
+        _run_import(tmp_path, fail_extract, local=True))
+    _check_container_copy(proc, fail_extract, copy_dest, execs)
+    # The symlink is resolved, since docker cp would copy the link itself.
+    assert copy_src == str(tarball)
+    assert puts == []
+    assert tarball.exists()
+    assert os.listdir(inst) == []
