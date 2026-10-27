@@ -85,7 +85,12 @@ def _install_repair_commands(install_dir, group_shared, user="$(id -un)"):
     group 'canasta') is repaired by group; a per-user install by owner."""
     d = shlex.quote(install_dir)
     if group_shared:
-        cmds = ["sudo chgrp -R canasta %s" % d, "sudo chmod -R g+w %s" % d]
+        cmds = [
+            "sudo chgrp -R canasta %s" % d,
+            "sudo chmod -R g+w %s" % d,
+            "sudo find %s -path %s -prune -o -type d -exec chmod g+s {} +"
+            % (d, shlex.quote(os.path.join(install_dir, ".venv"))),
+        ]
     else:
         cmds = ["sudo chown -R %s %s" % (user, d)]
     return cmds + ["git -C %s checkout -- ." % d]

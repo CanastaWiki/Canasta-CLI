@@ -24,14 +24,20 @@ PROBE_COMMAND_TIMEOUT = 10
 PROBE_TIMEOUT = 120
 
 # Run against the native install dir: its group, the directories the
-# operator cannot write (a checkout leaves files in those unwritten), and,
+# operator cannot write (a checkout leaves files in those unwritten; the
+# virtualenv is pip's, as in the self-update's check), and,
 # for a self-update-managed install (BUILD_COMMIT present), how many
 # tracked files differ from HEAD.
 _INSTALL_PROBE = """
 import grp, os, subprocess, sys
 d = sys.argv[1]
 print("group=" + grp.getgrgid(os.stat(d).st_gid).gr_name)
-bad = [r for r, _, _ in os.walk(d) if not os.access(r, os.W_OK)]
+bad = []
+for r, dirs, _ in os.walk(d):
+    if r == d and ".venv" in dirs:
+        dirs.remove(".venv")
+    if not os.access(r, os.W_OK):
+        bad.append(r)
 print("unwritable=%d %s" % (len(bad), bad[0] if bad else ""))
 if os.path.isfile(os.path.join(d, "BUILD_COMMIT")):
     st = subprocess.run(

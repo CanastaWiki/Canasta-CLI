@@ -575,6 +575,54 @@ def _install_group_shared(repo):
         return False
 
 
+def _install_walk(repo):
+    """os.walk over the install, leaving out its virtualenv, which pip
+    manages."""
+    for root, dirs, files in os.walk(repo):
+        if root == repo and ".venv" in dirs:
+            dirs.remove(".venv")
+        yield root, dirs, files
+
+
+def _unwritable_dirs(repo):
+    return [root for root, _, _ in _install_walk(repo)
+            if not os.access(root, os.W_OK)]
+
+
+def _repair_shared_install(repo):
+    """As root, give everything in the shared install group canasta and
+    group write, and every directory setgid, so nothing root created
+    blocks the members' next update."""
+    try:
+        gid = grp.getgrnam("canasta").gr_gid
+    except KeyError:
+        return
+    repaired = False
+    try:
+        for root, _, files in _install_walk(repo):
+            for path in [root] + [os.path.join(root, f) for f in files]:
+                st = os.lstat(path)
+                if stat.S_ISLNK(st.st_mode):
+                    continue
+                mode = stat.S_IMODE(st.st_mode) | stat.S_IWGRP
+                if stat.S_ISDIR(st.st_mode):
+                    mode |= stat.S_ISGID
+                # chown can clear the setgid bit, so chmod after it.
+                if st.st_gid != gid:
+                    os.chown(path, -1, gid)
+                    os.chmod(path, mode)
+                    repaired = True
+                elif mode != stat.S_IMODE(st.st_mode):
+                    os.chmod(path, mode)
+                    repaired = True
+    except OSError as e:
+        print("Warning: could not repair the permissions of %s: %s"
+              % (repo, e), file=sys.stderr)
+        return
+    if repaired:
+        print("Repaired group ownership and permissions of %s." % repo)
+
+
 def _in_group(name):
     try:
         gid = grp.getgrnam(name).gr_gid
@@ -739,7 +787,10 @@ def self_update_cli(dev=False, allow_major=False, dry_run=False):
     # In the shared install, what the update creates must stay writable
     # by the other members of group canasta whatever this user's umask;
     # the setgid directories give it the group.
-    umask = 0o002 if _install_group_shared(repo) else -1
+    shared = _install_group_shared(repo)
+    umask = 0o002 if shared else -1
+    if shared and os.geteuid() == 0:
+        _repair_shared_install(repo)
 
     def _git(args, timeout=30, check=False):
         return subprocess.run(
@@ -768,6 +819,18 @@ def self_update_cli(dev=False, allow_major=False, dry_run=False):
     # its presence tells a self-update-managed install from a developer's
     # clone, whose local edits are its own business.
     managed = os.path.isfile(os.path.join(repo, "BUILD_COMMIT"))
+    # A member of group canasta who cannot write a directory of the shared
+    # install has a damaged install; a non-member is told how to join when
+    # the fetch below fails.
+    if shared and os.geteuid() != 0 and _in_group("canasta"):
+        unwritable = _unwritable_dirs(repo)
+        if unwritable:
+            _self_update_incomplete(
+                repo,
+                "you cannot write these directories of the Canasta CLI "
+                "install at %s, so it cannot be updated:" % repo,
+                unwritable,
+            )
     if managed:
         changed = _self_update_changed_files(_git)
         if changed:

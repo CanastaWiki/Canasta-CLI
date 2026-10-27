@@ -150,6 +150,8 @@ def test_repair_commands_follow_the_install_group():
     assert _helpers._install_repair_commands("/opt/canasta-ansible", True) == [
         "sudo chgrp -R canasta /opt/canasta-ansible",
         "sudo chmod -R g+w /opt/canasta-ansible",
+        "sudo find /opt/canasta-ansible -path /opt/canasta-ansible/.venv "
+        "-prune -o -type d -exec chmod g+s {} +",
         "git -C /opt/canasta-ansible checkout -- .",
     ]
     assert _helpers._install_repair_commands(
@@ -184,6 +186,8 @@ def test_doctor_reports_unwritable_dirs_and_incomplete_tree():
             "not match the installed version (5 changed or missing)") in result
     assert ("Repair with: sudo chgrp -R canasta /opt/canasta-ansible && "
             "sudo chmod -R g+w /opt/canasta-ansible && "
+            "sudo find /opt/canasta-ansible -path /opt/canasta-ansible/.venv "
+            "-prune -o -type d -exec chmod g+s {} + && "
             "git -C /opt/canasta-ansible checkout -- .") in result
     assert "Self-update:     OK" not in result
 
@@ -267,3 +271,107 @@ def test_root_warning_on_shared_install(
             "here can block later updates for that user.\n")
     else:
         assert err == ""
+
+
+# --- pre-fix layouts: root repairs, members are stopped, non-members skip ----
+
+def _other_group():
+    """A group this user belongs to other than its primary one, which a
+    non-root owner may chown its files to."""
+    for gid in os.getgroups():
+        if gid != os.getgid():
+            return gid
+    pytest.skip("needs a supplementary group")
+
+
+@needs_non_root
+def test_root_repair_normalizes_the_shared_install(
+        tmp_path, monkeypatch, capsys):
+    gid = _other_group()
+    monkeypatch.setattr(canasta_cli.grp, "getgrnam",
+                        lambda name: type("G", (), {"gr_gid": gid})())
+    repo = tmp_path / "install"
+    (repo / "rootdir").mkdir(parents=True)
+    (repo / "rootdir" / "f.py").write_text("")
+    (repo / ".venv" / "lib").mkdir(parents=True)
+    for path in (repo, repo / "rootdir", repo / ".venv",
+                 repo / ".venv" / "lib"):
+        path.chmod(0o755)
+    (repo / "rootdir" / "f.py").chmod(0o644)
+
+    canasta_cli._repair_shared_install(str(repo))
+    assert capsys.readouterr().out == (
+        "Repaired group ownership and permissions of %s.\n" % repo)
+    for path in (repo, repo / "rootdir"):
+        st = path.stat()
+        assert st.st_gid == gid
+        assert st.st_mode & 0o2020 == 0o2020
+    st = (repo / "rootdir" / "f.py").stat()
+    assert st.st_gid == gid and st.st_mode & 0o020
+    venv = (repo / ".venv" / "lib").stat()
+    assert venv.st_gid != gid and not venv.st_mode & 0o2020
+
+    canasta_cli._repair_shared_install(str(repo))
+    assert capsys.readouterr().out == ""
+
+
+def test_root_repair_runs_only_for_root_on_a_shared_install(
+        tmp_path, monkeypatch, capsys):
+    repo = _install(tmp_path, monkeypatch)
+    _git(repo, "checkout", "-q", "v4.1.0")
+    repaired = []
+    monkeypatch.setattr(canasta_cli, "_repair_shared_install",
+                        lambda r: repaired.append(r))
+    monkeypatch.setattr(canasta_cli, "_install_group_shared", lambda r: True)
+    monkeypatch.setattr(canasta_cli, "_in_group", lambda name: False)
+    for euid, expected in ((1000, []), (0, [str(repo)])):
+        repaired.clear()
+        monkeypatch.setattr(canasta_cli.os, "geteuid", lambda: euid)
+        canasta_cli.self_update_cli()
+        assert repaired == expected
+    monkeypatch.setattr(canasta_cli, "_install_group_shared", lambda r: False)
+    repaired.clear()
+    canasta_cli.self_update_cli()
+    assert repaired == []
+
+
+@needs_non_root
+def test_member_with_an_unwritable_dir_is_stopped_before_git_moves(
+        tmp_path, monkeypatch, capsys):
+    repo = _install(tmp_path, monkeypatch)
+    monkeypatch.setattr(canasta_cli, "_install_group_shared", lambda r: True)
+    monkeypatch.setattr(canasta_cli, "_in_group", lambda name: True)
+    plugins = repo / "filter_plugins"
+    plugins.chmod(0o555)
+    try:
+        with pytest.raises(SystemExit) as exc:
+            canasta_cli.self_update_cli()
+    finally:
+        plugins.chmod(0o755)
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert ("Error: you cannot write these directories of the Canasta CLI "
+            "install at %s, so it cannot be updated:\n  %s\n" % (repo, plugins)
+            ) in err
+    assert "chmod g+s" in err
+    assert (repo / "VERSION").read_text() == "4.0.0\n"
+    assert not (repo / "filter_plugins" / "new.py").exists()
+
+
+@needs_non_root
+def test_non_member_keeps_the_skip_warning(tmp_path, monkeypatch, capsys):
+    repo = _install(tmp_path, monkeypatch)
+    monkeypatch.setattr(canasta_cli, "_install_group_shared", lambda r: True)
+    monkeypatch.setattr(canasta_cli, "_in_group", lambda name: False)
+    for path in (repo / "filter_plugins", repo / ".git"):
+        path.chmod(0o555)
+    try:
+        canasta_cli.self_update_cli()
+    finally:
+        for path in (repo / "filter_plugins", repo / ".git"):
+            path.chmod(0o755)
+    err = capsys.readouterr().err
+    assert "WARNING: self-update skipped" in err
+    assert "sudo usermod -aG canasta $(id -un)" in err
+    assert "Error:" not in err
+    assert (repo / "VERSION").read_text() == "4.0.0\n"
