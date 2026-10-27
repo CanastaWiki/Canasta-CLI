@@ -567,6 +567,14 @@ def _self_update_changed_files(git):
     return [line for line in st.stdout.splitlines() if line.strip()]
 
 
+def _install_group_shared(repo):
+    """True for the system install, shared by members of group canasta."""
+    try:
+        return grp.getgrgid(os.stat(repo).st_gid).gr_name == "canasta"
+    except (OSError, KeyError):
+        return False
+
+
 def _in_group(name):
     try:
         gid = grp.getgrnam(name).gr_gid
@@ -578,10 +586,7 @@ def _in_group(name):
 def _self_update_incomplete(repo, headline, details):
     """Report a native install whose files do not match its checkout,
     with the commands that repair it, and exit."""
-    try:
-        group_shared = grp.getgrgid(os.stat(repo).st_gid).gr_name == "canasta"
-    except (OSError, KeyError):
-        group_shared = False
+    group_shared = _install_group_shared(repo)
     user = pwd.getpwuid(os.getuid()).pw_name
     shown = ["  " + d for d in details[:10]]
     if len(details) > 10:
@@ -634,7 +639,7 @@ def _self_update_record_build(git, repo):
     return new_version, new_commit
 
 
-def _self_update_refresh_deps(repo):
+def _self_update_refresh_deps(repo, umask=-1):
     """Reinstall Python requirements and Ansible collections; False when
     either failed (already reported)."""
     # Refresh Python and Ansible deps in case requirements.txt or
@@ -644,7 +649,7 @@ def _self_update_refresh_deps(repo):
     # the last instance) and hit cryptic playbook errors.
     def _refresh_deps(label, cmd, timeout):
         try:
-            subprocess.run(cmd, check=True, timeout=timeout)
+            subprocess.run(cmd, check=True, timeout=timeout, umask=umask)
             return True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
                 OSError) as e:
@@ -731,10 +736,16 @@ def self_update_cli(dev=False, allow_major=False, dry_run=False):
     if not os.path.isdir(os.path.join(repo, ".git")):
         return  # Docker install — image pull happened in the wrapper.
 
+    # In the shared install, what the update creates must stay writable
+    # by the other members of group canasta whatever this user's umask;
+    # the setgid directories give it the group.
+    umask = 0o002 if _install_group_shared(repo) else -1
+
     def _git(args, timeout=30, check=False):
         return subprocess.run(
             ["git"] + args, cwd=repo,
             capture_output=True, text=True, timeout=timeout, check=check,
+            umask=umask,
         )
 
     try:
@@ -807,7 +818,7 @@ def self_update_cli(dev=False, allow_major=False, dry_run=False):
     # Recorded and refreshed even for an incomplete move: HEAD has moved,
     # and once repaired the next run finds it up to date and does neither.
     new_version, new_commit = _self_update_record_build(_git, repo)
-    deps_ok = _self_update_refresh_deps(repo)
+    deps_ok = _self_update_refresh_deps(repo, umask)
 
     if changed:
         errors = [
@@ -1233,6 +1244,23 @@ def check_root_in_foreign_config_dir():
             file=sys.stderr,
         )
         sys.exit(1)
+
+
+def warn_root_on_shared_install():
+    """Warn once per run when root runs the native CLI from the install
+    shared by group canasta."""
+    if (os.geteuid() != 0
+            or os.environ.get("CANASTA_RUN_MODE") == "docker"
+            # The re-exec after a self-update has already warned.
+            or os.environ.get("CANASTA_SELF_UPDATED")
+            or not _install_group_shared(SCRIPT_DIR)):
+        return
+    print(
+        "Warning: canasta is running as root. The CLI install is meant to be "
+        "run as a member of the canasta group; files root creates here can "
+        "block later updates for that user.",
+        file=sys.stderr,
+    )
 
 
 def acquire_instance_lock(command_name, args):
@@ -2530,6 +2558,7 @@ def validate_command_args(cmd_def, args):
 def run_preflight_checks(command_name, args):
     """Refusals that apply before either the direct or the Ansible path."""
     check_root_in_foreign_config_dir()
+    warn_root_on_shared_install()
 
     # Pre-flight: a duplicate instance ID is an expected refusal, not a
     # crash. Catch it here so it exits with EXIT_ALREADY_EXISTS instead

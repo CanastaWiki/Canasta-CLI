@@ -20,6 +20,8 @@ import canasta as canasta_cli  # noqa: E402
 from direct_commands import _helpers, doctor  # noqa: E402
 
 
+_DEPS_UMASKS = []
+
 needs_non_root = pytest.mark.skipif(
     os.geteuid() == 0, reason="root can write an unwritable directory")
 
@@ -36,7 +38,8 @@ def _git(cwd, *args):
 def _isolate(monkeypatch):
     monkeypatch.delenv("CANASTA_SELF_UPDATED", raising=False)
     monkeypatch.setattr(canasta_cli, "_self_update_refresh_deps",
-                        lambda repo: True)
+                        lambda repo, umask=-1: _DEPS_UMASKS.append(umask)
+                        or True)
     execv_calls = []
     monkeypatch.setattr(canasta_cli.os, "execv",
                         lambda *a: execv_calls.append(a))
@@ -57,6 +60,8 @@ def _install(tmp_path, monkeypatch, managed=True):
     _git(origin, "tag", "v4.0.0")
     (origin / "VERSION").write_text("4.1.0\n")
     (origin / "filter_plugins" / "new.py").write_text("NEW = 1\n")
+    (origin / "newdir").mkdir()
+    (origin / "newdir" / "x.py").write_text("X = 1\n")
     _git(origin, "add", "-A")
     _git(origin, "commit", "-q", "-m", "4.1.0")
     _git(origin, "tag", "v4.1.0")
@@ -207,3 +212,58 @@ def test_doctor_install_probe(tmp_path, monkeypatch):
     assert install["unwritable"] == 1
     assert install["first_unwritable"] == str(plugins)
     assert install["changed"] == 1
+
+
+# --- umask and root warning on the shared install ---------------------------
+
+@pytest.mark.parametrize("shared, group_writable, deps_umask", [
+    (True, True, 0o002),
+    (False, False, -1),
+])
+def test_update_umask_follows_the_install(
+        tmp_path, monkeypatch, capsys, shared, group_writable, deps_umask):
+    repo = _install(tmp_path, monkeypatch)
+    monkeypatch.setattr(canasta_cli, "_install_group_shared",
+                        lambda r: shared)
+    _DEPS_UMASKS.clear()
+    old = os.umask(0o022)
+    try:
+        canasta_cli.self_update_cli()
+    finally:
+        os.umask(old)
+    assert "Updated Canasta CLI" in capsys.readouterr().out
+    assert bool((repo / "newdir").stat().st_mode & 0o020) is group_writable
+    assert bool((repo / "newdir" / "x.py").stat().st_mode & 0o020) \
+        is group_writable
+    assert _DEPS_UMASKS == [deps_umask]
+    # The process itself keeps its umask for the command that follows.
+    assert os.umask(0o022) == 0o022
+
+
+@pytest.mark.parametrize("euid, run_mode, self_updated, shared, warned", [
+    (0, None, None, True, True),
+    (1000, None, None, True, False),
+    (0, "docker", None, True, False),
+    (0, None, "1", True, False),
+    (0, None, None, False, False),
+])
+def test_root_warning_on_shared_install(
+        monkeypatch, capsys, euid, run_mode, self_updated, shared, warned):
+    monkeypatch.setattr(canasta_cli.os, "geteuid", lambda: euid)
+    for name, value in (("CANASTA_RUN_MODE", run_mode),
+                        ("CANASTA_SELF_UPDATED", self_updated)):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    monkeypatch.setattr(canasta_cli, "_install_group_shared",
+                        lambda r: shared)
+    canasta_cli.warn_root_on_shared_install()
+    err = capsys.readouterr().err
+    if warned:
+        assert err == (
+            "Warning: canasta is running as root. The CLI install is meant "
+            "to be run as a member of the canasta group; files root creates "
+            "here can block later updates for that user.\n")
+    else:
+        assert err == ""
