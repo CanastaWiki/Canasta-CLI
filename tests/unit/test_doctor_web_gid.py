@@ -93,8 +93,9 @@ class TestReportLine:
         assert "OK (member)" in doctor._www_data_line("user www-data", "")
         assert "NOT A MEMBER" in doctor._www_data_line("user", "")
 
-    def _report(self, rootless_sock=""):
+    def _report(self, rootless_sock="", daemon="OK"):
         fields = ["Python 3.12.0"] * 28
+        fields[3] = daemon
         fields[4] = "user wheel"
         fields[13] = "Linux"
         fields[17] = rootless_sock
@@ -104,7 +105,12 @@ class TestReportLine:
     def test_full_report_on_rhel(self):
         assert "sudo usermod -aG tape $USER" in self._report()
 
-    def test_a_rootless_runtime_needs_no_gid_33_membership(self):
+    def test_a_rootless_socket_beside_a_rootful_daemon_is_checked(self):
         report = self._report("unix:///run/user/1000/podman/podman.sock")
+        assert "sudo usermod -aG tape $USER" in report
+
+    def test_a_rootless_runtime_needs_no_gid_33_membership(self):
+        report = self._report("unix:///run/user/1000/podman/podman.sock",
+                              daemon="NOT_RUNNING")
         assert "www-data group:  N/A (the rootless runtime" in report
         assert "usermod -aG tape" not in report
