@@ -916,6 +916,18 @@ def test_deny_lists_are_read_from_the_instance(tmp_path):
     assert not (edge / "conf" / "deny-ua-one.lst").exists()
 
 
+def test_allow_lists_are_read_from_the_instance(tmp_path):
+    path = _instance(tmp_path, "one")
+    with open(os.path.join(path, "config", "edge-allow-user-agents.list"), "w") as f:
+        f.write("# our scripts\nExample-fetcher/2.0\n")
+    with open(os.path.join(path, "config", "edge-allow-cidrs.list"), "w") as f:
+        f.write("198.51.100.0/24\n")
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(), edge, "one", path)
+    assert (edge / "conf" / "allow-ua-one.lst").read_text() == "Example-fetcher/2.0\n"
+    assert (edge / "conf" / "allow-cidr-one.lst").read_text() == "198.51.100.0/24\n"
+
+
 def test_cdn_ranges_are_fetched(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "_fetch", lambda url: "192.0.2.0/24" if "v4" in url
                         else "2001:db8::/32")
