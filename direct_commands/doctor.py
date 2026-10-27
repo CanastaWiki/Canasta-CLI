@@ -3,6 +3,7 @@
 import datetime
 import os
 import re
+import shlex
 import subprocess
 import sys
 
@@ -21,6 +22,24 @@ from ._helpers import register
 # `docker system df`. The whole probe gets PROBE_TIMEOUT.
 PROBE_COMMAND_TIMEOUT = 10
 PROBE_TIMEOUT = 120
+
+# Run against the native install dir: its group, the directories the
+# operator cannot write (a checkout leaves files in those unwritten), and,
+# for a self-update-managed install (BUILD_COMMIT present), how many
+# tracked files differ from HEAD.
+_INSTALL_PROBE = """
+import grp, os, subprocess, sys
+d = sys.argv[1]
+print("group=" + grp.getgrgid(os.stat(d).st_gid).gr_name)
+bad = [r for r, _, _ in os.walk(d) if not os.access(r, os.W_OK)]
+print("unwritable=%d %s" % (len(bad), bad[0] if bad else ""))
+if os.path.isfile(os.path.join(d, "BUILD_COMMIT")):
+    st = subprocess.run(
+        ["git", "-C", d, "status", "--porcelain", "--untracked-files=no"],
+        capture_output=True, text=True, timeout=30)
+    if st.returncode == 0:
+        print("changed=%d" % len([x for x in st.stdout.splitlines() if x.strip()]))
+"""
 
 _DOCTOR_SCRIPT = r"""
 D='%(delim)s'
@@ -46,7 +65,7 @@ _store=$(_t docker info --format '{{.DockerRootDir}}' 2>/dev/null); _timedout $?
 cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown; echo "$D"
 runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; _sock=""; for s in "$runtime/docker.sock" "$runtime/podman/podman.sock"; do if [ -S "$s" ]; then _sock="unix://$s"; break; fi; done; echo "$_sock"; echo "$D"
 command -v canasta >/dev/null 2>&1 && _check OK BROKEN canasta version || echo MISSING; echo "$D"
-cdir="$(dirname "$(readlink -f "$(command -v canasta 2>/dev/null)" 2>/dev/null)" 2>/dev/null)"; if [ -n "$cdir" ] && [ -d "$cdir/.git" ]; then { [ -w "$cdir/.git" ] && echo WRITABLE || echo NOT_WRITABLE; } else echo NA; fi; echo "$D"
+cdir="$(dirname "$(readlink -f "$(command -v canasta 2>/dev/null)" 2>/dev/null)" 2>/dev/null)"; if [ -n "$cdir" ] && [ -d "$cdir/.git" ]; then { [ -w "$cdir/.git" ] && echo WRITABLE || echo NOT_WRITABLE; echo "dir=$cdir"; python3 -c @INSTALL_PROBE@ "$cdir" 2>/dev/null; } else echo NA; fi; echo "$D"
 command -v sops >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 command -v age-keygen >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 command -v podman >/dev/null 2>&1 && podman --version 2>/dev/null || echo MISSING; echo "$D"
@@ -54,7 +73,8 @@ command -v sudo >/dev/null 2>&1 && sudo --version 2>/dev/null | head -1 || echo 
 command -v sudo >/dev/null 2>&1 && { sudo -n true >/dev/null 2>&1 && echo OK || echo PASSWORD_REQUIRED; } || echo MISSING; echo "$D"
 command -v podman-compose >/dev/null 2>&1 && podman-compose version 2>/dev/null || echo MISSING; echo "$D"
 _df=$(_t docker system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null); r=$?; if [ $r -eq 0 ]; then echo "$_df"; elif _timedout $r; then echo unknown; else _t podman system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null || echo unknown; fi
-"""
+""".replace(
+    "@INSTALL_PROBE@", shlex.quote(_INSTALL_PROBE).replace("%", "%%"))
 
 
 # ansible-lint materializes a stub for every module named in a project's
@@ -570,6 +590,25 @@ def _disk_line(disk):
     return "%s on %s (container image storage)" % (avail.strip(), path)
 
 
+def _parse_install_probe(selfupdate):
+    """Split the self-update probe into its .git writability status and
+    the install-dir details reported after it."""
+    status, *rest = selfupdate.splitlines() or [""]
+    install = {"dir": "", "group": "", "unwritable": 0,
+               "first_unwritable": "", "changed": 0}
+    for line in rest:
+        key, _, value = line.strip().partition("=")
+        if key in ("dir", "group"):
+            install[key] = value
+        elif key == "unwritable":
+            count, _, first = value.partition(" ")
+            install["unwritable"] = int(count) if count.isdigit() else 0
+            install["first_unwritable"] = first
+        elif key == "changed" and value.isdigit():
+            install["changed"] = int(value)
+    return status.strip(), install
+
+
 def _doctor_system_lines(probes):
     """System section: resources, groups, self-update, sudo."""
     lines = []
@@ -631,6 +670,9 @@ def _doctor_system_lines(probes):
 
     # Direct self-update precondition: can the operator write the native
     # install dir's .git? NA on docker installs / no native canasta.
+    selfupdate, install = _parse_install_probe(selfupdate)
+    repair = " && ".join(_helpers._install_repair_commands(
+        install["dir"], install["group"] == "canasta"))
     if selfupdate == "NOT_WRITABLE":
         lines.append(
             "  Self-update:     BLOCKED — the canasta install dir's .git is "
@@ -638,8 +680,23 @@ def _doctor_system_lines(probes):
             "self-update and the CLI stays on the old version (see "
             "'canasta group' above)"
         )
+    elif install["unwritable"]:
+        lines.append(
+            "  Self-update:     BLOCKED — you cannot write %d of the "
+            "directories in %s (first: %s), so 'canasta upgrade' cannot "
+            "update every file. Repair with: %s"
+            % (install["unwritable"], install["dir"],
+               install["first_unwritable"], repair)
+        )
     elif selfupdate == "WRITABLE":
         lines.append("  Self-update:     OK (install dir writable)")
+    if install["changed"]:
+        lines.append(
+            "  CLI install:     INCOMPLETE — files in %s do not match the "
+            "installed version (%d changed or missing), so commands can "
+            "fail on them. Repair with: %s"
+            % (install["dir"], install["changed"], repair)
+        )
 
     # Every `canasta install` package needs root. Report when Ansible's
     # become cannot get it, rather than letting install time out with

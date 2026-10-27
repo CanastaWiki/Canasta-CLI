@@ -79,6 +79,18 @@ def _get_script_dir():
     return SCRIPT_DIR
 
 
+def _install_repair_commands(install_dir, group_shared, user="$(id -un)"):
+    """Commands that make every file in a native install writable again
+    and finish its checkout. A group-shared install (the system install,
+    group 'canasta') is repaired by group; a per-user install by owner."""
+    d = shlex.quote(install_dir)
+    if group_shared:
+        cmds = ["sudo chgrp -R canasta %s" % d, "sudo chmod -R g+w %s" % d]
+    else:
+        cmds = ["sudo chown -R %s %s" % (user, d)]
+    return cmds + ["git -C %s checkout -- ." % d]
+
+
 def _is_k8s(inst):
     """Return True when the registry entry `inst` runs on Kubernetes."""
     return canasta_config.is_k8s_orchestrator(inst.get("orchestrator"))

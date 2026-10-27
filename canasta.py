@@ -9,6 +9,7 @@ original bash wrapper script.
 import argparse
 import datetime
 import fcntl
+import grp
 import json
 import os
 import pwd
@@ -46,6 +47,7 @@ import canasta_config  # noqa: E402
 from direct_commands._helpers import (  # noqa: E402
     forward_agent_option,
     _compose_profile_args,
+    _install_repair_commands,
     _is_k8s,
     _is_local_target,
     _k8s_first_live_pod,
@@ -477,9 +479,9 @@ def _self_update_dry_run(target_ref, target_commit, current_commit,
 
 def _self_update_move(git, repo, dev, target_ref, current_commit,
                       current_version, major_hint, dry_run=False):
-    """Move the checkout to target_ref. False (after saying why) when
-    it is already current, the move failed, or dry_run says what the
-    move would be instead."""
+    """Move the checkout to target_ref and return git's stderr from the
+    move. None (after saying why) when it is already current, the move
+    failed, or dry_run says what the move would be instead."""
     target_commit = git(
         ["rev-parse", "--short", target_ref], timeout=5,
     ).stdout.strip()
@@ -497,16 +499,17 @@ def _self_update_move(git, repo, dev, target_ref, current_commit,
                 "(version %s, commit %s, dev (main))."
                 % (current_version, current_commit)
             )
-            return False
+            return None
         if dry_run:
             _self_update_dry_run(target_ref, target_commit, current_commit,
                                  current_version)
-            return False
+            return None
         # Restore the main branch first — a previous release upgrade may
         # have left a detached HEAD at a tag — then fast-forward.
         co = git(["checkout", "main"], timeout=30)
         pull = git(["pull", "--ff-only", "origin", "main"], timeout=60)
         move_failed = co.returncode != 0 or pull.returncode != 0
+        stderr = (co.stderr or "") + (pull.stderr or "")
     else:
         # Release channel: only ever move forward. If the latest release
         # tag is already contained in HEAD — we're sitting on it, or on a
@@ -532,15 +535,16 @@ def _self_update_move(git, repo, dev, target_ref, current_commit,
                     "latest release.%s"
                     % (target_ref, current_version, current_commit, major_hint)
                 )
-            return False
+            return None
         # HEAD is behind the latest release (or on a divergent line that
         # doesn't contain it) — move to the release tag.
         if dry_run:
             _self_update_dry_run(target_ref, target_commit, current_commit,
                                  current_version)
-            return False
+            return None
         co = git(["checkout", target_ref], timeout=60)
         move_failed = co.returncode != 0
+        stderr = co.stderr or ""
 
     if move_failed:
         print(
@@ -550,8 +554,49 @@ def _self_update_move(git, repo, dev, target_ref, current_commit,
             % (target_ref, repo),
             file=sys.stderr,
         )
+        return None
+    return stderr
+
+
+def _self_update_changed_files(git):
+    """`git status --porcelain` lines for tracked files whose working copy
+    differs from HEAD; empty when the tree is complete or git cannot say."""
+    st = git(["status", "--porcelain", "--untracked-files=no"], timeout=30)
+    if st.returncode != 0:
+        return []
+    return [line for line in st.stdout.splitlines() if line.strip()]
+
+
+def _in_group(name):
+    try:
+        gid = grp.getgrnam(name).gr_gid
+    except KeyError:
         return False
-    return True
+    return gid == os.getegid() or gid in os.getgroups()
+
+
+def _self_update_incomplete(repo, headline, details):
+    """Report a native install whose files do not match its checkout,
+    with the commands that repair it, and exit."""
+    try:
+        group_shared = grp.getgrgid(os.stat(repo).st_gid).gr_name == "canasta"
+    except (OSError, KeyError):
+        group_shared = False
+    user = pwd.getpwuid(os.getuid()).pw_name
+    shown = ["  " + d for d in details[:10]]
+    if len(details) > 10:
+        shown.append("  ... and %d more" % (len(details) - 10))
+    msg = "Error: %s\n%s\n" % (headline, "\n".join(shown))
+    if group_shared and os.geteuid() != 0 and not _in_group("canasta"):
+        msg += (
+            "You are not in the 'canasta' group. Add yourself with "
+            "'sudo usermod -aG canasta %s' and log out and back in first.\n"
+            % user
+        )
+    msg += "Repair the install, then re-run the command:\n%s" % "\n".join(
+        "  " + c for c in _install_repair_commands(repo, group_shared, user))
+    print(msg, file=sys.stderr)
+    sys.exit(1)
 
 
 def _self_update_record_build(git, repo):
@@ -708,6 +753,21 @@ def self_update_cli(dev=False, allow_major=False, dry_run=False):
     except OSError:
         current_version = "unknown"
 
+    # BUILD_COMMIT is written only by the installer and by this update, so
+    # its presence tells a self-update-managed install from a developer's
+    # clone, whose local edits are its own business.
+    managed = os.path.isfile(os.path.join(repo, "BUILD_COMMIT"))
+    if managed:
+        changed = _self_update_changed_files(_git)
+        if changed:
+            _self_update_incomplete(
+                repo,
+                "the Canasta CLI install at %s is incomplete; these files "
+                "do not match version %s (commit %s):"
+                % (repo, current_version, current_commit),
+                changed,
+            )
+
     try:
         _git(["fetch", "--tags", "origin"], check=True)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
@@ -735,12 +795,31 @@ def self_update_cli(dev=False, allow_major=False, dry_run=False):
         return
     target_ref, major_hint = target
 
-    if not _self_update_move(_git, repo, dev, target_ref, current_commit,
-                             current_version, major_hint, dry_run):
+    move_stderr = _self_update_move(_git, repo, dev, target_ref,
+                                    current_commit, current_version,
+                                    major_hint, dry_run)
+    if move_stderr is None:
         return
+    # git checkout exits 0 even when it could not write some files, so a
+    # complete move is judged by the tree, not the exit code.
+    changed = _self_update_changed_files(_git) if managed else []
 
+    # Recorded and refreshed even for an incomplete move: HEAD has moved,
+    # and once repaired the next run finds it up to date and does neither.
     new_version, new_commit = _self_update_record_build(_git, repo)
     deps_ok = _self_update_refresh_deps(repo)
+
+    if changed:
+        errors = [
+            line for line in move_stderr.splitlines()
+            if line.startswith(("error:", "fatal:"))
+        ]
+        _self_update_incomplete(
+            repo,
+            "the update to %s is incomplete; git could not write these "
+            "files in %s:" % (target_ref, repo),
+            errors or changed,
+        )
 
     print(
         "Updated Canasta CLI from %s (%s) to %s (%s).%s"

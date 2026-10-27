@@ -391,9 +391,14 @@ install_native_linux() {
     # BUILD_DATE, and venv files are group-writable. Running before
     # these writes leaves the new files root:root, which blocks
     # non-root upgrades.
+    # setgid directories give whatever a later update creates group
+    # 'canasta', whoever runs it; sharedRepository also makes git create
+    # its own objects and refs group-writable.
     info "Setting group ownership to 'canasta'..."
+    $SUDO git -C "$install_dir" config core.sharedRepository group
     $SUDO chgrp -R canasta "$install_dir"
     $SUDO chmod -R g+w "$install_dir"
+    $SUDO find "$install_dir" -type d -exec chmod g+s {} +
 
     # Create symlinks
     info "Creating symlinks in ${BIN_DIR}..."
