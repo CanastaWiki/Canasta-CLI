@@ -9,6 +9,7 @@ the env ConfigMap).
 """
 
 import os
+import re
 
 import yaml
 
@@ -24,6 +25,22 @@ def _maintenance_keys():
     data = yaml.safe_load(open(DEFAULTS))
     return {e["name"] for e in data["canasta_known_keys"]
             if e.get("group") == "Maintenance scripts"}
+
+
+def _maintenance_defaults():
+    data = yaml.safe_load(open(DEFAULTS))
+    return {e["name"]: e.get("default", "") for e in data["canasta_known_keys"]
+            if e.get("group") == "Maintenance scripts"}
+
+
+def _compose_web_env_fallbacks():
+    doc = yaml.safe_load(open(COMPOSE))
+    fallbacks = {}
+    for item in doc["services"]["web"]["environment"]:
+        key, value = item.split("=", 1)
+        m = re.fullmatch(r"\$\{%s:-(.*)\}" % re.escape(key), value)
+        fallbacks[key] = m.group(1) if m else None
+    return fallbacks
 
 
 def _compose_web_env_keys():
@@ -61,3 +78,15 @@ class TestMaintenanceEnvForwarding:
             "maintenance keys recognized by config set but NOT in the K8s "
             "_k8s_pod_env_allowlist (they'd never reach the pods): %s"
             % sorted(missing))
+
+    def test_compose_fallback_matches_documented_default(self):
+        fallbacks = _compose_web_env_fallbacks()
+        mismatched = {
+            key: (default, fallbacks.get(key))
+            for key, default in _maintenance_defaults().items()
+            if fallbacks.get(key) != default
+        }
+        assert not mismatched, (
+            "maintenance keys whose Compose ${KEY:-default} fallback differs "
+            "from the default documented in canasta_known_keys "
+            "(documented, compose): %s" % mismatched)
