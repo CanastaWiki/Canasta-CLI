@@ -12,27 +12,47 @@
 # Input: instance_path, instance_orchestrator, instance_id,
 #        import_wiki_id, import_images_path
 
+# On a local connection the tarball is already on the target host, so it
+# is copied into the container from where it is. The path is resolved
+# because docker cp copies a symlink rather than its target.
+- name: Check whether the tarball is already on the target host
+  ansible.builtin.set_fact:
+    _import_images_local: >-
+      {{ (ansible_connection | default('')) in ['local', 'ansible.builtin.local'] }}
+
 # Next to the instance rather than in /tmp, which may be a tmpfs too
 # small for the tarball.
-- name: Create a private temp file on the target host for the tarball
+- name: Create a private temp dir on the target host for the tarball
   ansible.builtin.tempfile:
-    state: file
+    state: directory
     path: "{{ instance_path }}"
     prefix: .canasta-import-
-    suffix: .tar
   register: _import_images_host_tmp
+  when: not _import_images_local
 
-- name: Set the container-side tarball path
+# Unique per run, so overlapping imports into one instance can't extract
+# each other's tarball.
+- name: Set the tarball paths
   ansible.builtin.set_fact:
-    _import_images_container_file: "/tmp/{{ _import_images_host_tmp.path | basename }}"
+    _import_images_src: >-
+      {{ import_images_path | realpath if _import_images_local
+         else _import_images_host_tmp.path ~ '/images.tar' }}
+    _import_images_container_file: >-
+      /tmp/canasta-import-{{ lookup('ansible.builtin.password',
+      '/dev/null length=16 chars=ascii_lowercase,digits') }}.tar
 
 - name: Place the images in the wiki's uploads dir
   block:
+    # Staging the upload in the temp dir rather than ansible_remote_tmp
+    # (~/.ansible/tmp by default) keeps it on the instance's filesystem.
     - name: Transfer images tarball to target host
       ansible.builtin.copy:
         src: "{{ import_images_path }}"
-        dest: "{{ _import_images_host_tmp.path }}"
+        dest: "{{ _import_images_src }}"
         mode: "0600"
+      vars:
+        ansible_remote_tmp: "{{ _import_images_host_tmp.path }}"
+      when: not _import_images_local
 
     # Orchestrator dispatch (docker compose cp vs kubectl cp) into the web
     # container, which mounts the images volume/PVC.
@@ -40,7 +60,7 @@
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/copy_into_container.yml"
       vars:
         copy_service: web
-        copy_src: "{{ _import_images_host_tmp.path }}"
+        copy_src: "{{ _import_images_src }}"
         copy_dest: "{{ _import_images_container_file }}"
 
     # Extract the hash-dir tree into the wiki's uploads dir and fix ownership.
@@ -72,6 +92,7 @@
         path: "{{ _import_images_host_tmp.path }}"
         state: absent
       ignore_errors: true
+      when: not _import_images_local
 
     - name: Clean up images tarball in the web container
       ansible.builtin.include_tasks:

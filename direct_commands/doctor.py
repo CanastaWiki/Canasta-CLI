@@ -78,7 +78,8 @@ command -v podman >/dev/null 2>&1 && podman --version 2>/dev/null || echo MISSIN
 command -v sudo >/dev/null 2>&1 && sudo --version 2>/dev/null | head -1 || echo MISSING; echo "$D"
 command -v sudo >/dev/null 2>&1 && { sudo -n true >/dev/null 2>&1 && echo OK || echo PASSWORD_REQUIRED; } || echo MISSING; echo "$D"
 command -v podman-compose >/dev/null 2>&1 && podman-compose version 2>/dev/null || echo MISSING; echo "$D"
-_df=$(_t docker system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null); r=$?; if [ $r -eq 0 ]; then echo "$_df"; elif _timedout $r; then echo unknown; else _t podman system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null || echo unknown; fi
+_df=$(_t docker system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null); r=$?; if [ $r -eq 0 ]; then echo "$_df"; elif _timedout $r; then echo unknown; else _t podman system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null || echo unknown; fi; echo "$D"
+_n=$(getent group 33 2>/dev/null | cut -d: -f1); case " $(id -G 2>/dev/null) " in *" 33 "*) echo "MEMBER|$_n" ;; *) echo "NOT_MEMBER|$_n" ;; esac
 """.replace(
     "@INSTALL_PROBE@", shlex.quote(_INSTALL_PROBE).replace("%", "%%"))
 
@@ -333,6 +334,8 @@ def _doctor_probes(stdout):
         "podman_compose_version": p(25) if len(parts) > 25 else "MISSING",
         # Reclaimable image storage, appended so the indices above are unchanged.
         "system_df": p(26) if len(parts) > 26 else "",
+        # Membership of gid 33 and the host's name for it, as "MEMBER|tape".
+        "web_gid": p(27) if len(parts) > 27 else "",
     }
 
 
@@ -615,6 +618,38 @@ def _parse_install_probe(selfupdate):
     return status.strip(), install
 
 
+def _www_data_line(groups, web_gid):
+    """The www-data line: membership of gid 33, whatever the host calls it.
+
+    The containers write files as gid 33, which Debian names www-data and
+    RHEL names tape.
+    """
+    status, sep, name = web_gid.partition("|")
+    if not sep:
+        status = "MEMBER" if "www-data" in groups.split() else "NOT_MEMBER"
+        name = "www-data"
+    if status == "MEMBER":
+        if name and name != "www-data":
+            return ("  www-data group:  OK (member of gid 33, '%s' on this host)"
+                    % name)
+        return "  www-data group:  OK (member)"
+    if name == "www-data":
+        host_name = ""
+    elif name:
+        host_name = " (gid 33, '%s' on this host)" % name
+    else:
+        host_name = " (gid 33, which no group on this host has)"
+    if name:
+        fix = "sudo usermod -aG %s $USER" % name
+    else:
+        fix = "sudo groupadd -g 33 www-data && sudo usermod -aG www-data $USER"
+    return (
+        "  www-data group:  NOT A MEMBER — Canasta containers write files as "
+        "www-data%s; add yourself with: %s (then log out and back in, or "
+        "start a new shell, for the change to take effect)" % (host_name, fix)
+    )
+
+
 def _doctor_system_lines(probes):
     """System section: resources, groups, self-update, sudo."""
     lines = []
@@ -646,16 +681,14 @@ def _doctor_system_lines(probes):
     # Only report membership on Linux, where host-side file permissions
     # matter for volume mounts into the Canasta containers.
     if host_os == "Linux":
-        www_member = "www-data" in groups.split()
-        if www_member:
-            lines.append("  www-data group:  OK (member)")
+        if probes.get("rootless_sock") and probes.get("daemon") != "OK":
+            # Without a rootful daemon, create uses the rootless runtime,
+            # which maps the containers' gid 33 to one of the user's own
+            # subordinate gids, not to the host's gid 33.
+            lines.append("  www-data group:  N/A (the rootless runtime maps "
+                         "container groups to your own)")
         else:
-            lines.append(
-                "  www-data group:  NOT A MEMBER — Canasta containers write "
-                "files as www-data; add yourself with: "
-                "sudo usermod -aG www-data $USER (then log out and back in, "
-                "or start a new shell, for the change to take effect)"
-            )
+            lines.append(_www_data_line(groups, probes.get("web_gid", "")))
         canasta_member = "canasta" in groups.split()
         if canasta_member:
             lines.append("  canasta group:   OK (member)")
