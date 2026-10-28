@@ -6,6 +6,8 @@ help must say which machine each file path refers to.
 """
 
 import os
+import subprocess
+import sys
 
 import jinja2
 import yaml
@@ -91,6 +93,52 @@ class TestCheckTasks:
              "stat": {"exists": True, "isreg": False, "isdir": True}},
         ])
         assert len(missing) == 1
+
+
+class TestSymlinkedInputFiles:
+    """A link to a regular file is accepted and a dangling link is
+    reported, with the check run by ansible-playbook."""
+
+    def _run(self, tmp_path, path):
+        play = tmp_path / "play.yml"
+        play.write_text(yaml.safe_dump([{
+            "hosts": "localhost", "gather_facts": False,
+            "tasks": [{"ansible.builtin.include_tasks": os.path.abspath(CHECK),
+                       "vars": {"controller_files": [
+                           {"label": "Images tarball", "path": str(path)}]}}],
+        }]))
+        inventory = tmp_path / "inventory.yml"
+        inventory.write_text(yaml.safe_dump({"all": {"hosts": {
+            "localhost": {"ansible_connection": "local"},
+            "canasta_controller": {"ansible_connection": "local"},
+        }}}))
+        env = dict(os.environ, ANSIBLE_PYTHON_INTERPRETER=sys.executable)
+        return subprocess.run(
+            [os.path.join(os.path.dirname(sys.executable), "ansible-playbook"),
+             "-i", str(inventory), str(play)],
+            capture_output=True, text=True, env=env)
+
+    def test_a_link_to_a_file_is_accepted(self, tmp_path):
+        target = tmp_path / "images.tar"
+        target.write_text("x")
+        link = tmp_path / "images-link.tar"
+        link.symlink_to(target)
+        proc = self._run(tmp_path, link)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+
+    def test_a_dangling_link_is_reported(self, tmp_path):
+        link = tmp_path / "images-link.tar"
+        link.symlink_to(tmp_path / "gone.tar")
+        proc = self._run(tmp_path, link)
+        assert proc.returncode != 0
+        assert "not found on the controller" in proc.stdout + proc.stderr
+
+    def test_a_link_to_a_directory_is_not_accepted(self, tmp_path):
+        (tmp_path / "dir").mkdir()
+        link = tmp_path / "dir-link"
+        link.symlink_to(tmp_path / "dir")
+        proc = self._run(tmp_path, link)
+        assert proc.returncode != 0
 
 
 class TestCommandsCheckBeforeCopying:
