@@ -79,6 +79,10 @@ def _instances():
                        "MW_SITEMAP_URL_PATH": "/wiki/sitemap"},
             [{"id": "w0", "url": "mapped.example.org"},
              {"id": "w1", "url": "mapped.example.org/en"}]),
+        edge.instance_from_config(
+            "allowed", {"TRUSTED_PROXIES": "cloudflare", "CANASTA_EDGE_RATE_DEFAULT": "3"},
+            [{"id": "w0", "url": "allowed.example.org"}],
+            allow_cidrs="198.51.100.20/32\n", allow_user_agents="Example-fetcher\n"),
     ]
 
 
@@ -327,6 +331,25 @@ def test_a_cdn_header_from_an_unlisted_peer_is_ignored(edge_ports):
                       headers={"Incap-Client-IP": "198.51.100.13"})[0]
              for n in range(5)]
     assert codes == [200] * 5
+
+
+def _allowed_codes(edge_ports, prefix, headers):
+    return [_request(edge_ports, "allowed.example.org", "/wiki/%s%d" % (prefix, n),
+                     headers=headers)[0] for n in range(5)]
+
+
+def test_an_allowed_address_is_not_rate_limited(edge_ports):
+    assert _allowed_codes(edge_ports, "I", {"CF-Connecting-IP": "198.51.100.20"}) == [200] * 5
+
+
+def test_an_allowed_user_agent_is_not_rate_limited(edge_ports):
+    client = {"CF-Connecting-IP": "198.51.100.21", "User-Agent": "example-FETCHER/2.0"}
+    assert _allowed_codes(edge_ports, "U", client) == [200] * 5
+
+
+def test_other_clients_of_an_allowing_instance_are_rate_limited(edge_ports):
+    client = {"CF-Connecting-IP": "198.51.100.22", "User-Agent": "Mozilla/5.0"}
+    assert _allowed_codes(edge_ports, "O", client)[-1] == 429
 
 
 def test_static_files_are_not_rate_limited(edge_ports):

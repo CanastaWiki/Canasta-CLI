@@ -106,6 +106,9 @@ SPECIAL_NAMESPACE = "-1"
 
 DENY_UA_FILE = "config/edge-deny-user-agents.list"
 DENY_CIDR_FILE = "config/edge-deny-cidrs.list"
+# Clients these match skip the per-client rate limits.
+ALLOW_UA_FILE = "config/edge-allow-user-agents.list"
+ALLOW_CIDR_FILE = "config/edge-allow-cidrs.list"
 
 _LABEL = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 _IPV4 = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
@@ -203,12 +206,12 @@ def _networks(text, instance_id, where):
     return nets
 
 
-def _user_agents(text, instance_id):
+def _user_agents(text, instance_id, where):
     agents = []
     for number, line in _list_lines(text):
         if any(ord(c) < 32 for c in line):
             raise EdgeError("Instance '%s': %s line %d holds a control "
-                            "character." % (instance_id, DENY_UA_FILE, number))
+                            "character." % (instance_id, where, number))
         agents.append(line)
     return agents
 
@@ -356,13 +359,15 @@ def acme_hostnames(inst):
 
 def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
                          deny_user_agents="", deny_cidrs="", extra_hostnames=(),
-                         special_namespace_names=()):
+                         special_namespace_names=(), allow_user_agents="",
+                         allow_cidrs=""):
     """Build the edge's view of one instance.
 
     env is the instance's .env as a dict, wikis the parsed wikis.yaml list,
     media_hosts the parsed media-hosts.yaml list, snippet the text of its
-    edge snippet, and deny_user_agents and deny_cidrs the text of its deny
-    lists (each empty when it has none). extra_hostnames are names its own
+    edge snippet, and deny_user_agents, deny_cidrs, allow_user_agents and
+    allow_cidrs the text of its deny and allow lists (each empty when it
+    has none). extra_hostnames are names its own
     Caddy serves besides its wikis, from site blocks in Caddyfile.global.
     special_namespace_names are its wikis' localized names for the Special:
     namespace.
@@ -510,8 +515,10 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         "trusted_header": trusted_header,
         "crowdsec": crowdsec_enforced(env),
         "rates_set": rates_set(env),
-        "deny_user_agents": _user_agents(deny_user_agents, instance_id),
+        "deny_user_agents": _user_agents(deny_user_agents, instance_id, DENY_UA_FILE),
         "deny_cidrs": _networks(deny_cidrs, instance_id, DENY_CIDR_FILE),
+        "allow_user_agents": _user_agents(allow_user_agents, instance_id, ALLOW_UA_FILE),
+        "allow_cidrs": _networks(allow_cidrs, instance_id, ALLOW_CIDR_FILE),
         "dynamic_patterns": dynamic_patterns(special_namespace_names),
         "limits": {
             "dynamic_maxconn": _limit(env, LIMIT_KEYS["dynamic_maxconn"], instance_id, None, False),
@@ -748,14 +755,19 @@ def _backend_rules(inst, kind, rootless=False):
     # gateway.docker.internal) or its local network. Under rootless Docker
     # every client looks private, so there the exemption would undo limits
     # the operator turned on.
-    exempt = "" if rootless else " if !{ src %s }" % " ".join(PRIVATE_SOURCES)
+    exempt = [] if rootless else ["!{ src %s }" % " ".join(PRIVATE_SOURCES)]
+    if inst["allow_cidrs"]:
+        exempt.append("!{ src -f %s }" % _list_path("allow-cidr-%s.lst" % inst["id"]))
+    if inst["allow_user_agents"]:
+        exempt.append("!{ req.hdr(user-agent) -m sub -i -f %s }"
+                      % _list_path("allow-ua-%s.lst" % inst["id"]))
     # Counter 0 counts requests other than static files, which a page pulls
     # in by the dozen at no PHP cost. Counter 1 counts the errors the
     # instance returns, not the edge's own 429s, which would otherwise keep
     # a client that is still browsing locked out.
     out += [
         "    stick-table type ipv6 size 100k expire 1m store gpc_rate(2,%s)" % RATE_WINDOW,
-        "    http-request track-sc0 src%s" % exempt,
+        "    http-request track-sc0 src" + (" if " + " ".join(exempt) if exempt else ""),
     ]
     if rate:
         out += [
@@ -1041,6 +1053,8 @@ def render(instances, acme_thumbprint=None, cdn_ranges=None, ipv6=False, sockets
         for name, entries_ in (("trusted-%s.lst", inst["trusted_cidrs"]),
                                ("deny-cidr-%s.lst", inst["deny_cidrs"]),
                                ("deny-ua-%s.lst", inst["deny_user_agents"]),
+                               ("allow-cidr-%s.lst", inst["allow_cidrs"]),
+                               ("allow-ua-%s.lst", inst["allow_user_agents"]),
                                ("dynamic-%s.lst", inst["dynamic_patterns"])):
             if entries_:
                 files[name % inst["id"]] = _lines(entries_)
