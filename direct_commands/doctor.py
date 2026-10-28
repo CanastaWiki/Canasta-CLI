@@ -3,6 +3,7 @@
 import datetime
 import os
 import re
+import shlex
 import subprocess
 import sys
 
@@ -21,6 +22,30 @@ from ._helpers import register
 # `docker system df`. The whole probe gets PROBE_TIMEOUT.
 PROBE_COMMAND_TIMEOUT = 10
 PROBE_TIMEOUT = 120
+
+# Run against the native install dir: its group, the directories the
+# operator cannot write (a checkout leaves files in those unwritten; the
+# virtualenv is pip's, as in the self-update's check), and,
+# for a self-update-managed install (BUILD_COMMIT present), how many
+# tracked files differ from HEAD.
+_INSTALL_PROBE = """
+import grp, os, subprocess, sys
+d = sys.argv[1]
+print("group=" + grp.getgrgid(os.stat(d).st_gid).gr_name)
+bad = []
+for r, dirs, _ in os.walk(d):
+    if r == d and ".venv" in dirs:
+        dirs.remove(".venv")
+    if not os.access(r, os.W_OK):
+        bad.append(r)
+print("unwritable=%d %s" % (len(bad), bad[0] if bad else ""))
+if os.path.isfile(os.path.join(d, "BUILD_COMMIT")):
+    st = subprocess.run(
+        ["git", "-C", d, "status", "--porcelain", "--untracked-files=no"],
+        capture_output=True, text=True, timeout=30)
+    if st.returncode == 0:
+        print("changed=%d" % len([x for x in st.stdout.splitlines() if x.strip()]))
+"""
 
 _DOCTOR_SCRIPT = r"""
 D='%(delim)s'
@@ -46,15 +71,17 @@ _store=$(_t docker info --format '{{.DockerRootDir}}' 2>/dev/null); _timedout $?
 cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown; echo "$D"
 runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; _sock=""; for s in "$runtime/docker.sock" "$runtime/podman/podman.sock"; do if [ -S "$s" ]; then _sock="unix://$s"; break; fi; done; echo "$_sock"; echo "$D"
 command -v canasta >/dev/null 2>&1 && _check OK BROKEN canasta version || echo MISSING; echo "$D"
-cdir="$(dirname "$(readlink -f "$(command -v canasta 2>/dev/null)" 2>/dev/null)" 2>/dev/null)"; if [ -n "$cdir" ] && [ -d "$cdir/.git" ]; then { [ -w "$cdir/.git" ] && echo WRITABLE || echo NOT_WRITABLE; } else echo NA; fi; echo "$D"
+cdir="$(dirname "$(readlink -f "$(command -v canasta 2>/dev/null)" 2>/dev/null)" 2>/dev/null)"; if [ -n "$cdir" ] && [ -d "$cdir/.git" ]; then { [ -w "$cdir/.git" ] && echo WRITABLE || echo NOT_WRITABLE; echo "dir=$cdir"; python3 -c @INSTALL_PROBE@ "$cdir" 2>/dev/null; } else echo NA; fi; echo "$D"
 command -v sops >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 command -v age-keygen >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 command -v podman >/dev/null 2>&1 && podman --version 2>/dev/null || echo MISSING; echo "$D"
 command -v sudo >/dev/null 2>&1 && sudo --version 2>/dev/null | head -1 || echo MISSING; echo "$D"
 command -v sudo >/dev/null 2>&1 && { sudo -n true >/dev/null 2>&1 && echo OK || echo PASSWORD_REQUIRED; } || echo MISSING; echo "$D"
 command -v podman-compose >/dev/null 2>&1 && podman-compose version 2>/dev/null || echo MISSING; echo "$D"
-_df=$(_t docker system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null); r=$?; if [ $r -eq 0 ]; then echo "$_df"; elif _timedout $r; then echo unknown; else _t podman system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null || echo unknown; fi
-"""
+_df=$(_t docker system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null); r=$?; if [ $r -eq 0 ]; then echo "$_df"; elif _timedout $r; then echo unknown; else _t podman system df --format '{{.Type}}|{{.Reclaimable}}' 2>/dev/null || echo unknown; fi; echo "$D"
+_n=$(getent group 33 2>/dev/null | cut -d: -f1); case " $(id -G 2>/dev/null) " in *" 33 "*) echo "MEMBER|$_n" ;; *) echo "NOT_MEMBER|$_n" ;; esac
+""".replace(
+    "@INSTALL_PROBE@", shlex.quote(_INSTALL_PROBE).replace("%", "%%"))
 
 
 # ansible-lint materializes a stub for every module named in a project's
@@ -307,6 +334,8 @@ def _doctor_probes(stdout):
         "podman_compose_version": p(25) if len(parts) > 25 else "MISSING",
         # Reclaimable image storage, appended so the indices above are unchanged.
         "system_df": p(26) if len(parts) > 26 else "",
+        # Membership of gid 33 and the host's name for it, as "MEMBER|tape".
+        "web_gid": p(27) if len(parts) > 27 else "",
     }
 
 
@@ -570,6 +599,57 @@ def _disk_line(disk):
     return "%s on %s (container image storage)" % (avail.strip(), path)
 
 
+def _parse_install_probe(selfupdate):
+    """Split the self-update probe into its .git writability status and
+    the install-dir details reported after it."""
+    status, *rest = selfupdate.splitlines() or [""]
+    install = {"dir": "", "group": "", "unwritable": 0,
+               "first_unwritable": "", "changed": 0}
+    for line in rest:
+        key, _, value = line.strip().partition("=")
+        if key in ("dir", "group"):
+            install[key] = value
+        elif key == "unwritable":
+            count, _, first = value.partition(" ")
+            install["unwritable"] = int(count) if count.isdigit() else 0
+            install["first_unwritable"] = first
+        elif key == "changed" and value.isdigit():
+            install["changed"] = int(value)
+    return status.strip(), install
+
+
+def _www_data_line(groups, web_gid):
+    """The www-data line: membership of gid 33, whatever the host calls it.
+
+    The containers write files as gid 33, which Debian names www-data and
+    RHEL names tape.
+    """
+    status, sep, name = web_gid.partition("|")
+    if not sep:
+        status = "MEMBER" if "www-data" in groups.split() else "NOT_MEMBER"
+        name = "www-data"
+    if status == "MEMBER":
+        if name and name != "www-data":
+            return ("  www-data group:  OK (member of gid 33, '%s' on this host)"
+                    % name)
+        return "  www-data group:  OK (member)"
+    if name == "www-data":
+        host_name = ""
+    elif name:
+        host_name = " (gid 33, '%s' on this host)" % name
+    else:
+        host_name = " (gid 33, which no group on this host has)"
+    if name:
+        fix = "sudo usermod -aG %s $USER" % name
+    else:
+        fix = "sudo groupadd -g 33 www-data && sudo usermod -aG www-data $USER"
+    return (
+        "  www-data group:  NOT A MEMBER — Canasta containers write files as "
+        "www-data%s; add yourself with: %s (then log out and back in, or "
+        "start a new shell, for the change to take effect)" % (host_name, fix)
+    )
+
+
 def _doctor_system_lines(probes):
     """System section: resources, groups, self-update, sudo."""
     lines = []
@@ -601,16 +681,14 @@ def _doctor_system_lines(probes):
     # Only report membership on Linux, where host-side file permissions
     # matter for volume mounts into the Canasta containers.
     if host_os == "Linux":
-        www_member = "www-data" in groups.split()
-        if www_member:
-            lines.append("  www-data group:  OK (member)")
+        if probes.get("rootless_sock") and probes.get("daemon") != "OK":
+            # Without a rootful daemon, create uses the rootless runtime,
+            # which maps the containers' gid 33 to one of the user's own
+            # subordinate gids, not to the host's gid 33.
+            lines.append("  www-data group:  N/A (the rootless runtime maps "
+                         "container groups to your own)")
         else:
-            lines.append(
-                "  www-data group:  NOT A MEMBER — Canasta containers write "
-                "files as www-data; add yourself with: "
-                "sudo usermod -aG www-data $USER (then log out and back in, "
-                "or start a new shell, for the change to take effect)"
-            )
+            lines.append(_www_data_line(groups, probes.get("web_gid", "")))
         canasta_member = "canasta" in groups.split()
         if canasta_member:
             lines.append("  canasta group:   OK (member)")
@@ -631,6 +709,9 @@ def _doctor_system_lines(probes):
 
     # Direct self-update precondition: can the operator write the native
     # install dir's .git? NA on docker installs / no native canasta.
+    selfupdate, install = _parse_install_probe(selfupdate)
+    repair = " && ".join(_helpers._install_repair_commands(
+        install["dir"], install["group"] == "canasta"))
     if selfupdate == "NOT_WRITABLE":
         lines.append(
             "  Self-update:     BLOCKED — the canasta install dir's .git is "
@@ -638,8 +719,23 @@ def _doctor_system_lines(probes):
             "self-update and the CLI stays on the old version (see "
             "'canasta group' above)"
         )
+    elif install["unwritable"]:
+        lines.append(
+            "  Self-update:     BLOCKED — you cannot write %d of the "
+            "directories in %s (first: %s), so 'canasta upgrade' cannot "
+            "update every file. Repair with: %s"
+            % (install["unwritable"], install["dir"],
+               install["first_unwritable"], repair)
+        )
     elif selfupdate == "WRITABLE":
         lines.append("  Self-update:     OK (install dir writable)")
+    if install["changed"]:
+        lines.append(
+            "  CLI install:     INCOMPLETE — files in %s do not match the "
+            "installed version (%d changed or missing), so commands can "
+            "fail on them. Repair with: %s"
+            % (install["dir"], install["changed"], repair)
+        )
 
     # Every `canasta install` package needs root. Report when Ansible's
     # become cannot get it, rather than letting install time out with

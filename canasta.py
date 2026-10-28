@@ -9,6 +9,7 @@ original bash wrapper script.
 import argparse
 import datetime
 import fcntl
+import grp
 import json
 import os
 import pwd
@@ -46,6 +47,7 @@ import canasta_config  # noqa: E402
 from direct_commands._helpers import (  # noqa: E402
     forward_agent_option,
     _compose_profile_args,
+    _install_repair_commands,
     _is_k8s,
     _is_local_target,
     _k8s_first_live_pod,
@@ -477,9 +479,9 @@ def _self_update_dry_run(target_ref, target_commit, current_commit,
 
 def _self_update_move(git, repo, dev, target_ref, current_commit,
                       current_version, major_hint, dry_run=False):
-    """Move the checkout to target_ref. False (after saying why) when
-    it is already current, the move failed, or dry_run says what the
-    move would be instead."""
+    """Move the checkout to target_ref and return git's stderr from the
+    move. None (after saying why) when it is already current, the move
+    failed, or dry_run says what the move would be instead."""
     target_commit = git(
         ["rev-parse", "--short", target_ref], timeout=5,
     ).stdout.strip()
@@ -497,16 +499,17 @@ def _self_update_move(git, repo, dev, target_ref, current_commit,
                 "(version %s, commit %s, dev (main))."
                 % (current_version, current_commit)
             )
-            return False
+            return None
         if dry_run:
             _self_update_dry_run(target_ref, target_commit, current_commit,
                                  current_version)
-            return False
+            return None
         # Restore the main branch first — a previous release upgrade may
         # have left a detached HEAD at a tag — then fast-forward.
         co = git(["checkout", "main"], timeout=30)
         pull = git(["pull", "--ff-only", "origin", "main"], timeout=60)
         move_failed = co.returncode != 0 or pull.returncode != 0
+        stderr = (co.stderr or "") + (pull.stderr or "")
     else:
         # Release channel: only ever move forward. If the latest release
         # tag is already contained in HEAD — we're sitting on it, or on a
@@ -532,15 +535,16 @@ def _self_update_move(git, repo, dev, target_ref, current_commit,
                     "latest release.%s"
                     % (target_ref, current_version, current_commit, major_hint)
                 )
-            return False
+            return None
         # HEAD is behind the latest release (or on a divergent line that
         # doesn't contain it) — move to the release tag.
         if dry_run:
             _self_update_dry_run(target_ref, target_commit, current_commit,
                                  current_version)
-            return False
+            return None
         co = git(["checkout", target_ref], timeout=60)
         move_failed = co.returncode != 0
+        stderr = co.stderr or ""
 
     if move_failed:
         print(
@@ -550,8 +554,112 @@ def _self_update_move(git, repo, dev, target_ref, current_commit,
             % (target_ref, repo),
             file=sys.stderr,
         )
+        return None
+    return stderr
+
+
+def _self_update_changed_files(git):
+    """`git status --porcelain` lines for tracked files whose working copy
+    differs from HEAD; empty when the tree is complete or git cannot say."""
+    st = git(["status", "--porcelain", "--untracked-files=no"], timeout=30)
+    if st.returncode != 0:
+        return []
+    return [line for line in st.stdout.splitlines() if line.strip()]
+
+
+def _install_group_shared(repo):
+    """True for the system install, shared by members of group canasta."""
+    try:
+        return grp.getgrgid(os.stat(repo).st_gid).gr_name == "canasta"
+    except (OSError, KeyError):
         return False
-    return True
+
+
+def _install_walk(repo):
+    """os.walk over the install, leaving out its virtualenv, which pip
+    manages."""
+    for root, dirs, files in os.walk(repo):
+        if root == repo and ".venv" in dirs:
+            dirs.remove(".venv")
+        yield root, dirs, files
+
+
+def _unwritable_dirs(repo):
+    return [root for root, _, _ in _install_walk(repo)
+            if not os.access(root, os.W_OK)]
+
+
+def _repair_shared_install(repo):
+    """As root, give everything in the shared install group canasta and
+    group write, and every directory setgid, so nothing root created
+    blocks the members' next update."""
+    try:
+        gid = grp.getgrnam("canasta").gr_gid
+    except KeyError:
+        return
+    objects = os.path.join(repo, ".git", "objects")
+    repaired = False
+    try:
+        for root, _, files in _install_walk(repo):
+            # git's loose objects and Python's bytecode are written
+            # read-only or 644 on purpose and replaced through their
+            # directory, so their own modes stay as written.
+            keep_file_modes = (
+                root == objects or root.startswith(objects + os.sep)
+                or "__pycache__" in root.split(os.sep)
+            )
+            for path in [root] + [os.path.join(root, f) for f in files]:
+                st = os.lstat(path)
+                if stat.S_ISLNK(st.st_mode):
+                    continue
+                mode = stat.S_IMODE(st.st_mode)
+                if stat.S_ISDIR(st.st_mode):
+                    mode |= stat.S_IWGRP | stat.S_ISGID
+                elif not keep_file_modes:
+                    mode |= stat.S_IWGRP
+                # chown can clear the setgid bit, so chmod after it.
+                if st.st_gid != gid:
+                    os.chown(path, -1, gid)
+                    os.chmod(path, mode)
+                    repaired = True
+                elif mode != stat.S_IMODE(st.st_mode):
+                    os.chmod(path, mode)
+                    repaired = True
+    except OSError as e:
+        print("Warning: could not repair the permissions of %s: %s"
+              % (repo, e), file=sys.stderr)
+        return
+    if repaired:
+        print("Repaired group ownership and permissions of %s." % repo)
+
+
+def _in_group(name):
+    try:
+        gid = grp.getgrnam(name).gr_gid
+    except KeyError:
+        return False
+    return gid == os.getegid() or gid in os.getgroups()
+
+
+def _self_update_incomplete(repo, headline, details):
+    """Report a native install whose files do not match its checkout,
+    with the commands that repair it, and exit."""
+    group_shared = _install_group_shared(repo)
+    user = pwd.getpwuid(os.getuid()).pw_name
+    shown = ["  " + d for d in details[:10]]
+    if len(details) > 10:
+        shown.append("  ... and %d more" % (len(details) - 10))
+    msg = "Error: %s\n%s\n" % (headline, "\n".join(shown))
+    if group_shared and os.geteuid() != 0 and not _in_group("canasta"):
+        msg += (
+            "You are not in the 'canasta' group. Add yourself with "
+            "'sudo usermod -aG canasta %s' and log out and back in first.\n"
+            % user
+        )
+    msg += "Repair the install, then re-run the command:\n%s" % "\n".join(
+        "  " + c for c in _install_repair_commands(repo, group_shared, user))
+    print(msg, file=sys.stderr)
+    sys.exit(1)
 
 
 def _self_update_record_build(git, repo):
@@ -589,7 +697,7 @@ def _self_update_record_build(git, repo):
     return new_version, new_commit
 
 
-def _self_update_refresh_deps(repo):
+def _self_update_refresh_deps(repo, umask=-1):
     """Reinstall Python requirements and Ansible collections; False when
     either failed (already reported)."""
     # Refresh Python and Ansible deps in case requirements.txt or
@@ -599,7 +707,7 @@ def _self_update_refresh_deps(repo):
     # the last instance) and hit cryptic playbook errors.
     def _refresh_deps(label, cmd, timeout):
         try:
-            subprocess.run(cmd, check=True, timeout=timeout)
+            subprocess.run(cmd, check=True, timeout=timeout, umask=umask)
             return True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
                 OSError) as e:
@@ -686,10 +794,19 @@ def self_update_cli(dev=False, allow_major=False, dry_run=False):
     if not os.path.isdir(os.path.join(repo, ".git")):
         return  # Docker install — image pull happened in the wrapper.
 
+    # In the shared install, what the update creates must stay writable
+    # by the other members of group canasta whatever this user's umask;
+    # the setgid directories give it the group.
+    shared = _install_group_shared(repo)
+    umask = 0o002 if shared else -1
+    if shared and os.geteuid() == 0:
+        _repair_shared_install(repo)
+
     def _git(args, timeout=30, check=False):
         return subprocess.run(
             ["git"] + args, cwd=repo,
             capture_output=True, text=True, timeout=timeout, check=check,
+            umask=umask,
         )
 
     try:
@@ -707,6 +824,33 @@ def self_update_cli(dev=False, allow_major=False, dry_run=False):
             current_version = f.read().strip()
     except OSError:
         current_version = "unknown"
+
+    # BUILD_COMMIT is written only by the installer and by this update, so
+    # its presence tells a self-update-managed install from a developer's
+    # clone, whose local edits are its own business.
+    managed = os.path.isfile(os.path.join(repo, "BUILD_COMMIT"))
+    # A member of group canasta who cannot write a directory of the shared
+    # install has a damaged install; a non-member is told how to join when
+    # the fetch below fails.
+    if shared and os.geteuid() != 0 and _in_group("canasta"):
+        unwritable = _unwritable_dirs(repo)
+        if unwritable:
+            _self_update_incomplete(
+                repo,
+                "you cannot write these directories of the Canasta CLI "
+                "install at %s, so it cannot be updated:" % repo,
+                unwritable,
+            )
+    if managed:
+        changed = _self_update_changed_files(_git)
+        if changed:
+            _self_update_incomplete(
+                repo,
+                "the Canasta CLI install at %s is incomplete; these files "
+                "do not match version %s (commit %s):"
+                % (repo, current_version, current_commit),
+                changed,
+            )
 
     try:
         _git(["fetch", "--tags", "origin"], check=True)
@@ -735,12 +879,31 @@ def self_update_cli(dev=False, allow_major=False, dry_run=False):
         return
     target_ref, major_hint = target
 
-    if not _self_update_move(_git, repo, dev, target_ref, current_commit,
-                             current_version, major_hint, dry_run):
+    move_stderr = _self_update_move(_git, repo, dev, target_ref,
+                                    current_commit, current_version,
+                                    major_hint, dry_run)
+    if move_stderr is None:
         return
+    # git checkout exits 0 even when it could not write some files, so a
+    # complete move is judged by the tree, not the exit code.
+    changed = _self_update_changed_files(_git) if managed else []
 
+    # Recorded and refreshed even for an incomplete move: HEAD has moved,
+    # and once repaired the next run finds it up to date and does neither.
     new_version, new_commit = _self_update_record_build(_git, repo)
-    deps_ok = _self_update_refresh_deps(repo)
+    deps_ok = _self_update_refresh_deps(repo, umask)
+
+    if changed:
+        errors = [
+            line for line in move_stderr.splitlines()
+            if line.startswith(("error:", "fatal:"))
+        ]
+        _self_update_incomplete(
+            repo,
+            "the update to %s is incomplete; git could not write these "
+            "files in %s:" % (target_ref, repo),
+            errors or changed,
+        )
 
     print(
         "Updated Canasta CLI from %s (%s) to %s (%s).%s"
@@ -1154,6 +1317,23 @@ def check_root_in_foreign_config_dir():
             file=sys.stderr,
         )
         sys.exit(1)
+
+
+def warn_root_on_shared_install():
+    """Warn once per run when root runs the native CLI from the install
+    shared by group canasta."""
+    if (os.geteuid() != 0
+            or os.environ.get("CANASTA_RUN_MODE") == "docker"
+            # The re-exec after a self-update has already warned.
+            or os.environ.get("CANASTA_SELF_UPDATED")
+            or not _install_group_shared(SCRIPT_DIR)):
+        return
+    print(
+        "Warning: canasta is running as root. The CLI install is meant to be "
+        "run as a member of the canasta group; files root creates here can "
+        "block later updates for that user.",
+        file=sys.stderr,
+    )
 
 
 def acquire_instance_lock(command_name, args):
@@ -2451,6 +2631,7 @@ def validate_command_args(cmd_def, args):
 def run_preflight_checks(command_name, args):
     """Refusals that apply before either the direct or the Ansible path."""
     check_root_in_foreign_config_dir()
+    warn_root_on_shared_install()
 
     # Pre-flight: a duplicate instance ID is an expected refusal, not a
     # crash. Catch it here so it exits with EXIT_ALREADY_EXISTS instead

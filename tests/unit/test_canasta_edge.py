@@ -916,6 +916,18 @@ def test_deny_lists_are_read_from_the_instance(tmp_path):
     assert not (edge / "conf" / "deny-ua-one.lst").exists()
 
 
+def test_allow_lists_are_read_from_the_instance(tmp_path):
+    path = _instance(tmp_path, "one")
+    with open(os.path.join(path, "config", "edge-allow-user-agents.list"), "w") as f:
+        f.write("# our scripts\nExample-fetcher/2.0\n")
+    with open(os.path.join(path, "config", "edge-allow-cidrs.list"), "w") as f:
+        f.write("198.51.100.0/24\n")
+    edge = tmp_path / "edge"
+    _sync(FakeRunner(), edge, "one", path)
+    assert (edge / "conf" / "allow-ua-one.lst").read_text() == "Example-fetcher/2.0\n"
+    assert (edge / "conf" / "allow-cidr-one.lst").read_text() == "198.51.100.0/24\n"
+
+
 def test_cdn_ranges_are_fetched(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "_fetch", lambda url: "192.0.2.0/24" if "v4" in url
                         else "2001:db8::/32")
@@ -1713,6 +1725,8 @@ def test_haproxy_comes_back_whenever_the_daemon_restarts(tmp_path, user_units):
 
 
 CAPPED_LOG = {"driver": "json-file", "options": {"max-size": "50m", "max-file": "3"}}
+ROTATED_LOG = {"driver": "json-file",
+               "options": {"max-size": "100m", "max-file": "20", "compress": "true"}}
 
 
 def test_the_edge_logs_are_capped_under_docker(tmp_path, user_units):
@@ -1721,8 +1735,8 @@ def test_the_edge_logs_are_capped_under_docker(tmp_path, user_units):
     edge = tmp_path / "edge"
     _sync(FakeRunner(), edge, "one", path)
     services = yaml.safe_load((edge / "docker-compose.yml").read_text())["services"]
-    assert services["haproxy"]["logging"] == CAPPED_LOG
-    assert services["acme"]["logging"] == CAPPED_LOG
+    assert services["haproxy"]["logging"] == ROTATED_LOG
+    assert services["acme"]["logging"] == ROTATED_LOG
 
 
 def test_the_edge_logs_are_capped_under_podman(tmp_path, user_units):

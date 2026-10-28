@@ -24,7 +24,9 @@
 #               docker mode ignores it. Defaults to /opt/canasta-ansible on
 #               Linux and ~/canasta-ansible on macOS.
 #
-# Linux native installs create a 'canasta' system group. Add users with:
+# Linux native installs create a 'canasta' system group and add the
+# installing user to it, to 'docker', and then to the group with gid 33
+# (the containers' www-data; RHEL names it 'tape'). Add other users with:
 #   sudo usermod -aG canasta $USER
 #
 # macOS native installs use a user-owned path (no group needed).
@@ -391,9 +393,14 @@ install_native_linux() {
     # BUILD_DATE, and venv files are group-writable. Running before
     # these writes leaves the new files root:root, which blocks
     # non-root upgrades.
+    # setgid directories give whatever a later update creates group
+    # 'canasta', whoever runs it; sharedRepository also makes git create
+    # its own objects and refs group-writable.
     info "Setting group ownership to 'canasta'..."
+    $SUDO git -C "$install_dir" config core.sharedRepository group
     $SUDO chgrp -R canasta "$install_dir"
     $SUDO chmod -R g+w "$install_dir"
+    $SUDO find "$install_dir" -type d -exec chmod g+s {} +
 
     # Create symlinks
     info "Creating symlinks in ${BIN_DIR}..."
@@ -406,10 +413,42 @@ install_native_linux() {
         canasta install docker
     fi
 
-    # Add current user to required groups
-    local _user="${SUDO_USER:-$(whoami)}"
-    info "Adding ${_user} to canasta, docker, and www-data groups..."
-    $SUDO usermod -aG canasta,docker,www-data "$_user" 2>/dev/null || true
+    add_user_to_groups "${SUDO_USER:-$(whoami)}"
+}
+
+# One usermod per group: given a list, usermod rejects all of it when any
+# one group is missing. The containers write files as gid 33, which is
+# www-data on Debian but tape on RHEL, so that group is found by number.
+# It matters only under rootful Docker: a rootless runtime maps gid 33 to
+# one of the user's own subordinate gids.
+add_user_to_groups() {
+    local _user="$1" _group
+    add_user_to_group "$_user" canasta "'canasta'" || true
+    if ! add_user_to_group "$_user" docker "'docker'"; then
+        warn "${_user} was not added to the gid 33 group (www-data in the containers), which only rootful Docker needs."
+        return 0
+    fi
+    _group="$(getent group 33 2>/dev/null | cut -d: -f1 || true)"
+    if [[ -z "$_group" ]]; then
+        warn "No group has gid 33 on this host, so ${_user} cannot be added to the group the Canasta containers write files as."
+    elif [[ "$_group" == www-data ]]; then
+        add_user_to_group "$_user" "$_group" "'${_group}'" || true
+    else
+        add_user_to_group "$_user" "$_group" "'${_group}' (gid 33, www-data in the containers)" || true
+    fi
+}
+
+add_user_to_group() {
+    local _user="$1" _group="$2" _label="$3" _err
+    if ! getent group "$_group" >/dev/null 2>&1; then
+        warn "Group ${_label} does not exist; ${_user} was not added to it."
+        return 1
+    elif _err="$($SUDO usermod -aG "$_group" "$_user" 2>&1)"; then
+        info "Added ${_user} to the ${_label} group."
+    else
+        warn "Could not add ${_user} to the ${_label} group: ${_err}"
+        return 1
+    fi
 }
 
 # --- Native mode install (macOS) --------------------------------------------
