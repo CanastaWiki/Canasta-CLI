@@ -145,9 +145,9 @@ from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.canasta_config import get_config_dir, is_k8s_orchestrator
 from ansible.module_utils.canasta_env_keys import modernize_values
 from ansible.module_utils.canasta_edge_render import (
-    ACME_IMAGE, CERT_DIR, CONFIG_DIR, DENY_CIDR_FILE, DENY_UA_FILE, EdgeError,
-    HAPROXY_IMAGE, NO_SITE, SPOA_IMAGE, acme_hostnames, cdn_providers, certificates,
-    check_together, compose_predates_edge, crowdsec_enforced, frontends, host_tls_mode,
+    ACME_IMAGE, ALLOW_CIDR_FILE, ALLOW_UA_FILE, CERT_DIR, CONFIG_DIR, DENY_CIDR_FILE,
+    DENY_UA_FILE, EdgeError, HAPROXY_IMAGE, NO_SITE, SPOA_IMAGE, acme_hostnames,
+    cdn_providers, certificates, check_together, compose_predates_edge, crowdsec_enforced, frontends, host_tls_mode,
     dynamic_patterns, instance_from_config, predates_edge_problem, rates_set, render,
     special_names,
 )
@@ -543,6 +543,8 @@ def load_instance(instance_id, path, special_namespace_names=()):
         instance_id, env, wikis, media, snippet,
         deny_user_agents=_read(os.path.join(path, DENY_UA_FILE)) or "",
         deny_cidrs=_read(os.path.join(path, DENY_CIDR_FILE)) or "",
+        allow_user_agents=_read(os.path.join(path, ALLOW_UA_FILE)) or "",
+        allow_cidrs=_read(os.path.join(path, ALLOW_CIDR_FILE)) or "",
         extra_hostnames=global_sites(path)[0],
         special_namespace_names=special_namespace_names)
     inst["path"] = path
