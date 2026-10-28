@@ -562,6 +562,45 @@ def test_rootless_docker_limits_apply_to_every_address():
     assert "    http-request track-sc0 src\n" in cfg
 
 
+def _allowed(**lists):
+    return edge.instance_from_config(
+        "one", {}, [{"id": "w", "url": "one.example.com"}], **lists)
+
+
+def test_allow_lists_exempt_clients_from_per_client_limits():
+    rendered = edge.render([_allowed(allow_cidrs="# office\n198.51.100.7\n2001:db8::/32\n",
+                                     allow_user_agents="Example-fetcher/2.0\n")])
+    cfg = rendered["files"]["haproxy.cfg"]
+    assert ("!{ src -f /usr/local/etc/haproxy/allow-cidr-one.lst } "
+            "!{ req.hdr(user-agent) -m sub -i -f /usr/local/etc/haproxy/allow-ua-one.lst }\n"
+            ) in cfg
+    assert rendered["files"]["allow-cidr-one.lst"] == "198.51.100.7/32\n2001:db8::/32\n"
+    assert rendered["files"]["allow-ua-one.lst"] == "Example-fetcher/2.0\n"
+
+
+def test_allow_lists_apply_under_rootless_docker():
+    inst = edge.instance_from_config(
+        "one", {"CANASTA_EDGE_RATE_DYNAMIC": "60"}, [{"id": "w", "url": "one.example.com"}],
+        allow_user_agents="Example-fetcher\n")
+    cfg = edge.render([inst], rootless=True)["files"]["haproxy.cfg"]
+    assert ("    http-request track-sc0 src if "
+            "!{ req.hdr(user-agent) -m sub -i -f /usr/local/etc/haproxy/allow-ua-one.lst }\n"
+            ) in cfg
+
+
+def test_no_allow_lists_render_no_allow_files():
+    files = edge.render([_allowed()])["files"]
+    assert not [n for n in files if n.startswith("allow-")]
+    assert "allow-" not in files["haproxy.cfg"]
+
+
+def test_a_bad_allow_entry_names_its_file_and_line():
+    with pytest.raises(edge.EdgeError, match="edge-allow-cidrs.list line 2, 'nope'"):
+        _allowed(allow_cidrs="192.0.2.1\nnope\n")
+    with pytest.raises(edge.EdgeError, match="edge-allow-user-agents.list line 1"):
+        _allowed(allow_user_agents="bad\x01agent\n")
+
+
 # --- TLS_MODE_HOSTS ---------------------------------------------------------- #
 
 def test_tls_mode_hosts_parses_host_mode_pairs():
