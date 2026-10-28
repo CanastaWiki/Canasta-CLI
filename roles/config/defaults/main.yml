@@ -87,6 +87,20 @@ canasta_known_keys:
     description: Memory limit for runJobs.php
     default: 512M
 
+  - name: MW_JOB_RUNNER_MAXTIME
+    group: Maintenance scripts
+    description: >-
+      Seconds each pass of the job runner spends on general jobs; 0 means
+      no time limit
+    default: "60"
+
+  - name: MW_JOB_RUNNER_MAXJOBS
+    group: Maintenance scripts
+    description: >-
+      Maximum general jobs per pass of the job runner; unset means no count
+      limit. With MW_JOB_RUNNER_MAXTIME also set, a pass stops at whichever
+      limit it reaches first
+
   - name: MW_ENABLE_TRANSCODER
     group: Maintenance scripts
     description: Run the video transcoder job runner
