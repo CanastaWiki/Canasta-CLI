@@ -66,6 +66,6 @@
     - name: Copy file via kubectl cp
       ansible.builtin.command:
         cmd: >-
-          kubectl cp {{ copy_src }}
+          kubectl cp {{ copy_src | quote }}
           canasta-{{ instance_id }}/{{ _k8s_pod_name }}:{{ copy_dest }}
       changed_when: true
