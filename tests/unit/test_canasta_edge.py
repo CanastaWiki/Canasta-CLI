@@ -1725,6 +1725,8 @@ def test_haproxy_comes_back_whenever_the_daemon_restarts(tmp_path, user_units):
 
 
 CAPPED_LOG = {"driver": "json-file", "options": {"max-size": "50m", "max-file": "3"}}
+ROTATED_LOG = {"driver": "json-file",
+               "options": {"max-size": "100m", "max-file": "20", "compress": "true"}}
 
 
 def test_the_edge_logs_are_capped_under_docker(tmp_path, user_units):
@@ -1733,8 +1735,8 @@ def test_the_edge_logs_are_capped_under_docker(tmp_path, user_units):
     edge = tmp_path / "edge"
     _sync(FakeRunner(), edge, "one", path)
     services = yaml.safe_load((edge / "docker-compose.yml").read_text())["services"]
-    assert services["haproxy"]["logging"] == CAPPED_LOG
-    assert services["acme"]["logging"] == CAPPED_LOG
+    assert services["haproxy"]["logging"] == ROTATED_LOG
+    assert services["acme"]["logging"] == ROTATED_LOG
 
 
 def test_the_edge_logs_are_capped_under_podman(tmp_path, user_units):
