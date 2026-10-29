@@ -74,3 +74,7 @@
       Database imported into wiki '{{ wiki }}'{% if _import_extra_dumps | dict2items | selectattr('value') | list %},
       with extra database(s)
       {{ _import_extra_dumps | dict2items | selectattr('value') | map(attribute='key') | join(', ') }}{% endif %}.
+      {% if skip_update | default(false) | bool %}Its schema was not updated
+      (--skip-update).{% elif _rx_timed_out | default(false) | bool %}Its schema
+      update had not finished when the wait ended.{% else %}Its schema was
+      updated.{% endif %}
