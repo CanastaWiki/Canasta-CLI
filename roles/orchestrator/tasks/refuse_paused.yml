@@ -1,0 +1,19 @@
+---
+# Stop a command that works inside the instance's containers when any of
+# them is paused. Pausing is deliberate, so the command does not resume
+# the instance itself; `canasta start` does.
+# Input: instance_path, instance_id, instance_is_k8s, inspect_command
+
+- name: Find the instance's paused containers
+  ansible.builtin.include_tasks: list_paused_services.yml
+  when: not (instance_is_k8s | bool)
+
+- name: Refuse a paused instance
+  ansible.builtin.fail:
+    msg: >-
+      Instance '{{ instance_id }}' is paused
+      ({{ _paused_services | join(', ') }}); start it first
+      ('canasta start -i {{ instance_id }}').
+  when:
+    - not (instance_is_k8s | bool)
+    - _paused_services | length > 0

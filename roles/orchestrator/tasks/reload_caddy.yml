@@ -46,3 +46,21 @@
           the previously loaded one, so the site is unaffected. Fix
           config/Caddyfile.site in the instance directory and run the command
           again.
+
+- name: Find whether Caddy is paused
+  ansible.builtin.include_tasks: list_paused_services.yml
+  when:
+    - not (instance_is_k8s | bool)
+    - not (_reload_caddy | bool)
+
+# Unpausing resumes Caddy with the config it already loaded.
+- name: Report that a paused Caddy kept its previous config
+  ansible.builtin.debug:
+    msg: >-
+      Caddy of instance '{{ instance_id }}' is paused, so it has not loaded
+      the regenerated configuration; 'canasta restart -i {{ instance_id }}'
+      loads it.
+  when:
+    - not (instance_is_k8s | bool)
+    - not (_reload_caddy | bool)
+    - "'caddy' in (_paused_services | default([]))"

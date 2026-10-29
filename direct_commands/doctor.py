@@ -1959,6 +1959,18 @@ def _k8s_web_problem(inst):
     return what, logs, cause
 
 
+def _paused_lines(inst, paused):
+    """doctor lines for an instance with paused containers, whose
+    in-container and served-site checks cannot run."""
+    inst_id = inst.get("id", "?")
+    return [
+        "", "Instance (%s):" % inst_id,
+        "  WARN — paused (%s), so the checks inside its containers were "
+        "skipped; 'canasta start -i %s' resumes it." % (
+            ", ".join(paused), inst_id),
+    ]
+
+
 def _web_health_lines(inst):
     """doctor lines for a web container that is crash-looping or failing
     its health check, or [] when it is healthy, stopped or unreadable."""
@@ -2054,18 +2066,22 @@ def cmd_doctor(args):
     for line in _collection_integrity_lines():
         print(line)
 
-    for line in _instance_consistency_lines(inst):
+    paused = (_helpers._compose_paused_services(inst)
+              if inst and not _helpers._is_k8s(inst) else [])
+    for line in (_paused_lines(inst, paused) if paused
+                 else _instance_consistency_lines(inst)):
         print(line)
 
     if inst:
-        for line in _web_health_lines(inst):
-            print(line)
+        if not paused:
+            for line in _web_health_lines(inst):
+                print(line)
 
-        for line in _db_tuning_lines(inst):
-            print(line)
+            for line in _db_tuning_lines(inst):
+                print(line)
 
-        for line in _origin_tls_lines(inst):
-            print(line)
+            for line in _origin_tls_lines(inst):
+                print(line)
 
         for line in _edge_lines(inst):
             print(line)
@@ -2073,8 +2089,9 @@ def cmd_doctor(args):
         for line in _caddy_tls_lines(inst):
             print(line)
 
-        for line in _composer_failure_lines(inst):
-            print(line)
+        if not paused:
+            for line in _composer_failure_lines(inst):
+                print(line)
 
     if probe_timed_out:
         return 1
