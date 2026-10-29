@@ -1,11 +1,12 @@
 ---
 # Add an extension/skin to an instance.
 #
-# Each name is, in order: bundled (shipped in the image; nothing is
-# cloned, it is only enabled), already local (a checkout in the instance's
-# extensions/ or skins/; its branch is verified), or cloned. Cloning needs
+# Each name is, in order: already local (a checkout in the instance's
+# extensions/ or skins/; its branch is verified), bundled (shipped in the
+# image; nothing is cloned, it is only enabled), or cloned. Cloning needs
 # --clone or --repository; without either the command fails before changing
-# anything, naming the URL and its source.
+# anything, naming the URL and its source. With --override a bundled name is
+# cloned too, and the copy overrides the bundled one.
 #
 # For a clone it resolves the git URL + branch (REL1_YY for Gerrit remotes) from
 # ExtensionJson.json or Wikimedia Gerrit, adds it as a submodule (gitops) or a plain clone
@@ -18,8 +19,8 @@
 #
 # Input: id, wiki (optional, passed to enable), names (comma-separated),
 #        mw_version (optional override), repository (optional override),
-#        branch (optional override), clone (bool), skip_enable (bool), skip_update (bool),
-#        _item_type (extensions|skins)
+#        branch (optional override), clone (bool), override (bool),
+#        skip_enable (bool), skip_update (bool), _item_type (extensions|skins)
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
@@ -144,6 +145,21 @@
         _bundled_dirs: >-
           {{ (exec_result.stdout | default('')).splitlines() | map('trim')
              | reject('equalto', '') | list }}
+
+    # Including those a user copy currently overrides.
+    - name: "List every {{ _item_type[:-1] }} bundled in the image"
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: web
+        exec_command: >-
+          cd /var/www/mediawiki/w/canasta-{{ _item_type }} &&
+          for d in */; do printf '%s\n' "${d%/}"; done
+
+    - name: "Record every {{ _item_type[:-1] }} bundled in the image"
+      ansible.builtin.set_fact:
+        _image_dirs: >-
+          {{ (exec_result.stdout | default('')).splitlines() | map('trim')
+             | reject('equalto', '') | list }}
   rescue:
     - name: "Fail: could not list bundled {{ _item_type }}"
       ansible.builtin.fail:
@@ -161,21 +177,30 @@
 - name: "Map lowercase names to on-disk spellings"
   ansible.builtin.set_fact:
     _bundled_map: "{{ dict(_bundled_dirs | map('lower') | zip(_bundled_dirs)) }}"
+    _image_names: "{{ _image_dirs | map('lower') | list }}"
     _local_map: >-
       {{ dict(_local_entries.files | map(attribute='path') | map('basename')
               | map('lower')
               | zip(_local_entries.files | map(attribute='path') | map('basename'))) }}
     _classified: []
 
-- name: "Classify requested {{ _item_type }} as bundled, local, or to clone"
+# A copy in the instance's directory is what the web container loads, so
+# it decides before the image: the container may not have linked it yet.
+- name: "Classify requested {{ _item_type }} as local, bundled, or to clone"
   ansible.builtin.set_fact:
     _classified: >-
       {{ _classified + [
-           {'name': _bundled_map[item | lower], 'category': 'bundled'}
-           if (item | lower) in _bundled_map else
-           {'name': _local_map[item | lower], 'category': 'local'}
+           {'name': _local_map[item | lower], 'category': 'local',
+            'override': (item | lower) in _image_names}
            if (item | lower) in _local_map else
-           {'name': item, 'category': 'clone'}] }}
+           {'name': _bundled_map[item | lower], 'category': 'clone',
+            'override': true}
+           if (item | lower) in _bundled_map
+              and (override | default(false) | bool) else
+           {'name': _bundled_map[item | lower], 'category': 'bundled',
+            'override': false}
+           if (item | lower) in _bundled_map else
+           {'name': item, 'category': 'clone', 'override': false}] }}
   loop: "{{ _names_list }}"
 
 - name: "Split bundled from non-bundled {{ _item_type }}"
@@ -190,7 +215,8 @@
     msg: >-
       {{ _item_kind }} '{{ _bundled_names | first }}' is bundled with Canasta;
       its version comes from the image, so --repository and --branch do not
-      apply.
+      apply. To use another version, pass --override to clone it into
+      {{ _item_dir }}/, where it overrides the bundled one.
   when:
     - _bundled_names | length > 0
     - (repository | default('', true) | length > 0) or (branch | default('', true) | length > 0)
@@ -221,14 +247,20 @@
     _to_add: >-
       {{ _to_add + [item | combine({
            'name': item.item.name if item.item.category == 'local' else item.name,
-           'category': item.item.category})] }}
+           'category': item.item.category,
+           'override': item.item.override})] }}
   loop: "{{ _resolved.results | default([]) }}"
   loop_control:
     label: "{{ item.item.name }}"
 
 - name: "Set {{ _item_type }} that need cloning"
   ansible.builtin.set_fact:
-    _clone_pending: "{{ _to_add | selectattr('category', 'equalto', 'clone') | list }}"
+    _clone_pending: >-
+      {{ _to_add | selectattr('category', 'equalto', 'clone')
+         | rejectattr('override') | list }}
+    _override_clones: >-
+      {{ _to_add | selectattr('category', 'equalto', 'clone')
+         | selectattr('override') | list }}
 
 - name: "Refuse to clone without --clone or --repository"
   ansible.builtin.fail:
@@ -250,6 +282,34 @@
          | map('regex_replace', '^(.*)$',
                _item_kind ~ " '\1' is bundled with Canasta; nothing to clone.")
          | list }}
+
+- name: "Read the bundled versions being overridden"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  vars:
+    exec_service: web
+    exec_command: >-
+      cd /var/www/mediawiki/w/canasta-{{ _item_type }} &&
+      for d in {{ _override_clones | map(attribute='name') | map('quote') | join(' ') }}; do
+      v=$(sed -n
+      's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+      "$d/extension.json" "$d/skin.json" 2>/dev/null | head -n 1);
+      printf '%s|%s\n' "$d" "$v"; done
+  when: _override_clones | length > 0
+
+- name: "Warn about each bundled {{ _item_type[:-1] }} being overridden"
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: overriding the bundled {{ item.name }}{{ ' ' ~ _bundled_version
+      if _bundled_version else '' }} with {{ item.branch | default('', true)
+      or 'the default branch' }} of {{ item.repository }}.
+  vars:
+    _bundled_version: >-
+      {{ (exec_result.stdout_lines | default([])
+          | select('match', '^' ~ (item.name | regex_escape) ~ '[|]')
+          | first | default('|')).split('|')[1] | trim }}
+  loop: "{{ _override_clones }}"
+  loop_control:
+    label: "{{ item.name }}"
 
 - name: "Add each {{ _item_type }} to the instance"
   ansible.builtin.include_tasks: _add_one.yml
@@ -505,6 +565,14 @@
       {%- if _autoload_missing | length > 0 and exec_result.rc | default(0) != 0 %}
       Rebuilding composer state from the restored list failed (exit
       {{ exec_result.rc }}); run 'canasta restart' to rebuild it.{% endif %}
+
+# The web container's caches still hold the bundled copy's code and
+# registration, which an enabled bundled name has already loaded.
+- name: "Restart the instance to load the overriding {{ _item_type }}"
+  ansible.builtin.include_role:
+    name: instance_lifecycle
+    tasks_from: restart.yml
+  when: _override_clones | length > 0
 
 - name: "Enable added {{ _item_type }} (with containers up so the monitor has linked them)"
   when: not (skip_enable | default(false) | bool)

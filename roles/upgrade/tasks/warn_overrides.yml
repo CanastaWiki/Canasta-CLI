@@ -1,0 +1,45 @@
+---
+# Warn about each extension or skin whose copy in the instance overrides a
+# bundled one of another version. The upgrade changes only the bundled
+# copy, so the instance keeps running its own.
+#
+# Runs after upgrade's restart, against the running web container.
+# Input: instance_id, instance_path, _was_running
+
+- name: Find the extensions that override bundled ones
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/_list_overrides.yml"
+  vars:
+    _item_type: extensions
+  when: _was_running | default(false) | bool
+
+- name: Note the extension overrides
+  ansible.builtin.set_fact:
+    _upgrade_overrides: >-
+      {{ _overrides | default([]) | map('combine', {'kind': 'extension'}) | list
+         if _was_running | default(false) | bool else [] }}
+
+- name: Find the skins that override bundled ones
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/_list_overrides.yml"
+  vars:
+    _item_type: skins
+  when: _was_running | default(false) | bool
+
+- name: Note the skin overrides
+  ansible.builtin.set_fact:
+    _upgrade_overrides: >-
+      {{ _upgrade_overrides + (_overrides | default([])
+         | map('combine', {'kind': 'skin'}) | list
+         if _was_running | default(false) | bool else []) }}
+
+- name: Warn about overrides whose version differs from the bundled one
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: {{ instance_id }}: {{ item.name }}
+      {{ item.version | default('', true) or '(no version)' }} in the
+      instance overrides the bundled {{ item.bundled_version | default('', true)
+      or '(no version)' }}; 'canasta {{ item.kind }} remove {{ item.name }}'
+      uses the bundled one again.
+  loop: "{{ _upgrade_overrides }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.version != item.bundled_version
