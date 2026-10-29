@@ -5383,7 +5383,7 @@ class TestRemoteK8sStreamAndExec:
             lambda *a, **k: pytest.fail(
                 "local pod lookup must not run for a remote instance"))
 
-        def fake_ssh_run(host, cmd):
+        def fake_ssh_run(host, cmd, timeout=30):
             captured["host"] = host
             captured["cmd"] = cmd
             return 0, "ok"
