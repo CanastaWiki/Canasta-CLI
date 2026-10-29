@@ -96,11 +96,14 @@ class TestImportHostTempFile:
         assert temps and temps[0].get("register") == "_import_host_tmp"
 
     def test_transfer_is_0600_to_temp_path(self):
-        copies = [t["ansible.builtin.copy"] for t in self._block()["block"]
+        copies = [t for t in self._block()["block"]
                   if "ansible.builtin.copy" in t]
         assert copies, "the dump must be transferred inside the block"
-        assert copies[0]["dest"] == "{{ _import_host_tmp.path }}"
-        assert copies[0]["mode"] == "0600"
+        assert copies[0]["ansible.builtin.copy"]["dest"] == "{{ _import_src }}"
+        assert copies[0]["ansible.builtin.copy"]["mode"] == "0600"
+        assert copies[0]["when"] == "not _import_local"
+        assert copies[0]["vars"]["ansible_remote_tmp"] == (
+            "{{ _import_host_tmp.path }}")
 
     def test_temp_file_removed_in_always(self):
         removals = [
