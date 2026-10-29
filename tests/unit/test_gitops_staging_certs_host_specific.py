@@ -177,6 +177,7 @@ def _pull_refusal(inst, sync_paths):
     out = _status(inst)
     v = {
         "instance_path": str(inst),
+        "instance_id": "wiki",
         "_pull_uncommitted": {"stdout": out, "stdout_lines": out.splitlines()},
         "_pull_sync_paths": sync_paths,
         "_pull_commit_sync": False,
@@ -205,6 +206,16 @@ def test_the_pull_refusal_names_the_key_and_the_sink_role(tmp_path):
     assert "role 'sink' and cannot push" in msg
 
 
+def _reconcile(tmp_path, inst):
+    """What reconcile does to a gitops checkout: sync, then render .env."""
+    _sync(tmp_path, inst)
+    _play(tmp_path, inst, [{"ansible.builtin.copy": {
+        "dest": str(inst / ".env"),
+        "content": "{{ lookup('file', instance_path ~ '/env.template')"
+                   " | canasta_env_render(lookup('file', instance_path"
+                   " ~ '/hosts/staging/vars.yaml') | from_yaml) }}"}}])
+
+
 def test_discarding_as_the_pull_advises_does_not_come_back(tmp_path):
     inst = _sink_with_a_staging_edit(tmp_path)
     discard, msg = _pull_refusal(
@@ -213,11 +224,24 @@ def test_discarding_as_the_pull_advises_does_not_come_back(tmp_path):
         "'git restore --source=HEAD --worktree -- "
         "env.template hosts/staging/vars.yaml'"]
     assert discard[0] in msg
+    assert "'canasta reconcile -i wiki'" in msg
 
     _git(inst, "restore", "--source=HEAD", "--worktree", "--",
          "env.template", "hosts/staging/vars.yaml")
+    _reconcile(tmp_path, inst)
+    assert _status(inst) == ""
+    assert "CANASTA_STAGING_CERTS=false" in (inst / ".env").read_text().splitlines()
+
     _sync(tmp_path, inst)
     assert _status(inst) == ""
+
+
+def test_reconcile_is_advised_only_for_the_env_sources(tmp_path):
+    inst = _repo(tmp_path, "HTTP_PORT=80\n", {"staging": {}})
+    (inst / "hosts" / "hosts.yaml").write_text("hosts: []\n")
+    _, msg = _pull_refusal(inst, [])
+    assert "'git checkout HEAD -- hosts/hosts.yaml'" in msg
+    assert "canasta reconcile" not in msg
 
 
 def test_discarding_the_index_too_writes_the_change_back(tmp_path):

@@ -92,9 +92,10 @@
 
 # Discarding has to leave the sources as the sync last staged them: the sync
 # compares .env with that staged copy, so restoring only the working tree of
-# its own files lets the render that follows put .env back to the
-# repository's values. Restoring the index too makes .env look edited again,
-# and the next pull writes the same changes back.
+# its own files lets reconcile's render put .env back to the repository's
+# values. Restoring the index too makes .env look edited again, and the next
+# pull writes the same changes back. The pull itself does not render when
+# nothing new arrives, so reconcile has to.
 - name: Fail if uncommitted changes exist
   ansible.builtin.fail:
     msg: >-
@@ -113,7 +114,9 @@
       'canasta gitops push'.
       {%- endif %}
       To discard them, run {{ _pull_discard | join(' and ') }} in
-      {{ instance_path }}, then retry.
+      {{ instance_path }}{{ (", then 'canasta reconcile -i " ~ instance_id
+      ~ "' to render .env from the repository again")
+      if _pull_restore else '' }}, and retry.
   vars:
     _pull_host: "{{ _sync_env_host_raw.content | default('') | b64decode | trim }}"
     _pull_changed: >-
