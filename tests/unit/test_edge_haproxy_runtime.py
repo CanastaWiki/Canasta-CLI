@@ -64,7 +64,8 @@ def _instances():
             "walled", {}, [{"id": "w0", "url": "walled.example.org"}],
             deny_cidrs="0.0.0.0/0\n::/0\n"),
         edge.instance_from_config(
-            "cdn", {"TRUSTED_PROXIES": "cloudflare", "CANASTA_EDGE_RATE_DEFAULT": "3"},
+            "cdn", {"TRUSTED_PROXIES": "cloudflare", "CANASTA_EDGE_RATE_DEFAULT": "3",
+                    "CANASTA_EDGE_RATE_DYNAMIC": "3"},
             [{"id": "w0", "url": "cdn.example.org"}]),
         edge.instance_from_config(
             "proxied", {"TRUSTED_PROXIES": "imperva@0.0.0.0/0,::/0",
@@ -366,6 +367,18 @@ def test_static_files_are_not_rate_limited(edge_ports):
     assert pages[:3] == [200] * 3 and pages[-1] == 429
     assert _request(edge_ports, "cdn.example.org", "/public_assets/logo.png",
                     headers=client)[0] == 200
+
+
+def test_resource_loader_is_not_rate_limited_for_a_logged_in_user(edge_ports):
+    """The scripts, styles and icons of a logged-in page view must not use up
+    the client's allowance for requests that always reach PHP."""
+    client = {"CF-Connecting-IP": "198.51.100.16", "Cookie": "wiki_session=abc"}
+    files = ["/w/load.php?modules=skins.vector.icons.js&image=i%d" % n for n in range(6)]
+    assert [_request(edge_ports, "cdn.example.org", p, headers=client)[0]
+            for p in files] == [200] * len(files)
+    pages = [_request(edge_ports, "cdn.example.org", "/wiki/D%d" % n, headers=client)[0]
+             for n in range(5)]
+    assert pages[:3] == [200] * 3 and pages[-1] == 429
 
 
 def test_a_configured_sitemap_path_is_static_for_its_instance_only(edge_ports):
