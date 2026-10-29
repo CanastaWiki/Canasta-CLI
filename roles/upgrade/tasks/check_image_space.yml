@@ -50,6 +50,15 @@
         store=$(podman info --format '{% raw %}{{.Store.GraphRoot}}{% endraw %}' 2>/dev/null)
       else
         store=$(docker info --format '{% raw %}{{.DockerRootDir}}{% endraw %}' 2>/dev/null)
+        # With the containerd image store, images land under containerd's
+        # root. A containerd that dockerd runs itself keeps it in the store.
+        if docker info --format '{% raw %}{{json .DriverStatus}}{% endraw %}' 2>/dev/null \
+            | grep -q 'io.containerd.snapshotter' && [ ! -d "$store/containerd/daemon" ]; then
+          croot=$(awk -F'"' '/^[[:space:]]*\[/{exit} /^[[:space:]]*root[[:space:]]*=/{print $2; exit}' \
+            /etc/containerd/config.toml 2>/dev/null)
+          croot=${croot:-/var/lib/containerd}
+          [ -d "$croot" ] && store=$croot
+        fi
       fi
       [ -n "$store" ] && [ -d "$store" ] || { echo unknown; exit 0; }
       need=-
