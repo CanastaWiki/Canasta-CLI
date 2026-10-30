@@ -28,23 +28,41 @@
   changed_when: false
   failed_when: false
 
+# A --build-from with a CanastaBase source builds canasta-base:local and
+# the instance's canasta:local-<id> on top of it. The base is kept while a
+# registered instance's built image remains, and for a Kubernetes
+# instance, whose build copies are reported below instead. It comes last,
+# after the images built on it.
 - name: Select the tags no instance on this host is pinned to
   ansible.builtin.set_fact:
     _reclaim_removable: >-
-      {{ ((_reclaim_images.stdout_lines
-           | reject('search', ':<none>')
-           | reject('equalto', '')
-           | list)
-          + (_reclaim_source_images.stdout_lines | default([])
-             | map('regex_replace', '^localhost/', '')
-             | select('match', '^canasta:local-.')
-             | unique | list
-             | difference(_reclaim_registered_tags)))
-         | difference(_reclaim_pinned) }}
+      {{ (((_reclaim_images.stdout_lines
+            | reject('search', ':<none>')
+            | reject('equalto', '')
+            | list)
+           + (_reclaim_source_tags
+              | select('match', '^canasta:local-.')
+              | difference(_reclaim_registered_tags)))
+          | difference(_reclaim_pinned))
+         + ((_reclaim_source_tags
+             | select('equalto', 'canasta-base:local') | list
+             if (_reclaim_source_tags | intersect(_reclaim_registered_tags)
+                 | length == 0)
+                and (_reclaim_k8s_instances | length == 0)
+             else []) | difference(_reclaim_pinned)) }}
   vars:
+    _reclaim_source_tags: >-
+      {{ _reclaim_source_images.stdout_lines | default([])
+         | map('regex_replace', '^localhost/', '')
+         | unique | list }}
     _reclaim_registered_tags: >-
       {{ _reclaim_instances.instances | default({}) | list
          | map('regex_replace', '^', 'canasta:local-') | list }}
+    _reclaim_k8s_instances: >-
+      {{ _reclaim_instances.instances | default({}) | dict2items
+         | selectattr('value.orchestrator', 'defined')
+         | selectattr('value.orchestrator', 'equalto', 'kubernetes')
+         | list }}
 
 - name: Report the reclaim that would run
   ansible.builtin.debug:

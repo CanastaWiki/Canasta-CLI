@@ -4,33 +4,8 @@
 # Input: instance_path, instance_id, inspect_command
 # Output: _unpaused_services (list of service names)
 
-- name: List the instance's paused containers
-  ansible.builtin.command:
-    argv:
-      - "{{ inspect_command | default('docker') }}"
-      - ps
-      - --filter
-      - status=paused
-      - --filter
-      - "label=com.docker.compose.project={{ instance_path | basename | lower }}"
-      - --format
-      - >-
-        {% if 'podman' in (inspect_command | default('docker') | basename) -%}
-        {% raw %}{{.ID}} {{index .Labels "com.docker.compose.service"}}{% endraw %}
-        {%- else -%}
-        {% raw %}{{.ID}} {{.Label "com.docker.compose.service"}}{% endraw %}
-        {%- endif %}
-    chdir: "{{ instance_path }}"
-  register: _paused_list
-  changed_when: false
-  failed_when: false
-
-- name: Collect the paused containers
-  ansible.builtin.set_fact:
-    _paused_containers: >-
-      {{ (_paused_list.stdout | default('')).splitlines()
-         | map('trim') | reject('equalto', '') | map('split') | list
-         if _paused_list.rc | default(1) == 0 else [] }}
+- name: Find the instance's paused containers
+  ansible.builtin.include_tasks: list_paused_services.yml
 
 - name: Unpause the paused containers
   ansible.builtin.command:
@@ -44,8 +19,7 @@
 
 - name: Record the unpaused services
   ansible.builtin.set_fact:
-    _unpaused_services: >-
-      {{ _paused_containers | map('last') | unique | sort }}
+    _unpaused_services: "{{ _paused_services }}"
 
 - name: Fail when the paused containers could not be unpaused
   ansible.builtin.fail:

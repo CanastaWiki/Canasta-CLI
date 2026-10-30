@@ -9,6 +9,9 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Refuse a paused instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/refuse_paused.yml"
+
 # Reject a name that could escape the extensions dir or name a sub-path — this
 # pins the top-level extension submodule (extensions/<name>).
 - name: Validate the extension name

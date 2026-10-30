@@ -761,8 +761,8 @@ def _backend_rules(inst, kind, rootless=False):
     if inst["allow_user_agents"]:
         exempt.append("!{ req.hdr(user-agent) -m sub -i -f %s }"
                       % _list_path("allow-ua-%s.lst" % inst["id"]))
-    # Counter 0 counts requests other than static files, which a page pulls
-    # in by the dozen at no PHP cost. Counter 1 counts the errors the
+    # Counter 0 counts requests other than static files and ResourceLoader,
+    # which a page pulls in by the dozen. Counter 1 counts the errors the
     # instance returns, not the edge's own 429s, which would otherwise keep
     # a client that is still browsing locked out.
     out += [
@@ -818,7 +818,12 @@ _ROUTING = [
     "    acl static_file path_sub /w/images/ /w/resources/ /w/skins/ /w/extensions/ /public_assets/",
     "    acl static_file path_end /favicon.ico",
     "    acl php path_end .php",
+    # ResourceLoader serves a page's scripts, styles and icons, one request
+    # each and the same for every user, so it is not counted per client
+    # either; a logged-in user's still reach the dynamic class.
+    "    acl resource_loader path_end /w/load.php",
     "    http-request set-var(txn.static) bool(true) if static_file !php",
+    "    http-request set-var(txn.static) bool(true) if resource_loader",
     "    use_backend be_%[var(txn.inst)]_media if known_site media_host",
     "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host dynamic",
     "    use_backend be_%[var(txn.inst)]_dynamic if known_site !media_host credentials !static_file",

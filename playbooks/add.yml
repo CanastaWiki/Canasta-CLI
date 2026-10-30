@@ -210,133 +210,213 @@
     mode: "0644"
   when: wiki_settings is defined and wiki_settings != ''
 
-# Install or import the wiki database BEFORE updating wikis.yaml
-- name: Import database if provided
-  when: database is defined and database != ''
+# A failed add leaves no wiki in wikis.yaml for `canasta remove -w` to find,
+# so the databases it created are dropped here. Only the names it could
+# create are considered, and only those absent before it ran: the wiki ID
+# may name a database that already exists, which is never dropped.
+- name: Create the wiki's databases and place its files
   block:
-    - name: Wait for database
+    - name: Wait for database before recording its databases
       ansible.builtin.include_role:
         name: mediawiki
         tasks_from: wait_for_db.yml
+      when: not (skip_install | default(false) | bool)
 
-    # A large dump import runs detached and polled, producing no incremental
-    # output, so announce the phase up front — otherwise `canasta add` sits
-    # silently for the whole import and reads as hung (mirrors create).
-    - name: Report importing database
-      ansible.builtin.debug:
-        msg: "Importing database (this can take a while for a large dump)..."
+    - name: Find where database administration runs
+      ansible.builtin.include_tasks: >-
+        {{ canasta_root }}/roles/orchestrator/tasks/db_admin.yml
+      when: not (skip_install | default(false) | bool)
 
-    - name: Import database dump
-      ansible.builtin.include_role:
-        name: mediawiki
-        tasks_from: import_database.yml
-      vars:
-        import_wiki_id: "{{ wiki }}"
-        import_database_path: "{{ database }}"
-
-    - name: Read the instance's databases
-      canasta_wikis_yaml:
-        instance_path: "{{ instance_path }}"
-        state: read
-      register: _add_wikis
-
-    - name: Import the extra databases beside the dump
-      ansible.builtin.include_role:
-        name: mediawiki
-        tasks_from: import_extra_databases.yml
-      vars:
-        extra_dbs_wiki: "{{ wiki }}"
-        extra_dbs_dump: "{{ database }}"
-        extra_dbs_discover: true
-        extra_dbs_groups: "{{ _add_wikis.db_groups }}"
-
-    - name: Record the extra databases imported
-      ansible.builtin.set_fact:
-        _add_extra_dbs: >-
-          {{ _import_extra_dumps | dict2items | selectattr('value')
-             | map(attribute='key') | list }}
-
-# --skip-install: the external database already holds this wiki's schema,
-# so register it in the farm without running install.php. Still wait for
-# the database so a farm addition against an unreachable DB fails clearly.
-- name: Skip installer for existing database
-  when:
-    - database is not defined or database == ''
-    - skip_install | default(false) | bool
-  block:
-    - name: Report skipping installer for existing database
-      ansible.builtin.debug:
-        msg: >-
-          Skipping MediaWiki installer for wiki '{{ wiki }}'
-          (--skip-install); connecting to an external database that
-          already holds the schema.
-
-    - name: Wait for database
-      ansible.builtin.include_role:
-        name: mediawiki
-        tasks_from: wait_for_db.yml
-
-- name: Run install.php for new wiki
-  when:
-    - database is not defined or database == ''
-    - not (skip_install | default(false) | bool)
-  block:
-    - name: Wait for database
-      ansible.builtin.include_role:
-        name: mediawiki
-        tasks_from: wait_for_db.yml
-
-    - name: Read DB connection from .env
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: read_all
-      register: _add_db_env
-      no_log: true  # registers the whole .env, including passwords
-
-    - name: Install new wiki
-      ansible.builtin.include_role:
-        name: mediawiki
-        tasks_from: run_install_php.yml
-      vars:
-        install_php_db_password: "{{ _add_dbpass.value }}"
-        install_php_admin_password: "{{ _add_admin_password }}"
-        install_php_args: >-
-          --skins='Vector'
-          --dbserver={{ _add_db_env.variables.MYSQL_HOST | default('db') }}:{{ _add_db_env.variables.MYSQL_PORT | default('3306') }}
-          --dbname={{ wiki }}
-          --confpath=/tmp/canasta-install/
-          --scriptpath=/w
-          --server=https://{{ _add_domain }}
-          --dbuser={{ _add_dbuser.value | default('root', true) | quote }}
-          {{ wiki | quote }}
-          {{ admin | default('WikiSysop') | quote }}
-
-    - name: Clean up install temp directory
+    - name: List the databases that exist before the add
       ansible.builtin.include_tasks: >-
         {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
       vars:
-        exec_service: web
-        exec_command: "rm -rf /tmp/canasta-install/"
+        exec_service: "{{ _db_admin_service }}"
+        exec_dotenv: "{{ _db_admin_dotenv }}"
+        exec_command: >-
+          {{ _db_admin_pwd }} mariadb {{ _db_admin_args }} -N -e 'SHOW DATABASES'
+      when: not (skip_install | default(false) | bool)
 
-    - name: Save admin password
-      ansible.builtin.copy:
-        content: "{{ _add_admin_password }}"
-        dest: >-
-          {{ instance_path }}/admin-password_{{ wiki }}
-        mode: "0600"
-      no_log: true
+    - name: Record the databases that exist before the add
+      ansible.builtin.set_fact:
+        _add_dbs_before: "{{ exec_result.stdout_lines | map('trim') | list }}"
+      when: not (skip_install | default(false) | bool)
 
-# Import uploaded media for the new wiki (--images), after its DB is ready so
-# the File: page rows (from --database) are present; this only places the
-# files. A placement restore, not importImages.
-- name: Import images tarball for the new wiki
-  ansible.builtin.include_role:
-    name: mediawiki
-    tasks_from: import_images.yml
-  vars:
-    import_wiki_id: "{{ wiki }}"
-    import_images_path: "{{ images }}"
-  when: images is defined and images != ''
+    # Install or import the wiki database BEFORE updating wikis.yaml
+    - name: Import database if provided
+      when: database is defined and database != ''
+      block:
+        - name: Wait for database
+          ansible.builtin.include_role:
+            name: mediawiki
+            tasks_from: wait_for_db.yml
+
+        # A large dump import runs detached and polled, producing no incremental
+        # output, so announce the phase up front — otherwise `canasta add` sits
+        # silently for the whole import and reads as hung (mirrors create).
+        - name: Report importing database
+          ansible.builtin.debug:
+            msg: "Importing database (this can take a while for a large dump)..."
+
+        - name: Import database dump
+          ansible.builtin.include_role:
+            name: mediawiki
+            tasks_from: import_database.yml
+          vars:
+            import_wiki_id: "{{ wiki }}"
+            import_database_path: "{{ database }}"
+
+        - name: Read the instance's databases
+          canasta_wikis_yaml:
+            instance_path: "{{ instance_path }}"
+            state: read
+          register: _add_wikis
+
+        - name: Import the extra databases beside the dump
+          ansible.builtin.include_role:
+            name: mediawiki
+            tasks_from: import_extra_databases.yml
+          vars:
+            extra_dbs_wiki: "{{ wiki }}"
+            extra_dbs_dump: "{{ database }}"
+            extra_dbs_discover: true
+            extra_dbs_groups: "{{ _add_wikis.db_groups }}"
+
+        - name: Record the extra databases imported
+          ansible.builtin.set_fact:
+            _add_extra_dbs: >-
+              {{ _import_extra_dumps | dict2items | selectattr('value')
+                 | map(attribute='key') | list }}
+
+    # --skip-install: the external database already holds this wiki's schema,
+    # so register it in the farm without running install.php. Still wait for
+    # the database so a farm addition against an unreachable DB fails clearly.
+    - name: Skip installer for existing database
+      when:
+        - database is not defined or database == ''
+        - skip_install | default(false) | bool
+      block:
+        - name: Report skipping installer for existing database
+          ansible.builtin.debug:
+            msg: >-
+              Skipping MediaWiki installer for wiki '{{ wiki }}'
+              (--skip-install); connecting to an external database that
+              already holds the schema.
+
+        - name: Wait for database
+          ansible.builtin.include_role:
+            name: mediawiki
+            tasks_from: wait_for_db.yml
+
+    - name: Run install.php for new wiki
+      when:
+        - database is not defined or database == ''
+        - not (skip_install | default(false) | bool)
+      block:
+        - name: Wait for database
+          ansible.builtin.include_role:
+            name: mediawiki
+            tasks_from: wait_for_db.yml
+
+        - name: Read DB connection from .env
+          canasta_env:
+            path: "{{ instance_path }}/.env"
+            state: read_all
+          register: _add_db_env
+          no_log: true  # registers the whole .env, including passwords
+
+        - name: Install new wiki
+          ansible.builtin.include_role:
+            name: mediawiki
+            tasks_from: run_install_php.yml
+          vars:
+            install_php_db_password: "{{ _add_dbpass.value }}"
+            install_php_admin_password: "{{ _add_admin_password }}"
+            install_php_args: >-
+              --skins='Vector'
+              --dbserver={{ _add_db_env.variables.MYSQL_HOST | default('db') }}:{{ _add_db_env.variables.MYSQL_PORT | default('3306') }}
+              --dbname={{ wiki }}
+              --confpath=/tmp/canasta-install/
+              --scriptpath=/w
+              --server=https://{{ _add_domain }}
+              --dbuser={{ _add_dbuser.value | default('root', true) | quote }}
+              {{ wiki | quote }}
+              {{ admin | default('WikiSysop') | quote }}
+
+        - name: Clean up install temp directory
+          ansible.builtin.include_tasks: >-
+            {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+          vars:
+            exec_service: web
+            exec_command: "rm -rf /tmp/canasta-install/"
+
+        - name: Save admin password
+          ansible.builtin.copy:
+            content: "{{ _add_admin_password }}"
+            dest: >-
+              {{ instance_path }}/admin-password_{{ wiki }}
+            mode: "0600"
+          no_log: true
+
+    # Import uploaded media for the new wiki (--images), after its DB is ready so
+    # the File: page rows (from --database) are present; this only places the
+    # files. A placement restore, not importImages.
+    - name: Import images tarball for the new wiki
+      ansible.builtin.include_role:
+        name: mediawiki
+        tasks_from: import_images.yml
+      vars:
+        import_wiki_id: "{{ wiki }}"
+        import_images_path: "{{ images }}"
+      when: images is defined and images != ''
+  rescue:
+    - name: Choose the databases this add created
+      ansible.builtin.set_fact:
+        _add_created_dbs: >-
+          {{ ([wiki] + (_import_extra_dumps | default({}) | dict2items
+              | selectattr('value') | map(attribute='key') | list))
+             | reject('in', _add_dbs_before) | unique | list
+             if _add_dbs_before is defined else [] }}
+
+    - name: Drop the databases this add created
+      block:
+        - name: Find where database administration runs for cleanup
+          ansible.builtin.include_tasks: >-
+            {{ canasta_root }}/roles/orchestrator/tasks/db_admin.yml
+          when: _add_created_dbs | length > 0
+
+        - name: Drop the new wiki's databases
+          ansible.builtin.include_tasks: >-
+            {{ canasta_root }}/roles/orchestrator/tasks/exec.yml
+          vars:
+            exec_service: "{{ _db_admin_service }}"
+            exec_dotenv: "{{ _db_admin_dotenv }}"
+            exec_command: >-
+              {% for db in _add_created_dbs %}
+              {{ _db_admin_pwd }} mariadb {{ _db_admin_args }}
+              -e 'DROP DATABASE IF EXISTS `{{ db }}`' &&
+              {% endfor %}
+              true
+          when: _add_created_dbs | length > 0
+      rescue:
+        - name: Warn that the new wiki's databases were left in place
+          ansible.builtin.debug:
+            msg: >-
+              WARNING: could not drop database(s)
+              {{ _add_created_dbs | join(', ') }} created for wiki
+              '{{ wiki }}'. Drop {{ 'it' if _add_created_dbs | length == 1
+              else 'them' }} yourself once the cause is fixed.
+
+        - name: Keep the databases left in place out of the report
+          ansible.builtin.set_fact:
+            _add_created_dbs: []
+
+    - name: Report failure
+      ansible.builtin.fail:
+        msg: >-
+          Adding wiki '{{ wiki }}' failed.{% if _add_created_dbs | length > 0 %}
+          Removed the database(s) it created: {{ _add_created_dbs | join(', ') }}.{%
+          endif %}
 
 # NOW add to wikis.yaml (after successful install/import)
 - name: Add wiki to wikis.yaml
@@ -454,7 +534,10 @@
     msg: >-
       Wiki '{{ wiki }}' added to instance '{{ instance_id }}'{% if _add_extra_dbs | default([]) %},
       with extra database(s) {{ _add_extra_dbs | join(', ') }} imported and
-      declared{% endif %}.
+      declared{% endif %}.{% if database | default('') != '' %}
+      {% if _rx_timed_out | default(false) | bool %}Its schema update had not
+      finished when the wait ended.{% else %}Its schema was updated.{% endif %}{%
+      endif %}
   when: not (_add_stage_only | default(false) | bool)
 
 - name: Report the wiki staged for a gitops push

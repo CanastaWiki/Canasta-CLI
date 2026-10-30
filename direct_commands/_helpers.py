@@ -918,9 +918,10 @@ def _runtime_capture(inst, argv, timeout=30):
 
 
 def _web_container_id(inst):
-    """The running web container's id, or "" when the stack is not up.
+    """The web container's id, or "" when the stack is not up.
 
-    `ps` without -a lists only running containers. A daemon-level call, so
+    `ps` without -a lists running, restarting and paused containers. A
+    daemon-level call, so
     the project label — not cwd — is what keeps it from matching another
     instance's web container.
     """
@@ -1868,6 +1869,22 @@ _PS_SERVICE_FORMAT = {
 }
 
 
+def _compose_paused_services(inst):
+    """Sorted names of the instance's paused Compose services, [] when
+    none are paused or the runtime cannot be asked."""
+    runtime = _resolve_inspect_cmd(inst)
+    kind = "podman" if "podman" in os.path.basename(runtime) else "docker"
+    rc, out = _runtime_capture(inst, [
+        runtime, "ps", "--filter", "status=paused",
+        "--filter", "label=com.docker.compose.project=%s"
+                    % _compose_project(inst.get("path", "")),
+        "--format", _PS_SERVICE_FORMAT[kind],
+    ], timeout=10)
+    if rc != 0:
+        return []
+    return sorted({ln.strip() for ln in out.splitlines() if ln.strip()})
+
+
 def _missing_profile_services(inst, compose_cmd=None):
     """Services the active COMPOSE_PROFILES imply that are not running.
 
@@ -2035,6 +2052,7 @@ def _check_running_k8s(instance_id, host):
 WEB_RUNNING = "RUNNING"
 WEB_UNHEALTHY = "UNHEALTHY"
 WEB_STOPPED = "STOPPED"
+WEB_PAUSED = "PAUSED"
 
 _WEB_PS_FORMAT = "{{.ID}}|{{.State}}|{{.Status}}"
 _WEB_RESTART_COUNT_FORMAT = "{{.RestartCount}}"
@@ -2075,7 +2093,8 @@ def _web_starting(status):
 
 
 def _compose_web_state(ps_out, restart_count):
-    """WEB_RUNNING, WEB_UNHEALTHY or WEB_STOPPED from _WEB_PS_FORMAT lines.
+    """WEB_RUNNING, WEB_UNHEALTHY, WEB_PAUSED or WEB_STOPPED from
+    _WEB_PS_FORMAT lines.
 
     restart_count(container_id) returns the container's restart count, or
     None when unknown. It is asked only about a container that is starting,
@@ -2091,6 +2110,8 @@ def _compose_web_state(ps_out, restart_count):
         cid = fields[0].strip()
         cstate = fields[1].strip().lower() if len(fields) > 1 else ""
         status = fields[2].strip().lower() if len(fields) > 2 else ""
+        if cstate == "paused" or status == "paused" or "(paused)" in status:
+            return WEB_PAUSED
         if (cstate == "restarting" or status.startswith("restarting")
                 or "(unhealthy)" in status):
             return WEB_UNHEALTHY

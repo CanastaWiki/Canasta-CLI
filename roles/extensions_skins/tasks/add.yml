@@ -35,6 +35,9 @@
     - not (instance_is_k8s | bool)
     - not (skip_enable | default(false) | bool)
 
+- name: Refuse a paused instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/refuse_paused.yml"
+
 - name: Refuse --repository/--branch with several names
   ansible.builtin.fail:
     msg: >-

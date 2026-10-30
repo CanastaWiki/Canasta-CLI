@@ -24,6 +24,9 @@
     instance_path: "{{ instance_path }}"
   when: not (instance_is_k8s | bool)
 
+- name: Refuse a paused instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/refuse_paused.yml"
+
 - name: Set item directory
   ansible.builtin.set_fact:
     _item_dir: "{{ 'skins' if (_item_type == 'skins') else 'extensions' }}"

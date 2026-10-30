@@ -43,6 +43,7 @@ def _stub_root(tmp_path, running):
             "config_unset_secret.yml": [_log(log, "UNSET_SECRET")],
             "check_running.yml": [{"ansible.builtin.set_fact": {
                 "_container_running": running}}],
+            "refuse_paused.yml": [{"ansible.builtin.meta": "noop"}],
         },
         "instance_lifecycle": {"restart.yml": [_log(log, "RESTART")]},
         "common": {"resolve_instance.yml": [{"ansible.builtin.meta": "noop"}]},
