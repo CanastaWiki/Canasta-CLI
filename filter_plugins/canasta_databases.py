@@ -24,12 +24,14 @@ def _load_validator():
 validate_extra_database = _load_validator()
 
 SYSTEM_DATABASES = ("information_schema", "mysql", "performance_schema", "sys")
+DUMP_EXTENSIONS = (".sql.gz", ".sql.xz", ".sql.zst", ".sql")
 
 
 def canasta_extra_dump_plan(paths, stem, wiki, db_groups=None):
     """Sort the dumps found beside a wiki's main dump.
 
-    `paths` are files named <stem>.<database>.sql or .sql.gz. Returns
+    `paths` are files named <stem>.<database>.sql, or .sql.gz, .sql.xz or
+    .sql.zst. Returns
     {"load": [database, ...], "skipped": [{"file", "reason"}, ...]}. A file
     is skipped when its database name is not one `backup databases add`
     accepts, names the wiki's own database or a MariaDB system database, or
@@ -48,7 +50,7 @@ def canasta_extra_dump_plan(paths, stem, wiki, db_groups=None):
             continue
         rest = path[len(prefix):]
         name = None
-        for ext in (".sql.gz", ".sql"):
+        for ext in DUMP_EXTENSIONS:
             if rest.endswith(ext):
                 name = rest[:-len(ext)]
                 break

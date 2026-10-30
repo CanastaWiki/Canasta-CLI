@@ -316,9 +316,9 @@ commands:
 
       With --database, the wiki is created from the dump instead of by the
       installer. Dumps that `canasta export` writes beside the main one for
-      the wiki's extra databases (`<stem>.<database>.sql` or `.sql.gz`,
-      where `<stem>` is the main dump's path without its `.sql`/`.sql.gz`
-      extension) are imported too, and each database is declared for the
+      the wiki's extra databases (`<stem>.<database>.sql`, `.sql.gz`,
+      `.sql.xz` or `.sql.zst`, where `<stem>` is the main dump's path
+      without its `.sql` extension and compression suffix) are imported too, and each database is declared for the
       wiki (see `canasta backup databases`). A file whose database name is
       not valid, is a MariaDB system database, or is another wiki's
       database is reported and skipped.
@@ -452,8 +452,9 @@ commands:
         mutual_exclusion: skip_install
         description: >-
           Path on the controller (the machine running canasta) to an
-          existing database dump (.sql or .sql.gz). Extra-database dumps
-          beside it (<stem>.<database>.sql or .sql.gz) are imported and
+          existing database dump (plain SQL, or compressed with gzip, xz or
+          zstd). Extra-database dumps beside it (<stem>.<database>.sql,
+          .sql.gz, .sql.xz or .sql.zst) are imported and
           declared for the wiki.
       - name: skip_install
         type: bool
@@ -1213,9 +1214,10 @@ commands:
       wiki's schema.
 
       With --database, dumps that `canasta export` writes beside the main
-      one for the wiki's extra databases (`<stem>.<database>.sql` or
-      `.sql.gz`, where `<stem>` is the main dump's path without its
-      `.sql`/`.sql.gz` extension) are imported too, and each database is
+      one for the wiki's extra databases (`<stem>.<database>.sql`,
+      `.sql.gz`, `.sql.xz` or `.sql.zst`, where `<stem>` is the main dump's
+      path without its `.sql` extension and compression suffix) are
+      imported too, and each database is
       declared for the new wiki (see `canasta backup databases`). A file
       whose database name is not valid, is a MariaDB system database, or
       is a database another wiki in the instance uses is reported and
@@ -1254,8 +1256,9 @@ commands:
         mutual_exclusion: skip_install
         description: >-
           Path on the controller (the machine running canasta) to an
-          existing database dump (.sql or .sql.gz). Extra-database dumps
-          beside it (<stem>.<database>.sql or .sql.gz) are imported and
+          existing database dump (plain SQL, or compressed with gzip, xz or
+          zstd). Extra-database dumps beside it (<stem>.<database>.sql,
+          .sql.gz, .sql.xz or .sql.zst) are imported and
           declared for the new wiki.
       - name: skip_install
         type: bool
@@ -1323,14 +1326,16 @@ commands:
     description: "Import a database into an existing wiki"
     long_description: |
       Import a database dump into an existing wiki, replacing its
-      current database. The instance must be running. Supported
-      formats are .sql and .sql.gz files.
+      current database. The instance must be running. A dump may be plain
+      SQL or compressed with gzip, xz or zstd; its contents, not its name,
+      decide which. For a wiki on an external database, a compressed dump
+      must be gzip, the only format the web container can decompress.
 
       The extra databases the wiki declares (see `canasta backup
       databases`) are imported too, each from the dump `canasta export`
-      writes beside the main one: `<stem>.<database>.sql` or
-      `.sql.gz`, where `<stem>` is the main dump's path without its
-      `.sql`/`.sql.gz` extension. An extra database with no such dump is
+      writes beside the main one: `<stem>.<database>.sql`, `.sql.gz`,
+      `.sql.xz` or `.sql.zst`, where `<stem>` is the main dump's path
+      without its `.sql` extension and compression suffix. An extra database with no such dump is
       left as it is, and reported.
 
       After the import, update.php runs for the wiki so an older dump's
@@ -1341,6 +1346,7 @@ commands:
       flag with `canasta create` or `canasta add` instead.
     examples:
       - "canasta import -w main -d dump.sql"
+      - "canasta import -w main -d dump.sql.xz"
     playbook: import.yml
     parameters:
       - name: id
@@ -1356,7 +1362,7 @@ commands:
         short: d
         type: path
         required: true
-        description: "Path on the controller (the machine running canasta) to a SQL dump file (.sql or .sql.gz)"
+        description: "Path on the controller (the machine running canasta) to a SQL dump file (plain, or compressed with gzip, xz or zstd)"
       - name: wiki_settings
         short: l
         type: path
