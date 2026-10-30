@@ -1,0 +1,34 @@
+---
+# Migration: a redis service defined in docker-compose.override.yml, or a
+# sidecar named redis, merges into the managed redis service and takes on
+# its redis profile, so it stops starting while CANASTA_ENABLE_REDIS is off.
+# Turn the flag on for such an instance; the user's image, command and
+# volumes still win the merge. config set also records the flag in a gitops
+# instance's vars. Kubernetes has no profiles, so its sidecar keeps running.
+
+- name: Note whether the instance runs its own redis service
+  ansible.builtin.set_fact:
+    _mig_own_redis: >-
+      {{ not (instance_is_k8s | bool)
+         and ('redis' in (_mig.override_services | default([]))
+              or 'redis' in (_mig.sidecar_names | default([])))
+         and not (_mig.env_present.CANASTA_ENABLE_REDIS | default(false)
+                  | bool) }}
+
+- name: Enable Redis for the instance's own redis service
+  ansible.builtin.include_role:
+    name: config
+    tasks_from: set.yml
+  vars:
+    config_settings_override: "CANASTA_ENABLE_REDIS=true"
+    no_restart: true
+    config_restart_by_caller: true
+    config_set_caller_reports: true
+  when: _mig_own_redis | bool
+
+- name: Report enabling Redis for the instance's own redis service
+  ansible.builtin.debug:
+    msg: >-
+      Set CANASTA_ENABLE_REDIS=true so the instance's own redis service
+      keeps running.
+  when: _mig_own_redis | bool

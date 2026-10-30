@@ -95,3 +95,33 @@ def test_the_chart_runs_redis_only_when_enabled():
         "--maxmemory-policy", "allkeys-lru",
         "--save", "", "--appendonly", "no"]
     assert '- name: CANASTA_ENABLE_REDIS\n              value: "true"' in on
+
+
+UPGRADE_MAIN = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "main.yml")
+ADOPT = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "migrations",
+                     "adopt_own_redis.yml")
+
+
+def test_upgrade_enables_redis_for_the_instances_own_redis_service():
+    loop = next(t for t in _load(UPGRADE_MAIN)
+                if t.get("name") == "Run migrations")["loop"]
+    assert "adopt_own_redis.yml" in loop
+    note, enable, report = _load(ADOPT)
+    decision = note["ansible.builtin.set_fact"]["_mig_own_redis"]
+    assert "'redis' in (_mig.override_services | default([]))" in decision
+    assert "'redis' in (_mig.sidecar_names | default([]))" in decision
+    assert "not (instance_is_k8s | bool)" in decision
+    assert "_mig.env_present.CANASTA_ENABLE_REDIS" in decision
+    assert enable["ansible.builtin.include_role"] == {
+        "name": "config", "tasks_from": "set.yml"}
+    assert enable["vars"]["config_settings_override"] == (
+        "CANASTA_ENABLE_REDIS=true")
+    assert enable["vars"]["no_restart"] is True
+    assert enable["when"] == report["when"] == "_mig_own_redis | bool"
+
+
+def test_a_new_sidecar_cannot_be_named_redis():
+    from canasta_validate import validate_sidecar_name
+    assert "reserved" in validate_sidecar_name("redis")
+    assert validate_sidecar_name("redis", existing=True) is None
+    assert "reserved" in validate_sidecar_name("web", existing=True)
