@@ -81,23 +81,27 @@
         copy_src: "{{ _import_src }}"
         copy_dest: "{{ _import_container_file }}"
 
-    - name: Import gzipped database
+    # The dump's leading bytes, not its name, decide how it is read: gzip,
+    # xz and zstd are decompressed in the container, anything else is fed
+    # to mariadb as SQL. The db container has all three tools; the web
+    # container, used for an external database, has only gunzip.
+    - name: Import the database dump
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
       vars:
         exec_service: "{{ _db_admin_service }}"
         exec_dotenv: "{{ _db_admin_dotenv }}"
-        exec_command: "gunzip -c {{ _import_container_file }} | {{ _db_admin_pwd }} mariadb {{ _db_admin_args }} '{{ import_wiki_id }}'"
+        exec_command: >-
+          set -o pipefail 2>/dev/null; f={{ _import_container_file }};
+          case "$(head -c 6 "$f" | od -An -tx1 | tr -d ' \n')" in
+          1f8b*) d=gunzip ;; fd377a585a00) d=xz ;; 28b52ffd*) d=zstd ;; *) d= ;;
+          esac;
+          if [ -z "$d" ]; then
+          {{ _db_admin_pwd }} mariadb {{ _db_admin_args }} '{{ import_wiki_id }}' < "$f";
+          elif command -v "$d" >/dev/null 2>&1; then
+          "$d" -dc "$f" | {{ _db_admin_pwd }} mariadb {{ _db_admin_args }} '{{ import_wiki_id }}';
+          else echo "The dump is $d-compressed, and the {{ _db_admin_service }}
+          container has no $d to decompress it; decompress it first." >&2; exit 3; fi
         exec_long: true
-      when: _is_gzipped | bool
-
-    - name: Import plain SQL database
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-      vars:
-        exec_service: "{{ _db_admin_service }}"
-        exec_dotenv: "{{ _db_admin_dotenv }}"
-        exec_command: "{{ _db_admin_pwd }} mariadb {{ _db_admin_args }} '{{ import_wiki_id }}' < {{ _import_container_file }}"
-        exec_long: true
-      when: not (_is_gzipped | bool)
   always:
     - name: Clean up transferred dump from target host
       ansible.builtin.file:

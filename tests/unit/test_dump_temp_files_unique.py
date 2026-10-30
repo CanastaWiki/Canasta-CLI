@@ -159,7 +159,7 @@ class TestImport:
         assert os.path.exists(runs[0]["import_database_path"])
 
     def test_load_and_cleanup_use_the_copied_file(self, tmp_path):
-        for name, load in (("d.sql.gz", "gunzip -c %s |"), ("d.sql", "< %s")):
+        for name, load in (("d.sql.gz", "f=%s;"), ("d.sql", "f=%s;")):
             sub = tmp_path / name.replace(".", "_")
             sub.mkdir()
             lines = _run(sub, IMPORT, self._imports(sub, name)[:1])
