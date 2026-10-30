@@ -7,9 +7,18 @@
 # bouncer_enroll storing the API key during a start/upgrade auto-enroll)
 # already resolved the instance, and re-resolving from CWD would pick the
 # wrong directory when the CLI was invoked outside the instance dir.
+- name: Note whether config set resolves the instance itself
+  ansible.builtin.set_fact:
+    _config_set_top_level: "{{ instance_path is not defined }}"
+
 - name: Resolve instance (skip if caller already resolved it)
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
-  when: instance_path is not defined
+  when: _config_set_top_level | bool
+
+# Internal callers run while their own command manages the instance.
+- name: Refuse a paused instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/refuse_paused.yml"
+  when: _config_set_top_level | bool
 
 # Internal callers (crowdsec bouncer_enroll storing the API key) run during
 # a config-set-triggered restart, where `settings` is an Ansible extra-var

@@ -25,7 +25,7 @@ DEFS = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
 
 
 def _images_import_task(tasks):
-    return next((t for t in tasks
+    return next((t for t in _walk(tasks)
                  if (t.get("ansible.builtin.include_role") or {}).get(
                      "tasks_from") == "import_images.yml"), None)
 
