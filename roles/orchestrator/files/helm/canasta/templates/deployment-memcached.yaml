@@ -1,0 +1,44 @@
+{{- if .Values.memcached.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "canasta.fullname" . }}-memcached
+  namespace: {{ include "canasta.namespace" . }}
+  labels:
+    {{- include "canasta.labels" . | nindent 4 }}
+    app.kubernetes.io/component: memcached
+  annotations:
+    {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "canasta.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: memcached
+  template:
+    metadata:
+      labels:
+        {{- include "canasta.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: memcached
+    spec:
+      containers:
+        - name: memcached
+          image: {{ .Values.memcached.image }}
+          args: ["memcached", "-m", "{{ int .Values.memcached.memory }}"]
+          ports:
+            - name: memcached
+              containerPort: 11211
+              protocol: TCP
+          {{- with .Values.memcached.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            tcpSocket:
+              port: memcached
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: memcached
+            periodSeconds: 30
+{{- end }}

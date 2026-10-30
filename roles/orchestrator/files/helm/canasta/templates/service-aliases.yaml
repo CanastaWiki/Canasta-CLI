@@ -1,7 +1,8 @@
 {{/*
 Services matching Docker Compose service names.
 The Canasta container entrypoint, default VCL, and MediaWiki config
-reference services by their Compose names (caddy, db, web, varnish, elasticsearch).
+reference services by their Compose names (caddy, db, web, varnish, elasticsearch,
+memcached).
 */}}
 apiVersion: v1
 kind: Service
@@ -147,4 +148,27 @@ spec:
   selector:
     {{- include "canasta.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: crowdsec
+{{- end }}
+{{- if .Values.memcached.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: memcached
+  namespace: {{ include "canasta.namespace" . }}
+  labels:
+    {{- include "canasta.labels" . | nindent 4 }}
+    app.kubernetes.io/component: memcached
+  annotations:
+    {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 11211
+      targetPort: memcached
+      protocol: TCP
+      name: memcached
+  selector:
+    {{- include "canasta.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: memcached
 {{- end }}
