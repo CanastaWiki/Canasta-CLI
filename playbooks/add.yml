@@ -534,7 +534,10 @@
     msg: >-
       Wiki '{{ wiki }}' added to instance '{{ instance_id }}'{% if _add_extra_dbs | default([]) %},
       with extra database(s) {{ _add_extra_dbs | join(', ') }} imported and
-      declared{% endif %}.
+      declared{% endif %}.{% if database | default('') != '' %}
+      {% if _rx_timed_out | default(false) | bool %}Its schema update had not
+      finished when the wait ended.{% else %}Its schema was updated.{% endif %}{%
+      endif %}
   when: not (_add_stage_only | default(false) | bool)
 
 - name: Report the wiki staged for a gitops push
