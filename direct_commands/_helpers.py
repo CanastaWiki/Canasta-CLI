@@ -1198,7 +1198,8 @@ def _compose_exec_args(service, user=None):
     return args + [service]
 
 
-def _exec_in_container(inst_id, inst, command, service="web", user=None):
+def _exec_in_container(inst_id, inst, command, service="web", user=None,
+                       timeout=30):
     """Execute a command inside a container/pod. Returns (rc, stdout).
 
     user runs the command as that container user."""
@@ -1207,7 +1208,8 @@ def _exec_in_container(inst_id, inst, command, service="web", user=None):
     if _is_k8s(inst):
         if not _is_localhost(host):
             return _ssh_run(host, _k8s_remote_exec_cmd(
-                inst_id, service, command, forward_stdin=False, user=user))
+                inst_id, service, command, forward_stdin=False, user=user),
+                timeout=timeout)
         ns = _k8s_namespace(inst_id)
         pod = _k8s_get_pod(ns, service)
         if not pod:
@@ -1216,7 +1218,7 @@ def _exec_in_container(inst_id, inst, command, service="web", user=None):
             result = subprocess.run(
                 ["kubectl", "exec", pod, "-n", ns, "-c", service, "--"]
                 + _k8s_user_argv(user) + ["/bin/bash", "-c", command],
-                capture_output=True, text=True, timeout=30,
+                capture_output=True, text=True, timeout=timeout,
             )
             return result.returncode, result.stdout
         except (subprocess.TimeoutExpired, OSError):
@@ -1228,7 +1230,7 @@ def _exec_in_container(inst_id, inst, command, service="web", user=None):
             result = subprocess.run(
                 compose_cmd + _compose_exec_args(service, user) + [
                     "/bin/bash", "-c", command],
-                cwd=path, capture_output=True, text=True, timeout=30,
+                cwd=path, capture_output=True, text=True, timeout=timeout,
             )
             return result.returncode, result.stdout
         except (subprocess.TimeoutExpired, OSError):
@@ -1242,6 +1244,7 @@ def _exec_in_container(inst_id, inst, command, service="web", user=None):
             " ".join(_compose_exec_args(service, user)),
             _shell_quote(command),
         ),
+        timeout=timeout,
     )
     return rc, stdout
 

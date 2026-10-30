@@ -101,6 +101,13 @@ canasta_known_keys:
       limit. With MW_JOB_RUNNER_MAXTIME also set, a pass stops at whichever
       limit it reaches first
 
+  - name: CANASTA_DOCTOR_JOB_BACKLOG
+    group: Diagnostics
+    description: >-
+      Jobs a wiki's queue may hold before canasta doctor reports it as
+      backlogged
+    default: "10000"
+
   - name: MW_ENABLE_TRANSCODER
     group: Maintenance scripts
     description: Run the video transcoder job runner

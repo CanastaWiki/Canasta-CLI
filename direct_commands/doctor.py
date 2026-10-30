@@ -1967,6 +1967,76 @@ def _k8s_web_problem(inst):
     return what, logs, cause
 
 
+JOB_BACKLOG_KEY = "CANASTA_DOCTOR_JOB_BACKLOG"
+JOB_BACKLOG_DEFAULT = 10000
+_JOB_TYPES_SHOWN = 3
+# `showJobs --group` prints one line per job type, such as
+# "refreshLinks: 12 queued; 0 claimed (0 active, 0 abandoned); 0 delayed".
+_JOB_GROUP_LINE = re.compile(r"^(\S+): (\d+) queued")
+_WIKI_MARK = "@@wiki "
+
+
+def _job_backlog_threshold(inst):
+    raw = (_helpers._read_env_for(inst, JOB_BACKLOG_KEY) or "").strip()
+    try:
+        return max(int(raw), 0) if raw else JOB_BACKLOG_DEFAULT
+    except ValueError:
+        return JOB_BACKLOG_DEFAULT
+
+
+def _parse_job_groups(out):
+    """{wiki: [(job type, queued)]} from the per-wiki showJobs output."""
+    queues = {}
+    wiki = None
+    for line in (out or "").splitlines():
+        if line.startswith(_WIKI_MARK):
+            wiki = line[len(_WIKI_MARK):].strip()
+            queues[wiki] = []
+            continue
+        m = _JOB_GROUP_LINE.match(line.strip())
+        if wiki is not None and m:
+            queues[wiki].append((m.group(1), int(m.group(2))))
+    return queues
+
+
+def _job_backlog_warnings(queues, threshold):
+    """One line per wiki whose queue is above threshold, largest first."""
+    lines = []
+    totals = {w: sum(n for _, n in groups) for w, groups in queues.items()}
+    for wiki in sorted(totals, key=lambda w: -totals[w]):
+        if totals[wiki] <= threshold:
+            continue
+        top = sorted(queues[wiki], key=lambda g: -g[1])[:_JOB_TYPES_SHOWN]
+        lines.append("  WARN — %s: %s jobs queued (%s)" % (
+            wiki, "{:,}".format(totals[wiki]),
+            ", ".join("%s %s" % (t, "{:,}".format(n)) for t, n in top)))
+    return lines
+
+
+def _job_backlog_lines(inst):
+    """doctor lines for wikis whose job queue is above the threshold, or []
+    when none is, or the web container cannot be read."""
+    wikis = [w.get("id") for w in _helpers._read_wikis(
+        inst.get("path", ""), inst.get("host") or "localhost") if w.get("id")]
+    if not wikis:
+        return []
+    script = ('for w in %s; do echo "%s$w"; php maintenance/run.php '
+              'showJobs --wiki="$w" --group 2>/dev/null; done'
+              % (" ".join(shlex.quote(w) for w in wikis), _WIKI_MARK))
+    rc, out = _helpers._exec_in_container(
+        inst.get("id", "?"), inst, script, user="www-data", timeout=120)
+    if rc != 0:
+        return []
+    threshold = _job_backlog_threshold(inst)
+    warnings = _job_backlog_warnings(_parse_job_groups(out), threshold)
+    if not warnings:
+        return []
+    return ["", "Job queues (%s):" % inst.get("id", "?")] + warnings + [
+        "  Above %s jobs (%s). Check that the job runner is enabled "
+        "(MW_ENABLE_JOB_RUNNER) and not failing on one job type." % (
+            "{:,}".format(threshold), JOB_BACKLOG_KEY)]
+
+
 def _paused_lines(inst, paused):
     """doctor lines for an instance with paused containers, whose
     in-container and served-site checks cannot run."""
@@ -2099,6 +2169,9 @@ def cmd_doctor(args):
 
         if not paused:
             for line in _composer_failure_lines(inst):
+                print(line)
+
+            for line in _job_backlog_lines(inst):
                 print(line)
 
     if probe_timed_out:
