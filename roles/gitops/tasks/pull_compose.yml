@@ -90,14 +90,58 @@
             in ['source', 'both'] }}
   when: gitops_resolve_mode | default('') != 'continue'
 
+# Discarding has to leave the sources as the sync last staged them: the sync
+# compares .env with that staged copy, so restoring only the working tree of
+# its own files lets reconcile's render put .env back to the repository's
+# values. Restoring the index too makes .env look edited again, and the next
+# pull writes the same changes back. The pull itself does not render when
+# nothing new arrives, so reconcile has to.
 - name: Fail if uncommitted changes exist
   ansible.builtin.fail:
     msg: >-
       Cannot pull: the instance directory has local changes to tracked
-      files that a pull could overwrite. Share them with
-      'canasta gitops add <file>' then 'canasta gitops push', or discard
-      them with 'git checkout HEAD -- <file>', then retry.
-      Changed files: {{ _pull_uncommitted.stdout }}
+      files that a pull could overwrite: {{ _pull_changed | join(', ') }}.
+      {% if _pull_unpushable | length > 0 -%}
+      This host's .env sets
+      {{ _pull_sync_keys | join(', ') if _pull_sync_keys else 'settings' }}
+      differently from the gitops sources, and the pull saved that in
+      {{ _pull_unpushable | join(', ') }}, but host '{{ _pull_host }}' has
+      role '{{ _pull_host_role }}' and cannot push. To keep a change, make
+      it on a host that can push and push it from there, then discard it
+      here as below; the pull brings it back.
+      {%- else -%}
+      To keep them, share them with 'canasta gitops add <file>' then
+      'canasta gitops push'.
+      {%- endif %}
+      To discard them, run {{ _pull_discard | join(' and ') }} in
+      {{ instance_path }}{{ (", then 'canasta reconcile -i " ~ instance_id
+      ~ "' to render .env from the repository again")
+      if _pull_restore else '' }}, and retry.
+  vars:
+    _pull_host: "{{ _sync_env_host_raw.content | default('') | b64decode | trim }}"
+    _pull_changed: >-
+      {{ _pull_uncommitted.stdout_lines | map('regex_replace', '^...', '') | list }}
+    _pull_env_sources:
+      - env.template
+      - "hosts/{{ _pull_host }}/vars.yaml"
+      - hosts/_shared/vars.yaml
+    _pull_restore: "{{ _pull_changed | select('in', _pull_env_sources) | list }}"
+    _pull_reset: "{{ _pull_changed | reject('in', _pull_env_sources) | list }}"
+    _pull_discard: >-
+      {{ (["'git restore --source=HEAD --worktree -- "
+           ~ (_pull_restore | join(' ')) ~ "'"] if _pull_restore else [])
+         + (["'git checkout HEAD -- " ~ (_pull_reset | join(' ')) ~ "'"]
+            if _pull_reset else []) }}
+    _pull_unpushable: >-
+      {{ [] if _pull_commit_sync | bool else _pull_sync_paths }}
+    _pull_host_role: >-
+      {{ ((_pull_hosts_raw.content | default('') | b64decode | from_yaml
+           or {}).hosts | default([])
+          | selectattr('name', 'equalto', _pull_host)
+          | first | default({})).get('role', 'both') }}
+    _pull_sync_keys: >-
+      {{ ((_sync_env_plan.set | default({}) | list)
+          + (_sync_env_plan.unset | default([]))) | sort }}
   when:
     - gitops_resolve_mode | default('') != 'continue'
     - _pull_uncommitted.stdout | trim | length > 0

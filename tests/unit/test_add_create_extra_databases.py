@@ -192,7 +192,7 @@ class TestAdd:
             ("docs_cargo", "-- dump docs.docs_cargo.sql"),
             ("smw-store", "-- dump docs.smw-store.sql.gz"),
         ]
-        assert any(re.search(r"gunzip -c /tmp/canasta-import-[a-z0-9]{16}\.sql\.gz ", ln)
+        assert any(re.search(r"f=/tmp/canasta-import-[a-z0-9]{16}\.sql\.gz;", ln)
                    and "'smw-store'" in ln
                    for ln in lines)
         assert any("CREATE DATABASE IF NOT EXISTS `docs_cargo`" in ln

@@ -316,9 +316,9 @@ commands:
 
       With --database, the wiki is created from the dump instead of by the
       installer. Dumps that `canasta export` writes beside the main one for
-      the wiki's extra databases (`<stem>.<database>.sql` or `.sql.gz`,
-      where `<stem>` is the main dump's path without its `.sql`/`.sql.gz`
-      extension) are imported too, and each database is declared for the
+      the wiki's extra databases (`<stem>.<database>.sql`, `.sql.gz`,
+      `.sql.xz` or `.sql.zst`, where `<stem>` is the main dump's path
+      without its `.sql` extension and compression suffix) are imported too, and each database is declared for the
       wiki (see `canasta backup databases`). A file whose database name is
       not valid, is a MariaDB system database, or is another wiki's
       database is reported and skipped.
@@ -452,8 +452,9 @@ commands:
         mutual_exclusion: skip_install
         description: >-
           Path on the controller (the machine running canasta) to an
-          existing database dump (.sql or .sql.gz). Extra-database dumps
-          beside it (<stem>.<database>.sql or .sql.gz) are imported and
+          existing database dump (plain SQL, or compressed with gzip, xz or
+          zstd). Extra-database dumps beside it (<stem>.<database>.sql,
+          .sql.gz, .sql.xz or .sql.zst) are imported and
           declared for the wiki.
       - name: skip_install
         type: bool
@@ -1215,9 +1216,10 @@ commands:
       wiki's schema.
 
       With --database, dumps that `canasta export` writes beside the main
-      one for the wiki's extra databases (`<stem>.<database>.sql` or
-      `.sql.gz`, where `<stem>` is the main dump's path without its
-      `.sql`/`.sql.gz` extension) are imported too, and each database is
+      one for the wiki's extra databases (`<stem>.<database>.sql`,
+      `.sql.gz`, `.sql.xz` or `.sql.zst`, where `<stem>` is the main dump's
+      path without its `.sql` extension and compression suffix) are
+      imported too, and each database is
       declared for the new wiki (see `canasta backup databases`). A file
       whose database name is not valid, is a MariaDB system database, or
       is a database another wiki in the instance uses is reported and
@@ -1256,8 +1258,9 @@ commands:
         mutual_exclusion: skip_install
         description: >-
           Path on the controller (the machine running canasta) to an
-          existing database dump (.sql or .sql.gz). Extra-database dumps
-          beside it (<stem>.<database>.sql or .sql.gz) are imported and
+          existing database dump (plain SQL, or compressed with gzip, xz or
+          zstd). Extra-database dumps beside it (<stem>.<database>.sql,
+          .sql.gz, .sql.xz or .sql.zst) are imported and
           declared for the new wiki.
       - name: skip_install
         type: bool
@@ -1325,14 +1328,16 @@ commands:
     description: "Import a database into an existing wiki"
     long_description: |
       Import a database dump into an existing wiki, replacing its
-      current database. The instance must be running. Supported
-      formats are .sql and .sql.gz files.
+      current database. The instance must be running. A dump may be plain
+      SQL or compressed with gzip, xz or zstd; its contents, not its name,
+      decide which. For a wiki on an external database, a compressed dump
+      must be gzip, the only format the web container can decompress.
 
       The extra databases the wiki declares (see `canasta backup
       databases`) are imported too, each from the dump `canasta export`
-      writes beside the main one: `<stem>.<database>.sql` or
-      `.sql.gz`, where `<stem>` is the main dump's path without its
-      `.sql`/`.sql.gz` extension. An extra database with no such dump is
+      writes beside the main one: `<stem>.<database>.sql`, `.sql.gz`,
+      `.sql.xz` or `.sql.zst`, where `<stem>` is the main dump's path
+      without its `.sql` extension and compression suffix. An extra database with no such dump is
       left as it is, and reported.
 
       After the import, update.php runs for the wiki so an older dump's
@@ -1343,6 +1348,7 @@ commands:
       flag with `canasta create` or `canasta add` instead.
     examples:
       - "canasta import -w main -d dump.sql"
+      - "canasta import -w main -d dump.sql.xz"
     playbook: import.yml
     parameters:
       - name: id
@@ -1358,7 +1364,7 @@ commands:
         short: d
         type: path
         required: true
-        description: "Path on the controller (the machine running canasta) to a SQL dump file (.sql or .sql.gz)"
+        description: "Path on the controller (the machine running canasta) to a SQL dump file (plain, or compressed with gzip, xz or zstd)"
       - name: wiki_settings
         short: l
         type: path
@@ -1777,8 +1783,9 @@ commands:
       the common cause of version-mismatch regressions.
       Only user extensions (vendored as submodules) can be pinned. A
       bundled extension has no per-instance submodule, so this refuses it —
-      to use a different version, add it to your extensions/ directory,
-      where a user copy overrides the bundled one. Pass `--run-update` to
+      to use a different version, add it with `canasta extension add
+      --override`, whose copy overrides the bundled one and, on a gitops
+      instance, can then be pinned here. Pass `--run-update` to
       apply any database schema changes for the new version immediately;
       otherwise run `canasta maintenance update` afterward if the version
       touches the schema.
@@ -1810,11 +1817,11 @@ commands:
       Add a MediaWiki extension to the instance and enable it. Each name is
       matched case-insensitively and handled in this order:
 
+      # Already in the instance's extensions/ directory: the existing checkout is
+        kept and its branch is verified.
       # Bundled with Canasta (shipped in the image): nothing is cloned; the
         extension is only enabled. `--repository` and `--branch` are refused,
-        since the image sets its version.
-      # Already in the instance's extensions/ directory: the existing
-        checkout is kept and its branch is verified.
+        since the image sets its version, unless `--override` is given.
       # Otherwise it is cloned into extensions/, which requires `--clone`
         (or an explicit `--repository`). Without it the command fails before
         changing anything and names the URL it would clone and where that
@@ -1842,6 +1849,15 @@ commands:
       update after which the autoloader requires a missing file, with the
       registration rolled back so the wikis keep loading.
 
+      With `--override`, a bundled extension is cloned like any other, at the
+      branch `--branch` names (or the automatic one), from `--repository` or
+      the usual lookup, and `--clone` is not needed. The copy in extensions/
+      overrides the bundled one: the command warns, naming both versions, and
+      restarts the instance so the copy is loaded. `canasta extension list` marks
+      it, `canasta upgrade` warns while its version differs from the bundled
+      one, and `canasta extension remove` deletes the copy, so the bundled extension is
+      used again, still enabled.
+
       On a gitops instance the extension is added as a submodule and committed
       (run `canasta gitops push` to distribute it). The extension is then
       enabled automatically (write settings + run update.php); use
@@ -1854,6 +1870,7 @@ commands:
       - "canasta extension add DarkMode --clone"
       - "canasta extension add DarkMode --clone --mw-version 1.43.2"
       - "canasta extension add MyExtension --repository https://example.org/MyExtension.git --branch main"
+      - "canasta extension add SemanticMediaWiki --override --branch 7.2.1"
     playbook: extension_add.yml
     orchestrators: [compose]
     orchestrators_note: >-
@@ -1886,6 +1903,10 @@ commands:
         type: bool
         default: false
         description: "Allow cloning extensions that are neither bundled nor already in extensions/"
+      - name: override
+        type: bool
+        default: false
+        description: "Clone a bundled extension into extensions/, where the copy overrides the bundled one"
       - name: skip_enable
         type: bool
         default: false
@@ -1990,11 +2011,11 @@ commands:
       Add a MediaWiki skin to the instance and enable it. Each name is
       matched case-insensitively and handled in this order:
 
-      # Bundled with Canasta (shipped in the image): nothing is cloned; the
-        skin is only enabled. `--repository` and `--branch` are refused,
-        since the image sets its version.
       # Already in the instance's skins/ directory: the existing checkout is
         kept and its branch is verified.
+      # Bundled with Canasta (shipped in the image): nothing is cloned; the
+        skin is only enabled. `--repository` and `--branch` are refused,
+        since the image sets its version, unless `--override` is given.
       # Otherwise it is cloned into skins/, which requires `--clone` (or an
         explicit `--repository`). Without it the command fails before
         changing anything and names the URL it would clone and where that
@@ -2021,6 +2042,15 @@ commands:
       not ship is not registered, and the command fails; so does a composer
       update after which the autoloader requires a missing file, with the
       registration rolled back so the wikis keep loading.
+
+      With `--override`, a bundled skin is cloned like any other, at the
+      branch `--branch` names (or the automatic one), from `--repository` or
+      the usual lookup, and `--clone` is not needed. The copy in skins/
+      overrides the bundled one: the command warns, naming both versions, and
+      restarts the instance so the copy is loaded. `canasta skin list` marks
+      it, `canasta upgrade` warns while its version differs from the bundled
+      one, and `canasta skin remove` deletes the copy, so the bundled skin is
+      used again, still enabled.
 
       On a gitops instance the skin is added as a submodule and committed (run
       `canasta gitops push` to distribute it). The skin is then enabled
@@ -2065,6 +2095,10 @@ commands:
         type: bool
         default: false
         description: "Allow cloning skins that are neither bundled nor already in skins/"
+      - name: override
+        type: bool
+        default: false
+        description: "Clone a bundled skin into skins/, where the copy overrides the bundled one"
       - name: skip_enable
         type: bool
         default: false
@@ -3976,8 +4010,10 @@ commands:
 
       On a Docker or Podman host, removes the Canasta image tags no instance
       registered on the host is pinned to, and the `--build-from` images
-      (`canasta:local-<id>`) of instances no longer registered, then prunes
-      dangling layers. A
+      (`canasta:local-<id>`) of instances no longer registered, and the
+      CanastaBase image they were built on (`canasta-base:local`) once no
+      registered instance's `--build-from` image remains and no Kubernetes
+      instance is on the host, then prunes dangling layers. A
       host carrying both runtimes is reclaimed in each. On a Kubernetes
       host, prunes containerd images no pod references, then runs the
       in-cluster registry's garbage collector (with `--delete-untagged`) and
