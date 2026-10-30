@@ -58,7 +58,7 @@ def validate_wiki_id(value):
 RESERVED_SIDECAR_NAMES = [
     "web", "db", "caddy", "varnish", "crowdsec", "elasticsearch",
     "jobrunner", "logstash", "opensearch", "opensearch-dashboards",
-    "observable-init", "mediawiki", "registry", "memcached",
+    "observable-init", "mediawiki", "registry", "redis",
 ]
 
 # DNS label: lowercase alphanumeric and hyphens, no leading/trailing

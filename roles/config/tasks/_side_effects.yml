@@ -320,7 +320,7 @@
     - not (instance_is_k8s | bool)
     - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ENABLE_VARNISH',
                       'CANASTA_ENABLE_OBSERVABILITY', 'CANASTA_ENABLE_CROWDSEC',
-                      'CANASTA_ENABLE_MEMCACHED', 'TRUSTED_PROXIES']
+                      'CANASTA_ENABLE_REDIS', 'TRUSTED_PROXIES']
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
 
@@ -377,8 +377,8 @@
 #   MW_SITE_FQDN           → domains: [<value>]
 #   CANASTA_ENABLE_VARNISH → varnish.enabled: <bool>
 #   CANASTA_ENABLE_ELASTICSEARCH → elasticsearch.enabled: <bool>
-#   CANASTA_ENABLE_MEMCACHED → memcached.enabled: <bool>
-#   CANASTA_MEMCACHED_MEMORY → memcached.memory: <megabytes>
+#   CANASTA_ENABLE_REDIS → redis.enabled: <bool>
+#   CANASTA_REDIS_MEMORY → redis.memory: <megabytes>
 #   CANASTA_STAGING_CERTS  → ingress.certManager.issuer: letsencrypt-{staging,prod}
 #   CANASTA_IMAGE          → image.repository + image.tag
 #   CANASTA_ELASTICSEARCH_IMAGE → elasticsearch.image: <value>
@@ -394,7 +394,7 @@
     - instance_is_k8s | bool
     - _config_key in ['MW_SITE_FQDN', 'CANASTA_ENABLE_VARNISH',
                       'CANASTA_ENABLE_ELASTICSEARCH',
-                      'CANASTA_ENABLE_MEMCACHED', 'CANASTA_MEMCACHED_MEMORY',
+                      'CANASTA_ENABLE_REDIS', 'CANASTA_REDIS_MEMORY',
                       'CANASTA_STAGING_CERTS', 'CANASTA_IMAGE',
                       'CANASTA_ELASTICSEARCH_IMAGE']
   block:
@@ -422,15 +422,15 @@
         _k8s_override: "{{ {'elasticsearch': {'enabled': _config_value | lower == 'true'}} }}"
       when: _config_key == 'CANASTA_ENABLE_ELASTICSEARCH'
 
-    - name: Build values.yaml override for CANASTA_ENABLE_MEMCACHED
+    - name: Build values.yaml override for CANASTA_ENABLE_REDIS
       ansible.builtin.set_fact:
-        _k8s_override: "{{ {'memcached': {'enabled': _config_value | lower == 'true'}} }}"
-      when: _config_key == 'CANASTA_ENABLE_MEMCACHED'
+        _k8s_override: "{{ {'redis': {'enabled': _config_value | lower == 'true'}} }}"
+      when: _config_key == 'CANASTA_ENABLE_REDIS'
 
-    - name: Build values.yaml override for CANASTA_MEMCACHED_MEMORY
+    - name: Build values.yaml override for CANASTA_REDIS_MEMORY
       ansible.builtin.set_fact:
-        _k8s_override: "{{ {'memcached': {'memory': _config_value | int}} }}"
-      when: _config_key == 'CANASTA_MEMCACHED_MEMORY'
+        _k8s_override: "{{ {'redis': {'memory': _config_value | int}} }}"
+      when: _config_key == 'CANASTA_REDIS_MEMORY'
 
     - name: Build values.yaml override for CANASTA_STAGING_CERTS
       ansible.builtin.set_fact:
