@@ -40,6 +40,7 @@ def _stub_root(tmp_path):
     (orch / "exec.yml").write_text(STUB_EXEC)
     (orch / "apply_config.yml").write_text(
         "- ansible.builtin.debug:\n    msg: applied\n")
+    (orch / "refuse_paused.yml").write_text("- ansible.builtin.meta: noop\n")
     es = root / "roles" / "extensions_skins" / "tasks"
     es.mkdir(parents=True)
     (es / "_commit_settings.yml").symlink_to(
