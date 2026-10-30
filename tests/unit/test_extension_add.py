@@ -448,8 +448,8 @@ class TestBundledProbe:
         expr = classify["ansible.builtin.set_fact"]["_classified"]
         assert "item | lower" in expr
         assert "_bundled_map" in expr and "_local_map" in expr
-        # Bundled wins over a local checkout of the same name.
-        assert expr.index("_bundled_map") < expr.index("_local_map")
+        # A local checkout of the same name wins: the web container loads it.
+        assert expr.index("_local_map") < expr.index("_bundled_map")
 
     def test_bundled_items_are_not_resolved(self):
         resolve = next(t for t in _walk(_load(ADD))

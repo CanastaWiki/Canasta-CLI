@@ -81,6 +81,8 @@ def _harness(tmp_path):
            [{"name": "Stub DB account move", **_mark("db_account")}])
     _write(str(upgrade / "tidy_composer_local.yml"),
            [{"name": "Stub composer tidy", **_mark("tidy")}])
+    _write(str(upgrade / "warn_overrides.yml"),
+           [{"ansible.builtin.meta": "noop"}])
     if os.path.exists(RECORD):
         shutil.copy(RECORD, upgrade / "record_restart_failure.yml")
 

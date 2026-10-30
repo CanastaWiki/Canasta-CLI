@@ -207,8 +207,13 @@ def test_the_commit_is_reported_with_a_push():
 def test_refusals_discard_staged_changes_too():
     # The .env sync stages what it writes, which `git checkout -- <file>`
     # leaves in place.
-    for name in ("pull_compose.yml", "_explain_pull_failure.yml"):
-        with open(os.path.join(REPO_ROOT, "roles", "gitops", "tasks", name)) as f:
-            text = f.read()
-        assert "'git checkout HEAD -- <file>'" in text
-        assert "'git checkout -- <file>'" not in text
+    with open(os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
+                           "_explain_pull_failure.yml")) as f:
+        text = f.read()
+    assert "'git checkout HEAD -- <file>'" in text
+    assert "'git checkout -- <file>'" not in text
+
+    discard = _task("Fail if uncommitted changes exist")["vars"]["_pull_discard"]
+    assert "'git checkout HEAD -- " in discard
+    assert "'git restore --source=HEAD --worktree -- " in discard
+    assert "'git checkout -- " not in discard

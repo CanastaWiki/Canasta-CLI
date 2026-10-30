@@ -67,7 +67,7 @@ git-crypt --version 2>/dev/null && echo OK || echo MISSING; echo "$D"
 command -v crontab >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 uname -s 2>/dev/null || echo unknown; echo "$D"
 python3 -c "import os; mem=os.sysconf('SC_PAGE_SIZE')*os.sysconf('SC_PHYS_PAGES')//(1024**3); print(str(mem)+' GB')" 2>/dev/null || echo unknown; echo "$D"
-_store=$(_t docker info --format '{{.DockerRootDir}}' 2>/dev/null); _timedout $? || [ -n "$_store" ] || _store=$(_t podman info --format '{{.Store.GraphRoot}}' 2>/dev/null); [ -n "$_store" ] && [ -d "$_store" ] || _store=/; printf '%%s|%%s\n' "$(df -h "$_store" 2>/dev/null | awk 'NR==2{print $4}')" "$_store"; echo "$D"
+_store=$(_t docker info --format '{{.DockerRootDir}}' 2>/dev/null); _timedout $? || [ -n "$_store" ] || _store=$(_t podman info --format '{{.Store.GraphRoot}}' 2>/dev/null); [ -n "$_store" ] && [ -d "$_store" ] || _store=/; _cr=""; if _t docker info --format '{{json .DriverStatus}}' 2>/dev/null | grep -q 'io.containerd.snapshotter' && [ ! -d "$_store/containerd/daemon" ]; then _cr=$(awk -F'"' '/^[[:space:]]*\[/{exit} /^[[:space:]]*root[[:space:]]*=/{print $2; exit}' /etc/containerd/config.toml 2>/dev/null); [ -n "$_cr" ] || _cr=/var/lib/containerd; [ -d "$_cr" ] && [ "$(df -P "$_cr" 2>/dev/null | awk 'NR==2{print $1}')" != "$(df -P "$_store" 2>/dev/null | awk 'NR==2{print $1}')" ] || _cr=""; fi; printf '%%s|%%s' "$(df -h "$_store" 2>/dev/null | awk 'NR==2{print $4}')" "$_store"; [ -n "$_cr" ] && printf '|%%s|%%s' "$(df -h "$_cr" 2>/dev/null | awk 'NR==2{print $4}')" "$_cr"; echo; echo "$D"
 cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown; echo "$D"
 runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; _sock=""; for s in "$runtime/docker.sock" "$runtime/podman/podman.sock"; do if [ -S "$s" ]; then _sock="unix://$s"; break; fi; done; echo "$_sock"; echo "$D"
 command -v canasta >/dev/null 2>&1 && _check OK BROKEN canasta version || echo MISSING; echo "$D"
@@ -588,12 +588,20 @@ def _disk_line(disk):
 
     The probe reports `avail|path`, measuring the runtime's image store
     rather than `/`: rootless Docker and Podman keep images under the
-    user's home, which is often a different filesystem.
+    user's home, which is often a different filesystem. With Docker's
+    containerd image store, images live under containerd's root instead;
+    when that is on another filesystem the probe appends its
+    `|avail|path`.
     """
-    avail, sep, path = disk.partition("|")
+    avail, sep, rest = disk.partition("|")
     if not sep or not avail.strip():
         return "unknown"
+    path, _, containerd = rest.partition("|")
     path = path.strip() or "/"
+    c_avail, _, c_path = containerd.partition("|")
+    if c_avail.strip() and c_path.strip():
+        return "%s on %s (Docker data root), %s on %s (container image storage)" % (
+            avail.strip(), path, c_avail.strip(), c_path.strip())
     if path == "/":
         return "%s on /" % avail.strip()
     return "%s on %s (container image storage)" % (avail.strip(), path)
@@ -2029,6 +2037,18 @@ def _job_backlog_lines(inst):
             "{:,}".format(threshold), JOB_BACKLOG_KEY)]
 
 
+def _paused_lines(inst, paused):
+    """doctor lines for an instance with paused containers, whose
+    in-container and served-site checks cannot run."""
+    inst_id = inst.get("id", "?")
+    return [
+        "", "Instance (%s):" % inst_id,
+        "  WARN — paused (%s), so the checks inside its containers were "
+        "skipped; 'canasta start -i %s' resumes it." % (
+            ", ".join(paused), inst_id),
+    ]
+
+
 def _web_health_lines(inst):
     """doctor lines for a web container that is crash-looping or failing
     its health check, or [] when it is healthy, stopped or unreadable."""
@@ -2124,18 +2144,22 @@ def cmd_doctor(args):
     for line in _collection_integrity_lines():
         print(line)
 
-    for line in _instance_consistency_lines(inst):
+    paused = (_helpers._compose_paused_services(inst)
+              if inst and not _helpers._is_k8s(inst) else [])
+    for line in (_paused_lines(inst, paused) if paused
+                 else _instance_consistency_lines(inst)):
         print(line)
 
     if inst:
-        for line in _web_health_lines(inst):
-            print(line)
+        if not paused:
+            for line in _web_health_lines(inst):
+                print(line)
 
-        for line in _db_tuning_lines(inst):
-            print(line)
+            for line in _db_tuning_lines(inst):
+                print(line)
 
-        for line in _origin_tls_lines(inst):
-            print(line)
+            for line in _origin_tls_lines(inst):
+                print(line)
 
         for line in _edge_lines(inst):
             print(line)
@@ -2143,11 +2167,12 @@ def cmd_doctor(args):
         for line in _caddy_tls_lines(inst):
             print(line)
 
-        for line in _composer_failure_lines(inst):
-            print(line)
+        if not paused:
+            for line in _composer_failure_lines(inst):
+                print(line)
 
-        for line in _job_backlog_lines(inst):
-            print(line)
+            for line in _job_backlog_lines(inst):
+                print(line)
 
     if probe_timed_out:
         return 1

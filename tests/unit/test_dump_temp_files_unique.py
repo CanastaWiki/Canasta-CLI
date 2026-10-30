@@ -49,7 +49,7 @@ def _stub_root(tmp_path):
     return str(tmp_path / "root"), log
 
 
-def _run(tmp_path, task_file, runs):
+def _run(tmp_path, task_file, runs, extra=(), output=False):
     """Include task_file once per entry of runs (each a vars dict)."""
     root, log = _stub_root(tmp_path)
     play = tmp_path / "play.yml"
@@ -62,12 +62,16 @@ def _run(tmp_path, task_file, runs):
         "tasks": [{"ansible.builtin.include_tasks": task_file, "vars": v}
                   for v in runs],
     }]))
-    env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0")
+    env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
+               ANSIBLE_REMOTE_TEMP=str(tmp_path / "remote-tmp"))
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
-    proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
-                          capture_output=True, text=True, env=env, cwd=tmp_path)
+    proc = subprocess.run(
+        [playbook, "-vvv", "-i", "localhost,", str(play)] + list(extra),
+        capture_output=True, text=True, env=env, cwd=tmp_path,
+        stdin=subprocess.DEVNULL)
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    return log.read_text().splitlines()
+    lines = log.read_text().splitlines()
+    return (lines, proc.stdout) if output else lines
 
 
 def _paths(lines, pattern):
@@ -116,20 +120,46 @@ class TestImport:
         assert all(IMPORT_TMP.fullmatch(c) and c.endswith(".sql.gz")
                    for c in copied)
 
-    def test_the_dump_is_staged_next_to_the_instance(self, tmp_path):
+    def test_local_dump_is_copied_from_where_it_is(self, tmp_path):
+        inst = tmp_path / "inst"
+        inst.mkdir()
+        runs = self._imports(tmp_path, "d.sql.gz")[:1]
+        dump = runs[0]["import_database_path"]
+        link = tmp_path / "link.sql.gz"
+        link.symlink_to(dump)
+        runs = [dict(runs[0], instance_path=str(inst),
+                     import_database_path=str(link))]
+        lines, out = _run(tmp_path, IMPORT, runs, output=True)
+        staged = [ln.split(" ", 1)[1] for ln in lines if ln.startswith("SRC ")]
+        # The symlink is resolved, since docker cp would copy the link itself.
+        assert staged == [dump]
+        assert not re.findall(r"PUT \S+ TO \S+/\.source", out)
+        assert os.path.exists(dump)
+        assert os.listdir(inst) == []
+
+    def test_remote_dump_is_staged_next_to_the_instance(self, tmp_path):
         inst = tmp_path / "inst"
         inst.mkdir()
         runs = [dict(r, instance_path=str(inst))
                 for r in self._imports(tmp_path, "d.sql.gz")[:1]]
-        lines = _run(tmp_path, IMPORT, runs)
+        # The remote path runs over the local connection with the
+        # local-connection check overridden.
+        lines, out = _run(tmp_path, IMPORT, runs, output=True,
+                          extra=["-e", '{"_import_local": false}'])
         staged = [ln.split(" ", 1)[1] for ln in lines if ln.startswith("SRC ")]
         assert len(staged) == 1
-        assert os.path.dirname(staged[0]) == str(inst)
-        assert os.path.basename(staged[0]).startswith(".canasta-import-")
+        stage = os.path.dirname(staged[0])
+        assert os.path.dirname(stage) == str(inst)
+        assert os.path.basename(stage).startswith(".canasta-import-")
+        assert staged[0].endswith(".sql.gz")
+        # The upload is staged in the same dir, not in ansible_remote_tmp.
+        puts = re.findall(r"PUT \S+ TO (\S+/\.source\S*)", out)
+        assert puts and all(p.startswith(stage + os.sep) for p in puts)
         assert os.listdir(inst) == []
+        assert os.path.exists(runs[0]["import_database_path"])
 
     def test_load_and_cleanup_use_the_copied_file(self, tmp_path):
-        for name, load in (("d.sql.gz", "gunzip -c %s |"), ("d.sql", "< %s")):
+        for name, load in (("d.sql.gz", "f=%s;"), ("d.sql", "f=%s;")):
             sub = tmp_path / name.replace(".", "_")
             sub.mkdir()
             lines = _run(sub, IMPORT, self._imports(sub, name)[:1])

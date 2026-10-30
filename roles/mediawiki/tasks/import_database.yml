@@ -33,25 +33,43 @@
     exec_dotenv: "{{ _db_admin_dotenv }}"
     exec_command: "{{ _db_admin_pwd }} mariadb {{ _db_admin_args }} -e 'CREATE DATABASE IF NOT EXISTS `{{ import_wiki_id }}`'"
 
+# On a local connection the dump is already on the target host, so it is
+# copied into the container from where it is. The path is resolved because
+# docker cp copies a symlink rather than its target.
+- name: Check whether the dump is already on the target host
+  ansible.builtin.set_fact:
+    _import_local: >-
+      {{ (ansible_connection | default('')) in ['local', 'ansible.builtin.local'] }}
+
 # Next to the instance rather than in /tmp, which may be a tmpfs too
 # small for the dump.
-- name: Create a private temp file on the target host for the dump
+- name: Create a private temp dir on the target host for the dump
   ansible.builtin.tempfile:
-    state: file
+    state: directory
     path: "{{ instance_path }}"
     prefix: .canasta-import-
-    suffix: "{{ _is_gzipped | bool | ternary('.sql.gz', '.sql') }}"
   register: _import_host_tmp
+  when: not _import_local
+
+- name: Set the dump's path on the target host
+  ansible.builtin.set_fact:
+    _import_src: >-
+      {{ import_database_path | realpath if _import_local
+         else _import_host_tmp.path ~ '/dump.sql'
+              ~ (_is_gzipped | bool | ternary('.gz', '')) }}
 
 - name: Load the dump into the database
   block:
-    # For localhost this is a local copy; for remote hosts ansible transfers
-    # the file, so the source path doesn't need to exist on the remote.
+    # Staging the upload in the temp dir rather than ansible_remote_tmp
+    # (~/.ansible/tmp by default) keeps it on the instance's filesystem.
     - name: Transfer database dump to target host
       ansible.builtin.copy:
         src: "{{ import_database_path }}"
-        dest: "{{ _import_host_tmp.path }}"
+        dest: "{{ _import_src }}"
         mode: "0600"
+      vars:
+        ansible_remote_tmp: "{{ _import_host_tmp.path }}"
+      when: not _import_local
 
     # The orchestrator owns how a file lands in a container (docker
     # compose cp vs kubectl cp); dispatch.
@@ -60,31 +78,36 @@
         {{ canasta_root }}/roles/orchestrator/tasks/copy_into_container.yml
       vars:
         copy_service: "{{ _db_admin_service }}"
-        copy_src: "{{ _import_host_tmp.path }}"
+        copy_src: "{{ _import_src }}"
         copy_dest: "{{ _import_container_file }}"
 
-    - name: Import gzipped database
+    # The dump's leading bytes, not its name, decide how it is read: gzip,
+    # xz and zstd are decompressed in the container, anything else is fed
+    # to mariadb as SQL. The db container has all three tools; the web
+    # container, used for an external database, has only gunzip.
+    - name: Import the database dump
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
       vars:
         exec_service: "{{ _db_admin_service }}"
         exec_dotenv: "{{ _db_admin_dotenv }}"
-        exec_command: "gunzip -c {{ _import_container_file }} | {{ _db_admin_pwd }} mariadb {{ _db_admin_args }} '{{ import_wiki_id }}'"
+        exec_command: >-
+          set -o pipefail 2>/dev/null; f={{ _import_container_file }};
+          case "$(head -c 6 "$f" | od -An -tx1 | tr -d ' \n')" in
+          1f8b*) d=gunzip ;; fd377a585a00) d=xz ;; 28b52ffd*) d=zstd ;; *) d= ;;
+          esac;
+          if [ -z "$d" ]; then
+          {{ _db_admin_pwd }} mariadb {{ _db_admin_args }} '{{ import_wiki_id }}' < "$f";
+          elif command -v "$d" >/dev/null 2>&1; then
+          "$d" -dc "$f" | {{ _db_admin_pwd }} mariadb {{ _db_admin_args }} '{{ import_wiki_id }}';
+          else echo "The dump is $d-compressed, and the {{ _db_admin_service }}
+          container has no $d to decompress it; decompress it first." >&2; exit 3; fi
         exec_long: true
-      when: _is_gzipped | bool
-
-    - name: Import plain SQL database
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-      vars:
-        exec_service: "{{ _db_admin_service }}"
-        exec_dotenv: "{{ _db_admin_dotenv }}"
-        exec_command: "{{ _db_admin_pwd }} mariadb {{ _db_admin_args }} '{{ import_wiki_id }}' < {{ _import_container_file }}"
-        exec_long: true
-      when: not (_is_gzipped | bool)
   always:
     - name: Clean up transferred dump from target host
       ansible.builtin.file:
         path: "{{ _import_host_tmp.path }}"
         state: absent
+      when: not _import_local
 
     - name: Clean up temp dump file
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"

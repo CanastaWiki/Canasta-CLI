@@ -17,10 +17,11 @@
     # pod's environment on K8s. Mirrors the Compose template's
     # `environment:` block for the web service. Secrets
     # (MYSQL_PASSWORD, MW_SECRET_KEY) are NOT in this list — they flow
-    # through K8s Secrets instead. MW_SITE_SERVER, MW_SITE_FQDN, and
-    # CANASTA_ENABLE_VARNISH also stay out because they're sourced from
-    # values.yaml fields that double-duty as K8s-level config (Ingress
-    # hostnames, Varnish deployment gate).
+    # through K8s Secrets instead. MW_SITE_SERVER, MW_SITE_FQDN,
+    # CANASTA_ENABLE_VARNISH and CANASTA_ENABLE_MEMCACHED also stay out
+    # because they're sourced from values.yaml fields that double-duty as
+    # K8s-level config (Ingress hostnames, Varnish and memcached
+    # deployment gates).
     #
     # This is an allowlist by design, not a gap: Compose likewise passes
     # only a curated `environment:` block, so an arbitrary app-defined

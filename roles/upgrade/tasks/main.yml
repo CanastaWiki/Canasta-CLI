@@ -425,6 +425,10 @@
   ansible.builtin.include_tasks: tidy_composer_local.yml
   when: not (_upgrade_restart_failed | bool)
 
+- name: Warn about extensions and skins that override bundled ones
+  ansible.builtin.include_tasks: warn_overrides.yml
+  when: not (_upgrade_restart_failed | bool)
+
 - name: Re-render generated compose layers
   ansible.builtin.include_role:
     name: orchestrator

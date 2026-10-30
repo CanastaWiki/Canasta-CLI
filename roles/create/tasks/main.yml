@@ -273,6 +273,16 @@
     - database is defined and database != ''
     - wiki | default('') in _created_wikis.wiki_ids
 
+- name: Report the imported wiki's schema update
+  ansible.builtin.debug:
+    msg: >-
+      Database imported into wiki '{{ wiki }}'.
+      {% if _rx_timed_out | default(false) | bool %}Its schema update had not
+      finished when the wait ended.{% else %}Its schema was updated.{% endif %}
+  when:
+    - database is defined and database != ''
+    - wiki | default('') in _created_wikis.wiki_ids
+
 - name: Learn the wikis' localized Special namespace names for the edge
   ansible.builtin.include_role:
     name: orchestrator

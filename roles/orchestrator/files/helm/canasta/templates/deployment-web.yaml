@@ -149,10 +149,11 @@ spec:
               containerPort: 80
               protocol: TCP
           # Runtime knobs from .env come via the envFrom ConfigMap.
-          # MW_SITE_SERVER, MW_SITE_FQDN, and CANASTA_ENABLE_VARNISH
-          # stay as hardcoded env: entries because they're sourced from
-          # values.yaml fields that also drive K8s resources (Ingress
-          # hostnames, Varnish deployment gate). config set updates
+          # MW_SITE_SERVER, MW_SITE_FQDN, CANASTA_ENABLE_VARNISH and
+          # CANASTA_ENABLE_MEMCACHED stay as hardcoded env: entries because
+          # they're sourced from values.yaml fields that also drive K8s
+          # resources (Ingress hostnames, Varnish and memcached deployment
+          # gates). config set updates
           # both .env and values.yaml for these keys.
           envFrom:
             - configMapRef:
@@ -187,6 +188,8 @@ spec:
                   key: MW_SECRET_KEY
             - name: CANASTA_ENABLE_VARNISH
               value: "{{ .Values.varnish.enabled }}"
+            - name: CANASTA_ENABLE_MEMCACHED
+              value: "{{ .Values.memcached.enabled }}"
             {{- range .Values.appSecretEnv }}
             - name: {{ . }}
               valueFrom:

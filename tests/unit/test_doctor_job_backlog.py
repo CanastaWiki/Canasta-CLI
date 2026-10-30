@@ -86,3 +86,16 @@ def test_an_invalid_threshold_falls_back_to_the_default(monkeypatch):
 def test_an_unreadable_container_reports_nothing(monkeypatch):
     inst, _ = _inst(monkeypatch, rc=1, out="")
     assert doctor._job_backlog_lines(inst) == []
+
+
+def test_a_paused_instance_is_not_read():
+    # The runtime refuses an exec into a paused container.
+    import inspect
+    source = inspect.getsource(doctor.cmd_doctor)
+    guard = source.index("if not paused:", source.index("_composer_failure_lines"
+                                                         ) - 200)
+    call = source.index("_job_backlog_lines(inst)")
+    assert guard < call
+    indent = lambda i: len(source[source.rfind("\n", 0, i) + 1:i]) - len(
+        source[source.rfind("\n", 0, i) + 1:i].lstrip())
+    assert indent(call) > indent(guard)
