@@ -31,13 +31,26 @@
 # keeps the value for this host only: the others have no entry, so their next
 # render omits the key and falls back to its default. A host-specific key
 # that is already a literal therefore stays one, and config set updates the
-# literal. A secret is still moved, since a literal secret is a leak.
+# literal. A secret is still moved, since a literal secret is a leak, and so
+# is a key no two hosts may share, once every host has the literal's value.
 - name: Decide whether key should be a placeholder
   ansible.builtin.set_fact:
+    _ep_unshare: >-
+      {{ _ep_key in canasta_host_specific_never_shared
+         and (_ep_has_literal | bool) }}
     _ep_needs_placeholder: >-
       {{ (_ep_secret | bool)
          or (_ep_key in canasta_host_specific_nonsecret
-             and not (_ep_has_literal | bool)) }}
+             and not (_ep_has_literal | bool))
+         or (_ep_key in canasta_host_specific_never_shared) }}
+
+- name: Give each host the literal's value before it becomes a placeholder
+  ansible.builtin.include_tasks: _unshare_env_template_literal.yml
+  vars:
+    _ul_key: "{{ _ep_key }}"
+    _ul_unset: "{{ canasta_host_specific_never_shared[_ep_key] }}"
+    _ul_template: "{{ _ep_template.content | b64decode }}"
+  when: _ep_unshare | bool
 
 - name: Add placeholder line to env.template
   ansible.builtin.lineinfile:

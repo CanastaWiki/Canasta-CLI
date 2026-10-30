@@ -1,0 +1,37 @@
+---
+# List an instance's paused Compose containers.
+# Input: instance_path, inspect_command
+# Output: _paused_containers (list of [container id, service name]),
+#         _paused_services (sorted service names)
+
+- name: List the instance's paused containers
+  ansible.builtin.command:
+    argv:
+      - "{{ inspect_command | default('docker') }}"
+      - ps
+      - --filter
+      - status=paused
+      - --filter
+      - "label=com.docker.compose.project={{ instance_path | basename | lower }}"
+      - --format
+      - >-
+        {% if 'podman' in (inspect_command | default('docker') | basename) -%}
+        {% raw %}{{.ID}} {{index .Labels "com.docker.compose.service"}}{% endraw %}
+        {%- else -%}
+        {% raw %}{{.ID}} {{.Label "com.docker.compose.service"}}{% endraw %}
+        {%- endif %}
+    chdir: "{{ instance_path }}"
+  register: _paused_list
+  changed_when: false
+  failed_when: false
+
+- name: Collect the paused containers
+  ansible.builtin.set_fact:
+    _paused_containers: >-
+      {{ (_paused_list.stdout | default('')).splitlines()
+         | map('trim') | reject('equalto', '') | map('split') | list
+         if _paused_list.rc | default(1) == 0 else [] }}
+
+- name: Name the paused services
+  ansible.builtin.set_fact:
+    _paused_services: "{{ _paused_containers | map('last') | unique | sort }}"

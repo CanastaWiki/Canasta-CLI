@@ -187,7 +187,10 @@ class TestDisableEveryScope:
         disable = next(t for t in _walk(_load(REMOVE))
                        if (t.get("canasta_settings_yaml") or {}).get("state")
                        == "disable")
-        assert "_remove_present" in disable["canasta_settings_yaml"]["names"]
+        assert "_remove_disable" in disable["canasta_settings_yaml"]["names"]
+        # An override's copy goes, but the bundled one it overrode stays enabled.
+        assert disable["vars"]["_remove_disable"] == (
+            "{{ _remove_present | difference(_remove_overrides) }}")
 
     def test_presence_is_known_before_disabling(self):
         names = [t.get("name", "") for t in _walk(_load(REMOVE))]

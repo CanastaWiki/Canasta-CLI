@@ -1,0 +1,49 @@
+---
+# List the extensions or skins whose copy in the instance's extensions/ or
+# skins/ overrides one bundled in the image. The web container links a
+# user copy over the bundled one, so a name present in both is an override.
+# Input: _item_type (extensions|skins), instance_path, instance_id
+# Output: _overrides - [{name, version, bundled_version}] ([] when the
+#         web container cannot be read); a version is '' when its
+#         extension.json or skin.json gives none
+
+- name: "Read the {{ _item_type }} that override bundled ones"
+  block:
+    - name: "List the {{ _item_type }} that override bundled ones"
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: web
+        exec_command: >-
+          cd /var/www/mediawiki/w &&
+          ver() { for f in "$1/extension.json" "$1/skin.json"; do
+          if [ -f "$f" ]; then sed -n
+          's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
+          "$f" | head -n 1; return; fi; done; };
+          for p in user-{{ _item_type }}/*/; do d=$(basename "$p");
+          [ -d "canasta-{{ _item_type }}/$d" ] || continue;
+          printf '%s|%s|%s\n' "$d" "$(ver "user-{{ _item_type }}/$d")"
+          "$(ver "canasta-{{ _item_type }}/$d")"; done; true
+
+    - name: "Keep the override lines"
+      ansible.builtin.set_fact:
+        _override_lines: >-
+          {{ (exec_result.stdout | default('')).splitlines()
+             | map('trim') | select('search', '[|].*[|]') | list }}
+  rescue:
+    - name: "Treat an unreadable web container as having no overrides"
+      ansible.builtin.set_fact:
+        _override_lines: []
+
+- name: "Start the override list"
+  ansible.builtin.set_fact:
+    _overrides: []
+
+- name: "Record the {{ _item_type }} that override bundled ones"
+  ansible.builtin.set_fact:
+    _overrides: >-
+      {{ _overrides + [{'name': _override_line.split('|')[0],
+                        'version': _override_line.split('|')[1],
+                        'bundled_version': _override_line.split('|')[2]}] }}
+  loop: "{{ _override_lines }}"
+  loop_control:
+    loop_var: _override_line

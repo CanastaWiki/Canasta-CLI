@@ -1,0 +1,62 @@
+---
+# Write the value of a literal env.template line into the vars.yaml of each
+# host that has no value of its own for it, so every host renders the same
+# value once the caller replaces the literal with a placeholder. A literal
+# that equals the key's unset value needs no copies: a host with no value
+# omits the key, which its readers take as that value.
+# Input: _ul_key (str), _ul_unset (the key's unset value),
+#        _ul_template (env.template content), instance_path
+
+- name: Read the literal's value
+  ansible.builtin.set_fact:
+    _ul_name: "{{ _ul_key | lower }}"
+    _ul_value: >-
+      {{ _ul_template.splitlines()
+         | select('match', '^' ~ (_ul_key | regex_escape) ~ '=')
+         | first | regex_replace('^[^=]*=', '') | canasta_env_unquote }}
+
+- name: Copy the literal to each host that has no value of its own
+  when: (_ul_value | lower) != (_ul_unset | lower)
+  block:
+    - name: Find each host's vars.yaml
+      ansible.builtin.find:
+        paths: "{{ instance_path }}/hosts"
+        patterns: vars.yaml
+        recurse: true
+        depth: 2
+      register: _ul_vars_files
+
+    - name: Read each host's vars.yaml
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop: >-
+        {{ _ul_vars_files.files | map(attribute='path')
+           | reject('search', '/_shared/') | sort }}
+      register: _ul_vars_raw
+      no_log: true  # vars.yaml holds passwords
+
+    # Builds paths only, so no vars.yaml value reaches the run's output.
+    - name: List the hosts with no value of their own
+      ansible.builtin.set_fact:
+        _ul_missing: >-
+          {% set out = [] %}{% for r in _ul_vars_raw.results %}{%
+          if _ul_name not in (r.content | b64decode | from_yaml | default({}, true))
+          %}{% set _ = out.append(r.item) %}{% endif %}{% endfor %}{{ out }}
+
+    - name: Add the literal's value to each of them
+      ansible.builtin.copy:
+        content: >-
+          {{ item.content | b64decode | from_yaml | default({}, true)
+             | combine({_ul_name: _ul_value}) | to_nice_yaml(indent=2) }}
+        dest: "{{ item.item }}"
+        mode: "0600"
+      loop: "{{ _ul_vars_raw.results }}"
+      when: item.item in _ul_missing
+      no_log: true  # vars.yaml holds passwords
+
+    - name: Stage the vars of the hosts given the value
+      ansible.builtin.command:
+        argv: "{{ ['git', 'add', '--'] + _ul_missing }}"
+        chdir: "{{ instance_path }}"
+      changed_when: true
+      when: _ul_missing | length > 0

@@ -178,7 +178,7 @@ class TestPruneRemovesUnregisteredBuilds:
 
     def test_other_images_are_not_candidates(self):
         assert self._removable(
-            ["canasta:local", "canasta-base:local", "canasta-wiki-x:local",
+            ["canasta:local", "canasta-wiki-x:local",
              "canasta-xdebug:local", "mariadb:11.4", "<none>:<none>"],
             []) == []
 

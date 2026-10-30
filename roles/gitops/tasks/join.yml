@@ -375,6 +375,18 @@
     mode: "0600"
   no_log: true
 
+# The render below rebuilds .env from env.template alone, so a host-specific
+# key that the template has no placeholder for would lose the value just
+# written to this host's vars.
+- name: Ensure env.template has placeholders for this host's own keys
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/config/tasks/_ensure_env_template_placeholder.yml
+  loop: >-
+    {{ _join_env.variables.keys()
+       | select('in', canasta_host_specific_nonsecret) | sort }}
+  loop_control:
+    loop_var: _ep_setting
+
 - name: Restrict the checked-out hosts/ tree to the operator
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_restrict_hosts_dir.yml"
 
@@ -439,9 +451,10 @@
 # vars. A blind `git add -A` also sweeps in the fresh instance's untracked
 # create-time default settings (e.g. config/settings/global/*.php that this
 # repo intentionally deleted) and pushes them back into the shared repo. All
-# other tracked files were already reconciled to HEAD by the checkout above, so
-# there is nothing else to stage. (config/wikis.yaml, .env, Caddyfile and
-# .gitops-host are gitignored and never committed.)
+# other tracked files were already reconciled to HEAD by the checkout above,
+# apart from the placeholders added to env.template and any host vars given a
+# literal's value, which that step staged itself. (config/wikis.yaml, .env,
+# Caddyfile and .gitops-host are gitignored and never committed.)
 - name: Stage the host registration and this host's vars
   ansible.builtin.command:
     cmd: "git add -- hosts/hosts.yaml hosts/{{ host_name }}/vars.yaml"
