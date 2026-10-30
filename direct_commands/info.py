@@ -523,7 +523,11 @@ def cmd_status(args):
     compose_cmd = _helpers._resolve_compose_cmd(inst)
     running = _helpers._check_running_compose(
         path, host, compose_cmd=compose_cmd)
-    print("Status:       %s" % ("RUNNING" if running else "STOPPED"))
+    paused = _helpers._compose_paused_services(inst) if running else []
+    if paused:
+        print("Status:       PAUSED (%s)" % ", ".join(paused))
+    else:
+        print("Status:       %s" % ("RUNNING" if running else "STOPPED"))
     _print_restore_marker(_helpers._read_restore_marker(path, host))
     _print_unfinished_pull(inst_id, path, host)
     if not path:

@@ -5,6 +5,9 @@
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
+- name: Refuse a paused instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/refuse_paused.yml"
+
 # As in config set.
 - name: Check whether the instance predates the edge
   canasta_edge:
