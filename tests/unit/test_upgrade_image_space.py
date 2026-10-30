@@ -33,7 +33,11 @@ case "$1 $2" in
       if [ "$ref" = "$3" ]; then echo "$STUB_SIZE"; exit 0; fi
     done
     exit 1 ;;
-  "info --format") echo "$STUB_STORE" ;;
+  "info --format")
+    case "$3" in
+      *DriverStatus*) echo "$STUB_DRIVER" ;;
+      *) echo "$STUB_STORE" ;;
+    esac ;;
   *) exit 2 ;;
 esac
 """
@@ -59,7 +63,7 @@ def _stub(bin_dir, name, body):
 
 def _run(tmp_path, cli="docker", size=4 * GIB, free=2 * GIB,
          present=(CURRENT,), current=CURRENT, store=None,
-         itotal=10240000, ifree=5000000):
+         itotal=10240000, ifree=5000000, driver="", containerd_conf=None):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     _stub(bin_dir, cli, RUNTIME)
@@ -70,6 +74,14 @@ def _run(tmp_path, cli="docker", size=4 * GIB, free=2 * GIB,
     site = tmp_path / "site"
     site.mkdir()
     (site / ".env").write_text("CANASTA_IMAGE=%s\n" % current)
+    check = CHECK
+    if containerd_conf is not None:
+        conf = tmp_path / "config.toml"
+        conf.write_text(containerd_conf)
+        check = tmp_path / "check_image_space.yml"
+        with open(CHECK) as f:
+            check.write_text(f.read().replace(
+                "/etc/containerd/config.toml", str(conf)))
 
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
@@ -81,7 +93,7 @@ def _run(tmp_path, cli="docker", size=4 * GIB, free=2 * GIB,
                  "canasta_default_image": TARGET,
                  "ansible_python_interpreter": sys.executable},
         "tasks": [
-            {"ansible.builtin.include_tasks": CHECK},
+            {"ansible.builtin.include_tasks": str(check)},
             {"ansible.builtin.debug": {
                 "msg": "REASON=[{{ _upgrade_space_reason }}]"}},
         ],
@@ -91,6 +103,7 @@ def _run(tmp_path, cli="docker", size=4 * GIB, free=2 * GIB,
                PATH="%s:%s" % (bin_dir, os.environ["PATH"]),
                STUB_LOG=str(log), STUB_PRESENT=" ".join(present),
                STUB_SIZE=str(size), STUB_STORE=str(store),
+               STUB_DRIVER=driver,
                STUB_FREE_KB=str(free // 1024),
                STUB_ITOTAL=str(itotal), STUB_IFREE=str(ifree),
                ANSIBLE_LIBRARY=os.path.join(COMMON, "library"),
@@ -152,6 +165,39 @@ class TestTheCheck:
         reason, df_calls, _ = _run(tmp_path, store="/nonexistent/docker")
         assert reason == ""
         assert df_calls == []
+
+
+SNAPSHOTTER = '[["driver-type","io.containerd.snapshotter.v1"]]'
+
+
+class TestContainerdImageStore:
+    def _root(self, tmp_path):
+        root = tmp_path / "containerd"
+        root.mkdir()
+        return root
+
+    def test_containerd_root_is_measured(self, tmp_path):
+        root = self._root(tmp_path)
+        reason, df_calls, _ = _run(
+            tmp_path, driver=SNAPSHOTTER,
+            containerd_conf='root = "%s"\n[plugins]\n  root = "/x"\n' % root)
+        assert "is free on %s;" % root in reason
+        assert df_calls and all(c.endswith(str(root)) for c in df_calls)
+
+    def test_overlay2_store_is_still_measured(self, tmp_path):
+        root = self._root(tmp_path)
+        reason, _, store = _run(
+            tmp_path, driver='[["Backing Filesystem","extfs"]]',
+            containerd_conf='root = "%s"\n' % root)
+        assert "is free on %s;" % store in reason
+
+    def test_containerd_run_by_dockerd_is_inside_the_store(self, tmp_path):
+        root = self._root(tmp_path)
+        store = tmp_path / "images"
+        (store / "containerd" / "daemon").mkdir(parents=True)
+        reason, _, _ = _run(tmp_path, driver=SNAPSHOTTER, store=store,
+                            containerd_conf='root = "%s"\n' % root)
+        assert "is free on %s;" % store in reason
 
 
 class TestTheUpgradeSkipsTheInstance:

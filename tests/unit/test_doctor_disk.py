@@ -36,3 +36,14 @@ def test_podman_system_df_is_read_like_dockers():
     assert _reclaimable_line(podman_df, "MISSING") == (
         "  Reclaimable:     3.2GB images, 0B build cache — reclaim images "
         "with 'canasta image prune'")
+
+
+def test_containerd_root_on_another_filesystem_is_named():
+    assert _disk_line("291G|/data/docker|5.1G|/var/lib/containerd") == (
+        "291G on /data/docker (Docker data root), "
+        "5.1G on /var/lib/containerd (container image storage)")
+
+
+def test_empty_containerd_fields_read_as_before():
+    assert _disk_line("40G|/data/docker||") == (
+        "40G on /data/docker (container image storage)")

@@ -5,7 +5,8 @@
 # (gitops submodule deinit + git rm, or a plain rm -rf), unregister its
 # composer.json from config/composer.local.json and re-run
 # 'composer update --no-dev', commit the removal in gitops, and restart the
-# containers so the removal takes effect.
+# containers so the removal takes effect. A copy that overrides a bundled
+# extension/skin stays enabled, and the restart brings back the bundled one.
 #
 # MediaWiki tables created by a removed extension are left in place; MediaWiki
 # does not reverse schema updates.
@@ -22,6 +23,9 @@
     instance_id: "{{ instance_id }}"
     instance_path: "{{ instance_path }}"
   when: not (instance_is_k8s | bool)
+
+- name: Refuse a paused instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/refuse_paused.yml"
 
 - name: Set item directory
   ansible.builtin.set_fact:
@@ -62,6 +66,18 @@
     _remove_absent: "{{ _remove_probes.results | rejectattr('stat.exists')
                        | map(attribute='item') | map('trim') | list }}"
 
+- name: "Find the {{ _item_type }} that override bundled ones"
+  ansible.builtin.include_tasks: _list_overrides.yml
+
+# Removing an override's copy brings back the bundled one, which stays
+# enabled.
+- name: "Note the removed {{ _item_type }} that override bundled ones"
+  ansible.builtin.set_fact:
+    _remove_overrides: >-
+      {% set names = _overrides | map(attribute='name') | map('lower') | list %}{{
+      _remove_present | zip(_remove_present | map('lower'))
+      | selectattr(1, 'in', names) | map(attribute=0) | list }}
+
 # Disable first so nothing references code that is about to disappear, in
 # every scope: a wiki that still loads a deleted item fails to start. Only
 # present items are disabled; an absent name may be a bundled one.
@@ -87,12 +103,14 @@
     instance_path: "{{ instance_path }}"
     item_type: "{{ _item_type }}"
     state: disable
-    names: "{{ _remove_present | select('in', item['items'] | default([])) | list }}"
+    names: "{{ _remove_disable | select('in', item['items'] | default([])) | list }}"
     wiki: "{{ item.item if item.item else omit }}"
   loop: "{{ _remove_settings.results }}"
   loop_control:
     label: "{{ item.item if item.item else 'global' }}"
-  when: _remove_present | select('in', item['items'] | default([])) | list | length > 0
+  when: _remove_disable | select('in', item['items'] | default([])) | list | length > 0
+  vars:
+    _remove_disable: "{{ _remove_present | difference(_remove_overrides) }}"
   register: _remove_disabled
 
 - name: Collect what was disabled and which settings files changed
@@ -364,10 +382,18 @@
     start_quiet_when_running: true
   when:
     - not (instance_is_k8s | bool)
+    - _remove_overrides | length == 0
     - >-
       _remove_present | length > 0
       or _remove_enabled | length > 0
       or _composer_local.changed | default(false) | bool
+
+# The web container's caches still hold the removed copy's code.
+- name: "Restart the instance to load the bundled {{ _item_type }} again"
+  ansible.builtin.include_role:
+    name: instance_lifecycle
+    tasks_from: restart.yml
+  when: _remove_overrides | length > 0
 
 # With nothing present, the absent-items report above already says so.
 - name: "Report {{ _item_type }} removed"
@@ -377,4 +403,8 @@
       Removed {{ _item_type[:-1] if _remove_present | length == 1 else _item_type }}:
       {{ _remove_present | join(', ') }}.
       {{ ('Disabled: ' ~ (_remove_enabled | join(', ')) ~ '. ') if (_remove_enabled | length > 0) else '' }}
+      {% if _remove_overrides | length > 0 %}The bundled
+      {{ _remove_overrides | join(', ') }}
+      {{ 'is' if _remove_overrides | length == 1 else 'are' }} used
+      again.{% endif %}
       {{ ('[gitops: committed; run canasta gitops push to distribute]') if (is_gitops | bool) else '' }}

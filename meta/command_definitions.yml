@@ -1775,8 +1775,9 @@ commands:
       the common cause of version-mismatch regressions.
       Only user extensions (vendored as submodules) can be pinned. A
       bundled extension has no per-instance submodule, so this refuses it —
-      to use a different version, add it to your extensions/ directory,
-      where a user copy overrides the bundled one. Pass `--run-update` to
+      to use a different version, add it with `canasta extension add
+      --override`, whose copy overrides the bundled one and, on a gitops
+      instance, can then be pinned here. Pass `--run-update` to
       apply any database schema changes for the new version immediately;
       otherwise run `canasta maintenance update` afterward if the version
       touches the schema.
@@ -1808,11 +1809,11 @@ commands:
       Add a MediaWiki extension to the instance and enable it. Each name is
       matched case-insensitively and handled in this order:
 
+      # Already in the instance's extensions/ directory: the existing checkout is
+        kept and its branch is verified.
       # Bundled with Canasta (shipped in the image): nothing is cloned; the
         extension is only enabled. `--repository` and `--branch` are refused,
-        since the image sets its version.
-      # Already in the instance's extensions/ directory: the existing
-        checkout is kept and its branch is verified.
+        since the image sets its version, unless `--override` is given.
       # Otherwise it is cloned into extensions/, which requires `--clone`
         (or an explicit `--repository`). Without it the command fails before
         changing anything and names the URL it would clone and where that
@@ -1840,6 +1841,15 @@ commands:
       update after which the autoloader requires a missing file, with the
       registration rolled back so the wikis keep loading.
 
+      With `--override`, a bundled extension is cloned like any other, at the
+      branch `--branch` names (or the automatic one), from `--repository` or
+      the usual lookup, and `--clone` is not needed. The copy in extensions/
+      overrides the bundled one: the command warns, naming both versions, and
+      restarts the instance so the copy is loaded. `canasta extension list` marks
+      it, `canasta upgrade` warns while its version differs from the bundled
+      one, and `canasta extension remove` deletes the copy, so the bundled extension is
+      used again, still enabled.
+
       On a gitops instance the extension is added as a submodule and committed
       (run `canasta gitops push` to distribute it). The extension is then
       enabled automatically (write settings + run update.php); use
@@ -1852,6 +1862,7 @@ commands:
       - "canasta extension add DarkMode --clone"
       - "canasta extension add DarkMode --clone --mw-version 1.43.2"
       - "canasta extension add MyExtension --repository https://example.org/MyExtension.git --branch main"
+      - "canasta extension add SemanticMediaWiki --override --branch 7.2.1"
     playbook: extension_add.yml
     orchestrators: [compose]
     orchestrators_note: >-
@@ -1884,6 +1895,10 @@ commands:
         type: bool
         default: false
         description: "Allow cloning extensions that are neither bundled nor already in extensions/"
+      - name: override
+        type: bool
+        default: false
+        description: "Clone a bundled extension into extensions/, where the copy overrides the bundled one"
       - name: skip_enable
         type: bool
         default: false
@@ -1988,11 +2003,11 @@ commands:
       Add a MediaWiki skin to the instance and enable it. Each name is
       matched case-insensitively and handled in this order:
 
-      # Bundled with Canasta (shipped in the image): nothing is cloned; the
-        skin is only enabled. `--repository` and `--branch` are refused,
-        since the image sets its version.
       # Already in the instance's skins/ directory: the existing checkout is
         kept and its branch is verified.
+      # Bundled with Canasta (shipped in the image): nothing is cloned; the
+        skin is only enabled. `--repository` and `--branch` are refused,
+        since the image sets its version, unless `--override` is given.
       # Otherwise it is cloned into skins/, which requires `--clone` (or an
         explicit `--repository`). Without it the command fails before
         changing anything and names the URL it would clone and where that
@@ -2019,6 +2034,15 @@ commands:
       not ship is not registered, and the command fails; so does a composer
       update after which the autoloader requires a missing file, with the
       registration rolled back so the wikis keep loading.
+
+      With `--override`, a bundled skin is cloned like any other, at the
+      branch `--branch` names (or the automatic one), from `--repository` or
+      the usual lookup, and `--clone` is not needed. The copy in skins/
+      overrides the bundled one: the command warns, naming both versions, and
+      restarts the instance so the copy is loaded. `canasta skin list` marks
+      it, `canasta upgrade` warns while its version differs from the bundled
+      one, and `canasta skin remove` deletes the copy, so the bundled skin is
+      used again, still enabled.
 
       On a gitops instance the skin is added as a submodule and committed (run
       `canasta gitops push` to distribute it). The skin is then enabled
@@ -2063,6 +2087,10 @@ commands:
         type: bool
         default: false
         description: "Allow cloning skins that are neither bundled nor already in skins/"
+      - name: override
+        type: bool
+        default: false
+        description: "Clone a bundled skin into skins/, where the copy overrides the bundled one"
       - name: skip_enable
         type: bool
         default: false
@@ -3974,8 +4002,10 @@ commands:
 
       On a Docker or Podman host, removes the Canasta image tags no instance
       registered on the host is pinned to, and the `--build-from` images
-      (`canasta:local-<id>`) of instances no longer registered, then prunes
-      dangling layers. A
+      (`canasta:local-<id>`) of instances no longer registered, and the
+      CanastaBase image they were built on (`canasta-base:local`) once no
+      registered instance's `--build-from` image remains and no Kubernetes
+      instance is on the host, then prunes dangling layers. A
       host carrying both runtimes is reclaimed in each. On a Kubernetes
       host, prunes containerd images no pod references, then runs the
       in-cluster registry's garbage collector (with `--delete-untagged`) and
