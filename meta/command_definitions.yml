@@ -585,6 +585,8 @@ commands:
       * `CANASTA_ENABLE_OBSERVABILITY` (default `false`) — OpenSearch,
         Logstash and OpenSearch Dashboards log stack
       * `CANASTA_ENABLE_ELASTICSEARCH` (default `false`) — Elasticsearch
+      * `CANASTA_ENABLE_MEMCACHED` (default `false`) — memcached, a main
+        object cache the web server and maintenance scripts share
 
       If the instance has development mode enabled, Xdebug starts
       automatically. Use `canasta devmode enable` or `canasta devmode
