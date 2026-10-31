@@ -54,6 +54,15 @@
     mode: "0644"
   when: wiki_settings is defined and wiki_settings != ''
 
+# Before update.php, which would otherwise create the table itself and race
+# this step if its wait ends early.
+- name: Create the imported wiki's sessions table
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: create_sessions_table.yml
+  vars:
+    sessions_table_wikis: ["{{ wiki }}"]
+
 # update.php reads the wiki's settings, so it runs after any replacement
 # Settings.php is in place.
 - name: Run update.php for the imported wiki
