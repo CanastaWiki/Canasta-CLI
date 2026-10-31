@@ -212,14 +212,14 @@ class TestMaintenanceUpdateRc:
     def test_update_failure_skips_that_wikis_jobs_and_reports_it(
             self, monkeypatch, tmp_path, capsys):
         streamed = self._setup(monkeypatch, tmp_path,
-                               {self._cmd("update.php", "a")})
+                               {self._cmd("update.php --nopurge", "a")})
         rc = maintenance.cmd_maintenance_update(
             _args(id="mysite", wiki=None, skip_jobs=False, skip_smw=False))
         assert rc == 7
         assert streamed == [
-            self._cmd("update.php", "a"),
-            self._cmd("update.php", "b"),
-            self._cmd("update.php", "c"),
+            self._cmd("update.php --nopurge", "a"),
+            self._cmd("update.php --nopurge", "b"),
+            self._cmd("update.php --nopurge", "c"),
             self._cmd("runJobs.php", "b"),
             self._cmd("runJobs.php", "c"),
         ]
@@ -229,7 +229,7 @@ class TestMaintenanceUpdateRc:
 
     def test_one_of_two_fails(self, monkeypatch, tmp_path, capsys):
         streamed = self._setup(monkeypatch, tmp_path,
-                               {self._cmd("update.php", "b")},
+                               {self._cmd("update.php --nopurge", "b")},
                                wikis=("a", "b"))
         rc = maintenance.cmd_maintenance_update(
             _args(id="mysite", wiki=None, skip_jobs=False, skip_smw=True))
@@ -242,8 +242,8 @@ class TestMaintenanceUpdateRc:
 
     def test_all_fail(self, monkeypatch, tmp_path, capsys):
         streamed = self._setup(monkeypatch, tmp_path,
-                               {self._cmd("update.php", "a"),
-                                self._cmd("update.php", "b")},
+                               {self._cmd("update.php --nopurge", "a"),
+                                self._cmd("update.php --nopurge", "b")},
                                wikis=("a", "b"))
         rc = maintenance.cmd_maintenance_update(
             _args(id="mysite", wiki=None, skip_jobs=False, skip_smw=True))
@@ -256,7 +256,7 @@ class TestMaintenanceUpdateRc:
     def test_update_failure_skips_smw_rebuild_for_that_wiki(
             self, monkeypatch, tmp_path):
         streamed = self._setup(monkeypatch, tmp_path,
-                               {self._cmd("update.php", "a")},
+                               {self._cmd("update.php --nopurge", "a")},
                                wikis=("a", "b"))
 
         def fake_exec(inst_id, inst, command, service="web", user=None):

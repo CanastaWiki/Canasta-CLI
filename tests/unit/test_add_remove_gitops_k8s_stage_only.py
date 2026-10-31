@@ -151,7 +151,7 @@ class TestAddOtherInstancesStillDeploy:
     def test_kubernetes_without_gitops_restarts(self, tmp_path):
         out, lines, _ = _add(tmp_path, gitops=False, database="/d/docs.sql")
         assert "RESTART" in lines
-        assert _updates(lines) == ["EXEC php maintenance/update.php --wiki=docs"]
+        assert _updates(lines) == ["EXEC php maintenance/update.php --nopurge --wiki=docs"]
         assert "STAGE report=True" in lines
         assert "Wiki 'docs' added to instance 'inst'." in out
         assert "gitops push -i" not in out

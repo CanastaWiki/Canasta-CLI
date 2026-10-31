@@ -82,20 +82,20 @@ def _run(tmp_path, update_php_wikis=None):
 @pytest.mark.parametrize("wikis", [None, []])
 def test_no_wikis_given_updates_every_wiki(tmp_path, wikis):
     assert _run(tmp_path, wikis) == [
-        "php maintenance/update.php --wiki=main",
-        "php maintenance/update.php --wiki=draft",
+        "php maintenance/update.php --nopurge --wiki=main",
+        "php maintenance/update.php --nopurge --wiki=draft",
     ]
 
 
 def test_named_wikis_only(tmp_path):
     assert _run(tmp_path, ["draft"]) == [
-        "php maintenance/update.php --wiki=draft",
+        "php maintenance/update.php --nopurge --wiki=draft",
     ]
 
 
 def test_wiki_id_is_quoted(tmp_path):
     assert _run(tmp_path, ["a b"]) == [
-        "php maintenance/update.php --wiki='a b'",
+        "php maintenance/update.php --nopurge --wiki='a b'",
     ]
 
 

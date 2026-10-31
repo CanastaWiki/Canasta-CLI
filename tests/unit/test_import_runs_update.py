@@ -48,7 +48,7 @@ def test_update_targets_the_imported_wiki_in_web():
         "roles/orchestrator/tasks/exec.yml")
     assert task["vars"]["exec_service"] == "web"
     command = _render(task["vars"]["exec_command"], {"wiki": "main"})
-    assert command == "php maintenance/update.php --wiki=main"
+    assert command == "php maintenance/update.php --nopurge --wiki=main"
 
 
 def test_update_runs_by_default():

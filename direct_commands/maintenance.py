@@ -181,9 +181,10 @@ def cmd_maintenance_update(args):
 
     for w in wikis:
         print("\n=== update.php (%s) ===" % w)
+        # --nopurge: the purge empties objectcache, which holds the sessions.
         rc = _helpers._stream_in_container(
             inst_id, inst,
-            "php maintenance/update.php --wiki=%s" % _helpers._shell_quote(w),
+            "php maintenance/update.php --nopurge --wiki=%s" % _helpers._shell_quote(w),
             user=_helpers.WEB_USER,
         )
         if rc != 0:

@@ -4618,10 +4618,10 @@ class TestMaintenanceUpdate:
         assert rc == 0
         # update.php for both wikis, then runJobs for both wikis.
         assert any(
-            "update.php --wiki='main'" in c for c in commands
+            "update.php --nopurge --wiki='main'" in c for c in commands
         )
         assert any(
-            "update.php --wiki='draft'" in c for c in commands
+            "update.php --nopurge --wiki='draft'" in c for c in commands
         )
         assert any(
             "runJobs.php --wiki='main'" in c for c in commands
