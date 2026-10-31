@@ -85,12 +85,12 @@ varnish:
     maxUnavailable: 0
 
 # Main object cache shared by the web pods and maintenance scripts. The
-# container's memory limit leaves room above the cache for memcached's own
+# container's memory limit leaves room above the cache for Redis's own
 # overhead.
-memcached:
+redis:
   enabled: false
-  image: memcached:1.6.44-alpine
-  # Megabytes of cache (memcached -m).
+  image: redis:8.10.3-alpine
+  # Megabytes of cache (redis-server --maxmemory).
   memory: 64
   resources:
     requests:

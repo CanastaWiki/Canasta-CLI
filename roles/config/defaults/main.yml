@@ -136,10 +136,10 @@ canasta_known_keys:
     group: Features
     description: Enable Elasticsearch
     default: "false"
-  - name: CANASTA_ENABLE_MEMCACHED
+  - name: CANASTA_ENABLE_REDIS
     group: Features
     description: >-
-      Run memcached as the main object cache the web server and maintenance
+      Run Redis as the main object cache the web server and maintenance
       scripts share
     default: "false"
   - name: CANASTA_ENABLE_OBSERVABILITY
@@ -159,11 +159,11 @@ canasta_known_keys:
     description: Use /wiki/Page (no /w/) URLs
     default: "false"
 
-  - name: CANASTA_MEMCACHED_MEMORY
+  - name: CANASTA_REDIS_MEMORY
     group: Features
     description: >-
-      Megabytes of memory memcached may use for its cache, while
-      CANASTA_ENABLE_MEMCACHED is true
+      Megabytes of memory Redis may use for its cache, while
+      CANASTA_ENABLE_REDIS is true
     default: "64"
 
   - name: CANASTA_ELASTICSEARCH_HEAP

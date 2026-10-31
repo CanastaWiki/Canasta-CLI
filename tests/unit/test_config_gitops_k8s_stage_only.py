@@ -39,6 +39,7 @@ def _stub_root(tmp_path, running):
             "update_config.yml": [_log(log, "UPDATE_CONFIG")],
             "k8s_reconcile_caddy.yml": [_log(log, "RECONCILE_CADDY")],
             "k8s_reconcile_elasticsearch.yml": [_log(log, "RECONCILE_ES")],
+            "k8s_reconcile_redis.yml": [_log(log, "RECONCILE_REDIS")],
             "config_set_secret.yml": [_log(log, "SET_SECRET")],
             "config_unset_secret.yml": [_log(log, "UNSET_SECRET")],
             "check_running.yml": [{"ansible.builtin.set_fact": {

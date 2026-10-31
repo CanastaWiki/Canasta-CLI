@@ -64,6 +64,7 @@
     - remove_enable_edge.yml
     - rename_tls_keys.yml
     - convert_backup_schedule_retention.yml
+    - adopt_own_redis.yml
   loop_control:
     loop_var: _migration
 

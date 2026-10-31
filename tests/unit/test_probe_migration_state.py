@@ -66,6 +66,7 @@ class TestEnvParsing:
             "COMPOSE_PROFILES": False,
             "USE_EXTERNAL_DB": False,
             "CANASTA_ENABLE_EDGE": False,
+            "CANASTA_ENABLE_REDIS": False,
         }
         assert result["env"]["MW_SECRET_KEY"] == ""
 
@@ -332,3 +333,62 @@ class TestEnvPermissions:
     def test_missing_env_is_not_reported(self, probe, instance_dir):
         state = _run(probe, instance_dir)
         assert state["files"]["env_readable_beyond_owner"] is False
+
+
+# --- docker-compose.override.yml services ----------------------------
+
+
+class TestOverrideServices:
+    def test_no_override(self, probe, instance_dir):
+        assert _run(probe, instance_dir)["override_services"] == []
+
+    def test_lists_top_level_service_names(self, probe, instance_dir):
+        (instance_dir / "docker-compose.override.yml").write_text(
+            "services:\n"
+            "  web:\n"
+            "    depends_on:\n"
+            "      - redis\n"
+            "    environment:\n"
+            "      - redis: not a service\n"
+            "  redis:  # cache\n"
+            "    image: redis:7.4-alpine\n"
+            "volumes:\n"
+            "  redis_data:\n"
+        )
+        assert _run(probe, instance_dir)["override_services"] == [
+            "web", "redis"]
+
+    def test_redis_flag_presence_is_reported(self, probe, instance_dir):
+        (instance_dir / ".env").write_text("CANASTA_ENABLE_REDIS=false\n")
+        assert _run(probe, instance_dir)["env_present"][
+            "CANASTA_ENABLE_REDIS"] is True
+
+
+# --- config/sidecars.yaml names ----------------------------------------
+
+
+class TestSidecarNames:
+    def test_no_sidecars_file(self, probe, instance_dir):
+        assert _run(probe, instance_dir)["sidecar_names"] == []
+
+    def test_names_as_written_by_the_cli(self, probe, instance_dir):
+        (instance_dir / "config" / "sidecars.yaml").write_text(
+            "sidecars:\n"
+            "- name: redis\n"
+            "  image: redis:7.4-alpine\n"
+            "  volumes:\n"
+            "  - name: data\n"
+            "    path: /data\n"
+            "- image: ocr:1\n"
+            "  name: receipt-scanner\n"
+        )
+        assert _run(probe, instance_dir)["sidecar_names"] == [
+            "redis", "receipt-scanner"]
+
+    def test_indented_list(self, probe, instance_dir):
+        (instance_dir / "config" / "sidecars.yaml").write_text(
+            "sidecars:\n"
+            "  - name: 'redis'\n"
+            "    image: redis:7.4-alpine\n"
+        )
+        assert _run(probe, instance_dir)["sidecar_names"] == ["redis"]

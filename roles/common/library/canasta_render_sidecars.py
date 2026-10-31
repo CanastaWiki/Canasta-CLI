@@ -127,7 +127,7 @@ def run_module():
     is_secret = secret_classifier(instance_path,
                                   module.params["secret_key_regex"])
 
-    error = (validate_spec(sidecars)
+    error = (validate_spec(sidecars, existing=True)
              or validate_host_access(sidecars, instance_path))
     if not error and is_k8s_orchestrator(orchestrator):
         error = validate_k8s_secret_refs(sidecars, is_secret)

@@ -14,7 +14,9 @@ Output JSON shape:
     "files": {flag-name: bool},
     "old_wiki_dirs": [str],
     "stray_php": [absolute-path-str],
-    "host_dirs": [str]
+    "host_dirs": [str],
+    "override_services": [str],
+    "sidecar_names": [str]
   }
 """
 import json
@@ -31,6 +33,7 @@ ENV_KEYS_OF_INTEREST = (
     "COMPOSE_PROFILES",
     "USE_EXTERNAL_DB",
     "CANASTA_ENABLE_EDGE",
+    "CANASTA_ENABLE_REDIS",
 )
 
 
@@ -166,6 +169,86 @@ def old_wiki_dirs(base):
     )
 
 
+def compose_service_names(path):
+    """Service names under the top-level `services:` key of a Compose file.
+
+    Parsed without PyYAML, like wikis.yaml: the first key indented under
+    `services:` sets the indent every service name shares. A missing or
+    unreadable file yields [].
+    """
+    try:
+        with open(path) as f:
+            lines = f.readlines()
+    except OSError:
+        return []
+    names = []
+    in_services = False
+    service_indent = None
+    for raw in lines:
+        line = raw.rstrip("\n")
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if not in_services:
+            if indent == 0 and re.match(r"services:\s*(#.*)?$", stripped):
+                in_services = True
+            continue
+        if indent == 0:
+            break
+        if service_indent is None:
+            service_indent = indent
+        if indent == service_indent:
+            m = re.match(r"""["']?([A-Za-z0-9_.-]+)["']?:\s*(#.*)?$""", stripped)
+            if m:
+                names.append(m.group(1))
+    return names
+
+
+def sidecar_names(path):
+    """Names of the sidecars in config/sidecars.yaml.
+
+    Parsed without PyYAML: the first list item under `sidecars:` sets the
+    indent every sidecar shares, and a sidecar's name is the `name:` on its
+    item line or a `name:` key directly under it. A missing or unreadable
+    file yields [].
+    """
+    try:
+        with open(path) as f:
+            lines = f.readlines()
+    except OSError:
+        return []
+    names = []
+    in_sidecars = False
+    item_indent = None
+    for raw in lines:
+        line = raw.rstrip("\n")
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        if not in_sidecars:
+            if indent == 0 and re.match(r"sidecars:\s*(#.*)?$", stripped):
+                in_sidecars = True
+            continue
+        if indent == 0 and not stripped.startswith("-"):
+            break
+        if item_indent is None and stripped.startswith("-"):
+            item_indent = indent
+        if item_indent is None:
+            continue
+        key_line = None
+        if indent == item_indent and stripped.startswith("-"):
+            key_line = stripped[1:].strip()
+        elif indent == item_indent + 2:
+            key_line = stripped
+        if key_line:
+            m = re.match(r"""name:\s*["']?([A-Za-z0-9-]+)["']?\s*(#.*)?$""", key_line)
+            if m:
+                names.append(m.group(1))
+    return names
+
+
 def env_has_bare_dollar(path):
     """True if a bare (unquoted) .env value contains a `$` other than the
     `$$` escape, which Compose expands."""
@@ -242,6 +325,12 @@ def main():
         ),
         "host_dirs": list_subdirs(
             os.path.join(base, "hosts"), exclude=("_shared",),
+        ),
+        "override_services": compose_service_names(
+            os.path.join(base, "docker-compose.override.yml"),
+        ),
+        "sidecar_names": sidecar_names(
+            os.path.join(base, "config", "sidecars.yaml"),
         ),
     }
 
