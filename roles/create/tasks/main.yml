@@ -261,6 +261,20 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/_rootless_operator_chown.yml"
   when: not (instance_is_k8s | bool)
 
+# Kubernetes does not restart the web pods after installing, so the image's
+# startup step never saw these databases.
+- name: Create the sessions table for each wiki
+  ansible.builtin.include_role:
+    name: mediawiki
+    tasks_from: create_sessions_table.yml
+  vars:
+    sessions_table_wikis: >-
+      {{ [wiki] if (database is defined and database != '')
+         else _created_wikis.wiki_ids }}
+  when: >-
+    (database is defined and database != '')
+    or not (skip_install | default(false) | bool)
+
 # After the final start, which on Compose gives MediaWiki's database account
 # access to the wiki's extra databases.
 - name: Run update.php for the imported wiki

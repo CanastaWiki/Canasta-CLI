@@ -1,0 +1,33 @@
+---
+# Create the table the image keeps sessions in, one wiki at a time. The image
+# creates it at every container start and on every update.php run; this covers
+# databases installed or imported while the container keeps running. Images
+# without the script are skipped.
+#
+# Input:
+#   instance_path, plus what orchestrator/tasks/exec.yml needs
+#   sessions_table_wikis (list, optional) - wiki IDs; omitted or empty means
+#     every wiki in config/wikis.yaml
+
+- name: Read wikis for the sessions table
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _sessions_table_all_wikis
+  when: sessions_table_wikis | default([], true) | length == 0
+
+- name: Create the sessions table for each wiki
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  vars:
+    exec_service: web
+    exec_command: >-
+      if [ -f maintenance/createSessionsTable.php ]; then
+      php maintenance/createSessionsTable.php --wiki={{ _sessions_table_wiki | quote }};
+      fi
+    exec_user: www-data
+  loop: >-
+    {{ sessions_table_wikis
+       if (sessions_table_wikis | default([], true) | length > 0)
+       else (_sessions_table_all_wikis.wiki_ids | default([])) }}
+  loop_control:
+    loop_var: _sessions_table_wiki
