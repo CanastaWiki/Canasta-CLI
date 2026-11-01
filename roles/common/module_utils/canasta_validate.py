@@ -58,8 +58,13 @@ def validate_wiki_id(value):
 RESERVED_SIDECAR_NAMES = [
     "web", "db", "caddy", "varnish", "crowdsec", "elasticsearch",
     "jobrunner", "logstash", "opensearch", "opensearch-dashboards",
-    "observable-init", "mediawiki", "registry", "memcached",
+    "observable-init", "mediawiki", "registry", "redis",
 ]
+
+# Reserved for new sidecars, but a sidecar declared before its name was
+# reserved is kept: the managed service of that name adopts it, and it wins
+# the Compose merge.
+ADOPTED_SIDECAR_NAMES = ["redis"]
 
 # DNS label: lowercase alphanumeric and hyphens, no leading/trailing
 # hyphen, 1-63 chars. Unlike a wiki ID, a sidecar name MAY contain
@@ -67,9 +72,10 @@ RESERVED_SIDECAR_NAMES = [
 _SIDECAR_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
 
-def validate_sidecar_name(value):
+def validate_sidecar_name(value, existing=False):
     """Return None if `value` is a valid sidecar name, otherwise an error
-    string suitable for `module.fail_json(msg=...)`."""
+    string suitable for `module.fail_json(msg=...)`. `existing` marks an
+    already-declared sidecar, which may keep an adopted name."""
     if not value:
         return "sidecar name cannot be empty"
     if len(value) > 63:
@@ -79,7 +85,8 @@ def validate_sidecar_name(value):
             "sidecar name '%s' is invalid: use lowercase letters, digits, and "
             "hyphens (a DNS label — no leading/trailing hyphen)" % value
         )
-    if value in RESERVED_SIDECAR_NAMES:
+    if value in RESERVED_SIDECAR_NAMES and not (
+            existing and value in ADOPTED_SIDECAR_NAMES):
         return "sidecar name '%s' is reserved (cannot be: %s)" % (
             value, ", ".join(RESERVED_SIDECAR_NAMES),
         )

@@ -98,7 +98,7 @@ services:
       - PHP_POST_MAX_SIZE=${PHP_POST_MAX_SIZE:-10M}
       - PHP_MAX_INPUT_VARS=${PHP_MAX_INPUT_VARS:-1000}
       - CANASTA_ENABLE_VARNISH=${CANASTA_ENABLE_VARNISH:-true}
-      - CANASTA_ENABLE_MEMCACHED=${CANASTA_ENABLE_MEMCACHED:-false}
+      - CANASTA_ENABLE_REDIS=${CANASTA_ENABLE_REDIS:-false}
       - CANASTA_ENABLE_WIKI_DIRECTORY=${CANASTA_ENABLE_WIKI_DIRECTORY:-false}
       - CANASTA_ENABLE_VERY_SHORT_URLS=${CANASTA_ENABLE_VERY_SHORT_URLS:-false}
       - MW_SITEMAP_PAUSE_DAYS=${MW_SITEMAP_PAUSE_DAYS:-1}
@@ -151,14 +151,16 @@ services:
   # A main object cache the web server and maintenance scripts share, so a
   # purge from either reaches the other. Reached only on the instance's own
   # network; its contents are a cache, so nothing is kept across restarts.
-  memcached:
-    image: docker.io/library/memcached:1.6.44-alpine
+  redis:
+    image: docker.io/library/redis:8.10.3-alpine
     profiles:
-      - memcached
+      - redis
     restart: unless-stopped
     <<: *default-network
     logging: *default-logging
-    command: ["memcached", "-m", "${CANASTA_MEMCACHED_MEMORY:-64}"]
+    command: ["redis-server", "--maxmemory", "${CANASTA_REDIS_MEMORY:-64}mb",
+              "--maxmemory-policy", "allkeys-lru",
+              "--save", "", "--appendonly", "no"]
 
   caddy:
     # Defaults to upstream Caddy. When a plugin feature is enabled —

@@ -86,6 +86,12 @@
     tasks_from: k8s_reconcile_elasticsearch.yml
   when: _config_unset_stage_only | bool
 
+- name: Reconcile the Redis settings for the gitops push
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: k8s_reconcile_redis.yml
+  when: _config_unset_stage_only | bool
+
 - name: Check whether the instance is running
   ansible.builtin.include_role:
     name: orchestrator

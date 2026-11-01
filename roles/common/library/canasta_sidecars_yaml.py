@@ -126,14 +126,15 @@ def parse_sidecar_definitions(content):
     return data
 
 
-def validate_sidecars(sidecars):
-    """Return None if every entry is valid, else an error string."""
+def validate_sidecars(sidecars, existing=False):
+    """Return None if every entry is valid, else an error string.
+    `existing` marks sidecars already declared rather than being added."""
     seen = set()
     for sidecar in sidecars:
         if not isinstance(sidecar, dict):
             return "each sidecar must be a mapping"
         name = sidecar.get("name")
-        err = validate_sidecar_name(name or "")
+        err = validate_sidecar_name(name or "", existing=existing)
         if err:
             return err
         if name in seen:
@@ -159,7 +160,7 @@ def validate_sidecars(sidecars):
             if missing:
                 return ("sidecar '%s' envPrivate names env key(s) not in env: "
                         "%s" % (name, ", ".join(missing)))
-    return validate_spec(sidecars)
+    return validate_spec(sidecars, existing=existing)
 
 
 def run_module():
@@ -260,7 +261,7 @@ def run_module():
 
     elif state == "validate":
         sidecars = read_sidecars(instance_path)
-        err = validate_sidecars(sidecars)
+        err = validate_sidecars(sidecars, existing=True)
         if err:
             module.fail_json(msg=err)
             return

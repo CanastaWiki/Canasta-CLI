@@ -656,6 +656,9 @@
     - name: Reconcile the Elasticsearch heap in values.yaml
       ansible.builtin.include_tasks: k8s_reconcile_elasticsearch.yml
 
+    - name: Reconcile the Redis settings in values.yaml
+      ansible.builtin.include_tasks: k8s_reconcile_redis.yml
+
     # Slurp values.yaml from the target host once and parse it. All
     # three downstream reads (web.replicaCount, db.enabled,
     # argocd.syncPolicy) used to call lookup('file', instance_path ~

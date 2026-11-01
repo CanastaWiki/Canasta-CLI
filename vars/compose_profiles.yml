@@ -8,7 +8,7 @@ canasta_managed_profiles:
   - {profile: elasticsearch, flag: CANASTA_ENABLE_ELASTICSEARCH, default: "false"}
   - {profile: varnish, flag: CANASTA_ENABLE_VARNISH, default: "true"}
   - {profile: crowdsec, flag: CANASTA_ENABLE_CROWDSEC, default: "false"}
-  - {profile: memcached, flag: CANASTA_ENABLE_MEMCACHED, default: "false"}
+  - {profile: redis, flag: CANASTA_ENABLE_REDIS, default: "false"}
 
 # Services declared under each managed profile, removed when the profile is
 # turned off. internal-db (the db service) is deliberately absent so a
@@ -19,4 +19,4 @@ canasta_managed_profile_services:
   elasticsearch: [elasticsearch]
   varnish: [varnish]
   crowdsec: [crowdsec]
-  memcached: [memcached]
+  redis: [redis]

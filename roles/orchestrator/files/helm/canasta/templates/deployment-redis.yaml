@@ -1,12 +1,12 @@
-{{- if .Values.memcached.enabled }}
+{{- if .Values.redis.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "canasta.fullname" . }}-memcached
+  name: {{ include "canasta.fullname" . }}-redis
   namespace: {{ include "canasta.namespace" . }}
   labels:
     {{- include "canasta.labels" . | nindent 4 }}
-    app.kubernetes.io/component: memcached
+    app.kubernetes.io/component: redis
   annotations:
     {{- include "canasta.ownershipAnnotations" . | nindent 4 }}
 spec:
@@ -14,31 +14,33 @@ spec:
   selector:
     matchLabels:
       {{- include "canasta.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: memcached
+      app.kubernetes.io/component: redis
   template:
     metadata:
       labels:
         {{- include "canasta.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: memcached
+        app.kubernetes.io/component: redis
     spec:
       containers:
-        - name: memcached
-          image: {{ .Values.memcached.image }}
-          args: ["memcached", "-m", "{{ int .Values.memcached.memory }}"]
+        - name: redis
+          image: {{ .Values.redis.image }}
+          args: ["redis-server", "--maxmemory", "{{ int .Values.redis.memory }}mb",
+                 "--maxmemory-policy", "allkeys-lru",
+                 "--save", "", "--appendonly", "no"]
           ports:
-            - name: memcached
-              containerPort: 11211
+            - name: redis
+              containerPort: 6379
               protocol: TCP
-          {{- with .Values.memcached.resources }}
+          {{- with .Values.redis.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           readinessProbe:
             tcpSocket:
-              port: memcached
+              port: redis
             periodSeconds: 10
           livenessProbe:
             tcpSocket:
-              port: memcached
+              port: redis
             periodSeconds: 30
 {{- end }}
