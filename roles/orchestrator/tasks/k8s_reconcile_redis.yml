@@ -1,0 +1,48 @@
+---
+# Reconcile redis.enabled and redis.memory in values.yaml from
+# CANASTA_ENABLE_REDIS and CANASTA_REDIS_MEMORY in the instance .env before
+# every helm deploy, so Redis follows .env however it got there (create -e,
+# config set or unset, or a hand edit). Without CANASTA_REDIS_MEMORY, the
+# memory is the chart's default.
+#
+# Runs on the target host (instance_path lives there). Input: instance_path.
+
+- name: Read the Redis settings from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: "{{ item }}"
+  loop:
+    - CANASTA_ENABLE_REDIS
+    - CANASTA_REDIS_MEMORY
+  register: _reconcile_redis_env
+
+- name: Read values.yaml for the Redis settings
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/values.yaml"
+  register: _reconcile_redis_values_raw
+
+- name: Compute the desired Redis settings
+  ansible.builtin.set_fact:
+    _reconcile_redis_values: "{{ _reconcile_redis_values_raw.content | b64decode | from_yaml }}"
+    _reconcile_redis:
+      enabled: "{{ _reconcile_redis_env.results[0].value | default('false', true) | lower == 'true' }}"
+      memory: "{{ _reconcile_redis_env.results[1].value | default(_chart_memory, true) | int }}"
+  vars:
+    _chart_memory: >-
+      {{ (lookup('file', canasta_root ~ '/roles/orchestrator/files/helm/canasta/values.yaml')
+          | from_yaml).redis.memory }}
+
+- name: Write the Redis settings to values.yaml
+  ansible.builtin.copy:
+    content: >-
+      {{ _reconcile_redis_values
+         | combine({'redis': _reconcile_redis}, recursive=True)
+         | to_nice_yaml(indent=2) }}
+    dest: "{{ instance_path }}/values.yaml"
+    mode: "0644"
+  when: >-
+    ((_reconcile_redis_values.redis | default({})).enabled | default(false) | bool)
+    != (_reconcile_redis.enabled | bool)
+    or ((_reconcile_redis_values.redis | default({})).memory | default(_reconcile_redis.memory) | int)
+    != (_reconcile_redis.memory | int)

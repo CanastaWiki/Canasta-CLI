@@ -44,6 +44,11 @@
         name: orchestrator
         tasks_from: k8s_reconcile_elasticsearch.yml
 
+    - name: Reconcile the Redis settings in values.yaml
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_reconcile_redis.yml
+
     - name: Sync config to Kubernetes ConfigMaps
       ansible.builtin.include_role:
         name: orchestrator

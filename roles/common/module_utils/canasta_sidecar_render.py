@@ -128,16 +128,17 @@ def _quantity(value):
     return isinstance(value, str) and bool(_QUANTITY.match(value))
 
 
-def validate_spec(sidecars):
+def validate_spec(sidecars, existing=False):
     """Return None if every sidecar's keys, names, env keys, build options,
-    and resource quantities are well-formed, else an error."""
+    and resource quantities are well-formed, else an error. `existing` marks
+    sidecars already declared rather than being added."""
     for sidecar in sidecars or []:
         if not isinstance(sidecar, dict):
             return "each sidecar must be a mapping"
         name = sidecar.get("name")
         if not isinstance(name, str):
             return "each sidecar must have a name"
-        error = validate_sidecar_name(name)
+        error = validate_sidecar_name(name, existing=existing)
         if error:
             return error
         for key in sidecar:

@@ -66,6 +66,15 @@ class TestValidateSidecars:
         assert canasta_sidecars_yaml.validate_sidecars(
             [{"name": "cache", "image": "redis:7"}]) is None
 
+    def test_a_new_redis_sidecar_is_refused(self):
+        err = canasta_sidecars_yaml.validate_sidecars(
+            [{"name": "redis", "image": "redis:7"}])
+        assert "reserved" in err
+
+    def test_an_existing_redis_sidecar_is_kept(self):
+        assert canasta_sidecars_yaml.validate_sidecars(
+            [{"name": "redis", "image": "redis:7"}], existing=True) is None
+
     def test_duplicate(self):
         err = canasta_sidecars_yaml.validate_sidecars(
             [{"name": "c", "image": "i"}, {"name": "c", "image": "j"}])
