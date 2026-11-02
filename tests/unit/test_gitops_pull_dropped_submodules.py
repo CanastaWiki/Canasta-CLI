@@ -134,7 +134,9 @@ def test_checkout_that_is_itself_a_symlink_is_kept(repo, tmp_path):
 
 
 def test_pull_runs_it_right_after_updating_submodules():
-    names = [t.get("name") for t in _load(PULL)]
+    block = next(t for t in _load(PULL)
+                 if t.get("name") == "Pull with local changes carried through")
+    names = [t.get("name") for t in block["block"]]
     step = names.index("Remove submodules the pull dropped")
     assert names[step - 1] == "Update submodules"
 

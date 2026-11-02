@@ -225,12 +225,12 @@ class TestWiring:
                           if "sync_compose_profiles.yml" in x)
         assert env_i < render_i < profiles_i
 
-    def test_pull_syncs_before_the_dirty_tree_check(self):
+    def test_pull_syncs_before_setting_local_changes_aside(self):
         tasks = _load(PULL)
         sync_i = next(i for i, t in enumerate(tasks)
                       if "sync_env.yml" in _include(t))
         check_i = next(i for i, t in enumerate(tasks)
-                       if t.get("name") == "Fail if uncommitted changes exist")
+                       if t.get("name") == "Pull with local changes carried through")
         assert sync_i < check_i
 
     def test_config_regenerate_is_gone(self):

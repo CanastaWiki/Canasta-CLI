@@ -97,10 +97,15 @@
   ansible.builtin.include_tasks: _restrict_hosts_dir.yml
   when: _resolve_action == 'abort'
 
+- name: Put back the local changes the pull set aside
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_put_back_local_changes.yml"
+  when: _resolve_action == 'abort'
+
 - name: Report the abandoned resolution
   ansible.builtin.debug:
     msg: >-
-      Went back to where the pull started; this host's commits are intact.
+      Went back to where the pull started; this host's commits and local
+      changes are intact.
   when: _resolve_action == 'abort'
 
 # --- keep ---
@@ -194,14 +199,21 @@
     - _resolve_action == 'continue'
     - _pull_conflict_plain | length > 0
 
-# The pull's apply steps diff against, and roll back to, the commit it
-# started from, which the rebase recorded.
+# The pull's apply steps roll back to the commit the rebase started from,
+# which holds the local changes the pull set aside, and diff against the
+# commit under them.
 - name: Read the commit the pull started from
   ansible.builtin.command:
     cmd: "cat .git/{{ _resolve_dir }}/orig-head"
     chdir: "{{ instance_path }}"
   register: _resolve_orig_head
   changed_when: false
+  when: _resolve_action == 'continue'
+
+- name: Find the commit the pull started from under its local changes
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_local_changes_base.yml"
+  vars:
+    local_changes_rev: "{{ _resolve_orig_head.stdout | trim }}"
   when: _resolve_action == 'continue'
 
 - name: Finish the rebase
@@ -252,7 +264,8 @@
 - name: Hand the finished rebase to the pull's apply steps
   ansible.builtin.set_fact:
     _pull_prev_commit:
-      stdout: "{{ _resolve_orig_head.stdout | trim }}"
+      stdout: "{{ _local_changes_base }}"
+    _pull_rollback_commit: "{{ _resolve_orig_head.stdout | trim }}"
     _pull_result:
       changed: true
       rc: 0

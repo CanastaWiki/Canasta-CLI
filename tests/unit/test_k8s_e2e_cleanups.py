@@ -192,12 +192,22 @@ class TestPullPushHint:
         _git(other, "push", "-q", "origin", "HEAD:main")
         return inst
 
+    def _vars(self, inst):
+        role_vars = _load("roles", "gitops", "vars", "main.yml")
+        return {"instance_path": str(inst), "canasta_root": REPO_ROOT,
+                "gitops_k8s_git_env": {},
+                **{k: v for k, v in role_vars.items()
+                   if k.startswith("gitops_set_aside_")}}
+
     def _tasks(self, rewrite):
         tasks = _load("roles", "gitops", "tasks", "pull_kubernetes.yml")
         render = {"name": "Render per-host values (stub)",
                   "ansible.builtin.set_fact": {"_render_hostname": "h1"}}
         out = []
         for t in tasks:
+            if t.get("name") == "Pull with local changes carried through":
+                t = dict(t, block=[b for b in t["block"]
+                                   if b.get("name") != "Update submodules"])
             if t.get("name") == "Render per-host values":
                 out.append(render)
                 if rewrite:
@@ -214,8 +224,7 @@ class TestPullPushHint:
     def test_no_hint_when_render_is_unchanged(self, tmp_path):
         inst = self._setup(tmp_path)
         proc = _run(tmp_path, self._tasks(rewrite=False),
-                    play_vars={"instance_path": str(inst),
-                               "gitops_k8s_git_env": {}})
+                    play_vars=self._vars(inst))
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert (inst / "note").exists()
         assert "canasta gitops push" not in proc.stdout
@@ -223,8 +232,7 @@ class TestPullPushHint:
     def test_hint_when_render_changed(self, tmp_path):
         inst = self._setup(tmp_path)
         proc = _run(tmp_path, self._tasks(rewrite=True),
-                    play_vars={"instance_path": str(inst),
-                               "gitops_k8s_git_env": {}})
+                    play_vars=self._vars(inst))
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert "canasta gitops push" in proc.stdout
 

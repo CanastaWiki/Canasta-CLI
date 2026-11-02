@@ -12,6 +12,11 @@
 - name: Detect a locked git-crypt checkout
   ansible.builtin.include_tasks: "_detect_gitcrypt_lock.yml"
 
+# A pull interrupted mid-rebase can leave this host's local changes
+# committed out of its way; they must never be pushed as commits.
+- name: Put back local changes an interrupted pull set aside
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_put_back_local_changes.yml"
+
 # --- Validate role allows push ---
 - name: Read hosts.yaml
   ansible.builtin.slurp:

@@ -1,0 +1,28 @@
+---
+# The commit under the local changes _set_aside_local_changes.yml committed
+# on top of a revision: the revision itself when nothing was set aside.
+#
+# Requires: instance_path, local_changes_rev. Sets: _local_changes_base.
+
+- name: Find the commit under the set-aside local changes
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+      c=$(git rev-parse --verify "$REV^{commit}")
+      while :; do
+        s=$(git log -1 --format=%s "$c")
+        [ "$s" = "$STAGED" ] || [ "$s" = "$UNSTAGED" ] || break
+        c=$(git rev-parse "$c~1")
+      done
+      echo "$c"
+    chdir: "{{ instance_path }}"
+  environment:
+    REV: "{{ local_changes_rev }}"
+    STAGED: "{{ gitops_set_aside_staged_subject }}"
+    UNSTAGED: "{{ gitops_set_aside_unstaged_subject }}"
+  register: _local_changes_base_cmd
+  changed_when: false
+
+- name: Record the commit under the local changes
+  ansible.builtin.set_fact:
+    _local_changes_base: "{{ _local_changes_base_cmd.stdout | trim }}"

@@ -14,7 +14,18 @@ DEFS = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
 
 def _tasks(path):
     with open(path) as fh:
-        return yaml.safe_load(fh) or []
+        return _flat(yaml.safe_load(fh) or [])
+
+
+def _flat(tasks):
+    """The task list with the pull's carry-through block opened in place."""
+    out = []
+    for t in tasks or []:
+        if t.get("name") == "Pull with local changes carried through":
+            out.extend(t["block"] + t["always"])
+        else:
+            out.append(t)
+    return out
 
 
 def _named(path, name):
@@ -105,14 +116,18 @@ class TestContinue:
 
     def test_the_finished_rebase_is_applied_as_the_pull_would(self):
         hand = _named(RESOLVE, "Hand the finished rebase to the pull's apply steps")["ansible.builtin.set_fact"]
-        assert hand["_pull_prev_commit"]["stdout"] == "{{ _resolve_orig_head.stdout | trim }}"
+        # Diffs start under the local changes the pull set aside; a rollback
+        # returns to the commit that holds them.
+        assert hand["_pull_prev_commit"]["stdout"] == "{{ _local_changes_base }}"
+        assert hand["_pull_rollback_commit"] == "{{ _resolve_orig_head.stdout | trim }}"
         assert hand["_pull_result"]["changed"] is True and hand["_git_pull"]["changed"] is True
         apply = _named(RESOLVE, "Apply the resolved pull")
         assert apply["vars"]["gitops_resolve_mode"] == "continue"
 
     def test_the_pull_skips_its_rebase_when_continuing(self):
         path = os.path.join(TASKS, "pull_compose.yml")
-        for name in ("Check for uncommitted changes to tracked files", "Get current commit hash",
+        for name in ("Set local changes aside for the rebase", "Get current commit hash",
+                     "Put back local changes an interrupted pull set aside",
                      "Pull from remote", "Sync wikis.yaml with its gitops template",
                      "Write .env edits into the gitops sources"):
             assert "gitops_resolve_mode | default('') != 'continue'" in str(_named(path, name)["when"]), name

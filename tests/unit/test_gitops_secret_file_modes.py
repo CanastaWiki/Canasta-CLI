@@ -150,7 +150,8 @@ class TestRestrictWiring:
             assert _includes_restrict(_load(os.path.join(GITOPS, name))), name
 
     def test_pull_restricts_right_after_the_pull(self):
-        tasks = _load(os.path.join(GITOPS, "pull_compose.yml"))
+        tasks = next(t for t in _load(os.path.join(GITOPS, "pull_compose.yml"))
+                     if t.get("name") == "Pull with local changes carried through")["block"]
         names = [t.get("name") for t in tasks]
         pull = names.index("Pull from remote")
         assert "_restrict_hosts_dir.yml" in str(

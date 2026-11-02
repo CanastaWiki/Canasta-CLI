@@ -2,9 +2,10 @@
 # Turn a failed `git pull --rebase` into a message the operator can act on,
 # then roll the rebase back.
 #
-# A dirty working tree (git refused before replaying anything) needs the
-# add-and-push route; conflicts are listed by kind and sent to 'canasta
-# gitops resolve', which replays the pull and stops at them.
+# Conflicts are listed by kind and sent to 'canasta gitops resolve', which
+# replays the pull and stops at them. This host's uncommitted changes are
+# replayed as commits too (see _set_aside_local_changes.yml), so a conflict
+# with one of them is resolved the same way.
 #
 # The conflicted paths must be read before the abort clears them.
 #
@@ -14,13 +15,9 @@
 - name: Collect conflicted paths before the rebase is rolled back
   ansible.builtin.include_tasks: _classify_conflicts.yml
 
-- name: Note whether a dirty tree blocked the pull
-  ansible.builtin.set_fact:
-    _pull_dirty_tree: >-
-      {{ 'cannot pull with rebase' in (_pull_failure.stderr | default('')) }}
-
 # Never leave the repo mid-rebase: roll back to where the pull started so the
-# operator has one clear problem to solve, with local commits intact.
+# operator has one clear problem to solve. The caller puts the set-aside
+# local changes back afterward.
 - name: Abort an incomplete rebase
   ansible.builtin.shell:
     cmd: "umask 022 && git rebase --abort"
@@ -35,15 +32,11 @@
 - name: Fail with an explanation of what blocked the pull
   ansible.builtin.fail:
     msg: |-
-      {% if _pull_dirty_tree | bool %}
-      Cannot pull: this host has local changes to tracked files, so the remote
-      changes cannot be replayed on top of them. Share them with
-      'canasta gitops add <file>' then 'canasta gitops push', or discard them
-      with 'git checkout HEAD -- <file>', then retry.
-      {% elif _pull_conflict_encrypted | length > 0 or _pull_conflict_binary | length > 0 or _pull_conflict_plain | length > 0 %}
-      Cannot pull: this host's local commit(s) conflict with the remote changes,
-      so they could not be replayed on top. The rebase was rolled back — the
-      instance is exactly as it was and the local commit(s) are intact.
+      {% if _pull_conflict_encrypted | length > 0 or _pull_conflict_binary | length > 0 or _pull_conflict_plain | length > 0 %}
+      Cannot pull: this host's local commits or uncommitted changes conflict
+      with the remote changes, so they could not be replayed on top. The pull
+      was rolled back: the instance is exactly as it was, with its local
+      commits and changes intact.
 
       Conflicting file(s):
       {% for f in _pull_conflict_plain %}
@@ -62,8 +55,8 @@
       then finish with '--continue'; '--abort' goes back to where the pull
       started.
       {% else %}
-      Cannot pull: the rebase could not be completed and was rolled back — the
-      instance is exactly as it was and the local commit(s) are intact.
+      Cannot pull: the rebase could not be completed and was rolled back: the
+      instance is exactly as it was, with its local commits and changes intact.
       git said: {{ (_pull_failure.stdout | default('') ~ ' '
                     ~ _pull_failure.stderr | default('')) | trim }}
       {% endif %}
