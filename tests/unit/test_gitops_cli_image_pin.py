@@ -128,10 +128,19 @@ class TestSync:
         p = plan(self._live(HOST_DEFAULT), after, VARS, before, VARS)
         assert p == {"set": {}, "unset": [], "conflict": []}
 
-    def test_moving_env_back_to_the_cli_default_drops_the_operator_image(self):
+    def test_moving_env_back_to_a_cli_pin_writes_it_over_the_operator_image(self):
+        # The line stays: a CLI that predates the per-host default would
+        # render no image at all without it.
         template = "CANASTA_IMAGE=ghcr.io/canastawiki/canasta:latest\n" + BASE
         p = plan(self._live(HOST_DEFAULT), template, VARS, template, VARS)
-        assert p["unset"] == ["CANASTA_IMAGE"]
+        assert p == {"set": {"CANASTA_IMAGE": HOST_DEFAULT}, "unset": [],
+                     "conflict": []}
+
+    def test_a_cli_pin_in_env_template_is_never_removed(self):
+        template = "CANASTA_IMAGE=%s\n%s" % (OTHER_CLI, BASE)
+        for live in (self._live(HOST_DEFAULT), self._live(OTHER_CLI)):
+            p = plan(live, template, VARS, template, VARS)
+            assert p == {"set": {}, "unset": [], "conflict": []}
 
 
 class TestInit:
@@ -163,10 +172,11 @@ class TestInit:
 
 
 class TestConfigSet:
-    def test_setting_a_cli_pin_drops_the_literal(self):
+    def test_setting_a_cli_pin_keeps_the_literal(self):
+        # A CLI that predates the per-host default renders the literal, so
+        # config set writes it whatever the value; newer CLIs ignore a pin.
         tasks = _load("roles", "config", "tasks", "_update_gitops_var.yml")
         block = next(t for t in tasks if t.get("name")
                      == "Update env.template literal when key has no placeholder")
         li = block["block"][0]["ansible.builtin.lineinfile"]
-        state = str(li["state"])
-        assert "canasta_cli_image_pin" in state and "'absent'" in state
+        assert li["state"] == "present"

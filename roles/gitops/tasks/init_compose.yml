@@ -322,6 +322,11 @@
     mode: "0600"
   no_log: true
 
+- name: Record this host's CLI version
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_write_cli_version.yml"
+  vars:
+    cli_version_host: "{{ host_name }}"
+
 # --- Step 11: Save local host identity ---
 - name: Save .gitops-host identity
   ansible.builtin.copy:

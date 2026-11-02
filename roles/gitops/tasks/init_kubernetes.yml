@@ -319,6 +319,11 @@
     mode: "0644"
   no_log: true
 
+- name: Record this host's CLI version
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_write_cli_version.yml"
+  vars:
+    cli_version_host: "{{ host_name }}"
+
 - name: Write rendered-values.yaml (initial render = current values)
   ansible.builtin.copy:
     content: >-

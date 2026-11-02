@@ -3339,6 +3339,13 @@ commands:
       pushed even when nothing is staged. When `pull_requests` is enabled
       in `hosts.yaml`, creates a branch and opens a pull request instead
       of pushing directly to main.
+
+      Every host sharing a gitops repository runs the same Canasta CLI
+      version. Each host records its version in `hosts/<host>/cli-version`
+      when it creates or joins the repository and on every push. A host
+      whose CLI is older than another host's record stops before changing
+      anything and names the newer hosts: upgrade its CLI first. A newer
+      host goes on and names the hosts still on an older CLI.
     examples:
       - "canasta gitops push"
       - "canasta gitops push -m 'Add docs wiki'"
@@ -3379,6 +3386,13 @@ commands:
       update submodules, render `.env` and admin password files from
       the template and host vars, and report what changed and
       whether a restart is needed.
+
+      Every host sharing a gitops repository runs the same Canasta CLI
+      version. Each host records its version in `hosts/<host>/cli-version`
+      when it creates or joins the repository and on every push. A host
+      whose CLI is older than another host's record stops before changing
+      anything and names the newer hosts: upgrade its CLI first. A newer
+      host goes on and names the hosts still on an older CLI.
     examples:
       - "canasta gitops pull"
     playbook: gitops_pull.yml

@@ -3,6 +3,7 @@
 # Loaded via the `filter_plugins` path in ansible.cfg (role-local plugin
 # auto-discovery does not fire under include_role / include_tasks).
 
+import base64
 import hashlib
 import json
 import os
@@ -330,12 +331,16 @@ CLI_DERIVED_ENV_KEYS = ("COMPOSE_PROFILES", "CANASTA_CADDY_IMAGE",
                         "CANASTA_CADDY_HTTPS_PUBLISH")
 
 
-def _without_cli_image_pin(values):
-    """A CLI's own image pin is derived from the CLI version, so it is
-    neither an edit to keep nor a value to compare."""
-    if is_cli_image_pin(values.get(CLI_IMAGE_KEY)):
+# Stands for "this host's CLI default" in the .env sync: a CLI's own pin,
+# or no CANASTA_IMAGE at all, both render as the host's default.
+_CLI_DEFAULT_IMAGE = object()
+
+
+def _cli_image_as_default(values):
+    if values.get(CLI_IMAGE_KEY) is None or is_cli_image_pin(
+            values.get(CLI_IMAGE_KEY)):
         values = dict(values)
-        del values[CLI_IMAGE_KEY]
+        values[CLI_IMAGE_KEY] = _CLI_DEFAULT_IMAGE
     return values
 
 
@@ -351,13 +356,16 @@ def canasta_env_sync_plan(live, template, env_vars, base_template=None,
     to different values). A key edited only in the sources needs nothing
     here: rendering .env afterwards applies it. With no base, the live
     file wins. Keys in ``ignore`` are derived by the CLI and never
-    compared, and neither is a CANASTA_IMAGE that is a CLI's own pin.
+    compared. A CANASTA_IMAGE that is a CLI's own pin compares equal to
+    none at all, since both render as the host's default; it is written
+    into the sources only to replace an image the operator chose.
     """
-    now = _without_cli_image_pin(
+    now = _cli_image_as_default(
         _env_values(canasta_env_render(template, env_vars)))
-    live_values = _without_cli_image_pin(_env_values(live))
+    live_raw = _env_values(live)
+    live_values = _cli_image_as_default(live_raw)
     if str(base_template or "").strip():
-        base = _without_cli_image_pin(
+        base = _cli_image_as_default(
             _env_values(canasta_env_render(base_template, base_vars)))
     else:
         base = now
@@ -369,13 +377,71 @@ def canasta_env_sync_plan(live, template, env_vars, base_template=None,
         if mine == current or mine == old:
             continue
         if current == old:
-            if mine is None:
+            if live_raw.get(key) is None:
                 plan["unset"].append(key)
             else:
-                plan["set"][key] = mine
+                plan["set"][key] = live_raw[key]
         else:
             plan["conflict"].append(key)
     return plan
+
+
+def _cli_version_key(text):
+    match = re.match(r"^\s*v?(\d+(?:\.\d+)*)", str(text or ""))
+    if not match:
+        return None
+    parts = [int(p) for p in match.group(1).split(".")]
+    return tuple(parts + [0] * max(0, 3 - len(parts)))
+
+
+def canasta_cli_version_check(probe, this_host, this_version):
+    """Compare this host's CLI version with the ones the other hosts
+    recorded.
+
+    ``probe`` holds ``R <host> <version>`` lines (a host's
+    hosts/<host>/cli-version) and ``Y <base64>`` lines (a hosts.yaml),
+    from any number of revisions; a host's newest record counts. Returns
+    the hosts whose CLI is newer than this one (``ahead``) and older
+    (``behind``), each as {host, version}, and the registered hosts with
+    no readable record (``unknown``).
+    """
+    records = {}
+    registered = set()
+    for line in str(probe or "").splitlines():
+        kind, _, rest = line.partition(" ")
+        if kind == "R":
+            host, _, version = rest.partition(" ")
+            key = _cli_version_key(version)
+            if host and key and (host not in records
+                                 or key > records[host][0]):
+                records[host] = (key, version.strip())
+        elif kind == "Y" and rest.strip():
+            try:
+                data = yaml.safe_load(base64.b64decode(rest))
+            except (ValueError, yaml.YAMLError):
+                continue
+            hosts = data.get("hosts") if isinstance(data, dict) else None
+            for entry in hosts if isinstance(hosts, list) else []:
+                if isinstance(entry, dict) and entry.get("name"):
+                    registered.add(str(entry["name"]))
+    mine = _cli_version_key(this_version)
+    out = {"ahead": [], "behind": [], "unknown": []}
+    for host in sorted((set(records) | registered) - {this_host}):
+        if host not in records:
+            out["unknown"].append(host)
+            continue
+        key, version = records[host]
+        if mine is None or key == mine:
+            continue
+        out["ahead" if key > mine else "behind"].append(
+            {"host": host, "version": version})
+    return out
+
+
+def canasta_cli_version_list(hosts):
+    """'host (version), ...' for canasta_cli_version_check entries."""
+    return ", ".join("%s (%s)" % (h["host"], h["version"])
+                     for h in hosts or [])
 
 
 def canasta_wiki_url_sync_plan(live_wikis, env_vars, base_vars=None):
@@ -636,6 +702,8 @@ class FilterModule(object):
             "canasta_env_legacy_keys": canasta_env_legacy_keys,
             "canasta_env_sync_plan": canasta_env_sync_plan,
             "canasta_cli_image_pin": is_cli_image_pin,
+            "canasta_cli_version_check": canasta_cli_version_check,
+            "canasta_cli_version_list": canasta_cli_version_list,
             "canasta_wiki_url_sync_plan": canasta_wiki_url_sync_plan,
             "canasta_wiki_ingress_domains": canasta_wiki_ingress_domains,
             "canasta_git_remote_failure": canasta_git_remote_failure,

@@ -375,6 +375,11 @@
     mode: "0600"
   no_log: true
 
+- name: Record this host's CLI version
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_write_cli_version.yml"
+  vars:
+    cli_version_host: "{{ host_name }}"
+
 # The render below rebuilds .env from env.template alone, so a host-specific
 # key that the template has no placeholder for would lose the value just
 # written to this host's vars.
@@ -457,7 +462,9 @@
 # Caddyfile and .gitops-host are gitignored and never committed.)
 - name: Stage the host registration and this host's vars
   ansible.builtin.command:
-    cmd: "git add -- hosts/hosts.yaml hosts/{{ host_name }}/vars.yaml"
+    cmd: >-
+      git add -- hosts/hosts.yaml hosts/{{ host_name }}/vars.yaml
+      hosts/{{ host_name }}/cli-version
     chdir: "{{ instance_path }}"
   changed_when: true
 

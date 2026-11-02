@@ -12,6 +12,12 @@
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_put_back_local_changes.yml"
   when: gitops_resolve_mode | default('') != 'continue'
 
+- name: Refuse a CLI older than another host's
+  ansible.builtin.include_tasks: "_check_cli_versions.yml"
+  vars:
+    cli_versions_git_env: "{{ gitops_k8s_git_env }}"
+  when: gitops_resolve_mode | default('') != 'continue'
+
 # Local changes to tracked files ride through the rebase as commits and are
 # put back afterward, on every path out of this block, before the render.
 - name: Pull with local changes carried through

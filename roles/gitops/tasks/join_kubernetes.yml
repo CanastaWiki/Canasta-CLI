@@ -213,6 +213,11 @@
     mode: "0644"
   no_log: true
 
+- name: Record this host's CLI version
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_write_cli_version.yml"
+  vars:
+    cli_version_host: "{{ host_name }}"
+
 # --- Save host identity (before render, which reads it) ---
 - name: Save .gitops-host identity
   ansible.builtin.copy:
@@ -303,6 +308,7 @@
     cmd: >-
       git add -- hosts/hosts.yaml
       hosts/{{ host_name }}/vars.yaml
+      hosts/{{ host_name }}/cli-version
       hosts/{{ host_name }}/rendered-values.yaml
       argocd/application.yaml
     chdir: "{{ instance_path }}"

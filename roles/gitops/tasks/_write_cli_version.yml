@@ -1,0 +1,12 @@
+---
+# Record the CLI version this host runs, for _check_cli_versions.yml on
+# the other hosts. Per host, so the records of different hosts never
+# collide. The caller stages it.
+#
+# Input: instance_path, cli_version_host.
+
+- name: Record this host's CLI version in the gitops repo
+  ansible.builtin.copy:
+    content: "{{ canasta_cli_version }}\n"
+    dest: "{{ instance_path }}/hosts/{{ cli_version_host }}/cli-version"
+    mode: "0600"
