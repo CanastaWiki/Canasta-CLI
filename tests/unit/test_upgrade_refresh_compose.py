@@ -110,54 +110,35 @@ IMAGE_TAG = os.path.join(
 
 
 class TestImageTagGitopsDurable:
-    """The compose image bump must persist to env.template, or the next gitops
-    pull re-renders .env from it and reverts the upgrade. CANASTA_IMAGE is a
-    plain literal in env.template (not a managed/secret placeholder key), so it
-    must be updated directly — the config-set placeholder path skips it."""
+    """The compose bump of a CLI's own pin writes .env only. env.template is
+    shared by every host, and the gitops render gives each host's .env its
+    own CLI default whenever env.template names no image the operator
+    chose, so the bump survives the next pull without a shared edit."""
 
     @staticmethod
     def _lineinfile(task):
         return (task.get("ansible.builtin.lineinfile")
                 or task.get("lineinfile")) if isinstance(task, dict) else None
 
-    def test_bump_updates_env_template_literal(self):
-        tasks = _load(IMAGE_TAG)
-        upd = next(
-            (t for t in _iter_tasks(tasks)
-             if self._lineinfile(t)
-             and "env.template" in str(self._lineinfile(t).get("path", ""))),
-            None,
-        )
-        assert upd is not None, (
-            "upgrade_image_tag.yml must update the CANASTA_IMAGE literal in "
-            "env.template so the bump survives the next gitops pull"
-        )
-        li = self._lineinfile(upd)
-        assert "CANASTA_IMAGE" in str(li.get("regexp", ""))
-        assert "canasta_default_image" in str(li.get("line", "")), (
-            "the new env.template line must carry the upgrade's target tag"
-        )
-        assert "stat.exists" in str(upd.get("when", "")), (
-            "the env.template update must be gated on .gitops-host existing"
-        )
-
-    def test_env_template_update_inherits_build_from_and_default_image_guards(self):
-        # The env.template write must live INSIDE the guarded block so it never
-        # clobbers a --build-from local build or a custom (non-default) image.
-        block = next(
+    @staticmethod
+    def _compose_bump():
+        return next(
             t for t in _load(IMAGE_TAG)
             if isinstance(t, dict) and t.get("name") == "Update Compose image tag"
         )
-        when = str(block.get("when", ""))
+
+    def test_bump_leaves_env_template_alone(self):
+        for t in _iter_tasks(self._compose_bump().get("block", [])):
+            li = self._lineinfile(t)
+            assert not (li and "env.template" in str(li.get("path", ""))), t
+            cmd = (t.get("ansible.builtin.command") or {}) if isinstance(t, dict) else {}
+            assert "env.template" not in str(cmd), t
+
+    def test_bump_keeps_its_guards(self):
+        when = str(self._compose_bump().get("when", ""))
         assert "buildFrom" in when, "build-from instances must be excluded"
         assert "_upgrade_cli_pin_pattern" in when, (
-            "only the default Canasta image is managed; a custom image is left "
-            "alone"
-        )
-        inside = [t for t in block.get("block", []) if self._lineinfile(t)]
-        assert inside, (
-            "the env.template update must be inside the guarded block so it "
-            "inherits the build-from / default-image guards"
+            "only a CLI's own pin is moved; a custom image is left alone"
         )
 
     def test_bump_still_writes_env(self):

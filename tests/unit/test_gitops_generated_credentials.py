@@ -80,6 +80,7 @@ def _run(tmp_path, settings, env_lines, template_lines):
         "connection": "local",
         "gather_facts": False,
         "vars": {"instance_path": str(inst), "canasta_root": REPO_ROOT,
+                 "canasta_default_image": "ghcr.io/canastawiki/canasta:3.5.30",
                  "_config_settings": settings},
         "tasks": [
             {"ansible.builtin.include_vars": {"file": CLASSIFICATION}},

@@ -1138,6 +1138,13 @@ commands:
       `TLS_MODE=off`), and `CADDY_TRUSTED_PROXIES`, `CADDY_TLS_CERT` and
       `CADDY_TLS_KEY` to `TRUSTED_PROXIES`, `TLS_CERT` and `TLS_KEY`.
 
+      A Docker Compose instance managed through gitops runs the Canasta
+      release of the CLI on its own host, so upgrade moves its `.env` to the
+      new release and leaves env.template, which every host shares,
+      unchanged. An image set with `canasta config set CANASTA_IMAGE=...`
+      other than a release of the official image is kept in env.template
+      for every host, and upgrade leaves it as it is.
+
       A Kubernetes instance managed through gitops is not redeployed: Argo CD
       deploys it from its gitops repo. Upgrade stages the refreshed chart and
       image tag there, and you deploy them with `canasta gitops push`, then

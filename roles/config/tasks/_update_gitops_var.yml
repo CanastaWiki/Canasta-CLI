@@ -61,6 +61,9 @@
 # absent). Update that literal so the change reaches the durable source; a
 # gitops pull re-renders .env from env.template, so a
 # literal left stale reverts the value on the next render.
+#
+# A CANASTA_IMAGE that is the CLI's own pin is not shared: the render gives
+# each host its own CLI's default, so setting one drops the literal.
 - name: Update env.template literal when key has no placeholder
   when: _ugv_placeholder == ''
   block:
@@ -69,7 +72,9 @@
         path: "{{ instance_path }}/env.template"
         regexp: "^{{ _ugv_key }}="
         line: "{{ _ugv_key }}={{ _ugv_value | canasta_env_quote }}"
-        state: present
+        state: >-
+          {{ 'absent' if _ugv_key == 'CANASTA_IMAGE'
+             and (_ugv_value | canasta_cli_image_pin) else 'present' }}
 
     - name: Stage updated env.template
       ansible.builtin.command:

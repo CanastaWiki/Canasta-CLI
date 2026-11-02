@@ -102,7 +102,7 @@ def test_a_null_var_renders_as_unset_not_as_blank():
         if (t.get("name") or "") == "Render .env from template"
     )
     body = str(task["ansible.builtin.copy"]["content"])
-    assert "canasta_env_render(env_render_vars)" in body
+    assert "canasta_env_render(env_render_vars, canasta_default_image)" in body
     sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
     from canasta_gitops import canasta_env_render
     out = canasta_env_render("SMTP_PASSWORD={{smtp_password}}\n",

@@ -154,6 +154,9 @@
     - _mig.env.CANASTA_IMAGE is match(_upgrade_cli_pin_pattern)
     - _mig.env.CANASTA_IMAGE != canasta_default_image
   block:
+    # .env only. On a gitops instance the render gives .env this host's CLI
+    # default whenever env.template holds no image the operator chose, so
+    # the bump survives the next pull without an edit to the shared file.
     - name: Update CANASTA_IMAGE to latest default tag
       canasta_env:
         path: "{{ instance_path }}/.env"
@@ -168,44 +171,6 @@
         msg: >-
           Updated CANASTA_IMAGE from {{ _mig.env.CANASTA_IMAGE }} to
           {{ canasta_default_image }}.
-
-    # On a gitops instance the .env above is re-rendered from env.template on
-    # the next pull, which would revert the tag. CANASTA_IMAGE lives in
-    # env.template as a plain literal (it is not a managed/secret placeholder
-    # key), so update that literal directly — the render copies it verbatim, so
-    # the bump survives the next pull. Without this the upgrade silently
-    # reverts. No-op off gitops.
-    - name: Check if instance is gitops-managed
-      ansible.builtin.stat:
-        path: "{{ instance_path }}/.gitops-host"
-      register: _upgrade_image_gitops_stat
-
-    - name: Persist CANASTA_IMAGE to env.template (durable across pulls)
-      ansible.builtin.lineinfile:
-        path: "{{ instance_path }}/env.template"
-        regexp: "^CANASTA_IMAGE="
-        line: "CANASTA_IMAGE={{ canasta_default_image }}"
-        state: present
-      when: _upgrade_image_gitops_stat.stat.exists | default(false)
-
-    # Leaving the edit unstaged blocks the next 'canasta gitops pull' (which
-    # refuses to run on a dirty tree) and hides the bump from 'canasta gitops
-    # push' (which only commits what is staged). Stage it, as the config role
-    # does for its own env.template edits.
-    - name: Stage the bumped env.template
-      ansible.builtin.command:
-        cmd: "git add env.template"
-        chdir: "{{ instance_path }}"
-      changed_when: true
-      when: _upgrade_image_gitops_stat.stat.exists | default(false)
-
-    - name: Report the pending gitops push
-      ansible.builtin.debug:
-        msg: >-
-          Staged CANASTA_IMAGE={{ canasta_default_image }} in env.template.
-          Run 'canasta gitops push' to share the new image pin with the other
-          hosts.
-      when: _upgrade_image_gitops_stat.stat.exists | default(false)
 
 # --- Move a rebuilt Compose instance onto its own image tag ---
 # An instance naming canasta:local runs whichever --build-from instance on
@@ -231,8 +196,8 @@
       ansible.builtin.debug:
         msg: "Updated CANASTA_IMAGE from canasta:local to {{ _built_image }}."
 
-    # As for the pin bump above: a gitops pull re-renders .env from
-    # env.template, which would put canasta:local back.
+    # A gitops pull re-renders .env from env.template, which would put
+    # canasta:local back.
     - name: Check if instance is gitops-managed
       ansible.builtin.stat:
         path: "{{ instance_path }}/.gitops-host"

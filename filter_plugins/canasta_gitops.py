@@ -29,6 +29,10 @@ from canasta_env_quote import (  # noqa: E402
     requote_raw,
     unquote_value,
 )
+from canasta_image_pin import (  # noqa: E402
+    CLI_IMAGE_KEY,
+    is_cli_image_pin,
+)
 
 ENCRYPTION_FILTER = "git-crypt"
 
@@ -203,7 +207,7 @@ def canasta_chart_values_refresh(values, shipped, base=None, former=None,
     return out
 
 
-def canasta_env_render(template, env_vars):
+def canasta_env_render(template, env_vars, default_image=None):
     """Render env.template with a host's placeholder values.
 
     A `KEY={{name}}` line takes the value of `name`, quoted as .env needs
@@ -211,6 +215,11 @@ def canasta_env_render(template, env_vars):
     `KEY=`, so the reader's own default applies. A literal whose bare `$`
     Compose would expand is quoted (requote_raw); every other line is
     copied as is.
+
+    With ``default_image``, CANASTA_IMAGE is that image unless the
+    template names one the operator chose: a CLI's own pin follows the
+    CLI of the host rendering it, so one written by another host's CLI
+    is not carried over.
     """
     env_vars = env_vars or {}
     defined = _template_keys(template)
@@ -228,7 +237,30 @@ def canasta_env_render(template, env_vars):
             out.append(line if requoted is None else "%s=%s" % (key, requoted))
         else:
             out.append(line)
+    if default_image:
+        out = _with_default_image(out, default_image)
     return canasta_env_modernize("".join(line + "\n" for line in out))
+
+
+def _env_line_key(line):
+    if "=" not in line or line.lstrip().startswith("#"):
+        return None
+    return line.split("=", 1)[0].strip()
+
+
+def _with_default_image(lines, default_image):
+    image_line = "%s=%s" % (CLI_IMAGE_KEY, default_image)
+    out = [
+        image_line if _env_line_key(line) == CLI_IMAGE_KEY
+        and is_cli_image_pin(line.split("=", 1)[1]) else line
+        for line in lines
+    ]
+    if not any(_env_line_key(line) == CLI_IMAGE_KEY for line in out):
+        end = len(out)
+        while end and not out[end - 1].strip():
+            end -= 1
+        out.insert(end, image_line)
+    return out
 
 
 def _template_keys(template):
@@ -298,6 +330,15 @@ CLI_DERIVED_ENV_KEYS = ("COMPOSE_PROFILES", "CANASTA_CADDY_IMAGE",
                         "CANASTA_CADDY_HTTPS_PUBLISH")
 
 
+def _without_cli_image_pin(values):
+    """A CLI's own image pin is derived from the CLI version, so it is
+    neither an edit to keep nor a value to compare."""
+    if is_cli_image_pin(values.get(CLI_IMAGE_KEY)):
+        values = dict(values)
+        del values[CLI_IMAGE_KEY]
+    return values
+
+
 def canasta_env_sync_plan(live, template, env_vars, base_template=None,
                           base_vars=None, ignore=CLI_DERIVED_ENV_KEYS):
     """Decide how to bring .env and its gitops sources into agreement.
@@ -310,12 +351,14 @@ def canasta_env_sync_plan(live, template, env_vars, base_template=None,
     to different values). A key edited only in the sources needs nothing
     here: rendering .env afterwards applies it. With no base, the live
     file wins. Keys in ``ignore`` are derived by the CLI and never
-    compared.
+    compared, and neither is a CANASTA_IMAGE that is a CLI's own pin.
     """
-    now = _env_values(canasta_env_render(template, env_vars))
-    live_values = _env_values(live)
+    now = _without_cli_image_pin(
+        _env_values(canasta_env_render(template, env_vars)))
+    live_values = _without_cli_image_pin(_env_values(live))
     if str(base_template or "").strip():
-        base = _env_values(canasta_env_render(base_template, base_vars))
+        base = _without_cli_image_pin(
+            _env_values(canasta_env_render(base_template, base_vars)))
     else:
         base = now
     plan = {"set": {}, "unset": [], "conflict": []}
@@ -592,6 +635,7 @@ class FilterModule(object):
             "canasta_env_legacy_settings": canasta_env_legacy_settings,
             "canasta_env_legacy_keys": canasta_env_legacy_keys,
             "canasta_env_sync_plan": canasta_env_sync_plan,
+            "canasta_cli_image_pin": is_cli_image_pin,
             "canasta_wiki_url_sync_plan": canasta_wiki_url_sync_plan,
             "canasta_wiki_ingress_domains": canasta_wiki_ingress_domains,
             "canasta_git_remote_failure": canasta_git_remote_failure,
