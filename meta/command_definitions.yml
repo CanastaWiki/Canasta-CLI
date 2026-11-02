@@ -3219,6 +3219,12 @@ commands:
       `canasta add -w <id> -u <url>` before joining; otherwise join
       stops before changing anything and names them.
 
+      Every host sharing a gitops repository runs the same Canasta CLI
+      version. A host whose CLI is older than the recorded version of a
+      host that can push is refused before anything changes, with the
+      newer hosts named: upgrade its CLI first. The joining host records
+      its own version in `hosts/<host>/cli-version`.
+
       Account-wide credentials (the AWS keys, SMTP) are shared across
       every host in the repo. Backup credentials are not: a password
       that unlocks one specific repository belongs with the per-host
@@ -3343,9 +3349,11 @@ commands:
       Every host sharing a gitops repository runs the same Canasta CLI
       version. Each host records its version in `hosts/<host>/cli-version`
       when it creates or joins the repository and on every push. A host
-      whose CLI is older than another host's record stops before changing
-      anything and names the newer hosts: upgrade its CLI first. A newer
-      host goes on and names the hosts still on an older CLI.
+      whose CLI is older than the record of a host that can push stops
+      before changing anything and names the newer hosts: upgrade its CLI
+      first. A newer host goes on and names the hosts still on an older
+      CLI. Hosts whose role cannot push are not compared, since they
+      publish no record after joining.
     examples:
       - "canasta gitops push"
       - "canasta gitops push -m 'Add docs wiki'"
@@ -3390,9 +3398,11 @@ commands:
       Every host sharing a gitops repository runs the same Canasta CLI
       version. Each host records its version in `hosts/<host>/cli-version`
       when it creates or joins the repository and on every push. A host
-      whose CLI is older than another host's record stops before changing
-      anything and names the newer hosts: upgrade its CLI first. A newer
-      host goes on and names the hosts still on an older CLI.
+      whose CLI is older than the record of a host that can push stops
+      before changing anything and names the newer hosts: upgrade its CLI
+      first. A newer host goes on and names the hosts still on an older
+      CLI. Hosts whose role cannot push are not compared, since they
+      publish no record after joining.
     examples:
       - "canasta gitops pull"
     playbook: gitops_pull.yml

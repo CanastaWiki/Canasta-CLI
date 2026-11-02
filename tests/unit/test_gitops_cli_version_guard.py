@@ -32,8 +32,9 @@ def _load(path):
         return yaml.safe_load(f)
 
 
-def _hosts_yaml(*names):
-    text = yaml.safe_dump({"hosts": [{"name": n, "role": "both"} for n in names]})
+def _hosts_yaml(*names, **roles):
+    text = yaml.safe_dump({"hosts": [
+        {"name": n, "role": roles.get(n, "both")} for n in names]})
     return "Y " + base64.b64encode(text.encode()).decode()
 
 
@@ -90,6 +91,29 @@ class TestCompare:
         assert check(probe, "a", "4.30.0") == {
             "ahead": [], "behind": [], "unknown": []}
 
+    def test_a_pull_only_hosts_stale_record_is_ignored(self):
+        for role in ("sink", "receive"):
+            probe = ("R b 4.20.0\nR c 4.40.0\n"
+                     + _hosts_yaml("a", "b", "c", "d", b=role, c=role, d=role))
+            assert check(probe, "a", "4.30.0") == {
+                "ahead": [], "behind": [], "unknown": []}, role
+
+    def test_a_host_with_no_role_can_push(self):
+        text = yaml.safe_dump({"hosts": [{"name": "a"}, {"name": "b"}]})
+        probe = "R b 4.20.0\nY " + base64.b64encode(text.encode()).decode()
+        assert check(probe, "a", "4.30.0")["behind"] == [
+            {"host": "b", "version": "4.20.0"}]
+
+    def test_a_pull_only_host_still_refuses_when_older(self):
+        probe = "R b 4.31.0\n" + _hosts_yaml("a", "b", a="sink")
+        assert check(probe, "a", "4.30.0")["ahead"] == [
+            {"host": "b", "version": "4.31.0"}]
+
+    def test_the_latest_role_counts(self):
+        probe = ("R b 4.20.0\n" + _hosts_yaml("a", "b")
+                 + "\n" + _hosts_yaml("a", "b", b="sink"))
+        assert check(probe, "a", "4.30.0")["behind"] == []
+
     def test_list_names_hosts_and_versions(self):
         assert version_list([{"host": "b", "version": "4.31.0"},
                              {"host": "c", "version": "4.32.0"}]) == (
@@ -120,6 +144,25 @@ class TestWhereTheCheckRuns:
             for marker in ("_render", "sync_env", "git pull", "git add",
                            "git commit", "git push"):
                 assert marker not in text, (flow, t.get("name"))
+
+    @pytest.mark.parametrize("flow, env", [
+        ("join.yml", "gitops_git_env"),
+        ("join_kubernetes.yml", "gitops_k8s_git_env"),
+    ])
+    def test_join_checks_the_clone_before_changing_the_instance(self, flow, env):
+        tasks = _load(os.path.join(TASKS, flow))
+        guard = next(i for i, t in enumerate(tasks)
+                     if _includes(t, "_check_cli_versions.yml"))
+        hosts = next(i for i, t in enumerate(tasks)
+                     if _includes(t, "_join_read_hosts.yml"))
+        move = next(i for i, t in enumerate(tasks)
+                    if _includes(t, "_join_move_git.yml"))
+        assert hosts < guard < move
+        assert tasks[guard]["vars"] == {
+            "cli_versions_git_env": "{{ %s }}" % env,
+            "cli_versions_repo": "{{ _join_tmpdir.path }}",
+            "cli_versions_host": "{{ host_name }}",
+        }
 
     def test_the_check_uses_the_cli_version_of_this_install(self):
         with open(os.path.join(REPO_ROOT, "canasta.yml")) as f:
@@ -191,8 +234,7 @@ def _record(clone, host, version):
         f.write(version + "\n")
 
 
-@pytest.fixture
-def fleet(tmp_path):
+def _fleet(tmp_path, roles):
     """A remote and two clones: this host 'a', and host 'b'."""
     remote = tmp_path / "remote.git"
     subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)],
@@ -202,8 +244,8 @@ def fleet(tmp_path):
                    capture_output=True)
     _git(a, "checkout", "-q", "-b", "main")
     os.makedirs(a / "hosts")
-    (a / "hosts" / "hosts.yaml").write_text(yaml.safe_dump(
-        {"hosts": [{"name": "a"}, {"name": "b"}, {"name": "c"}]}))
+    (a / "hosts" / "hosts.yaml").write_text(yaml.safe_dump({"hosts": [
+        {"name": n, "role": roles.get(n, "both")} for n in ("a", "b", "c")]}))
     _record(a, "a", "4.30.0")
     (a / ".gitops-host").write_text("a")
     _git(a, "add", "hosts")
@@ -215,14 +257,20 @@ def fleet(tmp_path):
     return a, b
 
 
-def _run_check(tmp_path, instance, version):
+@pytest.fixture
+def fleet(tmp_path):
+    return _fleet(tmp_path, {})
+
+
+def _run_check(tmp_path, instance, version, **extra):
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": {"instance_path": str(instance), "canasta_cli_version": version,
-                 "cli_versions_git_env": {}},
+        "vars": dict({"instance_path": str(instance),
+                      "canasta_cli_version": version,
+                      "cli_versions_git_env": {}}, **extra),
         "tasks": [{"ansible.builtin.include_tasks": CHECK}],
     }]))
     env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
@@ -276,3 +324,59 @@ class TestTheCheck:
         for text in ("still on an older CLI:", "No CLI version is recorded",
                      "older than"):
             assert text not in out
+
+    def test_a_pusher_ignores_a_pull_only_hosts_stale_record(self, tmp_path):
+        a, b = _fleet(tmp_path, {"c": "sink"})
+        _push_record(b, "b", "4.30.0")
+        _push_record(b, "c", "4.20.0")
+        rc, out = _run_check(tmp_path, a, "4.30.0")
+        assert rc == 0, out
+        for text in ("still on an older CLI:", "No CLI version is recorded",
+                     "older than", "4.20.0"):
+            assert text not in out
+
+    def test_a_pull_only_host_refuses_when_older_than_a_pusher(self, tmp_path):
+        a, b = _fleet(tmp_path, {"a": "sink"})
+        _push_record(b, "b", "4.31.0")
+        rc, out = _run_check(tmp_path, a, "4.30.0")
+        assert rc != 0
+        assert "b (4.31.0)" in out
+        assert "upgrade the CLI on this host first" in out
+
+
+class TestJoin:
+    """join runs the check on its fresh clone, as the host it is joining."""
+
+    def _clone(self, tmp_path, b):
+        clone = tmp_path / "join-clone"
+        subprocess.run(["git", "clone", "-q", str(tmp_path / "remote.git"),
+                        str(clone)], check=True, capture_output=True)
+        return clone
+
+    def _join(self, tmp_path, b, version):
+        clone = self._clone(tmp_path, b)
+        new = tmp_path / "new-instance"
+        new.mkdir()
+        return _run_check(tmp_path, new, version,
+                          cli_versions_repo=str(clone),
+                          cli_versions_host="d")
+
+    def test_join_refuses_an_older_cli(self, tmp_path, fleet):
+        _, b = fleet
+        _push_record(b, "b", "4.31.0")
+        _push_record(b, "c", "4.31.0")
+        rc, out = self._join(tmp_path, b, "4.30.0")
+        assert rc != 0
+        assert "a (4.30.0)" not in out
+        assert "b (4.31.0), c (4.31.0)" in out
+        assert "upgrade the CLI on this host first" in out
+
+    @pytest.mark.parametrize("version", ["4.30.0", "4.31.0"])
+    def test_join_goes_on_when_equal_or_newer(self, tmp_path, fleet, version):
+        _, b = fleet
+        _push_record(b, "b", "4.30.0")
+        _push_record(b, "c", "4.30.0")
+        rc, out = self._join(tmp_path, b, version)
+        assert rc == 0, out
+        assert "older than" not in out
+        assert ("still on an older CLI:" in out) == (version == "4.31.0")

@@ -394,19 +394,26 @@ def _cli_version_key(text):
     return tuple(parts + [0] * max(0, 3 - len(parts)))
 
 
+# hosts.yaml roles that may run 'gitops push'; a host with no role has
+# 'both', as push itself decides.
+GITOPS_PUSH_ROLES = ("source", "both")
+
+
 def canasta_cli_version_check(probe, this_host, this_version):
     """Compare this host's CLI version with the ones the other hosts
     recorded.
 
     ``probe`` holds ``R <host> <version>`` lines (a host's
     hosts/<host>/cli-version) and ``Y <base64>`` lines (a hosts.yaml),
-    from any number of revisions; a host's newest record counts. Returns
-    the hosts whose CLI is newer than this one (``ahead``) and older
-    (``behind``), each as {host, version}, and the registered hosts with
-    no readable record (``unknown``).
+    from any number of revisions, oldest first; a host's newest record
+    and its latest role count. Only hosts that can push are compared: one
+    that cannot push publishes no record after it joins, so its record
+    says nothing about the CLI it runs. Returns the hosts whose CLI is
+    newer than this one (``ahead``) and older (``behind``), each as
+    {host, version}, and the hosts with no readable record (``unknown``).
     """
     records = {}
-    registered = set()
+    roles = {}
     for line in str(probe or "").splitlines():
         kind, _, rest = line.partition(" ")
         if kind == "R":
@@ -423,10 +430,12 @@ def canasta_cli_version_check(probe, this_host, this_version):
             hosts = data.get("hosts") if isinstance(data, dict) else None
             for entry in hosts if isinstance(hosts, list) else []:
                 if isinstance(entry, dict) and entry.get("name"):
-                    registered.add(str(entry["name"]))
+                    roles[str(entry["name"])] = entry.get("role") or "both"
     mine = _cli_version_key(this_version)
     out = {"ahead": [], "behind": [], "unknown": []}
-    for host in sorted((set(records) | registered) - {this_host}):
+    for host in sorted((set(records) | set(roles)) - {this_host}):
+        if roles.get(host, "both") not in GITOPS_PUSH_ROLES:
+            continue
         if host not in records:
             out["unknown"].append(host)
             continue
