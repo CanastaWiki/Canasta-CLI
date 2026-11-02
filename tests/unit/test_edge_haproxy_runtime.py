@@ -381,6 +381,17 @@ def test_resource_loader_is_not_rate_limited_for_a_logged_in_user(edge_ports):
     assert pages[:3] == [200] * 3 and pages[-1] == 429
 
 
+def test_resource_loader_under_another_script_path_is_not_rate_limited(edge_ports):
+    client = {"CF-Connecting-IP": "198.51.100.17", "Cookie": "wiki_session=abc"}
+    files = ["/%s/load.php?modules=skins.vector.icons&image=i%d" % (path, n)
+             for path in ("en/wiki", "wiki", "en/w") for n in range(2)]
+    assert [_request(edge_ports, "cdn.example.org", p, headers=client)[0]
+            for p in files] == [200] * len(files)
+    pages = [_request(edge_ports, "cdn.example.org", "/wiki/E%d" % n, headers=client)[0]
+             for n in range(5)]
+    assert pages[:3] == [200] * 3 and pages[-1] == 429
+
+
 def test_a_configured_sitemap_path_is_static_for_its_instance_only(edge_ports):
     client = {"CF-Connecting-IP": "198.51.100.14"}
     files = ["/wiki/sitemap/sitemap-w0-NS_0-%d.xml.gz" % n for n in range(4)] + [
