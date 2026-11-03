@@ -820,8 +820,9 @@ _ROUTING = [
     "    acl php path_end .php",
     # ResourceLoader serves a page's scripts, styles and icons, one request
     # each and the same for every user, so it is not counted per client
-    # either; a logged-in user's still reach the dynamic class.
-    "    acl resource_loader path_end /w/load.php",
+    # either; a logged-in user's still reach the dynamic class. Matched
+    # under any script path, since a wiki can set its own $wgScriptPath.
+    "    acl resource_loader path_end /load.php",
     "    http-request set-var(txn.static) bool(true) if static_file !php",
     "    http-request set-var(txn.static) bool(true) if resource_loader",
     "    use_backend be_%[var(txn.inst)]_media if known_site media_host",
