@@ -1,0 +1,12 @@
+---
+# Shared entry for set-role and remove-host.
+# Input: id, host_name, _hc_action. Optional: role, ssh_key, key.
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Remember or recall the gitops SSH key
+  ansible.builtin.include_tasks: _ssh_key.yml
+
+- name: Dispatch the hosts.yaml change
+  ansible.builtin.include_tasks: "hosts_change_{{ instance_orchestrator | default('compose') }}.yml"

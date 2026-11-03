@@ -1,0 +1,40 @@
+---
+# Change one host's entry in hosts/hosts.yaml and push just that change:
+# its role (set-role) or the host itself, with its hosts/<host>/ files
+# (remove-host).
+#
+# The commit is built on the remote's main with a temporary index, so it
+# holds only these paths whatever this checkout has staged, changed or
+# committed, and the working tree is not touched; the next 'gitops pull'
+# brings it in. The CLI version check is not run: a host stuck behind a
+# retired host's record has to be able to run this.
+#
+# Input: instance_path, host_name, _hc_action (set_role or remove),
+#        _hc_git_env, _hc_encrypted (hosts/** is git-crypt encrypted).
+# Optional: role (set_role).
+
+- name: Read this host's gitops name
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-host"
+  register: _hc_self_raw
+
+- name: Name this host
+  ansible.builtin.set_fact:
+    _hc_self: "{{ _hc_self_raw.content | b64decode | trim }}"
+    _hc_done: false
+
+# Built on the remote as it is now; if another host pushes in between,
+# the change is built again on top of that.
+- name: Change hosts.yaml on top of the remote
+  ansible.builtin.include_tasks: _hosts_change_attempt.yml
+
+- name: Change hosts.yaml on top of the remote again
+  ansible.builtin.include_tasks: _hosts_change_attempt.yml
+  when: not (_hc_done | bool)
+
+- name: Fail when the remote kept moving
+  ansible.builtin.fail:
+    msg: >-
+      Other hosts pushed while this change was being made, twice. Run the
+      command again.
+  when: not (_hc_done | bool)

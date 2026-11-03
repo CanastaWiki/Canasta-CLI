@@ -1,0 +1,14 @@
+---
+# set-role / remove-host on a Compose gitops instance. hosts/** is
+# git-crypt encrypted, so the checkout must be unlocked to read and
+# rewrite hosts.yaml.
+# Input: instance_path, host_name, _hc_action. Optional: role, key.
+
+- name: Detect a locked git-crypt checkout
+  ansible.builtin.include_tasks: "_detect_gitcrypt_lock.yml"
+
+- name: Change hosts.yaml and push it
+  ansible.builtin.include_tasks: _hosts_change.yml
+  vars:
+    _hc_git_env: "{{ gitops_git_env }}"
+    _hc_encrypted: true

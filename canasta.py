@@ -127,7 +127,8 @@ SUBCOMMAND_GROUPS = {
     ],
     "gitops": [
         "init", "join", "add", "rm", "push", "pull", "resolve",
-        "status", "diff", "fix-submodules", "sync",
+        "status", "diff", "fix-submodules", "sync", "set-role",
+        "remove-host",
     ],
     "storage": ["setup", "list"],
     "host": ["add", "remove", "list"],

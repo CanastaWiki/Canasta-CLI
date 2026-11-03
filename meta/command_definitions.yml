@@ -3336,6 +3336,109 @@ commands:
         positional: true
         description: "File path to remove (relative to instance root)"
 
+  - name: gitops_set_role
+    description: "Change a host's role in the gitops repository"
+    long_description: |
+      Set the role of a host in `hosts/hosts.yaml` and push that change
+      alone. Run it on a host that can push (role `source` or `both`).
+      A `sink` host only pulls, and its recorded CLI version is not
+      compared with the other hosts'. The last host that can push cannot
+      be given role `sink`.
+
+      The change is made on top of the repository's main branch as it is
+      on the remote, and holds only `hosts/hosts.yaml`: nothing staged,
+      changed or committed on this host goes with it, and this host's
+      files are not changed until its next `canasta gitops pull`. It runs
+      whatever the CLI versions of the other hosts, so a host whose pull
+      and push stop on another host's newer CLI can still run it.
+    examples:
+      - "canasta gitops set-role --host-name staging --role sink"
+    playbook: gitops_set_role.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: host_name
+        type: string
+        required: true
+        description: "Name of the host in hosts/hosts.yaml"
+      - name: role
+        type: choice
+        choices: [source, sink, both]
+        required: true
+        description: "New role for the host"
+      - name: ssh_key
+        type: path
+        path_kind: instance_host
+        description: >-
+          Path on the instance's host to an SSH private key for git network
+          operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
+          <ssh-key> ...". On a remote host, give an absolute path or one
+          starting with a quoted '~' (for example '~/x'). On Compose, the instance
+          remembers the path, and later gitops commands use it when --ssh-key
+          is omitted; passing it again replaces it. Without a remembered key,
+          git uses ssh-agent forwarding on Compose, or the staged deploy key on
+          Kubernetes.
+      - name: key
+        type: path
+        description: >-
+          Compose only. Path on the controller (the machine running canasta)
+          to the git-crypt symmetric key, used to unlock the checkout if it is
+          locked. Without it, a repo with GPG recipients is unlocked through a
+          forwarded GPG agent.
+
+  - name: gitops_remove_host
+    description: "Remove a host from the gitops repository"
+    long_description: |
+      Remove a host from `hosts/hosts.yaml`, together with its own files
+      under `hosts/<host>/`: its `vars.yaml`, its recorded CLI version
+      and, on Kubernetes, its rendered values and encrypted Secrets.
+      Values every host shares stay in `hosts/_shared/`. Use it for a
+      host that is retired; the host's own instance is not changed.
+
+      Run it on another host that can push (role `source` or `both`). A
+      host cannot remove itself, and the last host that can push cannot
+      be removed.
+
+      The change is made on top of the repository's main branch as it is
+      on the remote, and holds only those paths: nothing staged, changed
+      or committed on this host goes with it, and this host's files are
+      not changed until its next `canasta gitops pull`. It runs whatever
+      the CLI versions of the other hosts, so a host whose pull and push
+      stop on a retired host's newer CLI can still run it.
+    examples:
+      - "canasta gitops remove-host --host-name old-prod"
+    playbook: gitops_remove_host.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: host_name
+        type: string
+        required: true
+        description: "Name of the host in hosts/hosts.yaml"
+      - name: ssh_key
+        type: path
+        path_kind: instance_host
+        description: >-
+          Path on the instance's host to an SSH private key for git network
+          operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
+          <ssh-key> ...". On a remote host, give an absolute path or one
+          starting with a quoted '~' (for example '~/x'). On Compose, the instance
+          remembers the path, and later gitops commands use it when --ssh-key
+          is omitted; passing it again replaces it. Without a remembered key,
+          git uses ssh-agent forwarding on Compose, or the staged deploy key on
+          Kubernetes.
+      - name: key
+        type: path
+        description: >-
+          Compose only. Path on the controller (the machine running canasta)
+          to the git-crypt symmetric key, used to unlock the checkout if it is
+          locked. Without it, a repo with GPG recipients is unlocked through a
+          forwarded GPG agent.
+
   - name: gitops_push
     description: "Push configuration changes to the git repository"
     long_description: |
@@ -3353,7 +3456,10 @@ commands:
       before changing anything and names the newer hosts: upgrade its CLI
       first. A newer host goes on and names the hosts still on an older
       CLI. Hosts whose role cannot push are not compared, since they
-      publish no record after joining.
+      publish no record after joining. A retired host is taken out with
+      `canasta gitops remove-host`, and one that should no longer be
+      compared is made pull-only with `canasta gitops set-role --role
+      sink`; both run whatever the other hosts' CLI versions.
     examples:
       - "canasta gitops push"
       - "canasta gitops push -m 'Add docs wiki'"
@@ -3402,7 +3508,10 @@ commands:
       before changing anything and names the newer hosts: upgrade its CLI
       first. A newer host goes on and names the hosts still on an older
       CLI. Hosts whose role cannot push are not compared, since they
-      publish no record after joining.
+      publish no record after joining. A retired host is taken out with
+      `canasta gitops remove-host`, and one that should no longer be
+      compared is made pull-only with `canasta gitops set-role --role
+      sink`; both run whatever the other hosts' CLI versions.
     examples:
       - "canasta gitops pull"
     playbook: gitops_pull.yml

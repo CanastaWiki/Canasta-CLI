@@ -1,0 +1,170 @@
+---
+# One attempt of _hosts_change.yml.
+# Input: as _hosts_change.yml, plus _hc_self.
+
+- name: Fetch the remote's main
+  ansible.builtin.command:
+    cmd: "git fetch --quiet origin main"
+    chdir: "{{ instance_path }}"
+  environment: "{{ _hc_git_env }}"
+  register: _hc_fetch
+  changed_when: false
+  failed_when: false
+
+- name: Fail when the remote cannot be reached
+  ansible.builtin.fail:
+    msg: "git fetch failed: {{ _hc_fetch.stderr | default('') | trim }}"
+  when: _hc_fetch.rc != 0
+
+- name: Find the remote's main
+  ansible.builtin.command:
+    cmd: "git rev-parse --verify refs/remotes/origin/main^{commit}"
+    chdir: "{{ instance_path }}"
+  register: _hc_base_raw
+  changed_when: false
+
+# --filters decrypts a git-crypt checkout.
+- name: Read hosts.yaml on the remote's main
+  ansible.builtin.command:
+    cmd: >-
+      git cat-file --filters
+      {{ _hc_base_raw.stdout | trim }}:hosts/hosts.yaml
+    chdir: "{{ instance_path }}"
+  register: _hc_hosts_raw
+  changed_when: false
+
+- name: Parse the remote's hosts.yaml
+  ansible.builtin.set_fact:
+    _hc_base: "{{ _hc_base_raw.stdout | trim }}"
+    _hc_doc: "{{ _hc_hosts_raw.stdout | from_yaml | default({}, true) }}"
+
+- name: Look up the hosts
+  ansible.builtin.set_fact:
+    _hc_names: "{{ _hc_doc.hosts | default([]) | map(attribute='name') | list }}"
+    _hc_self_role: >-
+      {{ (_hc_doc.hosts | default([])
+          | selectattr('name', 'equalto', _hc_self)
+          | first | default({})).get('role') or 'both' }}
+    _hc_target_role: >-
+      {{ (_hc_doc.hosts | default([])
+          | selectattr('name', 'equalto', host_name)
+          | first | default({})).get('role') or 'both' }}
+    _hc_after: >-
+      {{ _hc_doc | canasta_gitops_hosts_after(_hc_action, host_name,
+                                              role | default(none)) }}
+
+- name: Fail when the host is not in the repository
+  ansible.builtin.fail:
+    msg: >-
+      Host '{{ host_name }}' is not in hosts/hosts.yaml. Its hosts are:
+      {{ _hc_names | join(', ') }}.
+  when: host_name not in _hc_names
+
+- name: Fail when this host cannot push
+  ansible.builtin.fail:
+    msg: >-
+      Host '{{ _hc_self }}' has role '{{ _hc_self_role }}' which does not
+      allow pushing. Run this on a host with role 'source' or 'both'.
+  when: _hc_self_role not in ['source', 'both']
+
+- name: Fail when removing this host
+  ansible.builtin.fail:
+    msg: >-
+      Host '{{ host_name }}' is the host this command runs on. Run
+      'canasta gitops remove-host' from another host that can push.
+  when:
+    - _hc_action == 'remove'
+    - host_name == _hc_self
+
+- name: Fail when no host could push afterwards
+  ansible.builtin.fail:
+    msg: >-
+      Host '{{ host_name }}' is the last host that can push; without it no
+      host could change the repository. Give another host role 'source'
+      or 'both' first.
+  when: _hc_after.pushers | length == 0
+
+- name: Report a role the host already has
+  ansible.builtin.debug:
+    msg: "Host '{{ host_name }}' already has role '{{ role }}'."
+  when:
+    - _hc_action == 'set_role'
+    - _hc_target_role == role
+
+- name: Stop when the role is unchanged
+  ansible.builtin.set_fact:
+    _hc_done: true
+  when:
+    - _hc_action == 'set_role'
+    - _hc_target_role == role
+
+# Exit 2: the push was rejected because the remote moved.
+- name: Commit and push the change
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      idx=$(mktemp -d)
+      trap 'rm -rf "$idx"' EXIT
+      export GIT_INDEX_FILE="$idx/index"
+      git read-tree "$HC_BASE"
+      mode=$(git ls-tree "$HC_BASE" -- hosts/hosts.yaml | awk '{print $1}')
+      blob=$(git hash-object -w --path=hosts/hosts.yaml --stdin)
+      if [ "$HC_ENCRYPTED" = true ] && [ "$(git cat-file blob "$blob" \
+          | head -c 10 | od -An -tx1 | tr -d ' \n')" != 00474954435259505400 ]
+      then
+        echo "hosts/hosts.yaml did not encrypt; refusing to push it" >&2
+        exit 1
+      fi
+      git update-index --add --cacheinfo "${mode:-100644},$blob,hosts/hosts.yaml"
+      if [ -n "$HC_REMOVE" ]; then
+        git ls-tree -r --name-only "$HC_BASE" -- "hosts/$HC_REMOVE/" \
+          | while IFS= read -r f; do git update-index --force-remove -- "$f"; done
+      fi
+      commit=$(git -c commit.gpgsign=false commit-tree "$(git write-tree)" \
+        -p "$HC_BASE" -m "$HC_MESSAGE")
+      if out=$(git push origin "$commit:refs/heads/main" 2>&1); then
+        echo "$commit"
+        exit 0
+      fi
+      echo "$out" >&2
+      case "$out" in
+        *rejected*|*non-fast-forward*|*"fetch first"*) exit 2 ;;
+      esac
+      exit 1
+    chdir: "{{ instance_path }}"
+    executable: /bin/bash
+    stdin: "{{ _hc_after.doc | to_nice_yaml(indent=2) }}"
+    stdin_add_newline: false
+  environment: >-
+    {{ _hc_git_env | combine({
+         'HC_BASE': _hc_base,
+         'HC_ENCRYPTED': _hc_encrypted | bool | lower,
+         'HC_REMOVE': host_name if _hc_action == 'remove' else '',
+         'HC_MESSAGE': ('Remove host ' ~ host_name)
+                       if _hc_action == 'remove'
+                       else ('Set host ' ~ host_name ~ ' role to ' ~ role)}) }}
+  register: _hc_push
+  changed_when: _hc_push.rc == 0
+  failed_when: _hc_push.rc not in [0, 2]
+  when: not (_hc_done | bool)
+
+- name: Record the pushed change
+  ansible.builtin.set_fact:
+    _hc_done: true
+  when:
+    - not (_hc_done | bool)
+    - _hc_push.rc == 0
+
+- name: Report the pushed change
+  ansible.builtin.debug:
+    msg: >-
+      {% if _hc_action == 'remove' -%}
+      Removed host '{{ host_name }}' and its hosts/{{ host_name }}/ files
+      from the gitops repository.
+      {%- else -%}
+      Set the role of host '{{ host_name }}' to '{{ role }}' in the gitops
+      repository.
+      {%- endif %}
+  when:
+    - _hc_push is not skipped
+    - _hc_push.rc == 0

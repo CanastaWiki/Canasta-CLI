@@ -447,6 +447,27 @@ def canasta_cli_version_check(probe, this_host, this_version):
     return out
 
 
+def canasta_gitops_hosts_after(doc, action, host, role=None):
+    """hosts.yaml after set-role (``action`` 'set_role') or remove-host
+    ('remove') of ``host``, and the hosts that could push afterwards.
+
+    Returns {doc, pushers}; every other entry and key is kept as is, in
+    order.
+    """
+    doc = dict(doc or {})
+    entries = []
+    for entry in doc.get("hosts") or []:
+        if isinstance(entry, dict) and entry.get("name") == host:
+            if action == "remove":
+                continue
+            entry = dict(entry, role=role)
+        entries.append(entry)
+    doc["hosts"] = entries
+    pushers = [str(e.get("name")) for e in entries if isinstance(e, dict)
+               and (e.get("role") or "both") in GITOPS_PUSH_ROLES]
+    return {"doc": doc, "pushers": pushers}
+
+
 def canasta_cli_version_list(hosts):
     """'host (version), ...' for canasta_cli_version_check entries."""
     return ", ".join("%s (%s)" % (h["host"], h["version"])
@@ -713,6 +734,7 @@ class FilterModule(object):
             "canasta_cli_image_pin": is_cli_image_pin,
             "canasta_cli_version_check": canasta_cli_version_check,
             "canasta_cli_version_list": canasta_cli_version_list,
+            "canasta_gitops_hosts_after": canasta_gitops_hosts_after,
             "canasta_wiki_url_sync_plan": canasta_wiki_url_sync_plan,
             "canasta_wiki_ingress_domains": canasta_wiki_ingress_domains,
             "canasta_git_remote_failure": canasta_git_remote_failure,

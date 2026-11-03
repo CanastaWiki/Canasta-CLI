@@ -1,0 +1,7 @@
+---
+# canasta gitops set-role
+
+- name: Gitops Set Role
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: set_role.yml

@@ -6,8 +6,9 @@
 # so the first host upgraded can push its record. Hosts that cannot push
 # are not compared: after joining they publish no record.
 #
-# Records are read from HEAD and from the fetched upstream, so a version
-# another host has pushed but this host has not pulled yet counts.
+# Records and roles are read from the fetched upstream, or from HEAD when
+# there is none: a version another host has pushed counts before this host
+# pulls it, and so does a host another host has removed or made pull-only.
 # --filters decrypts a git-crypt checkout.
 #
 # Input: instance_path, cli_versions_git_env.
@@ -32,18 +33,17 @@
     cmd: |
       set -o pipefail
       git fetch --quiet >/dev/null 2>&1 || true
-      for ref in HEAD '@{upstream}'; do
-        git rev-parse --verify --quiet "$ref^{commit}" >/dev/null || continue
-        { git ls-tree -r --name-only "$ref" -- hosts/ \
-            | grep -E '^hosts/[^/]+/cli-version$' || true; } \
-          | while read -r f; do
-              h=${f#hosts/}
-              v=$(git cat-file --filters "$ref:$f" 2>/dev/null | head -n 1)
-              printf 'R %s %s\n' "${h%/cli-version}" "$v"
-            done
-        printf 'Y %s\n' "$(git cat-file --filters "$ref:hosts/hosts.yaml" \
-          2>/dev/null | base64 | tr -d '\n')"
-      done
+      ref='@{upstream}'
+      git rev-parse --verify --quiet "$ref^{commit}" >/dev/null || ref=HEAD
+      { git ls-tree -r --name-only "$ref" -- hosts/ \
+          | grep -E '^hosts/[^/]+/cli-version$' || true; } \
+        | while read -r f; do
+            h=${f#hosts/}
+            v=$(git cat-file --filters "$ref:$f" 2>/dev/null | head -n 1)
+            printf 'R %s %s\n' "${h%/cli-version}" "$v"
+          done
+      printf 'Y %s\n' "$(git cat-file --filters "$ref:hosts/hosts.yaml" \
+        2>/dev/null | base64 | tr -d '\n')"
     chdir: "{{ cli_versions_repo | default(instance_path) }}"
     executable: /bin/bash
   environment: "{{ cli_versions_git_env }}"
@@ -62,7 +62,10 @@
       This host runs Canasta CLI {{ canasta_cli_version }}, older than
       {{ _cv_check.ahead | canasta_cli_version_list }}. Every host sharing
       a gitops repo must run the same CLI version: upgrade the CLI on this
-      host first, then retry.
+      host first, then retry. If a newer host is retired, remove it with
+      'canasta gitops remove-host --host-name <host>'; if it should no
+      longer be compared, make it pull-only with 'canasta gitops set-role
+      --host-name <host> --role sink'.
   when: _cv_check.ahead | length > 0
 
 - name: Report the hosts on an older CLI

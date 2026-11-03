@@ -1,0 +1,8 @@
+---
+# canasta gitops set-role: change another host's role in hosts/hosts.yaml.
+# Input: id, host_name, role.
+
+- name: Change the host's role
+  ansible.builtin.include_tasks: _hosts_change_dispatch.yml
+  vars:
+    _hc_action: set_role
