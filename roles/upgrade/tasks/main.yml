@@ -469,7 +469,7 @@
   block:
     - name: Check for changes staged in the gitops repo
       ansible.builtin.command:
-        cmd: "git diff --cached --quiet"
+        cmd: "git diff --cached --quiet --no-textconv"
         chdir: "{{ instance_path }}"
       register: _upgrade_gitops_diff
       changed_when: false
