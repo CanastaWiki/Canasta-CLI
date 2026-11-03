@@ -7,6 +7,7 @@ hosts still behind; a host with no record is reported as unknown.
 """
 
 import base64
+import re
 import os
 import subprocess
 import sys
@@ -380,3 +381,59 @@ class TestJoin:
         assert rc == 0, out
         assert "older than" not in out
         assert ("still on an older CLI:" in out) == (version == "4.31.0")
+
+
+# --- Push reads roles as the remote has them -------------------------------
+
+READ_HOSTS = os.path.join(TASKS, "_read_remote_hosts_yaml.yml")
+
+
+def _remote_role(tmp_path, instance, host):
+    play = tmp_path / "read.yml"
+    play.write_text(yaml.safe_dump([{
+        "hosts": "localhost",
+        "connection": "local",
+        "gather_facts": False,
+        "vars": {"instance_path": str(instance), "remote_hosts_git_env": {},
+                 "canasta_root": REPO_ROOT},
+        "tasks": [
+            {"ansible.builtin.include_tasks": READ_HOSTS},
+            {"ansible.builtin.debug": {"msg": "ROLE={{ (remote_hosts_yaml.hosts"
+             " | selectattr('name', 'equalto', '" + host + "') | first).role }}"}},
+        ],
+    }]))
+    env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
+               ANSIBLE_CONFIG=os.path.join(REPO_ROOT, "ansible.cfg"))
+    playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
+    proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
+                          cwd=REPO_ROOT, env=env, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return re.search(r"ROLE=(\w+)", proc.stdout).group(1)
+
+
+class TestPushReadsRemoteRoles:
+    def test_a_role_another_host_changed_applies_before_pulling(
+            self, tmp_path, fleet):
+        a, b = fleet
+        (b / "hosts" / "hosts.yaml").write_text(yaml.safe_dump({"hosts": [
+            {"name": "a", "role": "sink"}, {"name": "b", "role": "both"}]}))
+        _git(b, "add", "hosts")
+        _git(b, "commit", "-q", "-m", "demote a")
+        _git(b, "push", "-q")
+        assert _remote_role(tmp_path, a, "a") == "sink"
+
+    def test_without_an_upstream_the_working_copy_is_read(self, tmp_path, fleet):
+        a, _ = fleet
+        _git(a, "branch", "-q", "--unset-upstream")
+        assert _remote_role(tmp_path, a, "a") == "both"
+
+    @pytest.mark.parametrize("flow", ["push_compose.yml", "push_kubernetes.yml"])
+    def test_push_takes_its_role_from_the_remote(self, flow):
+        tasks = _load(os.path.join(TASKS, flow))
+        read = next(i for i, t in enumerate(tasks)
+                    if _includes(t, "_read_remote_hosts_yaml.yml"))
+        fail = next(i for i, t in enumerate(tasks)
+                    if t.get("name") == "Fail if role does not allow push")
+        assert read < fail
+        assert not any("hosts/hosts.yaml" in str(t.get("ansible.builtin.slurp", ""))
+                       for t in tasks[:fail])

@@ -16,9 +16,9 @@
 
 # --- Validate role allows push ---
 - name: Read hosts.yaml
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/hosts/hosts.yaml"
-  register: _push_hosts_raw
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_read_remote_hosts_yaml.yml"
+  vars:
+    remote_hosts_git_env: "{{ gitops_k8s_git_env }}"
 
 - name: Read .gitops-host
   ansible.builtin.slurp:
@@ -29,7 +29,7 @@
   ansible.builtin.set_fact:
     _push_hostname: "{{ _push_host_raw.content | b64decode | trim }}"
     _push_role: >-
-      {{ ((_push_hosts_raw.content | b64decode | from_yaml).hosts | default([])
+      {{ (remote_hosts_yaml.hosts | default([])
           | selectattr('name', 'equalto', _push_host_raw.content | b64decode | trim)
           | first | default({})).get('role', 'both') }}
 

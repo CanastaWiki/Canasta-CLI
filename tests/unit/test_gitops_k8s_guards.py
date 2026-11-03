@@ -82,7 +82,8 @@ def _push_instance(tmp_path, role):
 def test_k8s_push_refuses_non_source_role(tmp_path, role):
     inst = _push_instance(tmp_path, role)
     rc, out = _play(tmp_path, _push_guard_tasks(),
-                    {"instance_path": str(inst), "instance_id": "t"})
+                    {"instance_path": str(inst), "instance_id": "t",
+                     "gitops_k8s_git_env": {}})
     assert rc != 0
     assert "does not allow pushing" in out
 
@@ -91,7 +92,8 @@ def test_k8s_push_refuses_non_source_role(tmp_path, role):
 def test_k8s_push_allows_source_roles(tmp_path, role):
     inst = _push_instance(tmp_path, role)
     rc, out = _play(tmp_path, _push_guard_tasks(),
-                    {"instance_path": str(inst), "instance_id": "t"})
+                    {"instance_path": str(inst), "instance_id": "t",
+                     "gitops_k8s_git_env": {}})
     assert rc == 0, out
 
 
