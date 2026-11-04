@@ -12,7 +12,7 @@
 
 - name: Check for staged changes
   ansible.builtin.command:
-    cmd: "git diff --cached --quiet"
+    cmd: "git diff --cached --quiet --no-textconv"
     chdir: "{{ instance_path }}"
   register: _join_staged
   changed_when: false
