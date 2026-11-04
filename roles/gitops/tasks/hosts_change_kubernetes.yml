@@ -1,0 +1,9 @@
+---
+# set-role / remove-host on a Kubernetes gitops instance.
+# Input: instance_path, host_name, _hc_action. Optional: role.
+
+- name: Change hosts.yaml and push it
+  ansible.builtin.include_tasks: _hosts_change.yml
+  vars:
+    _hc_git_env: "{{ gitops_k8s_git_env }}"
+    _hc_encrypted: false

@@ -1,0 +1,7 @@
+---
+# canasta gitops remove-host
+
+- name: Gitops Remove Host
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: remove_host.yml

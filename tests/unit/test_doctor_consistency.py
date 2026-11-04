@@ -78,12 +78,34 @@ class TestConsistencyWarnings:
         out = doctor._consistency_warnings(
             env, ["internal-db", "varnish"], ["web"], False,
             template_literals={
-                "CANASTA_IMAGE": "ghcr.io/canastawiki/canasta:3.5.1",
+                "CANASTA_IMAGE": "ghcr.io/canastawiki/canasta:latest",
                 "CANASTA_ENABLE_ELASTICSEARCH": "false"})
         drift = [o for o in out if "env.template disagrees with .env" in o]
         assert len(drift) == 1
         assert "CANASTA_IMAGE" in drift[0]
         assert "CANASTA_ENABLE_ELASTICSEARCH" in drift[0]
+
+    def test_cli_image_pin_in_env_template_is_not_drift(self):
+        # The render replaces a CLI's own pin with this host's default, so
+        # an older pin another host's CLI wrote is not a pending change.
+        env = {"CANASTA_IMAGE": "ghcr.io/canastawiki/canasta:3.5.12",
+               "COMPOSE_PROFILES": "internal-db,varnish"}
+        out = doctor._consistency_warnings(
+            env, ["internal-db", "varnish"], ["web"], False,
+            template_literals={
+                "CANASTA_IMAGE": "ghcr.io/canastawiki/canasta:3.5.1"})
+        assert out == []
+
+    def test_operator_image_in_env_template_still_drifts(self):
+        for image in ("ghcr.io/canastawiki/canasta:latest",
+                      "ghcr.io/example/canasta:3.5.1",
+                      "canasta:local"):
+            env = {"CANASTA_IMAGE": "ghcr.io/canastawiki/canasta:3.5.12",
+                   "COMPOSE_PROFILES": "internal-db,varnish"}
+            out = doctor._consistency_warnings(
+                env, ["internal-db", "varnish"], ["web"], False,
+                template_literals={"CANASTA_IMAGE": image})
+            assert any("CANASTA_IMAGE" in o for o in out), image
 
     def test_env_template_literals_match_no_warn(self):
         env = {"CANASTA_IMAGE": "ghcr.io/canastawiki/canasta:3.5.12",
@@ -189,7 +211,7 @@ class TestInstanceConsistencyLines:
         assert any("OK (" in line for line in lines)
 
     def test_env_template_literal_drift_warns(self, monkeypatch):
-        # .env has the new tag but env.template still pins the old one.
+        # .env has a release tag but env.template names the operator's image.
         inst = {"id": "site", "orchestrator": "compose", "path": "/srv/site",
                 "host": "localhost"}
         monkeypatch.setattr(
@@ -200,10 +222,10 @@ class TestInstanceConsistencyLines:
             doctor, "_gather_runtime",
             lambda path, host, inst=None: (["web", "varnish", "db"], False,
                                 {"CANASTA_IMAGE":
-                                 "ghcr.io/canastawiki/canasta:3.5.1"}))
+                                 "ghcr.io/canastawiki/canasta:latest"}))
         body = " ".join(doctor._instance_consistency_lines(inst))
         assert "env.template disagrees with .env" in body
-        assert "3.5.1" in body and "3.5.12" in body
+        assert "canasta:latest" in body and "3.5.12" in body
 
     def test_reconcile_hint_does_not_overpromise_non_image_drift(
             self, monkeypatch):

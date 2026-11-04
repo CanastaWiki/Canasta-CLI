@@ -69,28 +69,24 @@ RECONCILE_TASKS = os.path.join(
 )
 
 
-class TestReconcileEnvTemplateImageSync:
-    """reconcile brings env.template's CANASTA_IMAGE up to .env (gitops
-    Compose) so a stale durable source can't revert the running image on the
-    next gitops pull."""
+class TestReconcileLeavesTheImageToTheSync:
+    """reconcile has no write of its own to env.template's CANASTA_IMAGE:
+    copying .env's image there put one host's CLI pin into the shared
+    file. An image the operator set in .env reaches the sources through
+    the .env sync, which reconcile runs before the render."""
 
-    def test_reconcile_syncs_env_template_image_to_env(self):
-        block = next(
-            (t for t in _load(RECONCILE_TASKS)
-             if "env.template image" in t.get("name", "")),
-            None,
-        )
-        assert block is not None, (
-            "reconcile must reconcile env.template's image tag to .env"
-        )
-        li = next(
-            (t for t in block.get("block", [])
-             if (t.get("ansible.builtin.lineinfile") or {})
-             .get("path", "").endswith("env.template")),
-            None,
-        )
-        assert li is not None, "must lineinfile env.template's CANASTA_IMAGE"
-        assert "CANASTA_IMAGE" in str(li["ansible.builtin.lineinfile"].get("regexp", ""))
-        assert "stat.exists" in str(li.get("when", "")), (
-            "the env.template sync must be gated on .gitops-host existing"
-        )
+    def test_no_task_writes_canasta_image_to_env_template(self):
+        def walk(tasks):
+            for t in tasks or []:
+                yield t
+                yield from walk(t.get("block"))
+
+        for t in walk(_load(RECONCILE_TASKS)):
+            li = t.get("ansible.builtin.lineinfile") or {}
+            assert not (str(li.get("path", "")).endswith("env.template")
+                        and "CANASTA_IMAGE" in str(li.get("regexp", ""))), t
+
+    def test_the_env_sync_runs_before_the_render(self):
+        names = [t.get("name", "") for t in _load(RECONCILE_TASKS)]
+        assert (names.index("Write .env edits into the gitops sources")
+                < names.index("Render the gitops files from their sources"))

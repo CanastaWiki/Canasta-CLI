@@ -9,6 +9,7 @@ import sys
 
 import canasta_caddyfile
 import canasta_edge_render
+import canasta_image_pin
 import canasta_web_cause
 import yaml
 
@@ -806,6 +807,8 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
     - CirrusSearch configured in settings while Elasticsearch is disabled.
     - any env.template literal that differs from .env (the durable gitops
       source and the live config have diverged; a pull would reset .env to it).
+      A CANASTA_IMAGE that is a CLI's own pin is not compared: the render
+      gives each host its own CLI's default in its place.
     """
     warns = []
     active = set(current_profiles)
@@ -852,7 +855,9 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
 
     drifted = sorted(
         k for k, tv in (template_literals or {}).items()
-        if k in env and env[k] != tv)
+        if k in env and env[k] != tv
+        and not (k == canasta_image_pin.CLI_IMAGE_KEY
+                 and canasta_image_pin.is_cli_image_pin(tv)))
     if drifted:
         detail = "; ".join(
             "%s (env.template=%s, .env=%s)" % (k, template_literals[k], env[k])
@@ -941,8 +946,8 @@ def _instance_consistency_lines(inst):
     if warns:
         lines += ["  WARN: %s" % w for w in warns]
         lines.append(
-            "  Run 'canasta reconcile' to heal profile/runtime and image-tag "
-            "drift; any other warning above names its own fix.")
+            "  Run 'canasta reconcile' to heal profile/runtime drift; any "
+            "other warning above names its own fix.")
     else:
         lines.append(
             "  OK (profiles, running services, and search backend agree)")

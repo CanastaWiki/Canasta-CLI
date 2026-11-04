@@ -1,0 +1,87 @@
+---
+# Every host sharing a gitops repo runs the same CLI version. Each host
+# records its version in hosts/<host>/cli-version; a host whose CLI is
+# older than the record of a host that can push stops here, before
+# anything is joined, pulled, pushed or rendered. A newer host goes on,
+# so the first host upgraded can push its record. Hosts that cannot push
+# are not compared: after joining they publish no record.
+#
+# Records and roles are read from the fetched upstream, or from HEAD when
+# there is none: a version another host has pushed counts before this host
+# pulls it, and so does a host another host has removed or made pull-only.
+# --filters decrypts a git-crypt checkout.
+#
+# Input: instance_path, cli_versions_git_env.
+# Optional: cli_versions_repo (the checkout to read, default
+# instance_path), cli_versions_host (this host's name, default
+# .gitops-host).
+
+- name: Read this host's gitops name for the CLI version check
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-host"
+  register: _cv_host_raw
+  when: cli_versions_host is not defined
+
+- name: Name this host for the CLI version check
+  ansible.builtin.set_fact:
+    _cv_host: >-
+      {{ cli_versions_host if cli_versions_host is defined
+         else (_cv_host_raw.content | b64decode | trim) }}
+
+- name: Read the CLI version each host recorded
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      git fetch --quiet >/dev/null 2>&1 || true
+      ref='@{upstream}'
+      git rev-parse --verify --quiet "$ref^{commit}" >/dev/null || ref=HEAD
+      { git ls-tree -r --name-only "$ref" -- hosts/ \
+          | grep -E '^hosts/[^/]+/cli-version$' || true; } \
+        | while read -r f; do
+            h=${f#hosts/}
+            v=$(git cat-file --filters "$ref:$f" 2>/dev/null | head -n 1)
+            printf 'R %s %s\n' "${h%/cli-version}" "$v"
+          done
+      printf 'Y %s\n' "$(git cat-file --filters "$ref:hosts/hosts.yaml" \
+        2>/dev/null | base64 | tr -d '\n')"
+    chdir: "{{ cli_versions_repo | default(instance_path) }}"
+    executable: /bin/bash
+  environment: "{{ cli_versions_git_env }}"
+  register: _cv_probe
+  changed_when: false
+
+- name: Compare this host's CLI version with the other hosts'
+  ansible.builtin.set_fact:
+    _cv_check: >-
+      {{ _cv_probe.stdout
+         | canasta_cli_version_check(_cv_host, canasta_cli_version) }}
+
+- name: Refuse while another host runs a newer CLI
+  ansible.builtin.fail:
+    msg: >-
+      This host runs Canasta CLI {{ canasta_cli_version }}, older than
+      {{ _cv_check.ahead | canasta_cli_version_list }}. Every host sharing
+      a gitops repo must run the same CLI version: upgrade the CLI on this
+      host first, then retry. If a newer host is retired, remove it with
+      'canasta gitops remove-host --host-name <host>'; if it should no
+      longer be compared, make it pull-only with 'canasta gitops set-role
+      --host-name <host> --role sink'.
+  when: _cv_check.ahead | length > 0
+
+- name: Report the hosts on an older CLI
+  ansible.builtin.debug:
+    msg: >-
+      This host runs Canasta CLI {{ canasta_cli_version }}; still on an
+      older CLI: {{ _cv_check.behind | canasta_cli_version_list }}.
+      Upgrade the CLI on those hosts; their gitops join, pull and push
+      stop until then.
+  when: _cv_check.behind | length > 0
+
+- name: Report the hosts with no recorded CLI version
+  ansible.builtin.debug:
+    msg: >-
+      No CLI version is recorded for {{ _cv_check.unknown | join(', ') }},
+      so their CLI could not be compared with this host's
+      ({{ canasta_cli_version }}). A host records its version when it
+      joins the repo or runs 'canasta gitops push' with a CLI that does.
+  when: _cv_check.unknown | length > 0

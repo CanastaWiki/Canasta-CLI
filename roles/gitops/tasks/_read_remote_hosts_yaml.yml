@@ -1,0 +1,27 @@
+---
+# Read hosts/hosts.yaml as the remote has it, so a role another host has
+# changed applies before this host pulls it. Falls back to the working copy
+# when there is no upstream or it has no hosts.yaml. --filters decrypts a
+# git-crypt checkout.
+#
+# Input: instance_path, remote_hosts_git_env.
+# Output: remote_hosts_yaml (parsed).
+
+- name: Read hosts.yaml from the remote
+  ansible.builtin.shell:
+    cmd: |
+      git fetch --quiet >/dev/null 2>&1 || true
+      if git rev-parse --verify --quiet '@{upstream}^{commit}' >/dev/null \
+          && git cat-file --filters '@{upstream}:hosts/hosts.yaml' 2>/dev/null; then
+        exit 0
+      fi
+      cat hosts/hosts.yaml
+    chdir: "{{ instance_path }}"
+    executable: /bin/bash
+  environment: "{{ remote_hosts_git_env }}"
+  register: _remote_hosts_raw
+  changed_when: false
+
+- name: Parse hosts.yaml from the remote
+  ansible.builtin.set_fact:
+    remote_hosts_yaml: "{{ _remote_hosts_raw.stdout | from_yaml }}"

@@ -3,6 +3,7 @@
 # Loaded via the `filter_plugins` path in ansible.cfg (role-local plugin
 # auto-discovery does not fire under include_role / include_tasks).
 
+import base64
 import hashlib
 import json
 import os
@@ -28,6 +29,10 @@ from canasta_env_quote import (  # noqa: E402
     quote_value,
     requote_raw,
     unquote_value,
+)
+from canasta_image_pin import (  # noqa: E402
+    CLI_IMAGE_KEY,
+    is_cli_image_pin,
 )
 
 ENCRYPTION_FILTER = "git-crypt"
@@ -203,7 +208,7 @@ def canasta_chart_values_refresh(values, shipped, base=None, former=None,
     return out
 
 
-def canasta_env_render(template, env_vars):
+def canasta_env_render(template, env_vars, default_image=None):
     """Render env.template with a host's placeholder values.
 
     A `KEY={{name}}` line takes the value of `name`, quoted as .env needs
@@ -211,6 +216,11 @@ def canasta_env_render(template, env_vars):
     `KEY=`, so the reader's own default applies. A literal whose bare `$`
     Compose would expand is quoted (requote_raw); every other line is
     copied as is.
+
+    With ``default_image``, CANASTA_IMAGE is that image unless the
+    template names one the operator chose: a CLI's own pin follows the
+    CLI of the host rendering it, so one written by another host's CLI
+    is not carried over.
     """
     env_vars = env_vars or {}
     defined = _template_keys(template)
@@ -228,7 +238,30 @@ def canasta_env_render(template, env_vars):
             out.append(line if requoted is None else "%s=%s" % (key, requoted))
         else:
             out.append(line)
+    if default_image:
+        out = _with_default_image(out, default_image)
     return canasta_env_modernize("".join(line + "\n" for line in out))
+
+
+def _env_line_key(line):
+    if "=" not in line or line.lstrip().startswith("#"):
+        return None
+    return line.split("=", 1)[0].strip()
+
+
+def _with_default_image(lines, default_image):
+    image_line = "%s=%s" % (CLI_IMAGE_KEY, default_image)
+    out = [
+        image_line if _env_line_key(line) == CLI_IMAGE_KEY
+        and is_cli_image_pin(line.split("=", 1)[1]) else line
+        for line in lines
+    ]
+    if not any(_env_line_key(line) == CLI_IMAGE_KEY for line in out):
+        end = len(out)
+        while end and not out[end - 1].strip():
+            end -= 1
+        out.insert(end, image_line)
+    return out
 
 
 def _template_keys(template):
@@ -298,6 +331,19 @@ CLI_DERIVED_ENV_KEYS = ("COMPOSE_PROFILES", "CANASTA_CADDY_IMAGE",
                         "CANASTA_CADDY_HTTPS_PUBLISH")
 
 
+# Stands for "this host's CLI default" in the .env sync: a CLI's own pin,
+# or no CANASTA_IMAGE at all, both render as the host's default.
+_CLI_DEFAULT_IMAGE = object()
+
+
+def _cli_image_as_default(values):
+    if values.get(CLI_IMAGE_KEY) is None or is_cli_image_pin(
+            values.get(CLI_IMAGE_KEY)):
+        values = dict(values)
+        values[CLI_IMAGE_KEY] = _CLI_DEFAULT_IMAGE
+    return values
+
+
 def canasta_env_sync_plan(live, template, env_vars, base_template=None,
                           base_vars=None, ignore=CLI_DERIVED_ENV_KEYS):
     """Decide how to bring .env and its gitops sources into agreement.
@@ -310,12 +356,17 @@ def canasta_env_sync_plan(live, template, env_vars, base_template=None,
     to different values). A key edited only in the sources needs nothing
     here: rendering .env afterwards applies it. With no base, the live
     file wins. Keys in ``ignore`` are derived by the CLI and never
-    compared.
+    compared. A CANASTA_IMAGE that is a CLI's own pin compares equal to
+    none at all, since both render as the host's default; it is written
+    into the sources only to replace an image the operator chose.
     """
-    now = _env_values(canasta_env_render(template, env_vars))
-    live_values = _env_values(live)
+    now = _cli_image_as_default(
+        _env_values(canasta_env_render(template, env_vars)))
+    live_raw = _env_values(live)
+    live_values = _cli_image_as_default(live_raw)
     if str(base_template or "").strip():
-        base = _env_values(canasta_env_render(base_template, base_vars))
+        base = _cli_image_as_default(
+            _env_values(canasta_env_render(base_template, base_vars)))
     else:
         base = now
     plan = {"set": {}, "unset": [], "conflict": []}
@@ -326,13 +377,101 @@ def canasta_env_sync_plan(live, template, env_vars, base_template=None,
         if mine == current or mine == old:
             continue
         if current == old:
-            if mine is None:
+            if live_raw.get(key) is None:
                 plan["unset"].append(key)
             else:
-                plan["set"][key] = mine
+                plan["set"][key] = live_raw[key]
         else:
             plan["conflict"].append(key)
     return plan
+
+
+def _cli_version_key(text):
+    match = re.match(r"^\s*v?(\d+(?:\.\d+)*)", str(text or ""))
+    if not match:
+        return None
+    parts = [int(p) for p in match.group(1).split(".")]
+    return tuple(parts + [0] * max(0, 3 - len(parts)))
+
+
+# hosts.yaml roles that may run 'gitops push'; a host with no role has
+# 'both', as push itself decides.
+GITOPS_PUSH_ROLES = ("source", "both")
+
+
+def canasta_cli_version_check(probe, this_host, this_version):
+    """Compare this host's CLI version with the ones the other hosts
+    recorded.
+
+    ``probe`` holds ``R <host> <version>`` lines (a host's
+    hosts/<host>/cli-version) and ``Y <base64>`` lines (a hosts.yaml),
+    from any number of revisions, oldest first; a host's newest record
+    and its latest role count. Only hosts that can push are compared: one
+    that cannot push publishes no record after it joins, so its record
+    says nothing about the CLI it runs. Returns the hosts whose CLI is
+    newer than this one (``ahead``) and older (``behind``), each as
+    {host, version}, and the hosts with no readable record (``unknown``).
+    """
+    records = {}
+    roles = {}
+    for line in str(probe or "").splitlines():
+        kind, _, rest = line.partition(" ")
+        if kind == "R":
+            host, _, version = rest.partition(" ")
+            key = _cli_version_key(version)
+            if host and key and (host not in records
+                                 or key > records[host][0]):
+                records[host] = (key, version.strip())
+        elif kind == "Y" and rest.strip():
+            try:
+                data = yaml.safe_load(base64.b64decode(rest))
+            except (ValueError, yaml.YAMLError):
+                continue
+            hosts = data.get("hosts") if isinstance(data, dict) else None
+            for entry in hosts if isinstance(hosts, list) else []:
+                if isinstance(entry, dict) and entry.get("name"):
+                    roles[str(entry["name"])] = entry.get("role") or "both"
+    mine = _cli_version_key(this_version)
+    out = {"ahead": [], "behind": [], "unknown": []}
+    for host in sorted((set(records) | set(roles)) - {this_host}):
+        if roles.get(host, "both") not in GITOPS_PUSH_ROLES:
+            continue
+        if host not in records:
+            out["unknown"].append(host)
+            continue
+        key, version = records[host]
+        if mine is None or key == mine:
+            continue
+        out["ahead" if key > mine else "behind"].append(
+            {"host": host, "version": version})
+    return out
+
+
+def canasta_gitops_hosts_after(doc, action, host, role=None):
+    """hosts.yaml after set-role (``action`` 'set_role') or remove-host
+    ('remove') of ``host``, and the hosts that could push afterwards.
+
+    Returns {doc, pushers}; every other entry and key is kept as is, in
+    order.
+    """
+    doc = dict(doc or {})
+    entries = []
+    for entry in doc.get("hosts") or []:
+        if isinstance(entry, dict) and entry.get("name") == host:
+            if action == "remove":
+                continue
+            entry = dict(entry, role=role)
+        entries.append(entry)
+    doc["hosts"] = entries
+    pushers = [str(e.get("name")) for e in entries if isinstance(e, dict)
+               and (e.get("role") or "both") in GITOPS_PUSH_ROLES]
+    return {"doc": doc, "pushers": pushers}
+
+
+def canasta_cli_version_list(hosts):
+    """'host (version), ...' for canasta_cli_version_check entries."""
+    return ", ".join("%s (%s)" % (h["host"], h["version"])
+                     for h in hosts or [])
 
 
 def canasta_wiki_url_sync_plan(live_wikis, env_vars, base_vars=None):
@@ -592,6 +731,10 @@ class FilterModule(object):
             "canasta_env_legacy_settings": canasta_env_legacy_settings,
             "canasta_env_legacy_keys": canasta_env_legacy_keys,
             "canasta_env_sync_plan": canasta_env_sync_plan,
+            "canasta_cli_image_pin": is_cli_image_pin,
+            "canasta_cli_version_check": canasta_cli_version_check,
+            "canasta_cli_version_list": canasta_cli_version_list,
+            "canasta_gitops_hosts_after": canasta_gitops_hosts_after,
             "canasta_wiki_url_sync_plan": canasta_wiki_url_sync_plan,
             "canasta_wiki_ingress_domains": canasta_wiki_ingress_domains,
             "canasta_git_remote_failure": canasta_git_remote_failure,

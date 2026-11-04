@@ -20,10 +20,13 @@
 # Leaving the key out lets the reader's own default apply, which is what
 # "this host stores no opinion" means. The sync that compares .env with
 # its sources renders through the same filter.
+#
+# CANASTA_IMAGE is this host's CLI default unless env.template names an
+# image the operator chose; each host runs its own CLI's version.
 - name: Render .env from template
   ansible.builtin.copy:
     content: >-
       {{ _env_render_template_raw.content | b64decode
-         | canasta_env_render(env_render_vars) }}
+         | canasta_env_render(env_render_vars, canasta_default_image) }}
     dest: "{{ instance_path }}/.env"
     mode: "0600"

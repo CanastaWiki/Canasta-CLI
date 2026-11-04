@@ -1,10 +1,12 @@
-"""`canasta upgrade` must stage the gitops files it edits.
+"""`canasta upgrade` must stage the gitops files it edits, and edit no
+shared file for a CLI's own image pin.
 
-The image bump is persisted to env.template (Compose) / hosts/<host>/vars.yaml
-(K8s) so it survives the next render. Left unstaged, that edit blocks the next
+On Kubernetes the image bump is persisted to hosts/<host>/vars.yaml so it
+survives the next render. Left unstaged, that edit blocks the next
 `canasta gitops pull` (which refuses a dirty tree) and is invisible to
-`canasta gitops push` (which only commits what is staged) — so the pin never
-reaches the other hosts. Guard that both branches stage their edit.
+`canasta gitops push` (which only commits what is staged). On Compose the
+render gives each host its own CLI default, so the bump stays in .env and
+the shared env.template is left as it is.
 """
 
 import os
@@ -40,16 +42,12 @@ def _index(block, name):
     return next((i for i, t in enumerate(block) if t.get("name") == name), None)
 
 
-def test_compose_stages_env_template_after_writing_it():
+def test_compose_bump_neither_writes_nor_stages_env_template():
     block = _blocks()["Update Compose image tag"]
-    write = _index(block, "Persist CANASTA_IMAGE to env.template (durable across pulls)")
-    stage = _index(block, "Stage the bumped env.template")
-    assert write is not None, "expected the env.template persist task"
-    assert stage is not None, "upgrade must stage env.template on a gitops instance"
-    assert stage > write, "staging must follow the write"
-    assert "git add env.template" in _cmd(block[stage])
-    # Off gitops there is no repo to stage into.
-    assert "_upgrade_image_gitops_stat" in str(block[stage].get("when"))
+    names = [t.get("name") for t in block]
+    assert "Persist CANASTA_IMAGE to env.template (durable across pulls)" not in names
+    assert not any("git add" in _cmd(t) for t in block)
+    assert _index(block, "Report the pending gitops push") is None
 
 
 def test_kubernetes_stages_host_vars_after_writing_it():
@@ -63,11 +61,8 @@ def test_kubernetes_stages_host_vars_after_writing_it():
     assert "_upgrade_k8s_gitops_stat" in str(block[stage].get("when"))
 
 
-def test_each_branch_reports_the_pending_push():
-    for name in (
-        "Update Compose image tag",
-        "Update Kubernetes image tag in values.yaml",
-    ):
+def test_kubernetes_reports_the_pending_push():
+    for name in ("Update Kubernetes image tag in values.yaml",):
         block = _blocks()[name]
         report = _index(block, "Report the pending gitops push")
         assert report is not None, f"{name} must tell the operator a push is pending"
