@@ -56,6 +56,8 @@ def _fleet(tmp_path, hosts=None, encrypt=False):
     subprocess.run(["git", "clone", "-q", str(remote), str(a)], check=True,
                    capture_output=True)
     _git(a, "checkout", "-q", "-b", "main")
+    _git(a, "config", "user.name", "a")
+    _git(a, "config", "user.email", "a@example.com")
     if encrypt:
         subprocess.run(["git-crypt", "init"], cwd=a, check=True,
                        capture_output=True)
@@ -92,8 +94,12 @@ def _run(tmp_path, tasks_file, instance, **extra):
                       "gitops_git_env": {}, "_hc_encrypted": False}, **extra),
         "tasks": [{"ansible.builtin.include_tasks": tasks_file}],
     }]))
+    # Only the identity the clone carries, as on a host gitops set up.
     env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
-               ANSIBLE_CONFIG=os.path.join(REPO_ROOT, "ansible.cfg"))
+               ANSIBLE_CONFIG=os.path.join(REPO_ROOT, "ansible.cfg"),
+               GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
+               GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="user.useConfigOnly",
+               GIT_CONFIG_VALUE_0="true")
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
     proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
                           cwd=REPO_ROOT, env=env, capture_output=True, text=True)
