@@ -24,9 +24,9 @@
           -c user.email=canasta@localhost commit-tree "$tree" -p HEAD -m "$1")
         git update-ref -m "$1" HEAD "$c"
       }
-      if ! git diff --cached --quiet; then set_aside "$STAGED"; fi
+      if ! git diff --cached --quiet --no-textconv; then set_aside "$STAGED"; fi
       git add --update
-      if ! git diff --cached --quiet; then set_aside "$UNSTAGED"; fi
+      if ! git diff --cached --quiet --no-textconv; then set_aside "$UNSTAGED"; fi
       git rev-parse HEAD
     chdir: "{{ instance_path }}"
   environment:
