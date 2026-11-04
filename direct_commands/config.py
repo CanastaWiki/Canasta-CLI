@@ -24,6 +24,8 @@ def _warn_env_hygiene(has_crlf):
 @register("config_get")
 def cmd_config_get(args):
     inst_id, inst = _helpers._resolve_instance(args)
+    if _helpers._refuse_unfinished_pull(inst_id, inst):
+        return 1
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
 
