@@ -406,6 +406,23 @@ def test_encrypted_paths_are_carried_through(tmp_path):
     assert blob.startswith(b"\x00GITCRYPT\x00")
 
 
+def test_a_change_whose_diff_converts_to_nothing_is_carried_through(hosts):
+    # git-crypt 0.7.0's textconv turns both sides of an encrypted file into
+    # nothing, so a check that compares through it sees no change.
+    other, this = hosts
+    for h in hosts:
+        _git(h, "config", "diff.blank.textconv", "true")
+    _push_change(other, ".gitattributes", "config/Local.php diff=blank\n")
+    _git(this, "pull", "-q")
+    _push_change(other, "env.template", _env(9, 2, 3))
+    (this / "config" / "Local.php").write_text("<?php // this host\n")
+
+    assert _pull(this)[0] == "pulled"
+    assert _head(this) == _head(other)
+    assert _status(this) == " M config/Local.php\n"
+    assert (this / "config" / "Local.php").read_text() == "<?php // this host\n"
+
+
 def test_the_task_files_run_under_ansible(hosts, tmp_path):
     other, this = hosts
     _push_change(other, "env.template", _env(9, 2, 3))
