@@ -7,8 +7,7 @@
 # from init, join, pull and push — an in-the-wild repo self-heals on its next
 # pull rather than needing an operator to visit each host.
 #
-# Host-local only: nothing here touches a tracked file, so it is safe to run
-# before a pull, which refuses to proceed on a dirty tree.
+# Host-local only: nothing here touches a tracked file.
 #
 # An unregistered driver is not a failure — git falls back to the ordinary
 # binary conflict, which is what these repos do today.

@@ -1,9 +1,9 @@
 """A failed `gitops pull` must say what blocked it, in terms that apply.
 
-A dirty working tree gets the add-and-push route. Conflicts are rolled back,
-named by kind (edit, or keep one version), and sent to `canasta gitops
-resolve`, which replays the pull and stops at them — no raw git, and no
-decrypt-by-hand recipe for encrypted files.
+Conflicts, whether with a local commit or with an uncommitted change the pull
+carried through, are rolled back, named by kind (edit, or keep one version),
+and sent to `canasta gitops resolve`, which replays the pull and stops at
+them — no raw git, and no decrypt-by-hand recipe for encrypted files.
 """
 import os
 
@@ -65,8 +65,6 @@ def test_conflicts_are_split_three_ways():
     facts = _named(CLASSIFY, "Classify the conflicted paths")["ansible.builtin.set_fact"]
     for fact in ("_pull_conflict_encrypted", "_pull_conflict_binary", "_pull_conflict_plain"):
         assert fact in facts
-    dirty = _named(EXPLAINER, "Note whether a dirty tree blocked the pull")
-    assert "cannot pull with rebase" in str(dirty["ansible.builtin.set_fact"]["_pull_dirty_tree"])
 
 
 def test_an_encrypted_file_with_markers_is_editable_and_one_without_is_not():
@@ -86,10 +84,12 @@ def test_the_abort_still_cannot_fail_the_play():
     assert _named(EXPLAINER, "Abort an incomplete rebase").get("failed_when") is False
 
 
-def test_dirty_tree_gets_the_add_and_push_route():
+def test_no_dirty_tree_route_is_left():
+    # Local changes are carried through the pull, so git never refuses it
+    # for them, and the old add-and-push advice looped.
     msg = _fail_msg()
-    assert "_pull_dirty_tree" in msg
-    assert "canasta gitops add" in msg and "canasta gitops push" in msg
+    assert "_pull_dirty_tree" not in msg
+    assert "git checkout HEAD" not in msg
 
 
 def test_conflicted_files_are_named_by_what_they_need():
@@ -102,6 +102,7 @@ def test_conflicted_files_are_named_by_what_they_need():
 def test_local_commits_are_still_reported_safe():
     msg = _fail_msg()
     assert "rolled back" in msg and "intact" in msg
+    assert "local commits and changes intact" in " ".join(msg.split())
 
 
 def test_conflicts_are_sent_to_gitops_resolve():

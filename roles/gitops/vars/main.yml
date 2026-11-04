@@ -29,6 +29,12 @@
 # git cannot merge on its own.
 gitops_merge_driver: canasta-gitcrypt
 
+# Subjects of the commits a pull makes of this host's local changes to carry
+# them through its rebase. They are undone before the pull ends and never
+# leave the host.
+gitops_set_aside_staged_subject: "canasta gitops pull: staged changes set aside"
+gitops_set_aside_unstaged_subject: "canasta gitops pull: unstaged changes set aside"
+
 gitops_shared_keys:
   - aws_access_key_id
   - aws_secret_access_key

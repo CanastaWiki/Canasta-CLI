@@ -31,7 +31,18 @@ BASELINE = ".gitops-pull-baseline"
 
 def _tasks():
     with open(PULL) as f:
-        return yaml.safe_load(f)
+        return _flat(yaml.safe_load(f))
+
+
+def _flat(tasks):
+    """The task list with the pull's carry-through block opened in place."""
+    out = []
+    for t in tasks or []:
+        if t.get("name") == "Pull with local changes carried through":
+            out.extend(t["block"] + t["always"])
+        else:
+            out.append(t)
+    return out
 
 
 def _index(tasks, pred, what):

@@ -138,12 +138,12 @@ class TestWiring:
                         if "update_config.yml" in n)
         assert sync_i < update_i
 
-    def test_pull_syncs_before_the_dirty_tree_check(self):
+    def test_pull_syncs_before_setting_local_changes_aside(self):
         tasks = _load(PULL)
         sync_i = next(i for i, t in enumerate(tasks)
                       if "sync_wikis_yaml.yml" in _include(t))
         check_i = next(i for i, t in enumerate(tasks)
-                       if t.get("name") == "Fail if uncommitted changes exist")
+                       if t.get("name") == "Pull with local changes carried through")
         assert sync_i < check_i, (
             "an uncaptured config/wikis.yaml edit must be captured before "
-            "the dirty-tree check, or the pull render overwrites it")
+            "the pull sets local changes aside, or the render overwrites it")

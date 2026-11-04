@@ -113,7 +113,7 @@ def test_registration_precedes_the_pull_and_touches_no_tracked_file():
     assert body.index("_ensure_merge_driver.yml") < body.index("git -c commit.gpgsign=false pull"), (
         "registering after the pull would not help that pull"
     )
-    # pull refuses to run on a dirty tree, so registration must stay local.
+    # Registration is host-local; it never changes a tracked file.
     ensure = _read(ENSURE)
     assert "git add" not in ensure and "git commit" not in ensure
 

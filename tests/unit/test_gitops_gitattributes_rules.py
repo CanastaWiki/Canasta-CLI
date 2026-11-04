@@ -172,7 +172,8 @@ class TestPull:
                          == "Write .gitops-applied")
         assert pulled < check < refuse < submodules < render < applied
         inc = list(_walk(tasks))[check]
-        assert inc["vars"]["gitattributes_rev"] == "HEAD"
+        # The pulled commit, under any local changes the pull carries.
+        assert inc["vars"]["gitattributes_rev"] == "{{ _local_changes_base }}"
 
     def test_rolls_back_to_the_pre_pull_commit_then_fails(self):
         block = _named(_load("pull_compose.yml"),
@@ -183,7 +184,7 @@ class TestPull:
             "ansible.builtin.include_tasks"]
         assert reset["ansible.builtin.shell"]["cmd"] == (
             "umask 022 && "
-            "git reset --hard --quiet {{ _pull_prev_commit.stdout }}")
+            "git reset --hard --quiet {{ _pull_rollback_commit }}")
         assert "_gitattributes_missing" in fail["ansible.builtin.fail"]["msg"]
 
 

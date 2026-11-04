@@ -60,7 +60,8 @@ def _git(cwd, *args):
 # --- gitops push refuses hosts whose role cannot push ---
 
 def _push_guard_tasks():
-    tasks = _load("push_kubernetes.yml")
+    tasks = [t for t in _load("push_kubernetes.yml") if t.get("name")
+             != "Put back local changes an interrupted pull set aside"]
     names = [t.get("name") for t in tasks]
     return tasks[:names.index("Fail if role does not allow push") + 1]
 

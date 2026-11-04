@@ -1,0 +1,40 @@
+---
+# Carry this host's local changes to tracked files through a pull's rebase:
+# commit the staged changes, then the unstaged ones, so the rebase replays
+# them on top of the remote like local commits. A change the remote already
+# made replays as nothing and is dropped; one that conflicts stops the rebase
+# like a conflicting local commit. _put_back_local_changes.yml turns the
+# commits back into staged and unstaged changes.
+#
+# Untracked files are left in place; git refuses a pull that would overwrite
+# one. Changes inside a submodule's own checkout are not the superproject's
+# and are left there too.
+#
+# Requires: instance_path. Sets: _pull_rollback_commit (HEAD with the changes
+# committed, the point every rollback of the pull returns to).
+
+- name: Commit local changes out of the way of the rebase
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+      # Plumbing, so no commit hook can reword the subject put-back looks for.
+      set_aside() {
+        tree=$(git write-tree)
+        c=$(git -c commit.gpgsign=false -c user.name=canasta \
+          -c user.email=canasta@localhost commit-tree "$tree" -p HEAD -m "$1")
+        git update-ref -m "$1" HEAD "$c"
+      }
+      if ! git diff --cached --quiet; then set_aside "$STAGED"; fi
+      git add --update
+      if ! git diff --cached --quiet; then set_aside "$UNSTAGED"; fi
+      git rev-parse HEAD
+    chdir: "{{ instance_path }}"
+  environment:
+    STAGED: "{{ gitops_set_aside_staged_subject }}"
+    UNSTAGED: "{{ gitops_set_aside_unstaged_subject }}"
+  register: _set_aside_cmd
+  changed_when: false
+
+- name: Record the commit a rollback returns to
+  ansible.builtin.set_fact:
+    _pull_rollback_commit: "{{ _set_aside_cmd.stdout | trim }}"

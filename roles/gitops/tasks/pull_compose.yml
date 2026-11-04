@@ -12,200 +12,37 @@
 - name: Detect a locked git-crypt checkout
   ansible.builtin.include_tasks: "_detect_gitcrypt_lock.yml"
 
-# Host-local, touches no tracked file, so it is safe ahead of the dirty-tree
-# check below. Registering here is what lets a repo created before the driver
-# existed start merging encrypted paths on its next pull.
+# An interrupted pull can leave this host's local changes committed out of
+# the way of its rebase; turn them back into changes before anything reads
+# the index. A pull that 'gitops resolve --continue' hands over keeps them
+# committed until its submodules are checked out below.
+- name: Put back local changes an interrupted pull set aside
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_put_back_local_changes.yml"
+  when: gitops_resolve_mode | default('') != 'continue'
+
+# Host-local, touches no tracked file. Registering here is what lets a repo
+# created before the driver existed start merging encrypted paths on its next
+# pull.
 - name: Install and register the git-crypt merge driver
   ansible.builtin.include_tasks: "_ensure_merge_driver.yml"
 
 # An uncaptured config/wikis.yaml edit would be overwritten by the render
-# below; capture it first so the uncommitted-changes check stops the pull.
+# below; capture it into the template first, which the pull carries through
+# like any local change.
 - name: Sync wikis.yaml with its gitops template
   ansible.builtin.include_tasks: "sync_wikis_yaml.yml"
   when: gitops_resolve_mode | default('') != 'continue'
 
-# Recorded so the files the .env sync below changes can be told apart from
-# changes the operator already had.
-- name: List tracked files changed before the .env sync
-  ansible.builtin.command:
-    cmd: "git status --porcelain --untracked-files=no"
-    chdir: "{{ instance_path }}"
-  register: _pull_dirty_before_sync
-  changed_when: false
-  when: gitops_resolve_mode | default('') != 'continue'
-
 # Direct .env edits would be overwritten by the .env render; the sync saves
-# them in the sources and the pull commits them below.
+# them in the sources, which the pull carries through like any local change.
 - name: Write .env edits into the gitops sources
   ansible.builtin.include_tasks: "sync_env.yml"
   when: gitops_resolve_mode | default('') != 'continue'
 
-# --- Step 1: Check for uncommitted changes ---
-# Only tracked files are a hazard: a pull can overwrite a locally modified
-# tracked file. Untracked files cannot be clobbered unless an incoming commit
-# adds the same path, which git itself refuses with a clear message — so
-# --untracked-files=no keeps a host-local settings override or a scratch file
-# from blocking every pull. (It also kept the old advice from being a dead
-# end: plain `git stash` does not stash untracked files.)
-- name: Check for uncommitted changes to tracked files
-  ansible.builtin.command:
-    cmd: "git status --porcelain --untracked-files=no"
-    chdir: "{{ instance_path }}"
-  register: _pull_uncommitted
-  changed_when: false
-  when: gitops_resolve_mode | default('') != 'continue'
-
-- name: Separate the .env sync's changes from earlier ones
-  ansible.builtin.set_fact:
-    _pull_sync_paths: >-
-      {{ _pull_uncommitted.stdout_lines | map('regex_replace', '^...', '')
-         | reject('in', _pull_dirty_before_paths) | list }}
-  vars:
-    _pull_dirty_before_paths: >-
-      {{ _pull_dirty_before_sync.stdout_lines
-         | map('regex_replace', '^...', '') | list }}
-  when: gitops_resolve_mode | default('') != 'continue'
-
-# A host that cannot push keeps the .env sync's changes uncommitted, where
-# the check below stops the pull on them.
-- name: Read hosts.yaml for this host's role
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/hosts/hosts.yaml"
-  register: _pull_hosts_raw
-  failed_when: false
-  when:
-    - gitops_resolve_mode | default('') != 'continue'
-    - _pull_sync_paths | length > 0
-
-- name: Decide whether to commit the .env sync's changes
-  ansible.builtin.set_fact:
-    _pull_commit_sync: >-
-      {{ _pull_sync_paths | length > 0
-         and _pull_hosts_raw.content is defined
-         and ((_pull_hosts_raw.content | b64decode | from_yaml).hosts
-              | default([])
-              | selectattr('name', 'equalto',
-                           _sync_env_host_raw.content | b64decode | trim)
-              | first | default({})).get('role', 'both')
-            in ['source', 'both'] }}
-  when: gitops_resolve_mode | default('') != 'continue'
-
-# Discarding has to leave the sources as the sync last staged them: the sync
-# compares .env with that staged copy, so restoring only the working tree of
-# its own files lets reconcile's render put .env back to the repository's
-# values. Restoring the index too makes .env look edited again, and the next
-# pull writes the same changes back. The pull itself does not render when
-# nothing new arrives, so reconcile has to.
-- name: Fail if uncommitted changes exist
-  ansible.builtin.fail:
-    msg: >-
-      Cannot pull: the instance directory has local changes to tracked
-      files that a pull could overwrite: {{ _pull_changed | join(', ') }}.
-      {% if _pull_unpushable | length > 0 -%}
-      This host's .env sets
-      {{ _pull_sync_keys | join(', ') if _pull_sync_keys else 'settings' }}
-      differently from the gitops sources, and the pull saved that in
-      {{ _pull_unpushable | join(', ') }}, but host '{{ _pull_host }}' has
-      role '{{ _pull_host_role }}' and cannot push. To keep a change, make
-      it on a host that can push and push it from there, then discard it
-      here as below; the pull brings it back.
-      {%- else -%}
-      To keep them, share them with 'canasta gitops add <file>' then
-      'canasta gitops push'.
-      {%- endif %}
-      To discard them, run {{ _pull_discard | join(' and ') }} in
-      {{ instance_path }}{{ (", then 'canasta reconcile -i " ~ instance_id
-      ~ "' to render .env from the repository again")
-      if _pull_restore else '' }}, and retry.
-  vars:
-    _pull_host: "{{ _sync_env_host_raw.content | default('') | b64decode | trim }}"
-    _pull_changed: >-
-      {{ _pull_uncommitted.stdout_lines | map('regex_replace', '^...', '') | list }}
-    _pull_env_sources:
-      - env.template
-      - "hosts/{{ _pull_host }}/vars.yaml"
-      - hosts/_shared/vars.yaml
-    _pull_restore: "{{ _pull_changed | select('in', _pull_env_sources) | list }}"
-    _pull_reset: "{{ _pull_changed | reject('in', _pull_env_sources) | list }}"
-    _pull_discard: >-
-      {{ (["'git restore --source=HEAD --worktree -- "
-           ~ (_pull_restore | join(' ')) ~ "'"] if _pull_restore else [])
-         + (["'git checkout HEAD -- " ~ (_pull_reset | join(' ')) ~ "'"]
-            if _pull_reset else []) }}
-    _pull_unpushable: >-
-      {{ [] if _pull_commit_sync | bool else _pull_sync_paths }}
-    _pull_host_role: >-
-      {{ ((_pull_hosts_raw.content | default('') | b64decode | from_yaml
-           or {}).hosts | default([])
-          | selectattr('name', 'equalto', _pull_host)
-          | first | default({})).get('role', 'both') }}
-    _pull_sync_keys: >-
-      {{ ((_sync_env_plan.set | default({}) | list)
-          + (_sync_env_plan.unset | default([]))) | sort }}
-  when:
-    - gitops_resolve_mode | default('') != 'continue'
-    - _pull_uncommitted.stdout | trim | length > 0
-    - not (_pull_commit_sync | bool)
-      or _pull_uncommitted.stdout_lines | length > _pull_sync_paths | length
-
-# The .env sync's changes are committed the way 'gitops push' commits, so
-# the rebase below replays them like any local commit.
-- name: Guard against committing unencrypted git-crypt files
-  ansible.builtin.include_tasks: "_check_gitcrypt_staged.yml"
-  when:
-    - gitops_resolve_mode | default('') != 'continue'
-    - _pull_commit_sync | bool
-
-- name: Check that every commit since the last apply is local
-  ansible.builtin.shell:
-    cmd: >-
-      applied=$(cat .gitops-applied) &&
-      git merge-base --is-ancestor "$applied" HEAD &&
-      git merge-base --is-ancestor
-      "$(git merge-base HEAD @{upstream})" "$applied"
-    chdir: "{{ instance_path }}"
-  register: _pull_applied_is_local
-  changed_when: false
-  failed_when: false
-  when:
-    - gitops_resolve_mode | default('') != 'continue'
-    - _pull_commit_sync | bool
-
-- name: Commit the .env sync's changes
-  ansible.builtin.command:
-    argv: >-
-      {{ ['git', '-c', 'commit.gpgsign=false', 'commit', '-m',
-          'Save .env changes in the gitops sources', '--']
-         + _pull_sync_paths }}
-    chdir: "{{ instance_path }}"
-  changed_when: true
-  when:
-    - gitops_resolve_mode | default('') != 'continue'
-    - _pull_commit_sync | bool
-
-# The instance already runs the committed values.
-- name: Record the .env sync's commit as applied
-  ansible.builtin.shell:
-    cmd: "git rev-parse HEAD > .gitops-applied"
-    chdir: "{{ instance_path }}"
-  changed_when: true
-  when:
-    - gitops_resolve_mode | default('') != 'continue'
-    - _pull_commit_sync | bool
-    - _pull_applied_is_local.rc == 0
-
-- name: Report the .env sync's commit
-  ansible.builtin.debug:
-    msg: >-
-      Committed the .env changes locally; 'canasta gitops push' shares
-      them.
-  when:
-    - gitops_resolve_mode | default('') != 'continue'
-    - _pull_commit_sync | bool
-
-# --- Step 2: Save state before pull ---
-# 'gitops resolve --continue' supplies _pull_prev_commit and _pull_result for
-# the rebase it finished, and skips straight to applying it.
+# --- Step 1: Save state before pull ---
+# 'gitops resolve --continue' supplies _pull_prev_commit,
+# _pull_rollback_commit and _pull_result for the rebase it finished, and
+# skips straight to applying it.
 - name: Get current commit hash
   ansible.builtin.command:
     cmd: "git rev-parse HEAD"
@@ -222,7 +59,7 @@
     _pull_prev_commit: "{{ _pull_prev_commit_cmd }}"
   when: gitops_resolve_mode | default('') != 'continue'
 
-# --- Step 2b: Record what the instance runs before this pull ---
+# --- Step 2: Record what the instance runs before this pull ---
 # The pull checks out new config files and the steps below rewrite .env and
 # config/wikis.yaml before steps that can still refuse. What a pull needs
 # (a restart, a maintenance update) must be judged against the files and
@@ -251,102 +88,124 @@
     mode: "0644"
 
 # --- Step 3: Pull and update submodules ---
-# Rebase, not merge or fast-forward-only. Hosts contribute small config commits
-# to one shared branch, so replaying this host's commits on top of the remote is
-# the right semantic — and it is the only one that resolves the diverged state
-# 'gitops push' sends the operator here to fix. A plain 'git pull' honors the
-# host's ambient pull.rebase / pull.ff config, so it could abort on divergence
-# with nothing but git's own hints; --rebase is explicit and always applies.
-- name: Pull from remote
-  ansible.builtin.shell:
-    cmd: "umask 022 && git -c commit.gpgsign=false pull --rebase"
-    chdir: "{{ instance_path }}"
-  environment: "{{ gitops_git_env }}"
-  register: _pull_result_cmd
-  changed_when: "'Already up to date' not in _pull_result_cmd.stdout"
-  failed_when: false
-  when: gitops_resolve_mode | default('') != 'continue'
-
-- name: Restrict the pulled hosts/ tree to the operator
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_restrict_hosts_dir.yml"
-
-- name: Record the pull's result
-  ansible.builtin.set_fact:
-    _pull_result: "{{ _pull_result_cmd }}"
-  when: gitops_resolve_mode | default('') != 'continue'
-
-# A conflicting replay stops mid-rebase, which strands the instance in a state
-# no canasta command understands. Name what conflicted, roll back to exactly
-# where the pull started — local commits intact — and fail.
-- name: Explain and roll back a failed pull
-  when:
-    - _pull_result.rc != 0
-    - gitops_resolve_mode | default('') != 'start'
+# Local changes to tracked files ride through the rebase as commits and are
+# put back afterward, on every path out of this block: the rebased commits
+# when the pull goes through, the pre-pull commit when it is rolled back. They
+# are back in place before anything below renders from them.
+- name: Pull with local changes carried through
   block:
-    - name: Hand the failure to the shared explainer
-      ansible.builtin.set_fact:
-        _pull_failure: "{{ _pull_result }}"
+    - name: Set local changes aside for the rebase
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_set_aside_local_changes.yml"
+      when: gitops_resolve_mode | default('') != 'continue'
 
-    - name: Report why the pull could not be replayed
-      ansible.builtin.include_tasks: "_explain_pull_failure.yml"
-
-# 'gitops resolve' keeps the stopped rebase for the operator to resolve.
-- name: Stop at the conflicts for gitops resolve
-  ansible.builtin.include_tasks: "_resolve_stop.yml"
-  vars:
-    _resolve_failure: "{{ _pull_result }}"
-  when:
-    - _pull_result.rc != 0
-    - gitops_resolve_mode | default('') == 'start'
-
-# Applying a commit whose .gitattributes no longer encrypts host vars would
-# have this host's next write commit secrets in cleartext. Nothing has been
-# rendered or checked out in submodules yet, so resetting to the pre-pull
-# commit restores the instance exactly, local commits included.
-- name: Check the pulled .gitattributes keeps the encryption rules
-  ansible.builtin.include_tasks: "_check_gitattributes_rules.yml"
-  vars:
-    gitattributes_rev: HEAD
-
-- name: Refuse a pull that weakens encryption
-  when: _gitattributes_missing | length > 0
-  block:
-    - name: Roll back to the pre-pull commit
+    # Rebase, not merge or fast-forward-only. Hosts contribute small config
+    # commits to one shared branch, so replaying this host's commits on top of
+    # the remote is the right semantic — and it is the only one that resolves
+    # the diverged state 'gitops push' sends the operator here to fix. A plain
+    # 'git pull' honors the host's ambient pull.rebase / pull.ff config, so it
+    # could abort on divergence with nothing but git's own hints; --rebase is
+    # explicit and always applies.
+    - name: Pull from remote
       ansible.builtin.shell:
-        cmd: "umask 022 && git reset --hard --quiet {{ _pull_prev_commit.stdout }}"
+        cmd: "umask 022 && git -c commit.gpgsign=false pull --rebase"
         chdir: "{{ instance_path }}"
-      changed_when: true
+      environment: "{{ gitops_git_env }}"
+      register: _pull_result_cmd
+      changed_when: "'Already up to date' not in _pull_result_cmd.stdout"
+      failed_when: false
+      when: gitops_resolve_mode | default('') != 'continue'
 
-    - name: Restrict the restored hosts/ tree to the operator
+    - name: Restrict the pulled hosts/ tree to the operator
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_restrict_hosts_dir.yml"
 
-    - name: Explain the missing encryption rules
-      ansible.builtin.fail:
-        msg: |-
-          Cannot pull: the .gitattributes this pull would apply lacks the
-          encryption rule(s) below, so host secrets under hosts/ would no
-          longer be encrypted.
-          {% if _pull_result is changed %}
-          The pull was rolled back — the instance is exactly as it was and the
-          local commit(s) are intact.
-          {% endif %}
+    - name: Record the pull's result
+      ansible.builtin.set_fact:
+        _pull_result: "{{ _pull_result_cmd }}"
+      when: gitops_resolve_mode | default('') != 'continue'
 
-          Missing from .gitattributes:
-          {% for line in _gitattributes_missing %}
-            {{ line }}
-          {% endfor %}
+    # A conflicting replay stops mid-rebase, which strands the instance in a
+    # state no canasta command understands. Name what conflicted, roll back to
+    # exactly where the pull started, and fail.
+    - name: Explain and roll back a failed pull
+      when:
+        - _pull_result.rc != 0
+        - gitops_resolve_mode | default('') != 'start'
+      block:
+        - name: Hand the failure to the shared explainer
+          ansible.builtin.set_fact:
+            _pull_failure: "{{ _pull_result }}"
 
-          Put the line(s) back in .gitattributes on the remote branch — in any
-          checkout of it, add them, commit, and push — then retry
-          'canasta gitops pull'.
+        - name: Report why the pull could not be replayed
+          ansible.builtin.include_tasks: "_explain_pull_failure.yml"
 
-- name: Update submodules
-  ansible.builtin.include_tasks: "_update_submodules.yml"
-  vars:
-    submodule_git_env: "{{ gitops_git_env }}"
+    # 'gitops resolve' keeps the stopped rebase for the operator to resolve.
+    - name: Stop at the conflicts for gitops resolve
+      ansible.builtin.include_tasks: "_resolve_stop.yml"
+      vars:
+        _resolve_failure: "{{ _pull_result }}"
+      when:
+        - _pull_result.rc != 0
+        - gitops_resolve_mode | default('') == 'start'
 
-- name: Remove submodules the pull dropped
-  ansible.builtin.include_tasks: "_remove_dropped_submodules.yml"
+    - name: Find the pulled commit under the local changes
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_local_changes_base.yml"
+      vars:
+        local_changes_rev: HEAD
+
+    # Applying a commit whose .gitattributes no longer encrypts host vars
+    # would have this host's next write commit secrets in cleartext. Nothing
+    # has been rendered or checked out in submodules yet, so resetting to the
+    # commit the pull started from restores the instance exactly.
+    - name: Check the pulled .gitattributes keeps the encryption rules
+      ansible.builtin.include_tasks: "_check_gitattributes_rules.yml"
+      vars:
+        gitattributes_rev: "{{ _local_changes_base }}"
+
+    - name: Refuse a pull that weakens encryption
+      when: _gitattributes_missing | length > 0
+      block:
+        - name: Roll back to the pre-pull commit
+          ansible.builtin.shell:
+            cmd: "umask 022 && git reset --hard --quiet {{ _pull_rollback_commit }}"
+            chdir: "{{ instance_path }}"
+          changed_when: true
+
+        - name: Restrict the restored hosts/ tree to the operator
+          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_restrict_hosts_dir.yml"
+
+        - name: Explain the missing encryption rules
+          ansible.builtin.fail:
+            msg: |-
+              Cannot pull: the .gitattributes this pull would apply lacks the
+              encryption rule(s) below, so host secrets under hosts/ would no
+              longer be encrypted.
+              {% if _pull_result is changed %}
+              The pull was rolled back: the instance is exactly as it was, with
+              its local commits and changes intact.
+              {% endif %}
+
+              Missing from .gitattributes:
+              {% for line in _gitattributes_missing %}
+                {{ line }}
+              {% endfor %}
+
+              Put the line(s) back in .gitattributes on the remote branch — in
+              any checkout of it, add them, commit, and push — then retry
+              'canasta gitops pull'.
+
+    # Before the local changes are put back, so a submodule moved locally
+    # without staging is checked out where this host had it.
+    - name: Update submodules
+      ansible.builtin.include_tasks: "_update_submodules.yml"
+      vars:
+        submodule_git_env: "{{ gitops_git_env }}"
+
+    - name: Remove submodules the pull dropped
+      ansible.builtin.include_tasks: "_remove_dropped_submodules.yml"
+
+  always:
+    - name: Put back the local changes
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_put_back_local_changes.yml"
 
 # --- Step 4: Check if anything changed ---
 - name: Get new commit hash

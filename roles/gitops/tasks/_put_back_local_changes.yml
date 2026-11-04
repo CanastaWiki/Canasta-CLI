@@ -1,0 +1,34 @@
+---
+# Turn the commits _set_aside_local_changes.yml made back into the staged and
+# unstaged changes they hold, on whatever HEAD the pull left: the rebased
+# commits when it succeeded, the pre-pull commit when it was rolled back. The
+# working tree already holds the changes, so only HEAD and the index move.
+#
+# A rebase stopped for 'gitops resolve' still has them to replay, so they
+# stay committed until it finishes or is aborted. Running this when nothing
+# was set aside, as after an interrupted pull, changes nothing.
+#
+# Requires: instance_path.
+
+- name: Put back the local changes set aside for the pull
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+      for d in rebase-merge rebase-apply; do
+        if [ -d "$(git rev-parse --git-path "$d")" ]; then exit 0; fi
+      done
+      subject() { git log -1 --format=%s HEAD; }
+      if [ "$(subject)" = "$UNSTAGED" ]; then
+        git reset --quiet HEAD~1
+        echo unstaged
+      fi
+      if [ "$(subject)" = "$STAGED" ]; then
+        git reset --quiet --soft HEAD~1
+        echo staged
+      fi
+    chdir: "{{ instance_path }}"
+  environment:
+    STAGED: "{{ gitops_set_aside_staged_subject }}"
+    UNSTAGED: "{{ gitops_set_aside_unstaged_subject }}"
+  register: _put_back_cmd
+  changed_when: _put_back_cmd.stdout | trim | length > 0
