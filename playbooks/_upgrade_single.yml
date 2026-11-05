@@ -79,11 +79,12 @@
 
 - name: Check that the image pull fits on the disk
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/upgrade/tasks/check_image_space.yml"
+  vars:
+    space_measure_image: "{{ _inst.value.buildFrom | default('') == '' }}"
   when:
     - not (instance_is_k8s | bool)
     - not (unfinished_pull | bool)
     - _upgrade_caddy_tls.tls_directives | default([]) | length == 0
-    - _inst.value.buildFrom | default('') == ''
 
 - name: Skip an instance whose image would not fit
   ansible.builtin.set_fact:
