@@ -15,7 +15,7 @@
 # Documentation: https://canasta.wiki/wiki/Help:Installation
 #
 # Flags:
-#   --native    Install canasta-native (requires Python 3.10+, git)
+#   --native    Install canasta-native (requires Python 3.12+, git)
 #   --docker    Install canasta-docker (requires Docker only, default)
 #   --dev       Track the development branch (head of main) instead of the
 #               latest released version. Independent of the mode: combine it
@@ -158,8 +158,8 @@ check_python() {
     local pyver
     pyver="$(python3 -c 'import sys; print(sys.version_info.minor)' 2>/dev/null)" || \
         error "Could not determine Python version"
-    if [[ "$pyver" -lt 10 ]]; then
-        error "Python 3.10+ required (found 3.${pyver})"
+    if [[ "$pyver" -lt 12 ]]; then
+        error "Python 3.12+ required (found 3.${pyver})"
     fi
     local test_venv
     test_venv="$(mktemp -d)"

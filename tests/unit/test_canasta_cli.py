@@ -1499,13 +1499,12 @@ class TestSelfUpdateCli:
             "-r", str(tmp_path / "requirements.yml"),
         ]
 
-    def test_dep_refresh_failure_warns(
+    def test_dep_refresh_failure_stops_the_upgrade(
         self, monkeypatch, tmp_path, capsys,
     ):
         """If pip install or ansible-galaxy fails after a successful pull,
-        the wrapper warns but doesn't abort the upgrade flow — instances
-        downstream still get their normal upgrade attempt against whatever
-        deps are on disk."""
+        the upgrade stops before any instance is upgraded against stale
+        deps. Later runs find the CLI current and would not retry."""
         self._patch_repo(monkeypatch, tmp_path, version="4.0.0")
         runner, calls = self._make_runner([
             {"stdout": "old1234\n"},                # rev-parse HEAD
@@ -1530,17 +1529,20 @@ class TestSelfUpdateCli:
             return res
 
         monkeypatch.setattr(_subprocess, "run", runner_with_check)
-        monkeypatch.setattr(canasta_cli.os, "execv", lambda *a: None)
-        canasta_cli.self_update_cli()
+        execs = []
+        monkeypatch.setattr(canasta_cli.os, "execv", lambda *a: execs.append(a))
+        with pytest.raises(SystemExit) as exc:
+            canasta_cli.self_update_cli()
+        assert exc.value.code == 1
+        assert execs == []
 
         captured = capsys.readouterr()
-        # The "Updated Canasta CLI ..." success line still prints —
-        # the code update itself succeeded.
+        # The "Updated Canasta CLI ..." line still prints: the code update
+        # itself succeeded.
         assert "Updated Canasta CLI" in captured.out
-        # Both refresh failures should produce warnings.
         assert "pip install -r requirements.txt failed" in captured.err
         assert "ansible-galaxy collection install failed" in captured.err
-        assert "dependency refresh incomplete" in captured.err
+        assert "No instance was upgraded" in captured.err
 
     def test_move_failure_warns_and_continues(
         self, monkeypatch, tmp_path, capsys,
