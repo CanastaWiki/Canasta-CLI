@@ -3184,10 +3184,10 @@ commands:
           Compose, which already encrypts vars with git-crypt.
       - name: git_user_name
         type: string
-        description: "Git user.name for commits on the target host (set if not already configured)"
+        description: "Git user.name for commits in the instance's gitops repository, stored in that repository's git config"
       - name: git_user_email
         type: string
-        description: "Git user.email for commits on the target host (set if not already configured)"
+        description: "Git user.email for commits in the instance's gitops repository, stored in that repository's git config"
       - name: non_interactive
         type: bool
         default: false
@@ -3286,10 +3286,10 @@ commands:
           place rather than rejected as a duplicate).
       - name: git_user_name
         type: string
-        description: "Git user.name for commits on the target host (set if not already configured)"
+        description: "Git user.name for commits in the instance's gitops repository, stored in that repository's git config"
       - name: git_user_email
         type: string
-        description: "Git user.email for commits on the target host (set if not already configured)"
+        description: "Git user.email for commits in the instance's gitops repository, stored in that repository's git config"
 
   - name: gitops_add
     description: "Add configuration changes to git"

@@ -1,0 +1,31 @@
+---
+# Store --git-user-name and --git-user-email in the instance's gitops
+# repository, so they sign the commits made there and nowhere else.
+#
+# Input: instance_path. Optional input: git_user_name, git_user_email.
+
+- name: Set git user.name in the gitops repository
+  ansible.builtin.command:
+    argv:
+      - git
+      - -C
+      - "{{ instance_path }}"
+      - config
+      - user.name
+      - "{{ git_user_name }}"
+    expand_argument_vars: false
+  changed_when: true
+  when: git_user_name | default('', true) != ''
+
+- name: Set git user.email in the gitops repository
+  ansible.builtin.command:
+    argv:
+      - git
+      - -C
+      - "{{ instance_path }}"
+      - config
+      - user.email
+      - "{{ git_user_email }}"
+    expand_argument_vars: false
+  changed_when: true
+  when: git_user_email | default('', true) != ''
