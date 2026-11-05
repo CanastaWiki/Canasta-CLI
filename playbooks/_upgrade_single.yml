@@ -196,3 +196,28 @@
     - not (_upgrade_skip | bool)
     - _was_running | default(false) | bool
     - not (_upgrade_restart_failed | default(false) | bool)
+
+# Recorded with the failures, so the upgrade does not report success for an
+# instance that came up but does not serve its wikis.
+- name: Record an upgraded instance that is not serving
+  ansible.builtin.set_fact:
+    _upgrade_failures: >-
+      {{ (_upgrade_failures | default([]))
+         + ["'" ~ instance_id ~ "': upgraded, but " ~ _upgrade_problems | join('; ')] }}
+  vars:
+    _upgrade_probed: >-
+      {{ not (_upgrade_skip | bool)
+         and (_was_running | default(false) | bool)
+         and not (_upgrade_restart_failed | default(false) | bool) }}
+    _upgrade_unanswered: >-
+      {{ (_edge_probe.unanswered | default([])) if _upgrade_probed | bool else [] }}
+    _upgrade_composer: >-
+      {{ (_composer_update_failure | default(''))
+         if not (_upgrade_skip | bool) else '' }}
+    _upgrade_problems: >-
+      {{ ((['the startup composer update failed: ' ~ _upgrade_composer])
+          if _upgrade_composer | length > 0 else [])
+         + ((['wikis ' ~ (_upgrade_unanswered | map(attribute='wiki') | join(', '))
+              ~ ' do not answer through the HAProxy edge'])
+            if _upgrade_unanswered | length > 0 else []) }}
+  when: _upgrade_problems | length > 0
