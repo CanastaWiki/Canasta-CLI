@@ -70,9 +70,33 @@
   vars:
     gitattributes_rev: ""
 
+# The fix differs when the file on disk already has the rules and only the
+# staged copy lacks them.
+- name: Read .gitattributes as it is on disk
+  ansible.builtin.command:
+    cmd: cat .gitattributes
+    chdir: "{{ instance_path }}"
+  register: _gitattributes_on_disk
+  changed_when: false
+  failed_when: false
+  when: _gitattributes_missing | length > 0
+
 - name: Refuse to push without the encryption rules
   ansible.builtin.fail:
     msg: |-
+      {% if _on_disk_has_rules | bool %}
+      Refusing to push: the staged .gitattributes lacks the encryption rule(s)
+      below, so host secrets under hosts/ would no longer be encrypted on the
+      remote. {{ instance_path }}/.gitattributes has them, but that version is
+      not staged.
+
+      Missing from the staged .gitattributes:
+      {% for line in _gitattributes_missing %}
+        {{ line }}
+      {% endfor %}
+
+      Run 'canasta gitops add .gitattributes', then 'canasta gitops push'.
+      {% else %}
       Refusing to push: .gitattributes lacks the encryption rule(s) below, so
       host secrets under hosts/ would no longer be encrypted on the remote.
 
@@ -83,6 +107,15 @@
 
       Put the line(s) back in {{ instance_path }}/.gitattributes, then run
       'canasta gitops add .gitattributes' and 'canasta gitops push'.
+      {% endif %}
+  vars:
+    _on_disk_has_rules: >-
+      {{ _gitattributes_on_disk.rc | default(1) == 0
+         and (_gitattributes_on_disk.stdout
+              | canasta_gitattributes_missing_rules(
+                  lookup('ansible.builtin.file',
+                         canasta_root ~ '/roles/gitops/files/gitattributes.default'))
+              | length == 0) }}
   when: _gitattributes_missing | length > 0
 
 # --- Migrate pre-classifier cleartext secret literals into vars.yaml ---
