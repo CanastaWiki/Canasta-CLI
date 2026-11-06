@@ -263,3 +263,96 @@ class TestGuardMessage:
         assert "file under hosts/ must be" in msg
         assert "git add --renormalize -- hosts" in msg
         assert "canasta_gitattributes_missing_rules" in msg
+
+
+PUSH_REFUSAL = [
+    "Read .gitattributes as it is on disk",
+    "Refuse to push without the encryption rules",
+]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git not installed")
+class TestPushRefusalMessage:
+    """Runs the real push check and refusal against a scratch repository."""
+
+    def _git(self, repo, *args):
+        subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+             *args],
+            cwd=repo, check=True, capture_output=True, text=True)
+
+    def _refusal(self, tmp_path, staged, on_disk):
+        repo = tmp_path / "site"
+        repo.mkdir()
+        self._git(repo, "init", "-q")
+        if staged is not None:
+            (repo / ".gitattributes").write_text(staged)
+            self._git(repo, "add", ".gitattributes")
+        if on_disk is None:
+            (repo / ".gitattributes").unlink(missing_ok=True)
+        else:
+            (repo / ".gitattributes").write_text(on_disk)
+
+        tasks = [t for t in _walk(_load("push_compose.yml"))
+                 if t.get("name") in PUSH_REFUSAL]
+        assert [t["name"] for t in tasks] == PUSH_REFUSAL
+        play = tmp_path / "play.yml"
+        play.write_text(yaml.safe_dump([{
+            "hosts": "localhost",
+            "connection": "local",
+            "gather_facts": False,
+            "vars": {"canasta_root": os.path.abspath(REPO_ROOT),
+                     "instance_path": str(repo),
+                     "ansible_python_interpreter": sys.executable},
+            "tasks": [
+                {"ansible.builtin.include_tasks": os.path.join(
+                    os.path.abspath(TASKS), "_check_gitattributes_rules.yml"),
+                 "vars": {"gitattributes_rev": ""}},
+                {"block": tasks,
+                 "rescue": [{"ansible.builtin.debug": {
+                     "msg": "MSG=<<{{ ansible_failed_result.msg }}>>"}}]},
+            ],
+        }]))
+        env = dict(os.environ, ANSIBLE_NOCOLOR="1",
+                   ANSIBLE_LOCALHOST_WARNING="0",
+                   ANSIBLE_STDOUT_CALLBACK="default",
+                   ANSIBLE_FILTER_PLUGINS=os.path.join(
+                       os.path.abspath(REPO_ROOT), "filter_plugins"))
+        playbook = os.path.join(os.path.dirname(sys.executable),
+                                "ansible-playbook")
+        proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
+                              capture_output=True, text=True, env=env,
+                              cwd=tmp_path)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        if "MSG=<<" not in proc.stdout:
+            return None
+        return (proc.stdout.split("MSG=<<", 1)[1].split(">>", 1)[0]
+                .encode().decode("unicode_escape"))
+
+    def test_rules_on_disk_but_not_staged_say_to_stage_them(self, tmp_path):
+        msg = self._refusal(tmp_path, staged="*.png filter=lfs\n",
+                            on_disk=DEFAULT_TEXT)
+        assert "the staged .gitattributes lacks" in msg
+        assert "has them, but that version is\nnot staged" in msg
+        assert HOSTS_RULE in msg
+        assert "Put the line(s) back" not in msg
+        assert "Run 'canasta gitops add .gitattributes'" in msg
+
+    def test_file_not_in_the_index_says_to_stage_it(self, tmp_path):
+        msg = self._refusal(tmp_path, staged=None, on_disk=DEFAULT_TEXT)
+        assert "the staged .gitattributes lacks" in msg
+
+    def test_rules_missing_on_disk_too_say_to_put_them_back(self, tmp_path):
+        msg = self._refusal(tmp_path, staged="*.png filter=lfs\n",
+                            on_disk="*.png filter=lfs\n")
+        assert msg.startswith("Refusing to push: .gitattributes lacks")
+        assert "Put the line(s) back in" in msg
+        assert "not staged" not in msg
+
+    def test_no_file_anywhere_says_to_put_them_back(self, tmp_path):
+        msg = self._refusal(tmp_path, staged=None, on_disk=None)
+        assert "Put the line(s) back in" in msg
+
+    def test_staged_rules_do_not_refuse(self, tmp_path):
+        assert self._refusal(tmp_path, staged=DEFAULT_TEXT,
+                             on_disk="*.png filter=lfs\n") is None
