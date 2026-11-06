@@ -27,6 +27,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 HEAL = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "heal_mysql_password.yml")
+CHECK = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "tasks", "check_mysql_password.yml")
 START = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "start.yml")
 COMPOSE = os.path.join(
@@ -35,8 +37,17 @@ COMPOSE = os.path.join(
 
 
 def _tasks():
-    with open(HEAL) as f:
-        return yaml.safe_load(f)
+    tasks = []
+    for path in (CHECK, HEAL):
+        with open(path) as f:
+            tasks += yaml.safe_load(f)
+    return tasks
+
+
+def _refusal():
+    task = _named("Decide whether a missing database password can be generated")
+    return " ".join([task["ansible.builtin.set_fact"]["_mysql_password_refusal"]]
+                    + list(task["vars"].values()))
 
 
 def _named(name):
@@ -50,31 +61,30 @@ def _named(name):
 
 
 class TestItRefusesWhenADatabaseExists:
-    def test_an_existing_volume_is_fatal(self):
-        task = _named("Fail when a database already exists")
-        assert "ansible.builtin.fail" in task
-        assert "_heal_db_volume.rc == 0" in str(task["when"]), (
+    def test_an_existing_volume_is_refused(self):
+        assert "_heal_db_volume.rc | default(1) == 0" in _refusal(), (
             "the refusal must key on the volume being found"
         )
 
+    def test_a_refusal_is_fatal(self):
+        task = _named("Fail when the database password cannot be generated")
+        assert task["ansible.builtin.fail"]["msg"] == "{{ _mysql_password_refusal }}"
+        assert "_mysql_password_refusal" in task["when"]
+
     def test_the_message_says_why_generating_would_not_help(self):
-        msg = _named("Fail when a database already exists")[
-            "ansible.builtin.fail"]["msg"]
-        assert "only applies the root password when it first initialises" in msg
+        assert "only applies the root password when it first initialises" in (
+            " ".join(_refusal().split()))
 
     def test_the_message_names_a_way_back(self):
         # The operator cannot recover the password by thinking harder; it
         # exists only in a backup or another copy of .env.
-        msg = _named("Fail when a database already exists")[
-            "ansible.builtin.fail"]["msg"]
-        assert "canasta backup restore" in msg
+        assert "canasta backup restore" in _refusal()
 
     def test_the_refusal_precedes_the_generation(self):
-        block = next(t for t in _tasks()
-                     if t.get("name") == "Heal the missing database password")
-        names = [x.get("name") for x in block["block"]]
-        assert (names.index("Fail when a database already exists")
-                < names.index("Generate a database password"))
+        with open(HEAL) as f:
+            names = [t.get("name") for t in yaml.safe_load(f)]
+        assert (names.index("Fail when the database password cannot be generated")
+                < names.index("Heal the missing database password"))
 
 
 class TestItHealsWhenThereIsNothingToLoseAccessTo:
@@ -95,7 +105,9 @@ class TestItHealsWhenThereIsNothingToLoseAccessTo:
     def test_it_only_acts_when_the_value_is_absent(self):
         block = next(t for t in _tasks()
                      if t.get("name") == "Heal the missing database password")
-        assert "_heal_mysql_pw" in str(block["when"])
+        assert "_mysql_password_missing" in str(block["when"])
+        missing = _named("Note whether the database password is missing")
+        assert "_heal_mysql_pw" in str(missing["ansible.builtin.set_fact"])
 
 
 class TestItRunsBeforeAnythingStarts:

@@ -24,6 +24,7 @@ COMMON = os.path.join(REPO_ROOT, "roles", "common")
 PREFLIGHT = [
     "Reset the database password check for this instance",
     "Check that .env still has the database password",
+    "Note why the database password blocks the upgrade",
     "Skip an instance whose database password is missing",
     "Decide whether the instance upgrades",
 ]
@@ -72,12 +73,17 @@ def _run(tmp_path, env_content, volume):
     env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
                PATH="%s:%s" % (bin_dir, os.environ["PATH"]),
                STUB_VOLUME="1" if volume else "",
+               ANSIBLE_STDOUT_CALLBACK="canasta_minimal",
+               ANSIBLE_CALLBACK_PLUGINS=os.path.join(REPO_ROOT, "callback_plugins"),
                ANSIBLE_LIBRARY=os.path.join(COMMON, "library"),
                ANSIBLE_MODULE_UTILS=os.path.join(COMMON, "module_utils"))
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
     proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
                           capture_output=True, text=True, env=env, cwd=tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
+    # The CLI's own output: a refusal is reported once, in the failures
+    # summary, not also as a failed task along the way.
+    assert "Error:" not in proc.stdout + proc.stderr, proc.stdout + proc.stderr
     skip = proc.stdout.split("SKIP=<<", 1)[1].split(">>", 1)[0]
     failures = proc.stdout.split("FAILURES=<<", 1)[1].split(">>", 1)[0]
     return skip, failures, (site / ".env").read_text()
@@ -103,11 +109,12 @@ class TestTheCheck:
         assert skip == "False"
         assert failures == ""
 
-    def test_no_database_yet_heals_and_goes_ahead(self, tmp_path):
+    def test_no_database_yet_goes_ahead_and_leaves_the_heal_to_start(
+            self, tmp_path):
         skip, failures, env = _run(tmp_path, "MW_SITE_SERVER=x\n", volume=False)
         assert skip == "False"
         assert failures == ""
-        assert "MYSQL_PASSWORD=" in env
+        assert env == "MW_SITE_SERVER=x\n"
 
 
 class TestTheOrder:

@@ -92,25 +92,24 @@
 
 - name: Reset the database password check for this instance
   ansible.builtin.set_fact:
-    _upgrade_db_password_reason: ''
+    _mysql_password_refusal: ''
 
 # The start step refuses an instance whose .env lost MYSQL_PASSWORD, and by
-# then the upgrade has already stopped it.
+# then the upgrade has already stopped it. A password that can be generated
+# is left to the start step.
 - name: Check that .env still has the database password
-  block:
-    - name: Heal or refuse a missing database password
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/heal_mysql_password.yml"
-      when:
-        - not (instance_is_k8s | bool)
-        - not (unfinished_pull | bool)
-        - _upgrade_caddy_tls.tls_directives | default([]) | length == 0
-        - _upgrade_space_reason | length == 0
-  rescue:
-    - name: Note why the database password blocks the upgrade
-      ansible.builtin.set_fact:
-        _upgrade_db_password_reason: >-
-          '{{ instance_id }}': not upgraded, because
-          {{ ansible_failed_result.msg | default('MYSQL_PASSWORD is missing from .env') }}
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/check_mysql_password.yml"
+  when:
+    - not (instance_is_k8s | bool)
+    - not (unfinished_pull | bool)
+    - _upgrade_caddy_tls.tls_directives | default([]) | length == 0
+    - _upgrade_space_reason | length == 0
+
+- name: Note why the database password blocks the upgrade
+  ansible.builtin.set_fact:
+    _upgrade_db_password_reason: >-
+      {{ ("'" ~ instance_id ~ "': not upgraded, because " ~ _mysql_password_refusal)
+         if _mysql_password_refusal | length > 0 else '' }}
 
 - name: Skip an instance whose database password is missing
   ansible.builtin.set_fact:
