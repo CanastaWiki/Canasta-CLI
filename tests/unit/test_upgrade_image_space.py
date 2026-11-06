@@ -49,8 +49,10 @@ case "$1" in
     echo "Filesystem Inodes IUsed IFree IUse% Mounted"
     echo "/dev/sda1 $STUB_ITOTAL 0 $STUB_IFREE 50% /" ;;
   *)
+    free=$STUB_FREE_KB
+    case "$2" in */site) free=$STUB_SITE_FREE_KB ;; esac
     echo "Filesystem 1024-blocks Used Available Capacity Mounted"
-    echo "/dev/sda1 100000000 0 $STUB_FREE_KB 50% /" ;;
+    echo "/dev/sda1 100000000 0 $free 50% /" ;;
 esac
 """
 
@@ -63,7 +65,8 @@ def _stub(bin_dir, name, body):
 
 def _run(tmp_path, cli="docker", size=4 * GIB, free=2 * GIB,
          present=(CURRENT,), current=CURRENT, store=None,
-         itotal=10240000, ifree=5000000, driver="", containerd_conf=None):
+         itotal=10240000, ifree=5000000, driver="", containerd_conf=None,
+         site_free=100 * GIB, measure_image=True):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     _stub(bin_dir, cli, RUNTIME)
@@ -91,6 +94,7 @@ def _run(tmp_path, cli="docker", size=4 * GIB, free=2 * GIB,
         "vars": {"canasta_root": REPO_ROOT, "instance_id": "site",
                  "instance_path": str(site), "inspect_command": cli,
                  "canasta_default_image": TARGET,
+                 "space_measure_image": measure_image,
                  "ansible_python_interpreter": sys.executable},
         "tasks": [
             {"ansible.builtin.include_tasks": str(check)},
@@ -105,6 +109,7 @@ def _run(tmp_path, cli="docker", size=4 * GIB, free=2 * GIB,
                STUB_SIZE=str(size), STUB_STORE=str(store),
                STUB_DRIVER=driver,
                STUB_FREE_KB=str(free // 1024),
+               STUB_SITE_FREE_KB=str(site_free // 1024),
                STUB_ITOTAL=str(itotal), STUB_IFREE=str(ifree),
                ANSIBLE_LIBRARY=os.path.join(COMMON, "library"),
                ANSIBLE_MODULE_UTILS=os.path.join(COMMON, "module_utils"))
@@ -113,7 +118,8 @@ def _run(tmp_path, cli="docker", size=4 * GIB, free=2 * GIB,
                           capture_output=True, text=True, env=env, cwd=tmp_path)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     reason = proc.stdout.split("REASON=[", 1)[1].split("]", 1)[0]
-    df_calls = log.read_text().splitlines() if log.exists() else []
+    df_calls = [c for c in (log.read_text().splitlines() if log.exists() else [])
+                if not c.endswith("/site")]
     return reason, df_calls, store
 
 
@@ -148,9 +154,8 @@ class TestTheCheck:
         assert reason == ""
 
     def test_a_release_already_on_the_host_is_not_measured(self, tmp_path):
-        reason, df_calls, _ = _run(tmp_path, present=(CURRENT, TARGET))
+        reason, _, _ = _run(tmp_path, present=(CURRENT, TARGET))
         assert reason == ""
-        assert df_calls == []
 
     def test_a_tag_that_can_move_is_measured_even_when_present(self, tmp_path):
         reason, _, _ = _run(tmp_path, current="ghcr.io/canastawiki/canasta:latest",
@@ -168,6 +173,36 @@ class TestTheCheck:
 
 
 SNAPSHOTTER = '[["driver-type","io.containerd.snapshotter.v1"]]'
+
+
+class TestANearlyFullDisk:
+    def test_a_nearly_full_image_store_is_refused_when_nothing_is_pulled(
+            self, tmp_path):
+        reason, _, store = _run(tmp_path, present=(CURRENT, TARGET),
+                                free=100 * 1024 ** 2)
+        assert reason == (
+            "'site': not upgraded, because only 100.00 MB is free on %s; run "
+            "'canasta image prune' or free space, then upgrade again" % store)
+
+    def test_a_nearly_full_instance_filesystem_is_refused(self, tmp_path):
+        reason, _, _ = _run(tmp_path, free=8 * GIB, site_free=0)
+        assert reason == (
+            "'site': not upgraded, because only 0.00 Bytes is free on the "
+            "filesystem holding %s; free space, then upgrade again"
+            % (tmp_path / "site"))
+
+    def test_the_instance_filesystem_is_checked_without_an_image_store(
+            self, tmp_path):
+        reason, _, _ = _run(tmp_path, store="/nonexistent/docker", site_free=0)
+        assert "is free on the filesystem holding" in reason
+
+    def test_a_source_build_is_not_measured_against_the_image(self, tmp_path):
+        reason, _, _ = _run(tmp_path, measure_image=False)
+        assert reason == ""
+
+    def test_a_source_build_still_needs_free_space(self, tmp_path):
+        reason, _, _ = _run(tmp_path, measure_image=False, site_free=0)
+        assert "is free on the filesystem holding" in reason
 
 
 class TestContainerdImageStore:
@@ -213,11 +248,11 @@ class TestTheUpgradeSkipsTheInstance:
         assert names.index("Check that the image pull fits on the disk") < (
             names.index("Run upgrade role (migrations + refresh + restart)"))
 
-    def test_the_check_is_compose_only_and_skips_source_builds(self):
-        when = " ".join(self._named(
-            "Check that the image pull fits on the disk")["when"])
-        assert "instance_is_k8s" in when
-        assert "buildFrom" in when
+    def test_the_check_is_compose_only_and_skips_measuring_source_builds(self):
+        task = self._named("Check that the image pull fits on the disk")
+        assert "instance_is_k8s" in " ".join(task["when"])
+        assert "buildFrom" not in " ".join(task["when"])
+        assert "buildFrom" in task["vars"]["space_measure_image"]
 
     def test_a_refusal_is_recorded_and_skips_the_instance(self):
         record = self._named("Skip an instance whose image would not fit")

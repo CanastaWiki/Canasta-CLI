@@ -151,7 +151,8 @@ def test_start_and_restart_report_wikis_the_edge_does_not_answer_for():
 def test_upgrade_reports_wikis_of_the_running_instances_it_upgraded():
     tasks = _role_tasks("playbooks", "_upgrade_single.yml")
     probe = tasks[_index(tasks, _probes)]
-    assert tasks[-1] is probe
+    assert tasks[-2] is probe
+    assert tasks[-1]["name"] == "Record an upgraded instance that is not serving"
     assert "not (_upgrade_skip | bool)" in probe["when"]
     assert any("_was_running" in w for w in probe["when"])
     assert any("_upgrade_restart_failed" in w for w in probe["when"])
