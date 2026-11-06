@@ -16,6 +16,7 @@ import time
 import urllib.parse
 import urllib.request
 
+import canasta_atomic_write
 import canasta_caddyfile
 import canasta_config
 import canasta_edge_render
@@ -291,9 +292,9 @@ def _set_env_lines(lines, key, value):
 
 def _write_env_content(path, host, content):
     """Write content to .env, ending it with a newline. Returns True on
-    success.
+    success. A failed write leaves the previous .env as it was.
 
-    Remote writes pipe stdin through 'cat > file' over SSH — avoids
+    Remote writes pipe the content over SSH on stdin, which avoids
     escaping the entire file content into a command line.
     """
     if content and not content.endswith("\n"):
@@ -301,8 +302,7 @@ def _write_env_content(path, host, content):
     env_path = os.path.join(path, ".env")
     if _is_localhost(host):
         try:
-            with open(env_path, "w") as f:
-                f.write(content)
+            canasta_atomic_write.replace_file(env_path, content)
             return True
         except OSError as e:
             print("Error writing %s: %s" % (env_path, e), file=sys.stderr)
@@ -312,7 +312,9 @@ def _write_env_content(path, host, content):
     target = _resolve_ssh_target(host)
     ssh_cmd = (
         ["ssh"] + _ssh_args()
-        + [target, "cat > %s" % _shell_quote(env_path)]
+        + [target, "sh -c %s sh %s" % (
+            _shell_quote(canasta_atomic_write.REMOTE_REPLACE_SCRIPT),
+            _shell_quote(env_path))]
     )
     try:
         result = subprocess.run(

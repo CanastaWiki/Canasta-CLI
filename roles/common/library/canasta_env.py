@@ -43,6 +43,7 @@ options:
 import os
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.canasta_atomic_write import replace_file
 from ansible.module_utils.canasta_env_keys import modernize_values, old_names
 from ansible.module_utils.canasta_env_quote import (
     quote_value, requote_raw, unquote_value)
@@ -190,6 +191,13 @@ def entries_to_dict(entries):
     return result
 
 
+def _write(module, path, content):
+    try:
+        replace_file(path, content)
+    except OSError as e:
+        module.fail_json(msg="Could not write %s: %s" % (path, e))
+
+
 def run_module():
     module_args = dict(
         path=dict(type="str", required=True),
@@ -239,8 +247,7 @@ def run_module():
         if requoted:
             changed = True
             if not module.check_mode:
-                with open(path, "w") as f:
-                    f.write(lines_to_content(lines))
+                _write(module, path, lines_to_content(lines))
         result["changed"] = changed
 
     elif state == "read":
@@ -281,9 +288,7 @@ def run_module():
             for k in stale:
                 new_lines = unset_lines(new_lines, k)
             if not module.check_mode:
-                new_content = lines_to_content(new_lines)
-                with open(path, "w") as f:
-                    f.write(new_content)
+                _write(module, path, lines_to_content(new_lines))
         result["changed"] = changed
 
     elif state == "unset":
@@ -300,9 +305,7 @@ def run_module():
                     lines = unset_lines(lines, name)
                     del file_dict[name]
         if changed and not module.check_mode:
-            new_content = lines_to_content(lines)
-            with open(path, "w") as f:
-                f.write(new_content)
+            _write(module, path, lines_to_content(lines))
         result["changed"] = changed
 
     module.exit_json(**result)
