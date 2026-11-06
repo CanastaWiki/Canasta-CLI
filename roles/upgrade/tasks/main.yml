@@ -356,9 +356,10 @@
           or (_mig_requote is defined and _mig_requote is changed))
          and (_upgrade_build_failed_services | default([]) | length) == 0 }}
 
-- name: Reset the restart failure signal for this instance
+- name: Reset the restart failure signals for this instance
   ansible.builtin.set_fact:
     _upgrade_restart_failed: false
+    _composer_update_failure: ''
 
 # A failed restart is recorded rather than raised, so the remaining instances
 # still upgrade; the playbook fails once the loop is done.
