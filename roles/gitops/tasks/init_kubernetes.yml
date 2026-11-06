@@ -340,6 +340,9 @@
     chdir: "{{ instance_path }}"
   changed_when: true
 
+- name: Store the git identity in the gitops repository
+  ansible.builtin.include_tasks: _git_identity_repo.yml
+
 # Match what `canasta gitops pull` does (git pull --rebase), so an operator
 # who runs raw git in the instance directory gets the same result.
 - name: Configure git pull strategy

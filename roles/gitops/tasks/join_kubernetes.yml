@@ -143,6 +143,9 @@
 - name: Move the cloned .git into the instance
   ansible.builtin.include_tasks: _join_move_git.yml
 
+- name: Store the git identity in the gitops repository
+  ansible.builtin.include_tasks: _git_identity_repo.yml
+
 # Mirror the Compose join: a blind `git checkout HEAD -- .` rewrites
 # every tracked path and can fail to unlink pre-existing, differently
 # owned files. Materialize .gitattributes first so git-crypt

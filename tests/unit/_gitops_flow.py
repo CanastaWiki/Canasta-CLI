@@ -17,6 +17,7 @@ GITOPS_TASKS = os.path.abspath(os.path.join(
 
 SHARED_FLOW_FILES = frozenset({
     "_git_identity.yml",
+    "_git_identity_repo.yml",
     "_init_commit_push.yml",
     "_init_convert_submodules.yml",
     "_init_require_no_repo.yml",

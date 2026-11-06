@@ -184,6 +184,9 @@
 - name: Move the cloned .git into the instance
   ansible.builtin.include_tasks: _join_move_git.yml
 
+- name: Store the git identity in the gitops repository
+  ansible.builtin.include_tasks: _git_identity_repo.yml
+
 # When joining a host that was populated by a backup/restore move, the working
 # tree carries each submodule's .git gitlink file but not the .git/modules
 # backing (the snapshot never captures the top-level .git). Every git op below —
