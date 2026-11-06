@@ -32,7 +32,7 @@ mysql8_dump.sql
 backup.log
 
 # Uploaded files (use canasta backup)
-images/
+/images/
 
 # Runtime state (e.g. Semantic MediaWiki rebuild status)
 config/persistent/
