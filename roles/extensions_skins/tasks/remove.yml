@@ -162,8 +162,11 @@
       when: is_gitops | bool
       block:
         # A gitops item can be a registered submodule (the normal add path)
-        # or an orphan plain directory inside the repo. Registered submodules
-        # need deinit + git rm + .git/modules cleanup; orphans only rm -rf.
+        # or a plain directory inside the repo, tracked or not. Registered
+        # submodules need deinit + git rm + .git/modules cleanup; plain
+        # directories only rm -rf. For a tracked plain directory, submodule
+        # status succeeds without listing anything, so only output marks a
+        # submodule.
         - name: "Check whether each {{ _item_type }} is a registered submodule"
           ansible.builtin.command:
             cmd: "git -C {{ instance_path | quote }} submodule status {{ (_item_dir ~ '/' ~ item) | quote }}"
@@ -182,7 +185,7 @@
           loop: "{{ _submodule_checks.results }}"
           loop_control:
             label: "{{ item.item }}"
-          when: item.rc == 0
+          when: item.rc == 0 and item.stdout | trim | length > 0
           register: _deinit_results
           changed_when: true
 

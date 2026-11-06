@@ -90,12 +90,39 @@
     _upgrade_failures: "{{ (_upgrade_failures | default([])) + [_upgrade_space_reason] }}"
   when: _upgrade_space_reason | length > 0
 
+- name: Reset the database password check for this instance
+  ansible.builtin.set_fact:
+    _mysql_password_refusal: ''
+
+# The start step refuses an instance whose .env lost MYSQL_PASSWORD, and by
+# then the upgrade has already stopped it. A password that can be generated
+# is left to the start step.
+- name: Check that .env still has the database password
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/check_mysql_password.yml"
+  when:
+    - not (instance_is_k8s | bool)
+    - not (unfinished_pull | bool)
+    - _upgrade_caddy_tls.tls_directives | default([]) | length == 0
+    - _upgrade_space_reason | length == 0
+
+- name: Note why the database password blocks the upgrade
+  ansible.builtin.set_fact:
+    _upgrade_db_password_reason: >-
+      {{ ("'" ~ instance_id ~ "': not upgraded, because " ~ _mysql_password_refusal)
+         if _mysql_password_refusal | length > 0 else '' }}
+
+- name: Skip an instance whose database password is missing
+  ansible.builtin.set_fact:
+    _upgrade_failures: "{{ (_upgrade_failures | default([])) + [_upgrade_db_password_reason] }}"
+  when: _upgrade_db_password_reason | length > 0
+
 - name: Decide whether the instance upgrades
   ansible.builtin.set_fact:
     _upgrade_skip: >-
       {{ (unfinished_pull | bool)
          or (_upgrade_caddy_tls.tls_directives | default([]) | length > 0)
-         or (_upgrade_space_reason | length > 0) }}
+         or (_upgrade_space_reason | length > 0)
+         or (_upgrade_db_password_reason | length > 0) }}
 
 - name: Run upgrade role (migrations + refresh + restart)
   when: not (_upgrade_skip | bool)
