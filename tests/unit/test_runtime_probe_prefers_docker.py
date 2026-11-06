@@ -227,9 +227,12 @@ class TestTheEnvironmentVariableReachesAnsible:
         import canasta
 
         body = inspect.getsource(canasta.main).splitlines()
-        first = next(ln.strip() for ln in body[1:] if ln.strip()
-                     and not ln.strip().startswith(("#", '"""')))
-        assert first == "validate_container_runtime()"
+        statements = [ln.strip() for ln in body[1:] if ln.strip()
+                      and not ln.strip().startswith(("#", '"""'))]
+        # Only the Python version check comes first: nothing else can run
+        # on an interpreter the requirements cannot install into.
+        assert statements[:2] == [
+            "check_python_version()", "validate_container_runtime()"]
 
     def test_both_runtimes_are_accepted(self, monkeypatch):
         import sys
