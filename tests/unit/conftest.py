@@ -33,7 +33,7 @@ sys.path.insert(0, _module_utils_dir)
 for _name in ("canasta_validate", "canasta_sitemap", "canasta_config",
               "canasta_sidecar_render", "canasta_edge_render", "canasta_caddyfile",
               "canasta_override_migrate", "canasta_env_keys",
-              "canasta_env_quote"):
+              "canasta_env_quote", "canasta_atomic_write"):
     _mod = importlib.import_module(_name)
     sys.modules.setdefault("ansible.module_utils.%s" % _name, _mod)
 

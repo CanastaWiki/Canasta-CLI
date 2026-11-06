@@ -912,10 +912,12 @@ def self_update_cli(dev=False, allow_major=False, dry_run=False):
     )
     if not deps_ok:
         print(
-            "Warning: dependency refresh incomplete; see above. "
-            "Instances may still be upgraded against stale deps.",
+            "Error: the CLI's dependencies could not be installed; see above. "
+            "No instance was upgraded. Run the commands above once their "
+            "errors are fixed, then run the upgrade again.",
             file=sys.stderr,
         )
+        sys.exit(1)
 
     _self_update_reexec()
 
@@ -2492,6 +2494,38 @@ def split_passthrough(remaining):
 CONTAINER_RUNTIMES = ("docker", "podman")
 
 
+# ansible-core in requirements.txt needs it.
+MIN_PYTHON = (3, 12)
+
+
+def check_python_version(version_info=None):
+    """Stop when this Python is older than the requirements need.
+
+    pip cannot install the requirements into an older interpreter, so a venv
+    created with one keeps running the CLI against dependencies that never
+    update.
+    """
+    version_info = version_info or sys.version_info
+    if tuple(version_info[:2]) >= MIN_PYTHON:
+        return
+    venv = os.path.join(SCRIPT_DIR, ".venv")
+    needed = "%d.%d" % MIN_PYTHON
+    print(
+        "Error: the Canasta CLI needs Python {needed} or newer, but it is "
+        "running on Python {found} ({exe}).\nRecreate its virtual environment "
+        "with a newer Python:\n"
+        "  python{needed} -m venv --clear {venv}\n"
+        "  {venv}/bin/pip install -r {repo}/requirements.txt\n"
+        "  {venv}/bin/ansible-galaxy collection install -r "
+        "{repo}/requirements.yml".format(
+            needed=needed,
+            found=".".join(str(n) for n in version_info[:3]),
+            exe=sys.executable, venv=venv, repo=SCRIPT_DIR),
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def validate_container_runtime():
     """Reject an unrecognized CANASTA_CONTAINER_RUNTIME.
 
@@ -2738,6 +2772,7 @@ def confirm_destructive_command(cmd_def, command_name, args):
 
 
 def main():
+    check_python_version()
     validate_container_runtime()
     data = load_definitions()
     parser = build_parser(data)

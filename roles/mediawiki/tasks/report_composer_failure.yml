@@ -23,11 +23,16 @@
       if [ -f {{ _composer_failed_path }} ]; then
       head -n 1 {{ _composer_failed_path }}; fi
 
+# Output: _composer_update_failure, the recorded failure ('' when none)
+- name: Note whether the startup composer update failed
+  ansible.builtin.set_fact:
+    _composer_update_failure: >-
+      {{ (exec_result.stdout | default('') | trim)
+         if exec_result.rc | default(1) == 0 else '' }}
+
 - name: Warn that the startup composer update failed
   ansible.builtin.debug:
     msg: >-
-      Warning: {{ exec_result.stdout | trim }} Details: canasta maintenance
+      Warning: {{ _composer_update_failure }} Details: canasta maintenance
       exec -i {{ instance_id }} -- cat {{ _composer_failed_path }}
-  when:
-    - exec_result.rc | default(1) == 0
-    - (exec_result.stdout | default('') | trim) | length > 0
+  when: _composer_update_failure | length > 0
