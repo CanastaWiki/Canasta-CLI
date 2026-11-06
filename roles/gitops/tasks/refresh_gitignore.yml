@@ -64,6 +64,14 @@
         state: present
       loop: "{{ _gi_shipped_rules }}"
 
+    # An unanchored images/ also matches the images/ directories extensions
+    # and skins ship; /images/ above excludes only the uploads directory.
+    - name: Remove the unanchored images/ ignore line
+      ansible.builtin.lineinfile:
+        path: "{{ instance_path }}/.gitignore"
+        regexp: "^images/$"
+        state: absent
+
     # Remove obsolete K8s ignore lines that wrongly excluded source-of-truth
     # dirs from the gitops repo (extensions/, skins/, public_assets/ feed the
     # PVCs; the unanchored `wikis/` also matched config/settings/wikis/). Older
