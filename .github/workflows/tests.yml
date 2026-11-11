@@ -37,6 +37,7 @@ jobs:
         run: |
           .venv/bin/pytest tests/unit/ -v -rs \
             --cov=roles/common/library \
+            --cov=roles/common/module_utils \
             --cov=roles/extensions_skins/library \
             --cov=filter_plugins \
             --cov=callback_plugins \
