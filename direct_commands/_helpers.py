@@ -1285,9 +1285,10 @@ def _warn_composer_failure(inst_id, inst):
 
 def _stream_in_container(inst_id, inst, command, service="web",
                          retry_on_reset=False, user=None):
-    """Run a command inside a container/pod, streaming combined
-    stdout+stderr to the user's terminal as it arrives. Returns the
-    process return code.
+    """Run a command inside a container/pod, streaming its stdout and
+    stderr to the CLI's stdout and stderr as they arrive. Returns the
+    process return code. The streams stay separate so redirecting stdout
+    (e.g. `dumpBackup.php > dump.xml`) captures only the script's output.
 
     Used by long-running maintenance commands (update.php, runJobs.php,
     rebuildData.php, ad-hoc maintenance scripts) so the operator can
@@ -1369,7 +1370,6 @@ def _stream_in_container(inst_id, inst, command, service="web",
                 argv,
                 cwd=cwd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
             )
