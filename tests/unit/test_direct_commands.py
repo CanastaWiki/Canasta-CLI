@@ -1723,6 +1723,8 @@ class TestLifecycleCommands:
         monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
             lambda *a, **kw: ["-f", "docker-compose.yml"],
         )
+        monkeypatch.setattr(direct_commands._helpers, "_compose_containers_up",
+            lambda inst: True)
 
         args = type("Args", (), {"id": "test"})()
         rc = direct_commands.cmd_stop(args)

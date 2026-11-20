@@ -1,6 +1,7 @@
 ---
 # Stop containers for an instance.
 # Input: instance_path, instance_devmode (bool), instance_orchestrator
+# Output: _stop_was_running (bool; true when the answer is unreadable)
 
 # The start that follows a stop syncs the edge; refuse while the instance
 # is still running rather than fail with it stopped.
@@ -12,11 +13,45 @@
     - not (instance_is_k8s | bool)
     - stop_check_edge | default(true) | bool
 
+- name: Check for running containers (Docker Compose)
+  ansible.builtin.command:
+    argv:
+      - "{{ inspect_command | default('docker') }}"
+      - ps
+      - --filter
+      - "label=com.docker.compose.project={{ instance_path | basename | lower }}"
+      - --format
+      - "{% raw %}{{.ID}}{% endraw %}"
+    chdir: "{{ instance_path }}"
+  register: _stop_compose_ps
+  changed_when: false
+  failed_when: false
+  when: not (instance_is_k8s | bool)
+
+- name: Check for scaled-up workloads (Kubernetes)
+  ansible.builtin.command:
+    cmd: >-
+      kubectl get deployment,statefulset -n canasta-{{ instance_id }}
+      -o jsonpath={.items[*].spec.replicas}
+  register: _stop_k8s_replicas
+  changed_when: false
+  failed_when: false
+  when: instance_is_k8s | bool
+
+- name: Record whether the instance was running
+  ansible.builtin.set_fact:
+    _stop_was_running: >-
+      {{ (_stop_k8s_replicas.rc != 0
+          or _stop_k8s_replicas.stdout.split() | reject('equalto', '0') | list | length > 0)
+         if (instance_is_k8s | bool) else
+         (_stop_compose_ps.rc != 0 or _stop_compose_ps.stdout | trim | length > 0) }}
+
 # Announced before the orchestrator dispatch so both Compose and K8s report
 # it, and every caller (stop, restart, config set) gets the message once.
 - name: Report stopping containers
   ansible.builtin.debug:
     msg: "Stopping containers..."
+  when: _stop_was_running | bool
 
 - name: Stop (Docker Compose)
   when: not (instance_is_k8s | bool)
