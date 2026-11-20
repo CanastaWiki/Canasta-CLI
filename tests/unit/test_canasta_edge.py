@@ -29,8 +29,11 @@ class FakeRunner:
 
     def __init__(self, containers=None, running=False, invalid=False,
                  listed=None, issue_fails=(), network_ipv6=None, stats_down=0,
-                 daemon_id="", unpulled=()):
+                 daemon_id="", unpulled=(), on_deploy=None):
         self.containers = containers or {}
+        # Stands in for acme.sh's HAProxy hook: called with the hostname,
+        # returns the deploy's exit status.
+        self.on_deploy = on_deploy
         # Images that are absent and fail to pull.
         self.unpulled = set(unpulled)
         self.daemon_id = daemon_id
@@ -63,6 +66,11 @@ class FakeRunner:
             self.listed[host] = (mod.ACME_CA_NAMES[staging], True)
         if args[0] == "--remove":
             self.listed.pop(host, None)
+        if args[0] == "--deploy" and self.on_deploy and self.on_deploy(host):
+            return 1, "", ("[Fri Nov 20 18:30:31 UTC 2026] Couldn't find '%s' in haproxy "
+                           "'show ssl crt-list'\n[Fri Nov 20 18:30:31 UTC 2026] Error "
+                           "deploying for domain: %s\n[Fri Nov 20 18:30:31 UTC 2026] Error "
+                           "encountered while deploying.\n" % (mod.CERT_DIR, host))
         return 0, "", ""
 
     def __call__(self, argv, env=None, cwd=None):
@@ -1316,6 +1324,51 @@ def test_a_silent_haproxy_leaves_a_cached_certificate_uninstalled(tmp_path, monk
     assert result["unissued"] == [] and result["unregistered"] == []
     assert result["uninstalled"] == [
         {"hostname": "example.com", "reason": "HAProxy's stats socket did not answer"}]
+
+
+def _hook(edge, writes_pem):
+    """acme.sh's HAProxy hook for a PEM HAProxy has not loaded: it fails at
+    the stats socket, after it has written the PEM unless writes_pem is
+    False."""
+    def deploy(host):
+        record = edge / "acme" / ("%s_ecc" % host)
+        record.mkdir(parents=True, exist_ok=True)
+        (record / ("%s.cer" % host)).write_text(LEAF)
+        if writes_pem:
+            (edge / "conf" / "certs" / ("%s.pem" % host)).write_text(CHAIN + EC_KEY)
+        return 1
+    return deploy
+
+
+def test_a_new_certificate_haproxy_has_not_loaded_is_read_on_a_reload(tmp_path):
+    run = FakeRunner(running=True, on_deploy=_hook(tmp_path / "edge", True))
+    result = _issue(tmp_path, run, one={})
+    assert result["issued"] == ["example.com"] and result["reload"]
+    assert result["unissued"] == [] and result["uninstalled"] == []
+
+
+def test_a_new_certificate_the_hook_did_not_write_is_uninstalled_not_unissued(tmp_path):
+    run = FakeRunner(running=True, on_deploy=_hook(tmp_path / "edge", False))
+    result = _issue(tmp_path, run, one={})
+    assert result["issued"] == [] and result["unissued"] == []
+    assert not result["reload"] and result["changed"]
+    assert result["uninstalled"] == [
+        {"hostname": "example.com",
+         "reason": "Couldn't find '%s' in haproxy 'show ssl crt-list'" % mod.CERT_DIR}]
+
+
+def test_a_cached_certificate_haproxy_has_not_loaded_is_read_on_a_reload(tmp_path):
+    edge = tmp_path / "edge"
+    run = FakeRunner(running=True, listed=_deployed_before(tmp_path),
+                     on_deploy=_hook(edge, True))
+    result = _issue(tmp_path, run, one={})
+    assert len(run.acme_calls("--deploy")) == 1
+    assert result["reload"] and result["changed"] and result["uninstalled"] == []
+
+
+def test_an_unreadable_acme_certificate_is_neither_held_nor_missing(tmp_path):
+    assert mod.pem_holds_issued(str(tmp_path), "example.com") is None
+    assert mod.served(str(tmp_path), "example.com")
 
 
 def test_a_custom_hostname_beside_a_cached_one_is_left_alone(tmp_path):

@@ -130,7 +130,7 @@
 
 # HAProxy answers the challenges, so this needs the edge serving the
 # hostnames first. acme.sh installs what it obtains over the stats socket,
-# without a reload.
+# without a reload, unless HAProxy has not loaded the certificate's file.
 - name: Obtain the edge's Let's Encrypt certificates
   canasta_edge:
     state: issue
@@ -142,7 +142,7 @@
     - _edge.acme | default(false) | bool
     - _edge.error is not defined
 
-- name: Reload the edge for certificates no longer from Let's Encrypt
+- name: Reload the edge for certificates it reads from disk
   ansible.builtin.command:
     argv:
       - "{{ inspect_command | default('docker') }}"

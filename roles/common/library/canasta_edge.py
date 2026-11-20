@@ -1166,13 +1166,21 @@ def _leaf(pem):
     return "".join(pem[start:stop + len(end)].split())
 
 
+def pem_holds_issued(edge_dir, host):
+    """Whether HAProxy's PEM for host holds the certificate acme.sh keeps for
+    it; None when acme.sh's copy cannot be read."""
+    leaf = _leaf(_read(os.path.join(edge_dir, "acme", "%s_ecc" % host, "%s.cer" % host)))
+    if leaf is None:
+        return None
+    pem = _read(os.path.join(edge_dir, "conf", "certs", "%s.pem" % host)) or ""
+    return leaf in "".join(pem.split())
+
+
 def served(edge_dir, host):
     """Whether HAProxy's PEM for host holds the certificate acme.sh keeps for
     it. True when acme.sh's copy cannot be read, as there is nothing to
     install then."""
-    leaf = _leaf(_read(os.path.join(edge_dir, "acme", "%s_ecc" % host, "%s.cer" % host)))
-    pem = _read(os.path.join(edge_dir, "conf", "certs", "%s.pem" % host)) or ""
-    return leaf is None or leaf in "".join(pem.split())
+    return pem_holds_issued(edge_dir, host) is not False
 
 
 def _set_conf(path, key, value):
@@ -1256,6 +1264,17 @@ def acme_failure(out, err):
     lines = [l for l in lines if l and not l.startswith(ACME_CLOSING_LINES)]
     return (kind.group(1) if kind else None,
             lines[-1].rstrip(".") if lines else "")
+
+
+# acme.sh ends a failed deploy with these, after the hook's own error.
+ACME_DEPLOY_CLOSING_LINES = ("Error deploying for domain", "Error encountered while deploying")
+
+
+def deploy_failure(out, err):
+    """The hook's own error from a failed acme.sh deploy."""
+    lines = [ACME_TIMESTAMP.sub("", l).strip() for l in (out + "\n" + err).splitlines()]
+    lines = [l for l in lines if l and not l.startswith(ACME_DEPLOY_CLOSING_LINES)]
+    return lines[-1].rstrip(".") if lines else ""
 
 
 def acme_hint(kind, host):
@@ -1363,6 +1382,18 @@ def _issue(run, inspect, edge_dir, retry=False):
         return _acme(run, inspect, ["--deploy", "-d", host, "--ecc",
                                     "--deploy-hook", "haproxy"], env=ACME_DEPLOY_ENV)
 
+    def install(host):
+        """Deploy host's certificate; the reason it failed, or None. acme.sh's
+        hook writes the PEM before it updates HAProxy over the stats socket,
+        which fails for a PEM HAProxy has not loaded; a reload reads it."""
+        rc, out, err = deploy(host)
+        if rc == 0:
+            return None
+        if pem_holds_issued(edge_dir, host):
+            result["reload"] = True
+            return None
+        return deploy_failure(out, err)
+
     wanted = {}
     for inst in instances:
         for host in acme_hostnames(inst):
@@ -1389,10 +1420,9 @@ def _issue(run, inspect, edge_dir, retry=False):
             # A conf/certs created after acme.sh issued the certificate holds
             # a CA-signed stand-in for it.
             elif not served(edge_dir, host):
-                rc, out, err = deploy(host)
-                if rc != 0:
-                    result["uninstalled"].append({"hostname": host,
-                                                  "reason": _tail(out, err)})
+                reason = install(host)
+                if reason is not None:
+                    result["uninstalled"].append({"hostname": host, "reason": reason})
                 else:
                     result["changed"] = True
             continue
@@ -1426,13 +1456,12 @@ def _issue(run, inspect, edge_dir, retry=False):
             result["unissued"].append({"hostname": host, "reason": reason,
                                        "hint": acme_hint(kind, host)})
             continue
-        rc, out, err = deploy(host)
-        if rc != 0:
-            result["unissued"].append({"hostname": host, "reason": _tail(out, err),
-                                       "hint": ""})
+        result["changed"] = True
+        reason = install(host)
+        if reason is not None:
+            result["uninstalled"].append({"hostname": host, "reason": reason})
             continue
         result["issued"].append(host)
-        result["changed"] = True
 
     certs = os.path.join(edge_dir, "conf", "certs")
     for host in sorted(set(listed) - set(wanted)):
