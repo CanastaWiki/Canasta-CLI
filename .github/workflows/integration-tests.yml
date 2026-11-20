@@ -506,10 +506,13 @@ jobs:
           sg www-data -c ".venv/bin/python tests/integration/run_tests.py --no-skip $tests"
         timeout-minutes: 18
 
+  # The Kubernetes jobs run on ubuntu-24.04: on 26.04 the AppArmor profile
+  # k3s's containerd applies blocks signals inside containers, so MariaDB and
+  # the web container never start.
   integration-k8s:
     name: "Integration: Kubernetes"
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v6
@@ -564,7 +567,7 @@ jobs:
   integration-k8s-crowdsec:
     name: "Integration: Kubernetes CrowdSec"
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
@@ -611,7 +614,7 @@ jobs:
   integration-k8s-crowdsec-rolling:
     name: "Integration: Kubernetes CrowdSec rolling update"
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
@@ -658,7 +661,7 @@ jobs:
   integration-k8s-backup:
     name: "Integration: Kubernetes Backup"
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
@@ -707,7 +710,7 @@ jobs:
   integration-k8s-gitops:
     name: "Integration: Kubernetes GitOps"
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
@@ -753,7 +756,7 @@ jobs:
   integration-k8s-multi-instance:
     name: "Integration: Kubernetes Multi-Instance"
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v6
@@ -798,7 +801,7 @@ jobs:
   integration-k8s-farm:
     name: "Integration: Kubernetes Farm"
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
@@ -844,7 +847,7 @@ jobs:
   integration-k8s-uninstall:
     name: "Integration: Kubernetes Uninstall"
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
