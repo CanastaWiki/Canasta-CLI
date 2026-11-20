@@ -3,6 +3,34 @@
 # `--secret` can take a separate, side-effect-free path (_set_secret.yml).
 # Input: _config_settings, instance_path, force.
 
+# Checked against the whole pool before any key is written: the keys
+# constrain each other, and a pool PHP-FPM rejects takes the wiki down.
+- name: Collect the values being set
+  ansible.builtin.set_fact:
+    _set_new_values: >-
+      {{ dict(_config_settings | map('regex_replace', '=.*$', '')
+              | zip(_config_settings | map('regex_replace', '^[^=]*=', ''))) }}
+  no_log: true  # the values may be passwords
+
+- name: Read .env for the PHP-FPM pool check
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _set_pool_env
+  no_log: true  # registers the whole .env, including passwords
+  when: _set_new_values.keys() | select('match', '^PM_') | list | length > 0
+
+- name: Refuse a PHP-FPM pool PHP-FPM would reject
+  ansible.builtin.fail:
+    msg: "{{ _set_pool_error }}"
+  when:
+    - _set_pool_env.variables is defined
+    - _set_pool_error | length > 0
+  vars:
+    _set_pool_error: >-
+      {{ _set_pool_env.variables | combine(_set_new_values)
+         | php_fpm_pool_error(canasta_known_keys) }}
+
 - name: Validate, apply side effects, and set each key
   ansible.builtin.include_tasks: _set_single.yml
   loop: "{{ _config_settings }}"
