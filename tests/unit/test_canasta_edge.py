@@ -138,7 +138,7 @@ def _no_host_ipv6(monkeypatch):
 @pytest.fixture(autouse=True)
 def _challenges_answered(monkeypatch):
     # No HAProxy listens on the test host's ports.
-    monkeypatch.setattr(mod, "challenge_answered", lambda port, thumbprint: True)
+    monkeypatch.setattr(mod, "challenge_answered", lambda run, inspect, port, thumbprint: True)
 
 
 def _sync(run, edge, inst_id, path, member=None):
@@ -466,7 +466,7 @@ class FailsOnce(FakeRunner):
 def test_issuance_waits_for_haproxy_to_answer_challenges(tmp_path, monkeypatch):
     asked = []
 
-    def answered(port, thumbprint):
+    def answered(run, inspect, port, thumbprint):
         asked.append((port, thumbprint))
         return False
     run = FakeRunner(running=True)
@@ -484,7 +484,7 @@ def test_issuance_waits_for_haproxy_to_answer_challenges(tmp_path, monkeypatch):
 
 
 def test_acme_dns_issuance_does_not_wait_for_challenges(tmp_path, monkeypatch):
-    monkeypatch.setattr(mod, "challenge_answered", lambda port, thumbprint: 1 / 0)
+    monkeypatch.setattr(mod, "challenge_answered", lambda run, inspect, port, thumbprint: 1 / 0)
     run = FakeRunner(running=True)
     result = _issue(tmp_path, run, one={"env": {"TLS_MODE": "acme-dns",
                                                 "CLOUDFLARE_API_TOKEN": "t0k"}})
@@ -494,7 +494,7 @@ def test_acme_dns_issuance_does_not_wait_for_challenges(tmp_path, monkeypatch):
 def test_a_failed_validation_is_retried_once_on_the_first_run(tmp_path, monkeypatch):
     asked = []
     monkeypatch.setattr(mod, "challenge_answered",
-                        lambda port, thumbprint: asked.append(port) or True)
+                        lambda run, inspect, port, thumbprint: asked.append(port) or True)
     run = FailsOnce(running=True)
     edge = tmp_path / "edge"
     _sync(FakeRunner(running=True), edge, "one", _instance(tmp_path, "one"))
@@ -539,6 +539,7 @@ def _serve(handler):
 def test_challenge_answered_reads_the_thumbprint_from_the_port(monkeypatch):
     import http.server
     monkeypatch.setattr(mod, "CHALLENGE_WAIT", 0)
+    monkeypatch.delenv("CANASTA_RUN_MODE", raising=False)
 
     class Rule(http.server.BaseHTTPRequestHandler):
         thumbprint = "THUMB"
@@ -563,12 +564,35 @@ def test_challenge_answered_reads_the_thumbprint_from_the_port(monkeypatch):
     for handler, expected in ((Rule, True), (Redirect, False)):
         server = _serve(handler)
         try:
-            assert _CHALLENGE_ANSWERED(server.server_port, "THUMB") is expected
+            assert _CHALLENGE_ANSWERED(None, None, server.server_port, "THUMB") is expected
             if expected:
-                assert not _CHALLENGE_ANSWERED(server.server_port, "OTHER")
+                assert not _CHALLENGE_ANSWERED(None, None, server.server_port, "OTHER")
         finally:
             server.shutdown()
             server.server_close()
+
+
+def test_under_canasta_docker_the_challenge_is_asked_from_the_host_network(monkeypatch):
+    monkeypatch.setattr(mod, "CHALLENGE_WAIT", 0)
+    monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        return 0, argv[-1].rsplit("/", 1)[1] + ".THUMB\n", ""
+    assert _CHALLENGE_ANSWERED(run, "docker", 8080, "THUMB")
+    assert not _CHALLENGE_ANSWERED(run, "docker", 8080, "OTHER")
+    argv = calls[0]
+    assert argv[:5] == ["docker", "run", "--rm", "--network", "host"]
+    assert mod.ACME_IMAGE in argv
+    assert argv[-1].startswith("http://127.0.0.1:8080/.well-known/acme-challenge/canasta-probe-")
+
+
+def test_under_canasta_docker_a_failed_request_is_no_answer(monkeypatch):
+    monkeypatch.setattr(mod, "CHALLENGE_WAIT", 0)
+    monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
+    assert not _CHALLENGE_ANSWERED(lambda argv, **kw: (22, "", "curl: (22) 301"),
+                                   "docker", 80, "THUMB")
 
 
 def test_a_failure_is_reported_without_failing(tmp_path):
