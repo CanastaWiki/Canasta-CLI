@@ -9,8 +9,8 @@
 #
 # The conflicted paths must be read before the abort clears them.
 #
-# Requires: instance_path, instance_id, _pull_failure (the registered failed
-# pull result).
+# Requires: instance_path, instance_id, _pull_rollback_commit, _pull_failure
+# (the registered failed pull result).
 
 - name: Collect conflicted paths before the rebase is rolled back
   ansible.builtin.include_tasks: _classify_conflicts.yml
@@ -25,6 +25,15 @@
   register: _pull_abort
   changed_when: _pull_abort.rc == 0
   failed_when: false
+
+# A pull can stop before any rebase exists, after git has already rewritten
+# some files, so the abort alone may leave them behind. Every tracked change
+# is in the set-aside commits, so a hard reset loses nothing.
+- name: Restore the files the pull rewrote
+  ansible.builtin.shell:
+    cmd: "umask 022 && git reset --hard --quiet {{ _pull_rollback_commit }}"
+    chdir: "{{ instance_path }}"
+  changed_when: true
 
 - name: Restrict the restored hosts/ tree to the operator
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_restrict_hosts_dir.yml"

@@ -61,6 +61,7 @@ PUT_BACK = _shell("_put_back_local_changes.yml",
 BASE = _shell("_local_changes_base.yml",
               "Find the commit under the set-aside local changes")
 ABORT = _shell("_explain_pull_failure.yml", "Abort an incomplete rebase")
+RESTORE = _shell("_explain_pull_failure.yml", "Restore the files the pull rewrote")
 ROLLBACK = _shell("pull_compose.yml", "Roll back to the pre-pull commit")
 PULL = _shell("pull_compose.yml", "Pull from remote")
 
@@ -151,6 +152,7 @@ def _pull(repo, refuse_gitattributes=False):
             conflicts = _git(repo, "diff", "--name-only",
                              "--diff-filter=U").stdout.split()
             _sh(repo, ABORT, check=False)
+            _sh(repo, RESTORE.replace("{{ _pull_rollback_commit }}", rollback))
             return "conflict", conflicts
         base = _sh(repo, BASE, REV="HEAD").stdout.strip()
         if refuse_gitattributes:
@@ -284,6 +286,29 @@ def test_rollback_after_a_gitattributes_refusal_keeps_local_changes(hosts):
     # The rules were checked on the pulled commit, not on the local changes.
     assert base == _head(other)
     assert _snapshot(this) == before
+
+
+def test_a_checkout_failure_restores_the_files_it_rewrote(hosts):
+    # git rewrites the files it can, then stops on one it cannot replace,
+    # before any rebase exists for the abort to roll back.
+    other, this = hosts
+    (other / "env.template").write_text(_env(9, 2, 3))
+    (other / "config" / "Local.php").write_text("<?php // incoming\n")
+    _git(other, "commit", "-q", "-am", "incoming")
+    _git(other, "push", "-q")
+    (this / "env.template").write_text(_env(1, 2, 7))
+    before = _snapshot(this)
+    os.chmod(this / "config", 0o555)
+    try:
+        result, _ = _pull(this)
+    finally:
+        os.chmod(this / "config", 0o755)
+
+    assert result == "conflict"
+    assert _snapshot(this) == before
+    # The next pull carries the edit through.
+    assert _pull(this)[0] == "pulled"
+    assert (this / "env.template").read_text() == _env(9, 2, 7)
 
 
 def test_an_interrupted_pull_is_put_back_by_the_next_one(hosts):
