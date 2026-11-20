@@ -61,6 +61,8 @@ def external_db_instance(monkeypatch, fake_subprocess):
     monkeypatch.setattr(_helpers, "_crowdsec_setup_pending",
                         lambda inst, env: False)
     monkeypatch.setattr(_helpers, "_check_running_compose", lambda *a: False)
+    monkeypatch.setattr(_helpers, "_compose_containers_up",
+                        lambda inst: True)
     monkeypatch.setattr(_helpers, "_missing_db_password",
                         lambda inst, env: False)
     monkeypatch.setattr(_helpers, "_wait_web_ready", lambda i, inst: 0)

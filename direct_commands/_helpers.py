@@ -919,6 +919,20 @@ def _runtime_capture(inst, argv, timeout=30):
     return _ssh_run(host, cmd, docker_host=docker_host, timeout=timeout)
 
 
+def _compose_containers_up(inst):
+    """True unless the runtime reports no running, restarting or paused
+    container in the instance's compose project. An unreadable answer
+    counts as up."""
+    runtime = _resolve_inspect_cmd(inst)
+    rc, out = _runtime_capture(inst, [
+        runtime, "ps",
+        "--filter", "label=com.docker.compose.project=%s"
+                    % _compose_project(inst.get("path", "")),
+        "--format", "{{.ID}}",
+    ])
+    return rc != 0 or out.strip() != ""
+
+
 def _web_container_id(inst):
     """The web container's id, or "" when the stack is not up.
 
