@@ -1296,7 +1296,30 @@ def stats_socket_ready(run, inspect):
 CHALLENGE_WAIT = 60
 
 
-def challenge_answered(port, thumbprint):
+def challenge_reply(run, inspect, port, path):
+    """The body of a 200 answer to a GET of path on the host's port, else
+    None. Inside the canasta-docker container, 127.0.0.1 is the container's
+    own loopback, so the request is sent from a container on the host's
+    network instead, with the acme.sh image's curl, which does not follow
+    HAProxy's HTTPS redirect."""
+    if os.environ.get("CANASTA_RUN_MODE") == "docker":
+        rc, out, _ = run([inspect, "run", "--rm", "--network", "host",
+                          "--entrypoint", "curl", ACME_IMAGE, "-fsS", "--max-time", "5",
+                          "http://127.0.0.1:%d%s" % (port, path)])
+        return out.strip() if rc == 0 else None
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+    try:
+        conn.request("GET", path)
+        response = conn.getresponse()
+        body = response.read().decode("utf-8", "replace").strip()
+        return body if response.status == 200 else None
+    except (OSError, http.client.HTTPException):
+        return None
+    finally:
+        conn.close()
+
+
+def challenge_answered(run, inspect, port, thumbprint):
     """Whether HAProxy answers an HTTP-01 challenge on the host's port with
     the account's thumbprint, as Let's Encrypt will ask it, polled for up to
     CHALLENGE_WAIT seconds. A configuration from before the rule answers with
@@ -1305,17 +1328,9 @@ def challenge_answered(port, thumbprint):
     expected = "%s.%s" % (probe, thumbprint)
     deadline = time.monotonic() + CHALLENGE_WAIT
     while True:
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        try:
-            conn.request("GET", "/.well-known/acme-challenge/" + probe)
-            response = conn.getresponse()
-            body = response.read().decode("utf-8", "replace").strip()
-            if response.status == 200 and body == expected:
-                return True
-        except (OSError, http.client.HTTPException):
-            pass
-        finally:
-            conn.close()
+        if challenge_reply(run, inspect, port,
+                           "/.well-known/acme-challenge/" + probe) == expected:
+            return True
         if time.monotonic() >= deadline:
             return False
         time.sleep(1)
@@ -1334,7 +1349,7 @@ def _issue(run, inspect, edge_dir, retry=False):
         limit for the hostname, so none is requested before HAProxy
         answers."""
         if again or port not in answering:
-            answering[port] = bool(thumbprint) and challenge_answered(port, thumbprint)
+            answering[port] = bool(thumbprint) and challenge_answered(run, inspect, port, thumbprint)
         return answering[port]
 
     def deploy(host):
