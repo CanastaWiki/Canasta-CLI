@@ -3,6 +3,28 @@
 # unset.yml so `--secret` can take a separate path (_unset_secret.yml).
 # Input: keys, instance_path, force.
 
+# An unset PM_* key falls back to the image default, which can break the
+# pool the remaining keys form.
+- name: Read .env for the PHP-FPM pool check
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _unset_pool_env
+  no_log: true  # registers the whole .env, including passwords
+  when: keys.split() | select('match', '^PM_') | list | length > 0
+
+- name: Refuse leaving a PHP-FPM pool PHP-FPM would reject
+  ansible.builtin.fail:
+    msg: "{{ _unset_pool_error }}"
+  when:
+    - _unset_pool_env.variables is defined
+    - _unset_pool_error | length > 0
+  vars:
+    _unset_pool_error: >-
+      {{ _unset_pool_env.variables | dict2items
+         | rejectattr('key', 'in', keys.split()) | items2dict
+         | php_fpm_pool_error(canasta_known_keys) }}
+
 - name: Validate, unapply, and remove each key
   ansible.builtin.include_tasks: _unset_single.yml
   loop: "{{ keys.split() }}"
