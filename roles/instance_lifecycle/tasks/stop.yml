@@ -20,4 +20,6 @@
 
 - name: Report stopped
   ansible.builtin.debug:
-    msg: "Instance '{{ instance_id }}' stopped."
+    msg: >-
+      Instance '{{ instance_id }}'
+      {{ (_stop_was_running | bool) | ternary('stopped.', 'is already stopped.') }}

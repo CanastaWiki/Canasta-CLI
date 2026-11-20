@@ -1723,6 +1723,8 @@ class TestLifecycleCommands:
         monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
             lambda *a, **kw: ["-f", "docker-compose.yml"],
         )
+        monkeypatch.setattr(direct_commands._helpers, "_compose_containers_up",
+            lambda inst: True)
 
         args = type("Args", (), {"id": "test"})()
         rc = direct_commands.cmd_stop(args)
@@ -4339,9 +4341,10 @@ class TestMaintenanceScript:
         assert len(commands) == 2
         assert "--wiki='main'" in commands[0]
         assert "--wiki='draft'" in commands[1]
-        out = capsys.readouterr().out
-        assert "=== rebuildall.php (main) ===" in out
-        assert "=== rebuildall.php (draft) ===" in out
+        captured = capsys.readouterr()
+        assert "=== rebuildall.php (main) ===" in captured.err
+        assert "=== rebuildall.php (draft) ===" in captured.err
+        assert "===" not in captured.out
 
     def test_wiki_flag_limits_farm_run_to_that_wiki(self, monkeypatch):
         self._patch_resolve(monkeypatch, wikis=["main", "draft"])
@@ -4512,9 +4515,10 @@ class TestMaintenanceExtension:
         assert len(commands) == 2
         assert "--wiki='main'" in commands[0]
         assert "--wiki='draft'" in commands[1]
-        out = capsys.readouterr().out
-        assert "=== Cite:fixHTMLOutputForCite (main) ===" in out
-        assert "=== Cite:fixHTMLOutputForCite (draft) ===" in out
+        captured = capsys.readouterr()
+        assert "=== Cite:fixHTMLOutputForCite (main) ===" in captured.err
+        assert "=== Cite:fixHTMLOutputForCite (draft) ===" in captured.err
+        assert "===" not in captured.out
 
     def test_wiki_flag_limits_farm_run_to_that_wiki(self, monkeypatch):
         self._patch_resolve(monkeypatch, wikis=["main", "draft"])

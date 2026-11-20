@@ -919,6 +919,20 @@ def _runtime_capture(inst, argv, timeout=30):
     return _ssh_run(host, cmd, docker_host=docker_host, timeout=timeout)
 
 
+def _compose_containers_up(inst):
+    """True unless the runtime reports no running, restarting or paused
+    container in the instance's compose project. An unreadable answer
+    counts as up."""
+    runtime = _resolve_inspect_cmd(inst)
+    rc, out = _runtime_capture(inst, [
+        runtime, "ps",
+        "--filter", "label=com.docker.compose.project=%s"
+                    % _compose_project(inst.get("path", "")),
+        "--format", "{{.ID}}",
+    ])
+    return rc != 0 or out.strip() != ""
+
+
 def _web_container_id(inst):
     """The web container's id, or "" when the stack is not up.
 
@@ -1285,9 +1299,10 @@ def _warn_composer_failure(inst_id, inst):
 
 def _stream_in_container(inst_id, inst, command, service="web",
                          retry_on_reset=False, user=None):
-    """Run a command inside a container/pod, streaming combined
-    stdout+stderr to the user's terminal as it arrives. Returns the
-    process return code.
+    """Run a command inside a container/pod, streaming its stdout and
+    stderr to the CLI's stdout and stderr as they arrive. Returns the
+    process return code. The streams stay separate so redirecting stdout
+    (e.g. `dumpBackup.php > dump.xml`) captures only the script's output.
 
     Used by long-running maintenance commands (update.php, runJobs.php,
     rebuildData.php, ad-hoc maintenance scripts) so the operator can
@@ -1369,7 +1384,6 @@ def _stream_in_container(inst_id, inst, command, service="web",
                 argv,
                 cwd=cwd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
             )

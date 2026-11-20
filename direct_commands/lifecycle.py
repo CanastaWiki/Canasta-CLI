@@ -31,13 +31,16 @@ def cmd_stop(args):
     # running container as an unmanaged orphan. Sync first so `down` covers the
     # full intended set.
     _helpers._sync_compose_profiles(inst)
+    was_up = _helpers._compose_containers_up(inst)
     # --remove-orphans sweeps a sidecar container left over from a sidecar
     # that was just removed: sidecars.yaml is now empty (so we take this
     # non-sidecar path), but its docker-compose.sidecars.yml entry and
     # running container still linger and a plain `down` would not touch them.
     rc = _helpers._run_compose(
         inst_id, inst, ["down", "--remove-orphans"], quiet=True)
-    if rc == 0:
+    if rc == 0 and not was_up:
+        print("Instance '%s' is already stopped." % inst_id)
+    elif rc == 0:
         print("Instance '%s' stopped." % inst_id)
     return rc
 
