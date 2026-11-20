@@ -508,7 +508,7 @@ jobs:
 
   # The Kubernetes jobs run on ubuntu-24.04: on 26.04 the AppArmor profile
   # k3s's containerd applies blocks signals inside containers, so MariaDB and
-  # the web container never start (#2470).
+  # the web container never start.
   integration-k8s:
     name: "Integration: Kubernetes"
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
