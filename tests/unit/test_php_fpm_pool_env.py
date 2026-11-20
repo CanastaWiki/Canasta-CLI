@@ -43,13 +43,13 @@ def _k8s_allowlist():
     raise AssertionError("no _k8s_pod_env_allowlist in k8s_sync_config.yml")
 
 
-def _render(inst, env, secret_keys=()):
+def _render(inst, env, web_keys=()):
     with open(os.path.join(inst, ".env"), "w") as f:
         f.write(env)
-    if secret_keys:
+    if web_keys:
         os.makedirs(os.path.join(inst, "config"), exist_ok=True)
         with open(os.path.join(inst, "config", "secret-keys-web"), "w") as f:
-            f.write("".join(k + "\n" for k in secret_keys))
+            f.write("".join(k + "\n" for k in web_keys))
     result, failed, msg = run_module_with_params(
         canasta_render_web_env, {"instance_path": inst})
     assert not failed, msg
@@ -90,17 +90,17 @@ def test_no_layer_when_no_pool_key_is_set(tmp_dir):
     assert overlay is None and result["keys"] == []
 
 
-def test_pool_keys_follow_web_secret_keys(tmp_dir):
+def test_pool_keys_follow_web_web_keys(tmp_dir):
     _, overlay = _render(
         tmp_dir, "MAPS_API_KEY=v\nPM_MAX_CHILDREN=12\n",
-        secret_keys=["MAPS_API_KEY"])
+        web_keys=["MAPS_API_KEY"])
     assert overlay == ["MAPS_API_KEY=${MAPS_API_KEY}",
                        "PM_MAX_CHILDREN=${PM_MAX_CHILDREN}"]
 
 
 def test_unset_pool_key_is_not_reported_missing(tmp_dir):
     result, _ = _render(
-        tmp_dir, "MAPS_API_KEY=v\n", secret_keys=["MAPS_API_KEY"])
+        tmp_dir, "MAPS_API_KEY=v\n", web_keys=["MAPS_API_KEY"])
     assert result["missing"] == []
 
 
