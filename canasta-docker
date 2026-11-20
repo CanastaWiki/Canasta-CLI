@@ -814,9 +814,11 @@ for _arg in "$@"; do
     _sched_prev="$_arg"
 done
 
-# Allocate a TTY when stdin is a terminal (needed for interactive exec).
+# Allocate a TTY when stdin and stdout are both terminals (needed for
+# interactive exec). A TTY merges stderr into stdout and rewrites \n as
+# \r\n, so redirected or piped output must not get one.
 DOCKER_RUN_FLAGS=(-i)
-if [[ -t 0 ]]; then
+if [[ -t 0 && -t 1 ]]; then
     DOCKER_RUN_FLAGS+=(-t)
 fi
 

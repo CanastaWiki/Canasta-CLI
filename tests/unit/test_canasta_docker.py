@@ -914,3 +914,74 @@ class TestUpgradeWithoutReleaseLookup:
         assert "could not determine the latest release" in stderr
         assert IMAGE_NAME in argv
         assert "upgrade" in user_args(argv)
+
+
+class TestTtyAllocation:
+    """`docker run -t` merges stderr into stdout and rewrites line
+    endings, so it is only allocated when stdin and stdout are both
+    terminals."""
+
+    @staticmethod
+    def _run_with_ttys(stdin_tty, stdout_tty):
+        import pty
+        base_env = os.environ.copy()
+        base_env["CANASTA_DOCKER_DRY_RUN"] = "1"
+        config_dir = tempfile.mkdtemp(prefix="cd-", dir="/tmp")
+        _run_dry_tmpdirs.append(config_dir)
+        base_env["CANASTA_CONFIG_DIR"] = config_dir
+        fds = []
+        try:
+            if stdin_tty:
+                m, s = pty.openpty()
+                fds += [m, s]
+                stdin = s
+            else:
+                stdin = subprocess.DEVNULL
+            if stdout_tty:
+                m, s = pty.openpty()
+                fds += [m, s]
+                stdout = s
+            else:
+                stdout = subprocess.PIPE
+            proc = subprocess.Popen(
+                [WRAPPER, "version"], env=base_env, cwd="/tmp",
+                stdin=stdin, stdout=stdout, stderr=subprocess.PIPE,
+            )
+            if stdout_tty:
+                os.close(s)
+                fds.remove(s)
+                chunks = []
+                while True:
+                    try:
+                        data = os.read(m, 4096)
+                    except OSError:
+                        break
+                    if not data:
+                        break
+                    chunks.append(data)
+                out = b"".join(chunks)
+                proc.wait()
+            else:
+                out, _ = proc.communicate()
+            assert proc.returncode == 0
+            return out.decode().replace("\r\n", "\n").splitlines()
+        finally:
+            for fd in fds:
+                os.close(fd)
+
+    def _run_flags(self, argv):
+        return argv[:argv.index(IMAGE_NAME)]
+
+    def test_tty_when_stdin_and_stdout_are_terminals(self):
+        argv = self._run_with_ttys(stdin_tty=True, stdout_tty=True)
+        assert "-t" in self._run_flags(argv)
+
+    def test_no_tty_when_stdout_redirected(self):
+        argv = self._run_with_ttys(stdin_tty=True, stdout_tty=False)
+        flags = self._run_flags(argv)
+        assert "-t" not in flags
+        assert "-i" in flags
+
+    def test_no_tty_when_stdin_not_terminal(self):
+        argv = self._run_with_ttys(stdin_tty=False, stdout_tty=True)
+        assert "-t" not in self._run_flags(argv)

@@ -107,7 +107,7 @@ def _run_on_each_wiki(args, inst_id, inst, tokens):
         return 1
     overall_rc = 0
     for w in wikis:
-        print("\n=== %s (%s) ===" % (tokens[0], w))
+        print("\n=== %s (%s) ===" % (tokens[0], w), file=sys.stderr)
         rc = _helpers._stream_in_container(
             inst_id, inst, _helpers._maint_run_command(tokens, w),
             user=_helpers.WEB_USER,
@@ -180,7 +180,7 @@ def cmd_maintenance_update(args):
     failed = set()
 
     for w in wikis:
-        print("\n=== update.php (%s) ===" % w)
+        print("\n=== update.php (%s) ===" % w, file=sys.stderr)
         rc = _helpers._stream_in_container(
             inst_id, inst,
             "php maintenance/update.php --wiki=%s" % _helpers._shell_quote(w),
@@ -195,7 +195,7 @@ def cmd_maintenance_update(args):
 
     if not skip_jobs:
         for w in updated:
-            print("\n=== runJobs.php (%s) ===" % w)
+            print("\n=== runJobs.php (%s) ===" % w, file=sys.stderr)
             rc = _helpers._stream_in_container(
                 inst_id, inst,
                 "php maintenance/runJobs.php --wiki=%s" % _helpers._shell_quote(w),
@@ -225,7 +225,7 @@ def cmd_maintenance_update(args):
                     continue
                 if not loaded:
                     continue
-                print("\n=== rebuildData.php (%s) ===" % w)
+                print("\n=== rebuildData.php (%s) ===" % w, file=sys.stderr)
                 # Match the playbook: SMW rebuild failures don't
                 # poison the overall rc — the wiki may simply not have
                 # SMW data yet.
