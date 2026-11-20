@@ -54,6 +54,30 @@ canasta_known_keys:
     group: PHP
     description: Max input variables
     default: "1000"
+  - name: PHP_MEMORY_LIMIT
+    group: PHP
+    description: Memory limit for each PHP request
+    default: 256M
+  - name: PM_MAX_CHILDREN
+    group: PHP
+    description: >-
+      Most PHP-FPM workers; also sizes the HAProxy edge's limits. Must be
+      at least PM_MAX_SPARE_SERVERS
+    default: "25"
+  - name: PM_START_SERVERS
+    group: PHP
+    description: >-
+      PHP-FPM workers started at boot; between PM_MIN_SPARE_SERVERS and
+      PM_MAX_SPARE_SERVERS
+    default: "10"
+  - name: PM_MIN_SPARE_SERVERS
+    group: PHP
+    description: Fewest idle PHP-FPM workers
+    default: "5"
+  - name: PM_MAX_SPARE_SERVERS
+    group: PHP
+    description: Most idle PHP-FPM workers
+    default: "15"
 
   - name: MW_SITEMAP_PAUSE_DAYS
     group: Sitemaps
