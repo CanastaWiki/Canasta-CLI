@@ -33,9 +33,12 @@ jobs:
           .venv/bin/pip install -r requirements.txt
           .venv/bin/pip install pytest-cov
 
+      # -n auto: one pytest-xdist worker per runner CPU. Most of the suite's
+      # time goes to tests that run real task files through ansible-playbook,
+      # which are independent processes and parallelise well.
       - name: Run unit tests with coverage
         run: |
-          .venv/bin/pytest tests/unit/ -v -rs \
+          .venv/bin/pytest tests/unit/ -v -rs -n auto \
             --cov=roles/common/library \
             --cov=roles/common/module_utils \
             --cov=roles/extensions_skins/library \

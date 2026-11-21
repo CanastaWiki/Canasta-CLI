@@ -18,8 +18,14 @@ venv: $(VENV)/bin/activate
 
 # --- Testing -----------------------------------------------------------------
 
+# -n auto runs the tests across one worker per CPU (pytest-xdist). Many
+# tests run real task files through ansible-playbook and spend most of
+# their time starting module processes, so they parallelise well. Pass
+# PYTEST_ARGS="-n 0" to run serially, for example when debugging one test.
+PYTEST_ARGS ?= -n auto
+
 test-unit: venv
-	$(PYTEST) tests/unit/ -v
+	$(PYTEST) tests/unit/ -v $(PYTEST_ARGS)
 
 # Integration tests call ./canasta commands as subprocesses. Requires
 # git-crypt and a container runtime (Docker or Podman). Pass a test name
