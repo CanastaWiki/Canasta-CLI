@@ -14,9 +14,21 @@ permissions:
   contents: read
 
 jobs:
-  unit:
-    name: Unit Tests
+  # The unit suite runs in three shards on separate runners, each with one
+  # pytest-xdist worker per CPU. Most of its time goes to tests that run real
+  # task files through ansible-playbook; those are independent processes, but
+  # four workers already saturate one runner's CPUs. pytest-split balances the
+  # shards using the per-test times in tests/.test_durations (tests missing
+  # from it count as the average). Refresh that file when the shards drift
+  # apart: run the suite serially with
+  #   pytest tests/unit --store-durations --durations-path tests/.test_durations
+  unit-shard:
+    name: "Unit Tests (shard ${{ matrix.group }}/3)"
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3]
     steps:
       - uses: actions/checkout@v6
 
@@ -33,12 +45,13 @@ jobs:
           .venv/bin/pip install -r requirements.txt
           .venv/bin/pip install pytest-cov
 
-      # -n auto: one pytest-xdist worker per runner CPU. Most of the suite's
-      # time goes to tests that run real task files through ansible-playbook,
-      # which are independent processes and parallelise well.
+      # Coverage reports and the threshold are computed once, over all
+      # shards, in the Unit Tests job below.
       - name: Run unit tests with coverage
         run: |
           .venv/bin/pytest tests/unit/ -v -rs -n auto \
+            --splits 3 --group ${{ matrix.group }} \
+            --durations-path tests/.test_durations \
             --cov=roles/common/library \
             --cov=roles/common/module_utils \
             --cov=roles/extensions_skins/library \
@@ -47,10 +60,62 @@ jobs:
             --cov=scripts \
             --cov=direct_commands \
             --cov=canasta \
-            --cov-report=term-missing \
-            --cov-report=xml:coverage.xml \
-            --cov-report=html:htmlcov \
-            --cov-fail-under=70
+            --cov-report=
+
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-data-${{ matrix.group }}
+          path: .coverage
+          include-hidden-files: true
+          if-no-files-found: error
+
+  # Keeps the name of the required "Unit Tests" check. It runs even when a
+  # shard fails, and fails itself in that case: a skipped required check
+  # would count as passing.
+  unit:
+    name: Unit Tests
+    needs: unit-shard
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if any shard did not pass
+        if: needs.unit-shard.result != 'success'
+        run: |
+          echo "Unit test shards finished with: ${{ needs.unit-shard.result }}"
+          exit 1
+
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install pytest-cov
+
+      - name: Download coverage data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-data-*
+          path: coverage-data
+
+      - name: Combine coverage and check the threshold
+        run: |
+          # Each artifact holds one shard's .coverage file; give each a
+          # distinct name so coverage combine reads them all.
+          for dir in coverage-data/coverage-data-*; do
+            mv "$dir/.coverage" ".coverage.${dir##*-}"
+          done
+          .venv/bin/coverage combine
+          .venv/bin/coverage report --show-missing
+          .venv/bin/coverage xml -o coverage.xml
+          .venv/bin/coverage html -d htmlcov
+          .venv/bin/coverage report --fail-under=70 > /dev/null
 
       - name: Coverage summary
         if: always() && hashFiles('coverage.xml') != ''
