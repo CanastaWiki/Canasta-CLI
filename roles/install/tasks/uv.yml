@@ -43,16 +43,47 @@
     - uv_install_self | default(false) | bool or (uv_targets | default([]) | length > 0)
   become: false
   block:
-    # The installer is unpinned — the same trade the k3s/helm
-    # installers make. pipefail surfaces a mid-pipe failure that
-    # would otherwise pass silently. Failures here abort the run;
-    # there is no silent skip.
-    - name: Download and run uv installer
-      ansible.builtin.shell:
-        cmd: "set -o pipefail; curl -LsSf https://astral.sh/uv/install.sh | sh"
-        executable: /bin/bash
-        creates: "{{ _uv_bin }}"
-      changed_when: true
+    - name: Determine the uv release architecture
+      ansible.builtin.command: uname -m
+      changed_when: false
+      register: _uv_arch_cmd
+
+    - name: Set the uv release name
+      ansible.builtin.set_fact:
+        _uv_release: "uv-{{ _uv_arch_cmd.stdout | trim }}-unknown-linux-gnu"
+
+    # The release tarball, version and checksum pinned in
+    # vars/tool_versions.yml, rather than the curl | sh installer.
+    - name: Download the uv release
+      ansible.builtin.get_url:
+        url: >-
+          https://github.com/astral-sh/uv/releases/download/{{ uv_version }}/{{ _uv_release }}.tar.gz
+        dest: "/tmp/{{ _uv_release }}-{{ uv_version }}.tar.gz"
+        mode: "0644"
+        checksum: "sha256:{{ uv_sha256[_uv_arch_cmd.stdout | trim] }}"
+
+    - name: Ensure ~/.local/bin exists
+      ansible.builtin.file:
+        path: "{{ _install_home }}/.local/bin"
+        state: directory
+        mode: "0755"
+
+    - name: Install uv + uvx into ~/.local/bin
+      ansible.builtin.unarchive:
+        src: "/tmp/{{ _uv_release }}-{{ uv_version }}.tar.gz"
+        dest: "{{ _install_home }}/.local/bin"
+        remote_src: true
+        include:
+          - "{{ _uv_release }}/uv"
+          - "{{ _uv_release }}/uvx"
+        extra_opts:
+          - "--strip-components=1"
+        mode: "0755"
+
+    - name: Remove the uv tarball
+      ansible.builtin.file:
+        path: "/tmp/{{ _uv_release }}-{{ uv_version }}.tar.gz"
+        state: absent
 
 - name: Resolve version constraints per tool
   ansible.builtin.set_fact:

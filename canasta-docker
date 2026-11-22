@@ -793,7 +793,8 @@ fi
 #   - schedule add|list|remove         (manage maintenance schedules)
 #   - backup restore                   (re-materializes from restored state)
 #   - gitops pull                      (re-materializes if the schedule changed)
-#   - delete                           (removes the maintenance schedules)
+#   - delete                           (removes the instance's backup and
+#                                       maintenance schedules)
 # Remote (-H) instances leave this file untouched and run through the
 # container/ansible unchanged (the crontab lives on the remote host).
 SCHEDULE_CRONTAB_FILE=""

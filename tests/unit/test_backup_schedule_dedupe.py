@@ -14,6 +14,8 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 APPLY = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_apply.yml")
+SWEEP = os.path.join(
+    REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_sweep.yml")
 LIST = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_list.yml")
 
@@ -37,7 +39,7 @@ FILE = "Remove any prior backup schedule entries for this instance (host crontab
 
 def test_apply_sweeps_both_crontab_paths():
     for name in (LIVE, FILE):
-        t = _by_name(APPLY, name)
+        t = _by_name(SWEEP, name)
         assert t is not None, "missing sweep task: %s" % name
         cmd = t["ansible.builtin.shell"]["cmd"]
         # Matches the same job fragment `list` uses (trailing space so
@@ -46,18 +48,24 @@ def test_apply_sweeps_both_crontab_paths():
         assert "canasta-backup-{{ instance_id }}" in cmd
 
 
+SWEEP_INCLUDE = "Remove any prior backup schedule entries for this instance"
+
+
 def test_sweep_runs_before_the_write():
     names = _names(APPLY)
-    assert names.index(LIVE) < names.index("Set cron schedule"), (
-        "live-crontab sweep must run before the cron-module write")
-    assert names.index(FILE) < names.index("Set cron schedule in the host crontab file"), (
-        "file sweep must run before the blockinfile write")
+    assert "backup_schedule_sweep.yml" in \
+        _by_name(APPLY, SWEEP_INCLUDE)["ansible.builtin.include_tasks"]
+    assert names.index(SWEEP_INCLUDE) < names.index("Set cron schedule"), (
+        "sweep must run before the cron-module write")
+    assert names.index(SWEEP_INCLUDE) < names.index(
+        "Set cron schedule in the host crontab file"), (
+        "sweep must run before the blockinfile write")
 
 
 def test_sweeps_are_gated_to_their_path():
     # live-crontab sweep on the module path; file sweep on the mounted-file path
-    assert "not _sched_use_file" in str(_by_name(APPLY, LIVE).get("when"))
-    assert _by_name(APPLY, FILE).get("when") == "_sched_use_file"
+    assert "not _sched_use_file" in str(_by_name(SWEEP, LIVE).get("when"))
+    assert _by_name(SWEEP, FILE).get("when") == "_sched_use_file"
 
 
 def test_list_warns_on_duplicate_entries():

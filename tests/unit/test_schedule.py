@@ -447,3 +447,26 @@ def test_gitignore_keeps_host_local_files_out_of_gitops():
         lines = f.read().splitlines()
     assert "schedule-*.log" in lines and ".schedule-state/" in lines
     assert "config/schedules.yml" not in lines
+
+
+def test_delete_removes_backup_and_schedule_entries_only(tmp_path):
+    """delete's crontab steps, run together against the host crontab file
+    the containerized CLI hands over."""
+    tasks = _tasks("roles", "delete", "tasks", "main.yml")
+    names = [t.get("name") for t in tasks]
+    first = names.index("Select crontab target for the backup schedule")
+    last = names.index("Remove maintenance schedules")
+    crontab = tmp_path / "crontab"
+    other = ("5 5 * * * /usr/bin/true\n"
+             "# BEGIN canasta-backup-site2\n"
+             "0 2 * * * canasta backup create -i site2 --tag scheduled\n"
+             "# END canasta-backup-site2\n")
+    crontab.write_text(rewrite_crontab(
+        other + "# BEGIN canasta-backup-site\n"
+        "0 2 * * * canasta backup create -i site --tag scheduled\n"
+        "# END canasta-backup-site\n", "site",
+        [cron_line("a", ENTRY, "site", "/srv", "canasta")]))
+    proc = _play(tmp_path, tasks[first:last + 1], {"instance_id": "site"},
+                 {"CANASTA_HOST_CRONTAB": str(crontab)})
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert crontab.read_text() == other
