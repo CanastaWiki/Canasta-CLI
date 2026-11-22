@@ -26,6 +26,8 @@ def cmd_stop(args):
         return _helpers.FALLBACK
     if _helpers._instance_has_sidecars(inst):
         return _helpers.FALLBACK  # Ansible includes the sidecar -f layer.
+    if "podman" in _helpers._resolve_inspect_cmd(inst):
+        return _helpers.FALLBACK  # Ansible disables the instance's boot unit.
     # Reconcile COMPOSE_PROFILES before `down`: docker compose down only tears
     # down services in the active profiles, so a drifted profile set leaves a
     # running container as an unmanaged orphan. Sync first so `down` covers the

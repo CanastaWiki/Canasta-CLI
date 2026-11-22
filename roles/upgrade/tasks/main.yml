@@ -443,6 +443,22 @@
     {{ canasta_root }}/roles/orchestrator/tasks/reload_caddy.yml
   when: not (_restart_needed | bool and _was_running | bool)
 
+# Also for an instance upgrade did not restart, so one that predates the
+# boot unit gets it.
+- name: Start the instance at boot under rootless Podman
+  canasta_boot_unit:
+    state: enabled
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+    compose_command: "{{ compose_command | default('docker compose') }}"
+    inspect_command: "{{ inspect_command | default('docker') }}"
+    devmode: "{{ instance_devmode | default(false) | bool }}"
+  when:
+    - not (instance_is_k8s | bool)
+    - _was_running | bool
+    - not (_upgrade_restart_failed | bool)
+    - not (_upgrade_stage_only | bool)
+
 # A stopped instance keeps its refreshed config/image on disk but is left
 # stopped, so upgrade never starts something the operator had brought down.
 - name: Report config refreshed on a stopped instance

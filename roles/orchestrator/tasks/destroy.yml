@@ -225,6 +225,12 @@
         - _destroy_bvol_rm.rc != 0
         - "'no such volume' not in (_destroy_bvol_rm.stderr | default(''))"
 
+    - name: Remove the instance's boot unit
+      canasta_boot_unit:
+        state: absent
+        instance_id: "{{ instance_id }}"
+        inspect_command: "{{ inspect_command | default('docker') }}"
+
     - name: Take the instance out of the edge
       ansible.builtin.include_tasks: edge_sync.yml
       vars:

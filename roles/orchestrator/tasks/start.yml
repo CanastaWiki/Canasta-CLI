@@ -640,6 +640,16 @@
       ansible.builtin.include_tasks: crowdsec_autoenroll.yml
       when: crowdsec_autoenroll | default(true) | bool
 
+    # Podman has no daemon to restore containers at boot.
+    - name: Start the instance at boot under rootless Podman
+      canasta_boot_unit:
+        state: enabled
+        instance_id: "{{ instance_id | default(id) }}"
+        instance_path: "{{ instance_path }}"
+        compose_command: "{{ _compose_cmd }}"
+        inspect_command: "{{ _inspect_cmd }}"
+        devmode: "{{ instance_devmode | default(false) | bool }}"
+
 - name: Start (Kubernetes)
   when: instance_is_k8s | bool
   block:

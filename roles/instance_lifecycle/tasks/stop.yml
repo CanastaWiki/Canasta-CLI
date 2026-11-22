@@ -18,6 +18,14 @@
     # Nothing starts again, so the edge is not written.
     stop_check_edge: false
 
+# Only an operator's stop: a stop and start within one command keeps it.
+- name: Keep the instance stopped across a reboot
+  canasta_boot_unit:
+    state: disabled
+    instance_id: "{{ instance_id }}"
+    inspect_command: "{{ inspect_command | default('docker') }}"
+  when: not (instance_is_k8s | bool)
+
 - name: Report stopped
   ansible.builtin.debug:
     msg: >-
