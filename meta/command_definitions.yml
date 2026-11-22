@@ -2381,10 +2381,11 @@ commands:
     description: "Run a schedule's command now"
     long_description: |
       Run a schedule's command once, now, regardless of its cron
-      expression. This is also what each scheduled firing runs. Exits with
-      the command's status and records the result for
+      expression. This is also what each scheduled firing runs. The
+      command's output is printed, and this exits non-zero when the command
+      fails; the command's own exit status is recorded and shown by
       `canasta schedule list`. If the previous run of the same schedule is
-      still going, this run is skipped.
+      still going, this run is skipped and exits zero.
     examples:
       - "canasta schedule run --name parser-cache"
     playbook: schedule_run.yml

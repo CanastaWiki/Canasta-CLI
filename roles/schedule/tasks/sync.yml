@@ -8,6 +8,15 @@
 - name: Locate the schedule crontab
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/schedule/tasks/_crontab_target.yml"
 
+- name: Warn that the target host's canasta cannot run schedules
+  ansible.builtin.debug:
+    msg: >-
+      Warning: the canasta installed on {{ target_host | default(_instance_host) }}
+      ({{ _schedule_canasta_bin }}) has no 'schedule' command, so every
+      scheduled run there will fail. Upgrade it with
+      'canasta install canasta -H {{ target_host | default(_instance_host) }}'.
+  when: not (_schedule_canasta_supported | bool)
+
 - name: Write the schedule crontab entries
   canasta_schedules:
     action: sync

@@ -46,6 +46,33 @@
     - _schedule_hosts | length > 0
     - _schedule_unknown | length > 0
 
+- name: Locate the schedule crontab
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/schedule/tasks/_crontab_target.yml"
+
+- name: Refuse a host whose canasta cannot run schedules
+  ansible.builtin.fail:
+    msg: >-
+      The canasta installed on {{ target_host | default(_instance_host) }}
+      ({{ _schedule_canasta_bin }}) has no 'schedule' command, so the
+      schedule would fail every time it fires. Upgrade it first with
+      'canasta install canasta -H {{ target_host | default(_instance_host) }}'.
+  when: not (_schedule_canasta_supported | bool)
+
+- name: List the instance's running services
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/list_running_services.yml"
+  when: (service | default('web', true)) != 'web'
+
+- name: Refuse an unknown service
+  ansible.builtin.fail:
+    msg: >-
+      Service '{{ service }}' is not running in instance '{{ instance_id }}'.
+      Running services: {{ _schedule_running | join(', ') or 'none' }}.
+  vars:
+    _schedule_running: "{{ (_running_services | trim).split('\n') | map('trim') | reject('equalto', '') | sort }}"
+  when:
+    - (service | default('web', true)) != 'web'
+    - service not in _schedule_running
+
 - name: Add the schedule to config/schedules.yml
   canasta_schedules:
     action: add

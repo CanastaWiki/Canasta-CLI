@@ -3,9 +3,9 @@
 # call this, so it is also how every scheduled firing runs.
 #
 # The command runs in the service's container without a TTY (as www-data in
-# the web container, the image's user elsewhere) and this exits
-# with its status. A firing that finds the previous run of the same
-# schedule still going is skipped. The last run is recorded in
+# the web container, the image's user elsewhere). This exits non-zero when
+# the command fails; the command's own status is recorded. A firing that
+# finds the previous run of the same schedule still going is skipped. The last run is recorded in
 # .schedule-state/<name>.yml, which `schedule list` reports.
 #
 # Input: id, schedule_name
@@ -48,6 +48,8 @@
 
 - name: Run the schedule
   block:
+    # A non-zero exit is the command's result, not an error of this task, so
+    # it is read from exec_result instead of failing here.
     - name: Run the scheduled command
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
       vars:
@@ -59,23 +61,29 @@
         exec_lock: >-
           {{ (_schedule_state_dir ~ '/' ~ schedule_name ~ '.lock')
              if _schedule_flock.rc == 0 else '' }}
+        exec_allow_failure: true
+
+    # flock exits 75 without running the command when another run holds it.
+    - name: Record the result
+      ansible.builtin.set_fact:
+        _schedule_result: >-
+          {{ 'ok' if exec_result.rc == 0
+             else ('skipped' if exec_result.rc == 75 and _schedule_flock.rc == 0
+                   else 'failed') }}
+        _schedule_rc: "{{ exec_result.rc }}"
 
     - name: Show the command's output
       ansible.builtin.debug:
         msg: "{{ exec_result.stdout }}"
-      when: exec_result.stdout | default('') | length > 0
-
-    - name: Record the result
-      ansible.builtin.set_fact:
-        _schedule_result: ok
-        _schedule_rc: 0
+      when:
+        - _schedule_result != 'skipped'
+        - exec_result.stdout | default('') | length > 0
+  # Reached only when the command could not be started (no running pod).
   rescue:
     - name: Record the result
       ansible.builtin.set_fact:
-        _schedule_result: >-
-          {{ 'skipped' if (exec_result.rc | default(-1)) == 75
-             and _schedule_flock.rc == 0 else 'failed' }}
-        _schedule_rc: "{{ exec_result.rc | default(-1) }}"
+        _schedule_result: failed
+        _schedule_rc: -1
   always:
     # A skipped firing leaves the running one's record alone.
     - name: Write the schedule state
@@ -99,5 +107,5 @@
   ansible.builtin.fail:
     msg: >-
       Schedule '{{ schedule_name }}' failed with exit status {{ _schedule_rc }}.
-      {{ exec_result.stderr | default('') | trim }}
+      {{ (exec_result.stderr | default('') | trim) if _schedule_rc | int != -1 else '' }}
   when: _schedule_result == 'failed'

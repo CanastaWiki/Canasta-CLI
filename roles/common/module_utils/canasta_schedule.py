@@ -28,6 +28,9 @@ _NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?\Z")
 _CRON_RE = re.compile(r"^[0-9A-Za-z*/,-]+([ \t]+[0-9A-Za-z*/,-]+){4}\Z")
 _SERVICE_RE = re.compile(r"^[a-z0-9]([a-z0-9_.-]*[a-z0-9])?\Z")
 _HOST_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?\Z")
+# cron runs jobs with PATH=/usr/bin:/bin, which lacks the tools canasta runs
+# from /usr/local/bin (kubectl, as k3s installs it).
+CRON_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 
 def validate_name(name):
@@ -151,8 +154,8 @@ def cron_line(name, entry, instance_id, instance_path, canasta_bin,
               cron_env=""):
     log = "%s/schedule-%s.log" % (instance_path.rstrip("/"), name)
     cron = " ".join(entry["cron"].split())
-    job = "%s%s schedule run -i %s --name %s >> %s 2>&1" % (
-        cron_env, shlex.quote(canasta_bin), instance_id, name,
+    job = "PATH=%s %s%s schedule run -i %s --name %s >> %s 2>&1" % (
+        CRON_PATH, cron_env, shlex.quote(canasta_bin), instance_id, name,
         shlex.quote(log))
     # cron turns an unescaped % in the command into a newline.
     return "%s %s" % (cron, job.replace("%", "\\%"))

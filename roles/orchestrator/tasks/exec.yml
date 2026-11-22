@@ -29,6 +29,8 @@
 #   exec_lock (str, optional) - lock file on the target host; the command
 #     runs under `flock -n` on it, and exits 75 without running when another
 #     holder has it. Ignored on the long/detached path.
+#   exec_allow_failure (bool, optional) - a non-zero exit does not fail the
+#     task; the caller reads exec_result.rc. Ignored on the long path.
 # Output:
 #   exec_result (registered result with .stdout, .rc, etc.)
 
@@ -125,6 +127,9 @@
          else omit }}
   register: exec_result
   changed_when: false
+  failed_when:
+    - exec_result.rc != 0
+    - not (exec_allow_failure | default(false) | bool)
   no_log: "{{ exec_no_log | default(false) }}"
   when: not (exec_long | default(false) | bool)
 

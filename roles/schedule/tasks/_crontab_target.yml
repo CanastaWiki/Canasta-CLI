@@ -12,7 +12,8 @@
 # Input: instance_id, instance_path
 # Output: _schedule_crontab_file ('' for the live crontab),
 #   _schedule_canasta_bin ('' when canasta is missing on a remote host),
-#   _schedule_cron_env
+#   _schedule_cron_env, _schedule_canasta_supported (false when the canasta
+#   on a remote host predates `canasta schedule`)
 
 - name: Classify the schedule target
   ansible.builtin.set_fact:
@@ -43,3 +44,21 @@
       {{ ('CANASTA_CONFIG_DIR=' ~ (lookup('env', 'CANASTA_CONFIG_DIR') | quote) ~ ' ')
          if (_schedule_is_local | bool) and lookup('env', 'CANASTA_CONFIG_DIR') != ''
          else '' }}
+
+# A local job runs this CLI, which has the command. A remote host's canasta
+# may be older, and then every firing fails at argument parsing.
+- name: Check that the target host's canasta has the schedule command
+  ansible.builtin.command:
+    argv: ["{{ _schedule_canasta_bin }}", "schedule", "run", "--help"]
+  register: _schedule_remote_help
+  changed_when: false
+  failed_when: false
+  when:
+    - not (_schedule_is_local | bool)
+    - _schedule_canasta_bin != ''
+
+- name: Record whether the target host's canasta can run schedules
+  ansible.builtin.set_fact:
+    _schedule_canasta_supported: >-
+      {{ (_schedule_is_local | bool) or _schedule_canasta_bin == ''
+         or (_schedule_remote_help.rc | default(1)) == 0 }}

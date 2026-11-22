@@ -109,7 +109,9 @@ def test_cron_line_quotes_and_escapes_percent():
     line = cron_line("x", dict(ENTRY, cron="0  3 * * *"), "site",
                      "/srv/my site%", "/usr/local/bin/canasta",
                      "CANASTA_CONFIG_DIR=/etc/c ")
-    assert line.startswith("0 3 * * * CANASTA_CONFIG_DIR=/etc/c "
+    assert line.startswith("0 3 * * * PATH=/usr/local/sbin:/usr/local/bin:"
+                           "/usr/sbin:/usr/bin:/sbin:/bin "
+                           "CANASTA_CONFIG_DIR=/etc/c "
                            "/usr/local/bin/canasta schedule run -i site "
                            "--name x >> ")
     assert "'/srv/my site\\%/schedule-x.log'" in line
@@ -321,11 +323,19 @@ def fake_compose(tmp_path):
     return script
 
 
+# The CLI's own output callback, so a raw task error shows as it would.
+CLI_CALLBACK = {
+    "ANSIBLE_STDOUT_CALLBACK": "canasta_minimal",
+    "ANSIBLE_CALLBACK_PLUGINS": os.path.join(REPO_ROOT, "callback_plugins"),
+}
+
+
 def _run(tmp_path, inst, fake_compose, name="a"):
     return _play(tmp_path, _run_tasks(),
                  {"instance_id": "site", "instance_path": str(inst),
                   "schedule_name": name, "compose_command": str(fake_compose)},
-                 {"FAKE_SERVICE_LOG": str(tmp_path / "service")})
+                 dict(CLI_CALLBACK,
+                      FAKE_SERVICE_LOG=str(tmp_path / "service")))
 
 
 def _state(inst, name="a"):
@@ -356,10 +366,16 @@ def test_run_uses_the_web_user_in_the_web_container(tmp_path, fake_compose):
 
 
 def test_run_fails_with_the_command_status(tmp_path, fake_compose):
-    inst = _instance(tmp_path, {"a": dict(ENTRY, command="exit 3")})
+    inst = _instance(tmp_path, {"a": dict(
+        ENTRY, command="echo failing; echo oops >&2; exit 3")})
     proc = _run(tmp_path, inst, fake_compose)
+    out = proc.stdout + proc.stderr
     assert proc.returncode != 0
-    assert "failed with exit status 3" in proc.stdout + proc.stderr
+    assert "failed with exit status 3" in out and "oops" in out
+    # The command's output is its output, not a raw task error.
+    assert "failing" in out
+    assert "Error: failing" not in out
+    assert "non-zero return code" not in out
     assert _state(inst) == dict(_state(inst), result="failed", rc=3)
 
 
@@ -390,7 +406,9 @@ def test_run_skips_while_the_previous_run_holds_the_lock(tmp_path,
     finally:
         holder.kill()
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "previous run is still in progress" in proc.stdout
+    out = proc.stdout + proc.stderr
+    assert "previous run is still in progress" in out
+    assert "flock" not in out and "Error" not in out
     assert not marker.exists()
     assert _state(inst)["started"] == "earlier"
 
@@ -470,3 +488,80 @@ def test_delete_removes_backup_and_schedule_entries_only(tmp_path):
                  {"CANASTA_HOST_CRONTAB": str(crontab)})
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert crontab.read_text() == other
+
+
+# --- schedule add refusals ---------------------------------------------------
+
+def _add_tasks():
+    tasks = _tasks("roles", "schedule", "tasks", "add.yml")
+    assert tasks[0]["name"] == "Resolve instance"
+    return tasks[1:]
+
+
+def _fake_bin(tmp_path, name, body):
+    bindir = tmp_path / "bin"
+    bindir.mkdir(exist_ok=True)
+    script = bindir / name
+    script.write_text("#!/bin/sh\n" + body)
+    script.chmod(0o755)
+    return bindir
+
+
+def _add(tmp_path, inst, extra_vars=None, env_extra=None):
+    play_vars = {"instance_id": "site", "instance_path": str(inst),
+                 "schedule_name": "a", "cron": "* * * * *",
+                 "schedule_command": "true",
+                 "canasta_cli_bin": "/usr/local/bin/canasta"}
+    play_vars.update(extra_vars or {})
+    crontab = tmp_path / "crontab"
+    crontab.touch()
+    env = {"CANASTA_HOST_CRONTAB": str(crontab)}
+    env.update(env_extra or {})
+    return _play(tmp_path, _add_tasks(), play_vars, env)
+
+
+def test_add_refuses_a_remote_canasta_without_the_schedule_command(tmp_path):
+    inst = _instance(tmp_path)
+    bindir = _fake_bin(tmp_path, "canasta", 'echo "invalid choice" >&2; exit 2\n')
+    proc = _add(tmp_path, inst, {"target_host": "big"},
+                {"PATH": "%s:%s" % (bindir, os.environ["PATH"])})
+    assert proc.returncode != 0
+    assert "has no 'schedule' command" in proc.stdout + proc.stderr
+    assert not (inst / "config" / "schedules.yml").exists()
+
+
+def test_add_refuses_a_service_that_is_not_running(tmp_path):
+    inst = _instance(tmp_path)
+    bindir = _fake_bin(tmp_path, "fake-docker", 'printf "web\\ndb\\n"\n')
+    inspect = {"inspect_command": str(bindir / "fake-docker")}
+    proc = _add(tmp_path, inst, dict(inspect, service="nosuch"))
+    out = proc.stdout + proc.stderr
+    assert proc.returncode != 0
+    assert "Service 'nosuch' is not running" in out and "db, web" in out
+    assert not (inst / "config" / "schedules.yml").exists()
+
+    proc = _add(tmp_path, inst, dict(inspect, service="db"))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert parse((inst / "config" / "schedules.yml").read_text())["a"][
+        "service"] == "db"
+    assert installed((tmp_path / "crontab").read_text(), "site") == {
+        "a": ["* * * * *"]}
+
+
+def test_a_skipped_run_prints_no_raw_error(tmp_path, fake_compose):
+    """flock's 'lock held' exit (75), from a stand-in so it runs anywhere."""
+    marker = tmp_path / "ran"
+    inst = _instance(tmp_path, {"a": dict(ENTRY,
+                                          command="touch %s" % marker)})
+    bindir = _fake_bin(tmp_path, "flock", "exit 75\n")
+    proc = _play(tmp_path, _run_tasks(),
+                 {"instance_id": "site", "instance_path": str(inst),
+                  "schedule_name": "a", "compose_command": str(fake_compose)},
+                 dict(CLI_CALLBACK, FAKE_SERVICE_LOG=str(tmp_path / "svc"),
+                      PATH="%s:%s" % (bindir, os.environ["PATH"])))
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 0, out
+    assert "previous run is still in progress" in out
+    assert "Error" not in out and "flock -n" not in out
+    assert not marker.exists()
+    assert not (inst / ".schedule-state" / "a.yml").exists()
