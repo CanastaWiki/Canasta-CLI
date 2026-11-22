@@ -11,7 +11,8 @@
 #        of the live crontab), _host_crontab_file
 
 # Rewrite only when an entry matched: an untouched crontab stays
-# byte-identical, so the wrapper has nothing to install afterward. A host
+# byte-identical, so the wrapper has nothing to install afterward. A crontab
+# left with no lines is written empty, not as one blank line. A host
 # without crontab has no entries to remove.
 - name: Remove any prior backup schedule entries for this instance (live crontab)
   ansible.builtin.shell:
@@ -23,7 +24,7 @@
       cur="$(crontab -l 2>/dev/null || true)";
       grep -qE "$re" <<<"$cur" || exit 0;
       kept="$(grep -vE "$re" <<<"$cur" || true)";
-      printf '%s\n' "$kept" | crontab - && echo swept
+      { [ -z "$kept" ] || printf '%s\n' "$kept"; } | crontab - && echo swept
   register: _sched_sweep_live
   when: not _sched_use_file
   changed_when: "'swept' in _sched_sweep_live.stdout"
@@ -38,7 +39,7 @@
       [ -f "$f" ] || exit 0;
       grep -qE "$re" "$f" || exit 0;
       kept="$(grep -vE "$re" "$f" || true)";
-      printf '%s\n' "$kept" > "$f" && echo swept
+      { [ -z "$kept" ] || printf '%s\n' "$kept"; } > "$f" && echo swept
   register: _sched_sweep_file
   when: _sched_use_file
   changed_when: "'swept' in _sched_sweep_file.stdout"

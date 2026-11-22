@@ -86,6 +86,14 @@ class TestHostCrontabFile:
             assert f.read_text() == content
             assert "swept" not in out.stdout
 
+    def test_crontab_left_empty_has_no_blank_line(self, tmp_path):
+        f = tmp_path / "host-crontab"
+        f.write_text("# BEGIN canasta-backup-mysite\n"
+                     "0 2 * * * canasta backup create -i mysite --tag x\n"
+                     "# END canasta-backup-mysite\n")
+        _run(_render(FILE, instance_id="mysite", _host_crontab_file=str(f)))
+        assert f.read_text() == ""
+
     def test_missing_file_is_a_noop(self, tmp_path):
         _run(_render(FILE, instance_id="mysite",
                      _host_crontab_file=str(tmp_path / "absent")))
@@ -110,6 +118,12 @@ class TestLiveCrontab:
         store, env = self._fake_crontab(tmp_path, CRONTAB)
         _run(_render(LIVE, instance_id="mysite"), env=env)
         assert store.read_text() == KEPT
+
+    def test_crontab_left_empty_has_no_blank_line(self, tmp_path):
+        store, env = self._fake_crontab(
+            tmp_path, "0 2 * * * canasta backup create -i mysite --tag x\n")
+        _run(_render(LIVE, instance_id="mysite"), env=env)
+        assert store.read_text() == ""
 
     def test_does_not_rewrite_without_entries(self, tmp_path):
         store, env = self._fake_crontab(tmp_path, KEPT + "\n")
