@@ -137,25 +137,25 @@ class TestSetChecks:
         for setting in ("PHP_MEMORY_LIMIT=512M", "AWS_REGION=x"):
             proc = self._check(tmp_path, [setting])
             assert proc.returncode != 0, setting
-            assert "recognized configuration keys" in proc.stdout, setting
+            assert "recognized configuration keys" in proc.stdout + proc.stderr, setting
 
     def test_secret_looking_keys_are_refused(self, tmp_path):
         proc = self._check(tmp_path, ["MAPS_API_KEY=abc"])
         assert proc.returncode != 0
-        assert "Pass --secret --web" in proc.stdout
-        assert "abc" not in proc.stdout
+        assert "Pass --secret --web" in proc.stdout + proc.stderr
+        assert "abc" not in proc.stdout + proc.stderr
 
     def test_keys_set_with_secret_are_refused(self, tmp_path):
         for lists in ({"config/secret-keys": "APP_MODE\n"},
                       {"config/secrets.env": "APP_MODE=hidden-value\n"}):
             proc = self._check(tmp_path, ["APP_MODE=on"], lists=lists)
             assert proc.returncode != 0, lists
-            assert "config unset --secret APP_MODE" in proc.stdout
+            assert "config unset --secret APP_MODE" in proc.stdout + proc.stderr
             assert "hidden-value" not in proc.stdout + proc.stderr
 
     def test_invalid_names_are_refused(self, tmp_path):
         proc = self._check(tmp_path, ["bad-name=1"])
-        assert proc.returncode != 0 and "bad-name" in proc.stdout
+        assert proc.returncode != 0 and "bad-name" in proc.stdout + proc.stderr
 
     def test_set_yml_runs_the_checks_instead_of_requiring_secret(self):
         body = _read(os.path.join(CONFIG_TASKS, "set.yml"))
@@ -167,7 +167,7 @@ class TestSetChecks:
         proc = _play(tmp_path, inst, os.path.join(CONFIG_TASKS, "_set_secret.yml"),
                      {"_config_settings": ["APP_MODE=on"], "web": True})
         assert proc.returncode != 0
-        assert "'canasta config unset APP_MODE'" in proc.stdout
+        assert "'canasta config unset APP_MODE'" in proc.stdout + proc.stderr
 
 
 class TestValidateKey:
@@ -179,7 +179,7 @@ class TestValidateKey:
 
     def test_unrecognized_key_still_needs_force(self, tmp_path):
         proc = self._validate(tmp_path, {})
-        assert proc.returncode != 0 and "Unrecognized key" in proc.stdout
+        assert proc.returncode != 0 and "Unrecognized key" in proc.stdout + proc.stderr
 
     def test_web_accepts_an_unrecognized_key(self, tmp_path):
         proc = self._validate(tmp_path, {"web": True})

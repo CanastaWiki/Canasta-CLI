@@ -51,6 +51,7 @@
     src: "{{ instance_path }}/config/secret-keys"
   register: _web_secret_keys_raw
   failed_when: false
+  no_log: true  # names only, but registered under a secret-looking name
 
 - name: Read the keys set with --secret on Kubernetes
   canasta_env:
