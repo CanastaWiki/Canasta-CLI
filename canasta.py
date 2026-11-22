@@ -134,6 +134,7 @@ SUBCOMMAND_GROUPS = {
     "host": ["add", "remove", "list"],
     "argocd": ["ui", "password", "apps"],
     "sidecar": ["add", "list", "remove", "migrate"],
+    "schedule": ["add", "list", "remove", "run"],
     "image": [
         "push", "prune", "build-args", "set-build-arg", "unset-build-arg",
     ],

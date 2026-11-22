@@ -768,6 +768,36 @@ class TestRestoreAndGitopsCrontabMediation:
         assert_no_env_key(argv, "CANASTA_HOST_CRONTAB")
 
 
+class TestMaintenanceScheduleCrontabMediation:
+    """`schedule add|list|remove` edit or read the host crontab, and delete
+    clears the instance's schedules from it; `schedule run` does not touch
+    it."""
+
+    def _local(self, args):
+        config_dir = tempfile.mkdtemp(prefix="cd-", dir="/tmp")
+        _run_dry_tmpdirs.append(config_dir)
+        argv, _ = run_dry(args, env={"CANASTA_CONFIG_DIR": config_dir})
+        return argv, config_dir
+
+    def test_host_crontab_passed_for_local_schedule_commands(self):
+        for args in (["schedule", "add", "--name", "x", "--cron",
+                      "* * * * *", "--command", "true"],
+                     ["schedule", "list"],
+                     ["schedule", "remove", "--name", "x"],
+                     ["delete", "-i", "x", "--yes"]):
+            argv, config_dir = self._local(args)
+            assert_env_var(argv, "CANASTA_HOST_CRONTAB",
+                           config_dir + "/.host-crontab")
+
+    def test_host_crontab_not_passed_for_schedule_run(self):
+        argv, _ = self._local(["schedule", "run", "--name", "x"])
+        assert_no_env_key(argv, "CANASTA_HOST_CRONTAB")
+
+    def test_host_crontab_not_passed_for_remote_schedule(self):
+        argv, _ = run_dry(["--host", "prod1", "schedule", "list"])
+        assert_no_env_key(argv, "CANASTA_HOST_CRONTAB")
+
+
 class TestDeleteCrontabMediation:
     """delete removes the instance's backup schedule, so a local run needs
     the host crontab handed over; a remote one edits that host's crontab."""

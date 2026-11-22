@@ -1,0 +1,7 @@
+---
+# canasta schedule run
+
+- name: Schedule run
+  ansible.builtin.include_role:
+    name: schedule
+    tasks_from: run.yml

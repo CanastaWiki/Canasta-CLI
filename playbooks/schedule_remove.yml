@@ -1,0 +1,7 @@
+---
+# canasta schedule remove
+
+- name: Schedule remove
+  ansible.builtin.include_role:
+    name: schedule
+    tasks_from: remove.yml

@@ -83,6 +83,13 @@
     - name: Put back the local changes
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_put_back_local_changes.yml"
 
+# The sync is idempotent, so any pull that moved the checkout re-installs the
+# maintenance schedules from config/schedules.yml.
+- name: Re-install the maintenance schedules
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/schedule/tasks/sync.yml
+  when: _git_pull.changed
+
 - name: Check for multi-env structure
   ansible.builtin.stat:
     path: "{{ instance_path }}/values.template.yaml"

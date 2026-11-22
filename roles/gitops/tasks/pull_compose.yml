@@ -481,6 +481,14 @@
     _pull_changed_files.stdout_lines | default([])
     | select('search', 'config/backup-schedule.yml') | list | length > 0
 
+# Same for the maintenance schedules in config/schedules.yml.
+- name: Re-install the maintenance schedules if they changed
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/schedule/tasks/sync.yml
+  when: >-
+    _pull_changed_files.stdout_lines | default([])
+    | select('search', 'config/schedules.yml') | list | length > 0
+
 # --- Step 11: Save applied commit ---
 # Written only after every apply step above has succeeded; a pull that
 # stops earlier leaves the commit unapplied, so the next pull re-applies it.

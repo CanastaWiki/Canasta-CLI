@@ -138,6 +138,23 @@ command_groups:
       core maintenance scripts, run extension-specific maintenance
       scripts, or open an interactive shell in the running container.
 
+  - name: schedule
+    description: "Schedule recurring maintenance commands"
+    long_description: |
+      Run a command inside one of an instance's containers on a recurring
+      schedule: cache cleanup, a maintenance script, third-party
+      housekeeping. Scheduling is the same on both orchestrators: each
+      schedule is a crontab entry on the host where the instance runs (the
+      instance's host for Compose, the control-plane node for Kubernetes)
+      that runs `canasta schedule run` on the schedule. That host needs the
+      `cron` package and a runnable `canasta`, as scheduled backups do.
+
+      Schedules are kept in `config/schedules.yml`, which backups capture
+      and gitops distributes; a restore or a `canasta gitops pull`
+      re-installs the crontab entries from it. Each run's output is
+      appended to `schedule-<name>.log` in the instance directory, and
+      `canasta schedule list` shows the result of the last run.
+
   - name: sitemap
     description: "Manage sitemaps for a Canasta instance"
     long_description: |
@@ -2308,6 +2325,136 @@ commands:
         type: string
         positional: true
         description: "Command and arguments to execute"
+
+  # ---------------------------------------------------------------------------
+  # Schedules
+  # ---------------------------------------------------------------------------
+  - name: schedule_add
+    description: "Add a recurring maintenance command"
+    long_description: |
+      Add a schedule that runs a shell command inside a container of the
+      instance (the web container unless `--service` names another) on a
+      standard 5-field cron expression
+      `minute hour day-of-month month day-of-week`.
+
+      The command runs under bash (or sh where the container has no bash)
+      inside the container, so paths, PHP, and the environment are the
+      container's: `php maintenance/run.php ...` runs from the MediaWiki
+      directory. In the web container it runs as `www-data`, as
+      maintenance scripts do; in another service's container, as that
+      image's user. A `%` in the command is passed through as is. On a wiki farm, pass `--wiki=<id>` in the command to
+      target a wiki other than the first.
+
+      A name that is already in use is refused; to change a schedule,
+      remove it and add it again. `backup` is reserved for
+      `canasta backup schedule`.
+
+      On a gitops instance, `--gitops-hosts` limits the schedule to the
+      named gitops hosts. It is then installed only on those hosts, so
+      another host in the repository, or a clone restored from a backup,
+      does not run it. Without it, every host runs the schedule against
+      its own instance.
+
+      If a run is still going when the schedule fires again, the new run
+      is skipped. A restart or upgrade that replaces the container stops a
+      run in progress; it is recorded as failed and the next firing runs
+      as usual.
+    examples:
+      - "canasta schedule add -n parser-cache --cron '0 3 * * *' --command 'php maintenance/run.php purgeParserCache --age 604800'"
+      - "canasta schedule add -n rebuild --cron '30 4 * * 0' --command 'php maintenance/run.php rebuildall' --gitops-hosts prod"
+    playbook: schedule_add.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: schedule_name
+        long: name
+        short: n
+        type: string
+        required: true
+        description: "Schedule name (lowercase letters, digits, hyphens)"
+      - name: cron
+        type: string
+        required: true
+        description: "5-field cron expression"
+      - name: schedule_command
+        long: command
+        type: string
+        required: true
+        description: "Shell command to run inside the container"
+      - name: service
+        short: s
+        type: string
+        description: "Service whose container runs the command (default: web)"
+      - name: gitops_hosts
+        type: string
+        description: "Comma-separated gitops hosts to run the schedule on (default: all)"
+
+  - name: schedule_list
+    description: "List an instance's schedules"
+    unfinished_pull_ok: true
+    long_description: |
+      List the instance's schedules with their service, cron expression,
+      command, and the time and result of the last run (`ok`, `exit <n>`,
+      or `never`). The backup schedule, if one is set, is listed as a
+      read-only `backup` row.
+
+      Warns when the crontab on this host does not match
+      `config/schedules.yml`: a schedule with no crontab entry, or an
+      entry with no schedule.
+    examples:
+      - "canasta schedule list"
+    playbook: schedule_list.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+
+  - name: schedule_remove
+    description: "Remove a recurring maintenance command"
+    long_description: |
+      Remove a schedule from `config/schedules.yml` and its crontab entry.
+      A run already in progress finishes; its log is kept.
+    examples:
+      - "canasta schedule remove --name parser-cache"
+    playbook: schedule_remove.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: schedule_name
+        long: name
+        short: n
+        type: string
+        required: true
+        description: "Schedule name"
+
+  - name: schedule_run
+    description: "Run a schedule's command now"
+    long_description: |
+      Run a schedule's command once, now, regardless of its cron
+      expression. This is also what each scheduled firing runs. The
+      command's output is printed, and this exits non-zero when the command
+      fails; the command's own exit status is recorded and shown by
+      `canasta schedule list`. If the previous run of the same schedule is
+      still going, this run is skipped and exits zero.
+    examples:
+      - "canasta schedule run --name parser-cache"
+    playbook: schedule_run.yml
+    parameters:
+      - name: id
+        short: i
+        type: string
+        description: "Canasta instance ID"
+      - name: schedule_name
+        long: name
+        short: n
+        type: string
+        required: true
+        description: "Schedule name"
 
   # ---------------------------------------------------------------------------
   # CrowdSec

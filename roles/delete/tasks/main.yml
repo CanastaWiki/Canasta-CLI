@@ -317,6 +317,15 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_sweep.yml
 
+- name: Remove maintenance schedules
+  canasta_schedules:
+    action: clear
+    instance_id: "{{ instance_id }}"
+    crontab_file: "{{ _host_crontab_file if (_sched_use_file | bool) else '' }}"
+  register: _delete_schedules
+  # A crontab that cannot be edited must not fail a finished teardown.
+  failed_when: false
+
 # Deregister only after teardown, so a failed teardown leaves the
 # registry entry that lets delete be re-run.
 - name: Save connection state before controller deregistration

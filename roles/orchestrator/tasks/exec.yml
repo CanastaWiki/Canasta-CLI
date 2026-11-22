@@ -26,6 +26,11 @@
 #     Compose, each read from the .env key it maps to when the command runs
 #     (canasta_dotenv_exec), so the value is never on a command line. Ignored
 #     on K8s.
+#   exec_lock (str, optional) - lock file on the target host; the command
+#     runs under `flock -n` on it, and exits 75 without running when another
+#     holder has it. Ignored on the long/detached path.
+#   exec_allow_failure (bool, optional) - a non-zero exit does not fail the
+#     task; the caller reads exec_result.rc. Ignored on the long path.
 # Output:
 #   exec_result (registered result with .stdout, .rc, etc.)
 
@@ -98,6 +103,13 @@
         _exec_chdir: null
       no_log: "{{ exec_no_log | default(false) }}"
 
+- name: Hold a lock for the exec
+  ansible.builtin.set_fact:
+    _exec_full_cmd: >-
+      flock -n -E 75 {{ exec_lock | quote }} /bin/sh -c {{ _exec_full_cmd | quote }}
+  when: (exec_lock | default('')) | length > 0
+  no_log: "{{ exec_no_log | default(false) }}"
+
 - name: >-
     Execute:
     {{ (exec_no_log | default(false) | bool)
@@ -115,6 +127,9 @@
          else omit }}
   register: exec_result
   changed_when: false
+  failed_when:
+    - exec_result.rc != 0
+    - not (exec_allow_failure | default(false) | bool)
   no_log: "{{ exec_no_log | default(false) }}"
   when: not (exec_long | default(false) | bool)
 
