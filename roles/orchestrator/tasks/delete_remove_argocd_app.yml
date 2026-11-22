@@ -11,7 +11,11 @@
     kind: Application
     name: "canasta-{{ instance_id }}"
     namespace: "{{ argocd_namespace | default('argocd') }}"
-  ignore_errors: true  # OK if Argo CD not installed
+  register: _argocd_app_rm
+  # Argo CD not installed: the Application kind does not exist.
+  failed_when:
+    - _argocd_app_rm.failed
+    - "'Failed to find exact match' not in (_argocd_app_rm.msg | default(''))"
   when:
     - instance_is_k8s | bool
     - _k8s_api_reachable | default(true)
@@ -25,7 +29,6 @@
     kind: Secret
     name: "canasta-{{ instance_id }}-repo"
     namespace: "{{ argocd_namespace | default('argocd') }}"
-  ignore_errors: true  # OK if Argo CD not installed
   when:
     - instance_is_k8s | bool
     - _k8s_api_reachable | default(true)
@@ -38,7 +41,11 @@
     kind: AppProject
     name: "canasta-{{ instance_id }}"
     namespace: "{{ argocd_namespace | default('argocd') }}"
-  ignore_errors: true  # OK if Argo CD not installed
+  register: _argocd_project_rm
+  # Argo CD not installed: the AppProject kind does not exist.
+  failed_when:
+    - _argocd_project_rm.failed
+    - "'Failed to find exact match' not in (_argocd_project_rm.msg | default(''))"
   when:
     - instance_is_k8s | bool
     - _k8s_api_reachable | default(true)

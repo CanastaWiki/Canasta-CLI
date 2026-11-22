@@ -31,6 +31,10 @@
       ansible.builtin.include_role:
         name: create
   rescue:
+    # Every cleanup step here is best effort: the create has already
+    # failed, the Report failure task at the end re-raises it, and a
+    # cleanup error must not stop the steps after it or replace that error.
+    #
     # podman-compose ignores COMPOSE_PROFILES from .env, so `down -v` needs
     # explicit --profile flags to remove the profiled services' volumes.
     - name: Read COMPOSE_PROFILES from .env for cleanup
@@ -66,7 +70,7 @@
         - not (keep_config | default(false) | bool)
         - not (instance_is_k8s | bool)
       changed_when: true
-      ignore_errors: true  # Best-effort cleanup on failure
+      ignore_errors: true  # noqa: ignore-errors
 
     - name: Clean up on failure (uninstall Helm release)
       ansible.builtin.command:
@@ -76,7 +80,7 @@
         - instance_is_k8s | bool
         - _create_owns_namespace | default(false) | bool
       changed_when: true
-      ignore_errors: true  # Best-effort cleanup on failure
+      ignore_errors: true  # noqa: ignore-errors
 
     - name: Clean up on failure (delete K8s namespace)
       ansible.builtin.command:
@@ -86,7 +90,7 @@
         - instance_is_k8s | bool
         - _create_owns_namespace | default(false) | bool
       changed_when: true
-      ignore_errors: true  # Best-effort cleanup on failure
+      ignore_errors: true  # noqa: ignore-errors
 
     # Rootless Podman maps the container's root to a subuid, so files the
     # containers wrote into the instance directory are owned by that
@@ -123,7 +127,7 @@
         - (_create_podman_rootless.stdout | default('') | trim) == 'true'
         - instance_path | default('') | length > 5
         - instance_path | default('') is match('^/')
-      ignore_errors: true  # Best-effort cleanup on failure
+      ignore_errors: true  # noqa: ignore-errors
 
     # Only remove the directory if this run created it. A pre-existing
     # directory (e.g., the operator was using it as a staging area for
@@ -171,7 +175,7 @@
       vars:
         ansible_connection: local
         ansible_python_interpreter: "{{ ansible_playbook_python }}"
-      ignore_errors: true  # OK if never registered
+      ignore_errors: true  # noqa: ignore-errors
 
     - name: Report failure
       ansible.builtin.fail:

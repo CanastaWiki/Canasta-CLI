@@ -261,4 +261,6 @@ def test_delete_removes_the_argo_repo_secret():
     assert spec["state"] == "absent"
     assert spec["name"] == "canasta-{{ instance_id }}-repo"
     assert spec["namespace"] == "{{ argocd_namespace | default('argocd') }}"
-    assert secrets[0].get("ignore_errors") is True
+    # Deleting an absent Secret is a no-op, so a failure is a real one:
+    # the deploy key must not silently outlive the instance.
+    assert "ignore_errors" not in secrets[0]

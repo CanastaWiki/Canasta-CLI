@@ -43,13 +43,16 @@ exclude_paths:
 #                         --check and idempotency claims meaningless.
 # risky-file-permissions  a file created without an explicit mode inherits
 #                         whatever umask is in play.
-# ignore-errors           deliberately NOT enabled yet: 24 sites, each needing
-#                         a judgment call about which failure is tolerable.
-#                         Tracked in #1417; add it here once they are done.
+# ignore-errors           ignore_errors swallows every failure; name the
+#                         tolerable one with failed_when instead. Passes when
+#                         the result is registered (and so can be checked);
+#                         a deliberate best-effort cleanup carries
+#                         `# noqa: ignore-errors` and a comment saying why.
 enable_list:
   - risky-shell-pipe
   - no-changed-when
   - risky-file-permissions
+  - ignore-errors
 
 skip_list:
   # Paired with mock_modules above: a mock carries no argspec, so this
@@ -65,7 +68,6 @@ skip_list:
   - command-instead-of-shell
   - no-handler
   - name
-  - ignore-errors
   - jinja
   - var-naming
   - yaml

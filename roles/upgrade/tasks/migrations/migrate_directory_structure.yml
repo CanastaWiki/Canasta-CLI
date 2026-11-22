@@ -23,7 +23,6 @@
       loop_control:
         label: "{{ item }}"
       changed_when: true
-      ignore_errors: true  # OK if dir already moved
 
 - name: Migrate stray PHP files to global/
   when: _mig.stray_php | length > 0

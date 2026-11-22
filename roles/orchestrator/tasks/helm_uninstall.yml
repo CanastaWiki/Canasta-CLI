@@ -31,7 +31,6 @@
     - { kind: ConfigMap, name: "canasta-{{ instance_id }}-caddy-config" }
     - { kind: ConfigMap, name: "canasta-{{ instance_id }}-varnish-config" }
     - { kind: ConfigMap, name: "canasta-{{ instance_id }}-db-config" }
-  ignore_errors: true  # OK if resources already deleted
 
 # A namespace already Terminating before this delete asked for it is stuck
 # (typically an earlier delete that timed out), so with --force it is left

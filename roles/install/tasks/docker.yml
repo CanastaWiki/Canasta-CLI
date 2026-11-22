@@ -127,7 +127,9 @@
               ansible.builtin.async_status:
                 jid: "{{ _docker_pkg_job.ansible_job_id }}"
                 mode: cleanup
-              ignore_errors: true
+              # Cleanup in `always`: a leftover job file is harmless, and a
+              # failure here must not replace the install's own result.
+              ignore_errors: true  # noqa: ignore-errors
               ignore_unreachable: true
 
     - name: Install Docker (RHEL/CentOS/Fedora)
@@ -174,7 +176,9 @@
               ansible.builtin.async_status:
                 jid: "{{ _docker_pkg_job.ansible_job_id }}"
                 mode: cleanup
-              ignore_errors: true
+              # Cleanup in `always`: a leftover job file is harmless, and a
+              # failure here must not replace the install's own result.
+              ignore_errors: true  # noqa: ignore-errors
               ignore_unreachable: true
 
     - name: Enable and start Docker
@@ -188,7 +192,19 @@
         name: "{{ _install_user }}"
         groups: docker
         append: true
+      register: _docker_group_add
+      # Not fatal: Docker works through sudo without it, and the user may
+      # not be local (usermod cannot change a directory-service account).
+      # The next task reports it.
       ignore_errors: true
+
+    - name: Warn that the user was not added to the docker group
+      ansible.builtin.debug:
+        msg: >-
+          Warning: could not add '{{ _install_user }}' to the docker group
+          ({{ _docker_group_add.msg | default('unknown error') }}). Run
+          Docker with sudo, or add the user to the group by hand.
+      when: _docker_group_add is failed
 
     - name: Verify Docker is accessible
       ansible.builtin.command:

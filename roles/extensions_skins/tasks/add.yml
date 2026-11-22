@@ -458,8 +458,12 @@
           -m {{ ('Add composer requirements for ' ~ (_to_add | map(attribute='name') | join(', '))) | quote }}
           -- config/composer.local.json
         chdir: "{{ instance_path }}"
-      changed_when: true
-      ignore_errors: true  # nothing to commit if the file content was already committed
+      register: _composer_commit
+      changed_when: _composer_commit.rc == 0
+      # Nothing to commit when the file content was already committed.
+      failed_when:
+        - _composer_commit.rc != 0
+        - _composer_commit.stdout is not search('nothing (added )?to commit|no changes added to commit')
 
 - name: "Revert composer registration when install failed"
   when:

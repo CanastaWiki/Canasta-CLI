@@ -14,7 +14,6 @@
       ansible.builtin.include_role:
         name: orchestrator
         tasks_from: check_running.yml
-      ignore_errors: true  # OK if pods not running
 
     - name: Remove files inside K8s pod
       ansible.builtin.include_tasks:

@@ -669,7 +669,9 @@
         namespace: "{{ _k8s_namespace }}"
         delete_options:
           propagationPolicy: Background
-      ignore_errors: true  # OK if job already cleaned up by TTL
+      # Cleanup in `always`: a failure here must neither fail a finished
+      # backup nor replace the error of a failed one.
+      ignore_errors: true  # noqa: ignore-errors
 
 # The container runtime creates the dumps mountpoint inside the config
 # hostPath, as root, and nothing removes it. rmdir leaves a directory that
