@@ -61,6 +61,7 @@
            ({} if _rc_reads.results[1].content is defined else {
              'elasticsearch.image': ['elasticsearch:7.10.2'],
              'crowdsec.image': ['crowdsecurity/crowdsec:v1.6.11'],
+             'varnish.image': ['varnish:7.0.2-alpine'],
              'elasticsearch.resources.requests.memory': ['512Mi'],
              'elasticsearch.resources.limits.memory': ['1Gi'],
            }),
