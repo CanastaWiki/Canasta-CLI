@@ -200,20 +200,27 @@ def enable(run, instance_id, instance_path, compose_command, devmode=False):
 
 
 def disable(run, instance_id, remove=False):
-    """Disable the unit, and remove it with remove=True. Returns changed."""
+    """Disable the unit, and with remove=True also stop and remove it.
+    Returns changed.
+
+    Stop only with remove: the containers' conmon runs in the unit's cgroup
+    after a boot, and delete runs this once they are gone. A removed unit
+    left active stays loaded until it is stopped.
+    """
     unit = unit_name(instance_id)
     path = os.path.join(units_dir(), unit)
     if not os.path.exists(path):
         return False
-    changed = False
-    if systemctl(run, "is-enabled", "--quiet", unit)[0] == 0:
-        systemctl(run, "disable", unit)
-        changed = True
     if remove:
+        systemctl(run, "disable", "--now", unit)
         os.remove(path)
         systemctl(run, "daemon-reload")
-        changed = True
-    return changed
+        systemctl(run, "reset-failed", unit)
+        return True
+    if systemctl(run, "is-enabled", "--quiet", unit)[0] == 0:
+        systemctl(run, "disable", unit)
+        return True
+    return False
 
 
 def run_module():

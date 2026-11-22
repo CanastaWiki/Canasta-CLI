@@ -153,12 +153,24 @@ def test_stop_disables_but_keeps_the_unit(tmp_path, user_units):
     assert not mod.disable(FakeRunner(), "wiki")
 
 
-def test_delete_removes_the_unit(tmp_path, user_units):
+def test_delete_stops_and_removes_the_unit(tmp_path, user_units):
+    # A unit that ran at boot is active (RemainAfterExit); removing only its
+    # file would leave it loaded as not-found/active.
     mod.enable(FakeRunner(), "wiki", _instance(tmp_path), "podman-compose")
     run = FakeRunner(enabled={"canasta-wiki.service"})
     assert mod.disable(run, "wiki", remove=True)
     assert not (user_units / "canasta-wiki.service").exists()
-    assert run.systemctl()[-1] == ["daemon-reload"]
+    assert run.systemctl() == [["disable", "--now", "canasta-wiki.service"],
+                               ["daemon-reload"],
+                               ["reset-failed", "canasta-wiki.service"]]
+
+
+def test_stop_never_stops_the_unit(tmp_path, user_units):
+    # Stopping it would kill the conmon processes in its cgroup.
+    mod.enable(FakeRunner(), "wiki", _instance(tmp_path), "podman-compose")
+    run = FakeRunner(enabled={"canasta-wiki.service"})
+    mod.disable(run, "wiki")
+    assert not any("--now" in c or c[0] == "stop" for c in run.systemctl())
 
 
 def test_without_a_unit_disable_does_nothing(tmp_path, user_units):
