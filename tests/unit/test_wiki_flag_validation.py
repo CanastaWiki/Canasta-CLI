@@ -45,6 +45,7 @@ def _stub_root(tmp_path):
     es.mkdir(parents=True)
     (es / "_commit_settings.yml").symlink_to(
         os.path.join(ROLES, "extensions_skins", "tasks", "_commit_settings.yml"))
+    (es / "_check_requires.yml").write_text("- ansible.builtin.meta: noop\n")
     return root
 
 

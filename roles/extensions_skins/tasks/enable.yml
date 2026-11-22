@@ -47,6 +47,14 @@
          | reject('equalto', '') | join(', ') }}.
   when: exec_result.stdout | default('') | trim | length > 0
 
+- name: "Refuse {{ _item_type }} whose requirements are not enabled"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/_check_requires.yml"
+  vars:
+    _requires_state: enable
+    _requires_names: "{{ _names.split(',') | map('trim') | list }}"
+    _requires_wiki: "{{ wiki | default('') }}"
+    _requires_wiki_ids: "{{ _enable_wikis.wiki_ids | default([]) }}"
+
 - name: "Enable {{ _item_type }}"
   canasta_settings_yaml:
     instance_path: "{{ instance_path }}"
@@ -76,24 +84,65 @@
     _enable_stage_only: >-
       {{ (instance_is_k8s | bool) and _enable_gitops_marker.stat.exists }}
 
-# update.php has to run with the item loaded.
-- name: "Apply the {{ _item_type }} change to the running instance"
-  ansible.builtin.include_role:
-    name: orchestrator
-    tasks_from: apply_config.yml
-  when:
-    - _settings_change is changed
-    - not (_enable_stage_only | bool)
+# update.php has to run with the item loaded. If either step fails, what
+# this run enabled is disabled again, so the wikis keep loading.
+- name: "Apply the {{ _item_type }} change and update the wikis"
+  when: not (_enable_stage_only | bool)
+  block:
+    - name: "Apply the {{ _item_type }} change to the running instance"
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: apply_config.yml
+      when: _settings_change is changed
 
-# Without --wiki the item is enabled for every wiki, so each one needs
-# its schema updates.
-- name: Run update.php for each affected wiki
-  when:
-    - not (skip_update | default(false) | bool)
-    - not (_enable_stage_only | bool)
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/mediawiki/tasks/run_update_php.yml"
-  vars:
-    update_php_wikis: "{{ [wiki] if (wiki | default('') != '') else [] }}"
+    # Without --wiki the item is enabled for every wiki, so each one needs
+    # its schema updates.
+    - name: Run update.php for each affected wiki
+      when: not (skip_update | default(false) | bool)
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/mediawiki/tasks/run_update_php.yml"
+      vars:
+        update_php_wikis: "{{ [wiki] if (wiki | default('') != '') else [] }}"
+  rescue:
+    - name: "Record why enabling the {{ _item_type }} failed"
+      ansible.builtin.set_fact:
+        _enable_failure: >-
+          {{ ansible_failed_result.msg | default('', true) | string | trim }}
+          {{ ((ansible_failed_result.stderr | default('', true) | string).splitlines()
+          | map('trim') | reject('equalto', '') | list)[-5:] | join(' ') }}
+
+    - name: "Roll back the {{ _item_type }} this run enabled"
+      when: _settings_change.added | default([]) | length > 0
+      block:
+        - name: "Disable the {{ _item_type }} this run enabled"
+          canasta_settings_yaml:
+            instance_path: "{{ instance_path }}"
+            item_type: "{{ _item_type }}"
+            state: disable
+            names: "{{ _settings_change.added }}"
+            wiki: "{{ wiki | default(omit) }}"
+          register: _settings_revert
+
+        - name: "Commit the {{ _item_type }} rollback (gitops)"
+          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/_commit_settings.yml"
+          vars:
+            _settings_action: Disable
+            _commit_settings_change: "{{ _settings_revert }}"
+            _commit_settings_names: "{{ _settings_change.added | join(',') }}"
+
+        - name: "Apply the {{ _item_type }} rollback to the running instance"
+          ansible.builtin.include_role:
+            name: orchestrator
+            tasks_from: apply_config.yml
+
+    - name: "Fail: enabling the {{ _item_type }} failed"
+      ansible.builtin.fail:
+        msg: >-
+          Enabling {{ _names }} failed: {{ _enable_failure | trim }}
+          {% if _settings_change.added | default([]) | length > 0 %}
+          {{ _settings_change.added | join(', ') }}
+          {{ 'was' if (_settings_change.added | length == 1) else 'were' }}
+          disabled again so that the wikis keep loading.
+          {%- endif %}
 
 - name: "Report {{ _item_type }} enabled"
   ansible.builtin.debug:

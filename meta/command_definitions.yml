@@ -1655,6 +1655,12 @@ commands:
       you deploy it with `canasta gitops push`, then `canasta gitops
       sync`. The web pods run `update.php` for the affected wikis when
       the sync restarts them, even with `--skip-update`.
+
+      An extension whose extension.json requires an extension or skin that is not
+      enabled is refused, naming what is missing; enable it first or name
+      it in the same command. If applying the change or `update.php`
+      fails, what the command enabled is disabled again so the wikis keep
+      loading.
     examples:
       - "canasta extension enable VisualEditor,Cite"
     playbook: extension_enable.yml
@@ -1689,6 +1695,10 @@ commands:
       CD deploys it from its gitops repo. Disable saves the change there, and
       you deploy it with `canasta gitops push`, then `canasta gitops
       sync`.
+
+      An extension that another enabled extension or skin requires is
+      refused, naming the ones that require it. This is checked while the
+      instance is running.
     examples:
       - "canasta extension disable VisualEditor"
     playbook: extension_disable.yml
@@ -1723,6 +1733,10 @@ commands:
       tables created by the removed extension are left in place — MediaWiki
       does not reverse schema updates. Run `canasta gitops push` afterwards
       to distribute a gitops removal to other hosts.
+
+      An extension that another enabled extension or skin requires is
+      refused, naming the ones that require it. This is checked while the
+      instance is running.
     examples:
       - "canasta extension remove MyExtension"
       - "canasta extension remove MyExtension,OtherExtension"
@@ -1757,6 +1771,10 @@ commands:
       Names not present under skins/ are reported and skipped. Run
       `canasta gitops push` afterwards to distribute a gitops removal to
       other hosts.
+
+      A skin that another enabled extension or skin requires is
+      refused, naming the ones that require it. This is checked while the
+      instance is running.
     examples:
       - "canasta skin remove Mirage"
       - "canasta skin remove Mirage,Cosmos"
@@ -1872,6 +1890,10 @@ commands:
 
       Requires a Compose (including gitops) instance; Kubernetes is not
       supported.
+
+      Enabling refuses an extension whose extension.json requires an extension or
+      skin that is not enabled, and is rolled back if `update.php` fails;
+      the code stays added.
     examples:
       - "canasta extension add ParserFunctions"
       - "canasta extension add DarkMode --clone"
@@ -1961,6 +1983,12 @@ commands:
       you deploy it with `canasta gitops push`, then `canasta gitops
       sync`. The web pods run `update.php` for the affected wikis when
       the sync restarts them, even with `--skip-update`.
+
+      A skin whose skin.json requires an extension or skin that is not
+      enabled is refused, naming what is missing; enable it first or name
+      it in the same command. If applying the change or `update.php`
+      fails, what the command enabled is disabled again so the wikis keep
+      loading.
     examples:
       - "canasta skin enable Timeless"
     playbook: skin_enable.yml
@@ -1994,6 +2022,10 @@ commands:
       CD deploys it from its gitops repo. Disable saves the change there, and
       you deploy it with `canasta gitops push`, then `canasta gitops
       sync`.
+
+      A skin that another enabled extension or skin requires is
+      refused, naming the ones that require it. This is checked while the
+      instance is running.
     examples:
       - "canasta skin disable Timeless"
     playbook: skin_disable.yml
@@ -2066,6 +2098,10 @@ commands:
 
       Requires a Compose (including gitops) instance; Kubernetes is not
       supported.
+
+      Enabling refuses a skin whose skin.json requires an extension or
+      skin that is not enabled, and is rolled back if `update.php` fails;
+      the code stays added.
     examples:
       - "canasta skin add Timeless"
       - "canasta skin add Mirage --clone"

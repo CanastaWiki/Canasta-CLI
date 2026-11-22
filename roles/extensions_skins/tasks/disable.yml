@@ -24,6 +24,14 @@
     - wiki | default('') != ''
     - wiki not in _disable_wikis.wiki_ids
 
+- name: "Refuse to disable {{ _item_type }} that enabled ones require"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/_check_requires.yml"
+  vars:
+    _requires_state: disable
+    _requires_names: "{{ _names.split(',') | map('trim') | list }}"
+    _requires_wiki: "{{ wiki | default('') }}"
+    _requires_wiki_ids: "{{ _disable_wikis.wiki_ids | default([]) }}"
+
 - name: "Disable {{ _item_type }}"
   canasta_settings_yaml:
     instance_path: "{{ instance_path }}"

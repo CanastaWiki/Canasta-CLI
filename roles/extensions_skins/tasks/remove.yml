@@ -98,6 +98,15 @@
     label: "{{ item if item else 'global' }}"
   register: _remove_settings
 
+- name: "Refuse to remove {{ _item_type }} that enabled ones require"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/_check_requires.yml"
+  vars:
+    _requires_state: disable
+    _requires_names: "{{ _remove_present | difference(_remove_overrides) }}"
+    _requires_everywhere: true
+    _requires_wiki_ids: "{{ _remove_wikis.wiki_ids | default([]) }}"
+  when: _remove_present | difference(_remove_overrides) | length > 0
+
 - name: "Disable removed {{ _item_type }} wherever they are enabled"
   canasta_settings_yaml:
     instance_path: "{{ instance_path }}"

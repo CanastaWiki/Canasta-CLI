@@ -47,7 +47,8 @@ def test_enable_and_disable_commit_the_change(name, state, action):
 
 def test_commit_only_on_gitops_and_only_when_the_file_changed():
     assert _commit_block()["when"] == [
-        "_commit_settings_git.stat.exists", "_settings_change is changed"]
+        "_commit_settings_git.stat.exists",
+        "(_commit_settings_change | default(_settings_change)) is changed"]
 
 
 @pytest.mark.parametrize("wiki, path", [
