@@ -161,8 +161,12 @@
           -m {{ ('Switch ' ~ _item_type ~ ' ' ~ item.name ~ ' to ' ~ item.branch) | quote }}
           -- {{ (_item_dir ~ '/' ~ item.name) | quote }}
         chdir: "{{ instance_path }}"
-      changed_when: true
-      ignore_errors: true  # nothing to commit if the gitlink was already current
+      register: _realign_commit
+      changed_when: _realign_commit.rc == 0
+      # Nothing to commit when the gitlink was already current.
+      failed_when:
+        - _realign_commit.rc != 0
+        - _realign_commit.stdout is not search('nothing (added )?to commit|no changes added to commit')
     - name: "Notify {{ _item_type }} re-aligned"
       ansible.builtin.debug:
         msg: >-
@@ -286,9 +290,12 @@
       -m {{ ('Add ' ~ _item_type ~ ' ' ~ item.name) | quote }}
       -- .gitmodules {{ (_item_dir ~ '/' ~ item.name) | quote }}
     chdir: "{{ instance_path }}"
-  changed_when: true
   register: _add_commit
-  ignore_errors: true  # nothing to commit if the submodule add was a no-op
+  changed_when: _add_commit.rc == 0
+  # Nothing to commit when the submodule add was a no-op.
+  failed_when:
+    - _add_commit.rc != 0
+    - _add_commit.stdout is not search('nothing (added )?to commit|no changes added to commit')
 
 - name: "Report {{ _item_type }} added"
   when: not _add_existing.stat.exists

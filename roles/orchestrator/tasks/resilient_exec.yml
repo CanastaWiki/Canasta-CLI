@@ -128,6 +128,8 @@
       ansible.builtin.async_status:
         jid: "{{ _rx_job.ansible_job_id }}"
         mode: cleanup
-      ignore_errors: true
+      # Cleanup in `always`: a leftover job file is harmless, and a failure
+      # here must not replace the command's own result.
+      ignore_errors: true  # noqa: ignore-errors
       ignore_unreachable: true
       no_log: "{{ rx_no_log | default(false) | bool }}"

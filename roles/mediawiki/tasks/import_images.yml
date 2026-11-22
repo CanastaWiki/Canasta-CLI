@@ -91,7 +91,9 @@
       ansible.builtin.file:
         path: "{{ _import_images_host_tmp.path }}"
         state: absent
-      ignore_errors: true
+      # Cleanup in `always`: an absent file is not a failure, and a real
+      # one must not fail a finished import or replace a failed one's error.
+      ignore_errors: true  # noqa: ignore-errors
       when: not _import_images_local
 
     - name: Clean up images tarball in the web container

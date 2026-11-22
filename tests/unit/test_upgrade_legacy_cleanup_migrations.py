@@ -100,7 +100,8 @@ class TestCronJobMigration:
         assert spec["name"] == "canasta-backup-{{ instance_id }}"
         assert spec["namespace"] == "canasta-{{ instance_id }}"
         assert task["when"] == "instance_is_k8s | bool"
-        assert task["ignore_errors"] is True
+        # An absent CronJob is not a failure, so any failure is real.
+        assert "ignore_errors" not in task
 
 
 class TestWiring:

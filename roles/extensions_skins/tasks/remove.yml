@@ -375,7 +375,6 @@
       -- {{ _remove_staged_paths.stdout_lines | map('quote') | join(' ') }}
     chdir: "{{ instance_path }}"
   changed_when: true
-  ignore_errors: true  # nothing to commit if the removal was a no-op
 
 - name: Ensure containers are running (the monitor unlinks removed items)
   ansible.builtin.include_role:

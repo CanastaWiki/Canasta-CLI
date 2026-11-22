@@ -307,7 +307,12 @@
   ansible.builtin.cron:
     name: "canasta-backup-{{ instance_id }}"
     state: absent
-  ignore_errors: true  # OK if no crontab entry exists
+  register: _delete_cron
+  # A host without crontab has no schedule to remove; an absent entry is
+  # already not a failure.
+  failed_when:
+    - _delete_cron.failed
+    - "'required executable' not in (_delete_cron.msg | default(''))"
 
 # Deregister only after teardown, so a failed teardown leaves the
 # registry entry that lets delete be re-run.

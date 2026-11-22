@@ -323,14 +323,18 @@
     copy_dest: "{{ instance_path }}/config/settings/wikis/{{ wiki }}"
 
 # Full restore round-trips the source host's .env; single-wiki leaves it alone.
+# The `test -f` guard skips a snapshot without one; any other failure stops
+# the restore rather than leaving the target's .env in place unannounced.
 - name: Copy restored .env to host
   when: wiki is not defined
   ansible.builtin.shell:
     cmd: >-
+      if kubectl exec -n {{ _k8s_namespace }} restic-restore --
+      test -f /currentsnapshot/.env; then
       kubectl cp {{ _k8s_namespace }}/restic-restore:/currentsnapshot/.env
-      "{{ instance_path }}/.env"
+      "{{ instance_path }}/.env";
+      fi
   changed_when: true
-  ignore_errors: true
 
 # Restore the declarative user dirs (extensions, skins, public_assets) to the
 # host instance dir, mirroring the Compose restore. They are NOT written to
