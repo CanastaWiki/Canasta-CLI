@@ -29,12 +29,12 @@ def _step(job, name):
     raise AssertionError("no step %r in %s" % (name, job))
 
 
-def _matrix_for(event, tmp_path):
+def _matrix_for(event, tmp_path, full_matrix=""):
     script = _step("integration-podman-matrix", "Set podman test matrix")["run"]
-    script = script.replace("${{ github.event_name }}", event)
-    out = tmp_path / ("output-%s" % event)
+    out = tmp_path / ("output-%s-%s" % (event, full_matrix))
     subprocess.run(["bash", "-e", "-c", script], check=True,
-                   env={"GITHUB_OUTPUT": str(out), "PATH": os.environ["PATH"]})
+                   env={"GITHUB_OUTPUT": str(out), "PATH": os.environ["PATH"],
+                        "EVENT": event, "FULL_MATRIX": full_matrix})
     line = out.read_text().strip()
     assert line.startswith("matrix=")
     return json.loads(line[len("matrix="):])
@@ -60,3 +60,21 @@ def test_every_leg_has_a_test_list(tmp_path):
     handled = set(re.findall(r'^\s*"([^"]+)"\)', run, re.MULTILINE))
     for event in ("push", "workflow_dispatch", "schedule"):
         assert _legs(_matrix_for(event, tmp_path)) <= handled, event
+
+
+def _leg_count(matrix):
+    return (len(matrix["podman_version"])
+            * len(matrix["podman_compose_version"])
+            * len(matrix["leg"])
+            + len(matrix.get("include", [])))
+
+
+@pytest.mark.parametrize("event, full_matrix, legs", [
+    ("push", "", 3),
+    ("workflow_dispatch", "false", 3),
+    ("workflow_dispatch", "true", 12),
+    ("schedule", "", 13),
+])
+def test_a_manual_run_tests_every_version_only_when_asked(
+        event, full_matrix, legs, tmp_path):
+    assert _leg_count(_matrix_for(event, tmp_path, full_matrix)) == legs

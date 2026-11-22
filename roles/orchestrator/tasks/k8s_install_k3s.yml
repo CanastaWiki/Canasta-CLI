@@ -185,7 +185,7 @@
     rx_async: 300
     rx_cmd: >-
       curl -fsSL --retry 3 --retry-delay 5
-      https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+      https://raw.githubusercontent.com/helm/helm/{{ canasta_helm_version | urlencode }}/scripts/get-helm-3
       | DESIRED_VERSION={{ canasta_helm_version | quote }} bash
   when: _helm_installed.rc != 0
 

@@ -102,6 +102,8 @@ def cmd_backup_list(args):
     qpath = _helpers._shell_quote(path)
     runtime = _helpers._resolve_inspect_cmd(inst)
 
+    restic_image = _helpers._load_vars("tool_versions.yml")["restic_image"]
+
     def restic(restic_args):
         return (
             "%(mkdir)s"
@@ -110,7 +112,7 @@ def cmd_backup_list(args):
             "--env-file <(%(decode)s) "
             "-v %(vol)s:/currentsnapshot "
             "%(local_mount)s "
-            "docker.io/restic/restic "
+            "%(image)s "
             "--cache-dir /tmp/restic-cache "
             "%(args)s"
         ) % {"vol": _helpers._shell_quote(bvol),
@@ -118,6 +120,7 @@ def cmd_backup_list(args):
                  qpath + "/.env"),
              "local_mount": local_mount, "rt": runtime,
              "mkdir": mkdir_repo,
+             "image": restic_image,
              "args": restic_args}
 
     rc, stdout, stderr = _run(host, restic("snapshots"))

@@ -768,6 +768,27 @@ class TestRestoreAndGitopsCrontabMediation:
         assert_no_env_key(argv, "CANASTA_HOST_CRONTAB")
 
 
+class TestDeleteCrontabMediation:
+    """delete removes the instance's backup schedule, so a local run needs
+    the host crontab handed over; a remote one edits that host's crontab."""
+
+    def test_host_crontab_passed_for_local_delete(self):
+        config_dir = tempfile.mkdtemp(prefix="cd-", dir="/tmp")
+        _run_dry_tmpdirs.append(config_dir)
+        argv, _ = run_dry(["delete", "-i", "x", "--yes"],
+                          env={"CANASTA_CONFIG_DIR": config_dir})
+        assert_env_var(argv, "CANASTA_HOST_CRONTAB", config_dir + "/.host-crontab")
+
+    def test_host_crontab_not_passed_for_remote_delete(self):
+        argv, _ = run_dry(["--host", "prod1", "delete", "-i", "x", "--yes"])
+        assert_no_env_key(argv, "CANASTA_HOST_CRONTAB")
+
+    def test_host_crontab_not_passed_for_delete_as_an_argument(self):
+        # Only the command word counts, not an argument spelled 'delete'.
+        argv, _ = run_dry(["backup", "create", "-i", "delete"])
+        assert_no_env_key(argv, "CANASTA_HOST_CRONTAB")
+
+
 class TestInstallDockerMode:
     """`canasta install` under the docker wrapper.
 

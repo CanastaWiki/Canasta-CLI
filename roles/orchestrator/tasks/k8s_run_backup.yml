@@ -473,7 +473,7 @@
             initContainers: "{{ _backup_init_containers }}"
             containers:
               - name: restic
-                image: docker.io/restic/restic:latest
+                image: "{{ restic_image }}"
                 command:
                   - sh
                   - -c
