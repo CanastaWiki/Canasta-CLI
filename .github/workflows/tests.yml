@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 jobs:
-  # The unit suite runs in three shards on separate runners, each with one
+  # The unit suite runs in four shards on separate runners, each with one
   # pytest-xdist worker per CPU. Most of its time goes to tests that run real
   # task files through ansible-playbook; those are independent processes, but
   # four workers already saturate one runner's CPUs. pytest-split balances the
@@ -23,12 +23,12 @@ jobs:
   # apart: run the suite serially with
   #   pytest tests/unit --store-durations --durations-path tests/.test_durations
   unit-shard:
-    name: "Unit Tests (shard ${{ matrix.group }}/3)"
+    name: "Unit Tests (shard ${{ matrix.group }}/4)"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        group: [1, 2, 3]
+        group: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v6
 
@@ -50,7 +50,7 @@ jobs:
       - name: Run unit tests with coverage
         run: |
           .venv/bin/pytest tests/unit/ -v -rs -n auto \
-            --splits 3 --group ${{ matrix.group }} \
+            --splits 4 --group ${{ matrix.group }} \
             --durations-path tests/.test_durations \
             --cov=roles/common/library \
             --cov=roles/common/module_utils \
