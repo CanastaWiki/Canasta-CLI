@@ -4951,7 +4951,7 @@
   "tests/unit/test_kubernetes_structure.py::TestK8sWebAppSecrets::test_secrets_web_is_gitignored": 0.001,
   "tests/unit/test_kubernetes_structure.py::TestK8sWebAppSecrets::test_sync_reads_secrets_web_into_appsecretenv": 0.001,
   "tests/unit/test_kubernetes_structure.py::TestK8sWebAppSecrets::test_web_exposes_appsecretenv": 0.001,
-  "tests/unit/test_kubernetes_structure.py::TestK8sWebAppSecrets::test_web_flag_records_keys_and_requires_secret": 0.001,
+  "tests/unit/test_kubernetes_structure.py::TestK8sWebAppSecrets::test_web_flag_records_keys": 0.001,
   "tests/unit/test_kubernetes_structure.py::TestK8sWorkerJoinDualStackIP::test_dualstack_returns_only_ipv4": 0.024,
   "tests/unit/test_kubernetes_structure.py::TestK8sWorkerJoinDualStackIP::test_ipv4_only_unchanged": 0.024,
   "tests/unit/test_kubernetes_structure.py::TestK8sWorkerJoinDualStackIP::test_selected_ip_has_no_whitespace": 0.024,

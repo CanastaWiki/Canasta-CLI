@@ -1,0 +1,75 @@
+---
+# config set --web without --secret: check that each key is an app key the
+# web container does not already receive, so it can be listed in
+# config/env-keys-web and passed as a plain setting.
+# Input: _config_settings, instance_path.
+
+- name: Name the web keys being set
+  ansible.builtin.set_fact:
+    _web_env_names: "{{ _config_settings | map('regex_replace', '=.*$', '') | list }}"
+
+- name: Reject web keys that are not environment variable names
+  ansible.builtin.fail:
+    msg: >-
+      Cannot set with --web: {{ _web_bad_names | join(', ') }}. A key must
+      start with a letter or underscore and contain only letters, digits,
+      and underscores.
+  vars:
+    _web_bad_names: "{{ _web_env_names | reject('match', '^[A-Za-z_][A-Za-z0-9_]*$') | list }}"
+  when: _web_bad_names | length > 0
+
+# Recognized keys have their own consumers and already reach the containers
+# that need them.
+- name: Reject recognized keys passed with --web
+  ansible.builtin.fail:
+    msg: >-
+      Cannot set with --web: {{ _web_known | join(', ') }}. These are
+      recognized configuration keys, which already reach the containers that
+      read them. Set them without --web.
+  vars:
+    _web_known: >-
+      {{ _web_env_names | select('in', canasta_known_keys | map(attribute='name') | list) | list
+         | union(_web_env_names | select('match', '^(' ~ canasta_secret_prefixes | join('|') ~ ')') | list) }}
+  when: _web_known | length > 0
+
+# A plain web key is stored in clear in env.template and the Kubernetes env
+# ConfigMap, which the gitops repo carries.
+- name: Reject secret-looking keys passed with --web alone
+  ansible.builtin.fail:
+    msg: >-
+      Cannot set with --web alone: {{ _web_secret_like | join(', ') }}
+      {{ 'is' if _web_secret_like | length == 1 else 'are' }} named like a
+      credential, which Canasta treats as a secret. Pass --secret --web to
+      store {{ 'it' if _web_secret_like | length == 1 else 'them' }}
+      encrypted.
+  vars:
+    _web_secret_like: "{{ _web_env_names | select('match', canasta_secret_key_regex) | list }}"
+  when: _web_secret_like | length > 0
+
+- name: Read the keys set with --secret on Compose
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/secret-keys"
+  register: _web_secret_keys_raw
+  failed_when: false
+  no_log: true  # names only, but registered under a secret-looking name
+
+- name: Read the keys set with --secret on Kubernetes
+  canasta_env:
+    path: "{{ instance_path }}/config/secrets.env"
+    state: read_all
+  register: _web_secrets_env
+  no_log: true  # config/secrets.env holds the values
+
+- name: Reject keys already set with --secret
+  ansible.builtin.fail:
+    msg: >-
+      Cannot set with --web alone: {{ _web_already_secret | join(', ') }}
+      {{ 'was' if _web_already_secret | length == 1 else 'were' }} set with
+      --secret. Remove {{ 'it' if _web_already_secret | length == 1 else 'them' }}
+      first with 'canasta config unset --secret {{ _web_already_secret | join(' ') }}'.
+  vars:
+    _web_secret_names: >-
+      {{ (_web_secret_keys_raw.content | default('') | b64decode).split()
+         + (_web_secrets_env.variables | default({}) | list) }}
+    _web_already_secret: "{{ _web_env_names | select('in', _web_secret_names) | list }}"
+  when: _web_already_secret | length > 0

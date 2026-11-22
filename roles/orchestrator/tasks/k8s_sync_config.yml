@@ -26,7 +26,8 @@
     # This is an allowlist by design, not a gap: Compose likewise passes
     # only a curated `environment:` block, so an arbitrary app-defined
     # key (e.g. `config set --force MY_APP_KEY=...`) is NOT exported to
-    # the web container's getenv() on either orchestrator. NON-SECRET .env
+    # the web container's getenv() on either orchestrator unless it is
+    # set with `config set --web` (config/env-keys-web, added below). NON-SECRET .env
     # keys still reach the web tier via the ConfigMap mounted at
     # /mediawiki/config/.env (read by a settings fragment under
     # config/settings/global/ or .../wikis/<id>/, synced to both
@@ -141,6 +142,23 @@
                | list))
       }}
 
+# config/env-keys-web lists the plain app keys set with `config set --web`,
+# which reach the web pods alongside the allowlist. A secret-classified name
+# is left out: this ConfigMap is committed on gitops.
+- name: Read the plain web keys
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/env-keys-web"
+  register: _sync_web_env_keys_raw
+  failed_when: false
+
+- name: List the plain web keys
+  ansible.builtin.set_fact:
+    _sync_web_env_keys: >-
+      {{ ((_sync_web_env_keys_raw.content | b64decode).splitlines()
+          | map('trim') | select() | reject('match', '^#')
+          | reject('match', canasta_secret_key_regex) | list)
+         if _sync_web_env_keys_raw.content is defined else [] }}
+
 # Extract the allowlisted keys from .env into a plain dict. Keys not
 # present in .env are skipped entirely — the pod then gets whatever
 # default the image has built in, matching Compose behavior for
@@ -149,7 +167,7 @@
   ansible.builtin.set_fact:
     _env_config_data: >-
       {{ _sync_env_dict.variables | default({}) | dict2items
-         | selectattr('key', 'in', _k8s_pod_env_allowlist)
+         | selectattr('key', 'in', _k8s_pod_env_allowlist + _sync_web_env_keys)
          | items2dict }}
 
 # --- Caddy config ---

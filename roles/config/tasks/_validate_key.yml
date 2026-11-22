@@ -67,6 +67,8 @@
       CADDY_TLS_KEY: TLS_KEY
   when: _config_key in _renamed
 
+# A key set with --web (config/env-keys-web) is an app key, accepted
+# without --force like the recognized ones.
 - name: Check if key is recognized
   ansible.builtin.fail:
     msg: >-
@@ -76,5 +78,7 @@
       (Also accepted: keys starting with {{ canasta_secret_prefixes | join(', ') }})
   when:
     - not (force | default(false) | bool)
+    - not (web | default(false) | bool)
+    - _config_key not in (_config_web_env_keys | default([]))
     - _config_key not in (canasta_known_keys | map(attribute='name') | list)
     - not (_config_key | regex_search('^(' + canasta_secret_prefixes | join('|') + ')'))

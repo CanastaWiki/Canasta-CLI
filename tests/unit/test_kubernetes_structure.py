@@ -1595,9 +1595,9 @@ class TestK8sWebAppSecrets:
     def test_secrets_web_is_gitignored(self):
         assert "config/secrets-web" in self._read(self.GITIGNORE)
 
-    def test_web_flag_records_keys_and_requires_secret(self):
+    def test_web_flag_records_keys(self):
         sec = self._read(self.SET_SECRET)
         assert "config/secrets-web" in sec
         assert "web | default(false) | bool" in sec
-        # --web without --secret must fail fast.
-        assert "Require --secret with --web" in self._read(self.SET)
+        # --web without --secret is a plain setting, checked up front.
+        assert "_check_web_env.yml" in self._read(self.SET)

@@ -74,9 +74,8 @@
          | map('first') | list }}
   when: _config_multiline_at | length > 0
 
-- name: Require --secret with --web
-  ansible.builtin.fail:
-    msg: "--web only applies to secret values; pass it together with --secret."
+- name: Check the plain settings passed with --web
+  ansible.builtin.include_tasks: _check_web_env.yml
   when:
     - web | default(false) | bool
     - not (secret | default(false) | bool)

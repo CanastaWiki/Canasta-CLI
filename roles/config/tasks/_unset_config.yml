@@ -25,9 +25,21 @@
          | rejectattr('key', 'in', keys.split()) | items2dict
          | php_fpm_pool_error(canasta_known_keys) }}
 
+- name: Read the plain web keys
+  ansible.builtin.include_tasks: _read_web_env_keys.yml
+
 - name: Validate, unapply, and remove each key
   ansible.builtin.include_tasks: _unset_single.yml
   loop: "{{ keys.split() }}"
+  loop_control:
+    loop_var: _config_key
+
+- name: Stop passing the keys to the web container
+  ansible.builtin.lineinfile:
+    path: "{{ instance_path }}/config/env-keys-web"
+    line: "{{ _config_key }}"
+    state: absent
+  loop: "{{ keys.split() | select('in', _config_web_env_keys) | list }}"
   loop_control:
     loop_var: _config_key
 
@@ -45,6 +57,16 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/config_remove_gitops_vars.yml
   when: _config_gitops_stat.stat.exists | default(false)
+
+- name: Stage the plain web key list
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/_stage_tracked_paths.yml
+  vars:
+    _stage_paths:
+      - config/env-keys-web
+  when:
+    - _config_gitops_stat.stat.exists | default(false)
+    - keys.split() | select('in', _config_web_env_keys) | list | length > 0
 
 - name: Regenerate Caddyfile after config change
   ansible.builtin.include_role:
