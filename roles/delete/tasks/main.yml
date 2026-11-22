@@ -302,12 +302,20 @@
   # itself dispatches Compose vs K8s.
   when: _k8s_api_reachable | default(true)
 
-# Only after teardown, so a failed delete keeps its backup schedule.
+# Only after teardown, so a failed delete keeps its backup schedule. A local
+# containerized run edits the host crontab file the wrapper mounted; native
+# and remote runs edit the live crontab on the instance's host.
+- name: Select crontab target for the backup schedule
+  ansible.builtin.set_fact:
+    _host_crontab_file: "{{ lookup('env', 'CANASTA_HOST_CRONTAB') }}"
+    _sched_use_file: >-
+      {{ (lookup('env', 'CANASTA_HOST_CRONTAB') != '')
+         and (target_host is not defined)
+         and (_instance_host | default('localhost') == 'localhost') }}
+
 - name: Remove backup schedule
-  ansible.builtin.cron:
-    name: "canasta-backup-{{ instance_id }}"
-    state: absent
-  ignore_errors: true  # OK if no crontab entry exists
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_sweep.yml
 
 # Deregister only after teardown, so a failed teardown leaves the
 # registry entry that lets delete be re-run.

@@ -1,0 +1,45 @@
+---
+# Remove every backup-schedule crontab entry for an instance, whatever wrote
+# it: the cron module (#Ansible: marker), blockinfile (# BEGIN/END marker),
+# an older Canasta version, the other CLI flavor or another install path.
+# Matches the ' backup create -i <id> ' job line (the fragment 'schedule
+# list' matches, trailing space so 'foo' != 'foo2') and any
+# canasta-backup-<id> marker comment.
+#
+# Reused by: backup_schedule_apply (before writing the new entry) and delete.
+# Input: instance_id, _sched_use_file (edit the wrapper-mounted file instead
+#        of the live crontab), _host_crontab_file
+
+# Rewrite only when an entry matched: an untouched crontab stays
+# byte-identical, so the wrapper has nothing to install afterward. A crontab
+# left with no lines is written empty, not as one blank line. A host
+# without crontab has no entries to remove.
+- name: Remove any prior backup schedule entries for this instance (live crontab)
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: >-
+      set -o pipefail;
+      re='( backup create -i {{ instance_id }} | canasta-backup-{{ instance_id }}( |$))';
+      command -v crontab >/dev/null || exit 0;
+      cur="$(crontab -l 2>/dev/null || true)";
+      grep -qE "$re" <<<"$cur" || exit 0;
+      kept="$(grep -vE "$re" <<<"$cur" || true)";
+      { [ -z "$kept" ] || printf '%s\n' "$kept"; } | crontab - && echo swept
+  register: _sched_sweep_live
+  when: not _sched_use_file
+  changed_when: "'swept' in _sched_sweep_live.stdout"
+
+- name: Remove any prior backup schedule entries for this instance (host crontab file)
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: >-
+      set -o pipefail;
+      re='( backup create -i {{ instance_id }} | canasta-backup-{{ instance_id }}( |$))';
+      f={{ _host_crontab_file | quote }};
+      [ -f "$f" ] || exit 0;
+      grep -qE "$re" "$f" || exit 0;
+      kept="$(grep -vE "$re" "$f" || true)";
+      { [ -z "$kept" ] || printf '%s\n' "$kept"; } > "$f" && echo swept
+  register: _sched_sweep_file
+  when: _sched_use_file
+  changed_when: "'swept' in _sched_sweep_file.stdout"
