@@ -434,7 +434,7 @@ jobs:
             "extensions & config")   tests=(extension-skin config-side-effects) ;;
             "farms")                 tests=(wiki-farm) ;;
             "backup")                tests=(backup) ;;
-            "backup-advanced & ops") tests=(backup-advanced sitemap maintenance) ;;
+            "backup-advanced & ops") tests=(backup-advanced sitemap maintenance schedule) ;;
             "backup dockerfiles")    tests=(backup-custom-dockerfile backup-missing-dockerfile) ;;
             "backup data")           tests=(backup-extra-database backup-restore-safety) ;;
             "reconcile & config")    tests=(reconcile config-refresh-template crowdsec) ;;

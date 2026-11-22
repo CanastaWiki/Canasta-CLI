@@ -1,0 +1,75 @@
+---
+# canasta schedule add
+# Input: id, schedule_name, cron, schedule_command, service (optional), gitops_hosts (optional)
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Read this host's gitops identity
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/_read_gitops_host.yml"
+  vars:
+    gitops_host_read_host_vars: false
+    gitops_host_read_shared_vars: false
+
+- name: Split the gitops hosts
+  ansible.builtin.set_fact:
+    _schedule_hosts: >-
+      {{ (gitops_hosts | default('')).split(',') | map('trim')
+         | reject('equalto', '') | list }}
+
+- name: Refuse gitops hosts on an instance without gitops
+  ansible.builtin.fail:
+    msg: >-
+      --gitops-hosts limits a schedule to named gitops hosts, but instance
+      '{{ instance_id }}' is not managed by gitops.
+  when:
+    - _schedule_hosts | length > 0
+    - not _gitops_host.is_gitops
+
+- name: Read the gitops host list
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/hosts/hosts.yaml"
+  register: _schedule_hosts_yaml
+  when: _schedule_hosts | length > 0
+
+- name: Refuse unknown gitops hosts
+  ansible.builtin.fail:
+    msg: >-
+      Unknown gitops host(s): {{ _schedule_unknown | join(', ') }}. Known
+      hosts: {{ _schedule_known | join(', ') }}.
+  vars:
+    _schedule_known: >-
+      {{ ((_schedule_hosts_yaml.content | b64decode | from_yaml).hosts
+          | default([])) | map(attribute='name') | list }}
+    _schedule_unknown: "{{ _schedule_hosts | difference(_schedule_known) }}"
+  when:
+    - _schedule_hosts | length > 0
+    - _schedule_unknown | length > 0
+
+- name: Add the schedule to config/schedules.yml
+  canasta_schedules:
+    action: add
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+    name: "{{ schedule_name }}"
+    cron: "{{ cron }}"
+    service: "{{ service | default('web', true) }}"
+    command: "{{ schedule_command }}"
+    hosts: "{{ _schedule_hosts if _schedule_hosts else omit }}"
+  register: _schedule_add
+
+- name: Stage the schedules for gitops
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/stage_schedules.yml"
+
+- name: Install the schedule in the crontab
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/schedule/tasks/sync.yml"
+
+- name: Report schedule added
+  ansible.builtin.debug:
+    msg: >-
+      {{ "Schedule '" ~ schedule_name ~ "' added: " ~ cron ~ " (output: "
+         ~ instance_path ~ "/schedule-" ~ schedule_name ~ ".log)."
+         if _schedule_add.active else
+         "Schedule '" ~ schedule_name ~ "' added. It runs only on gitops host(s) "
+         ~ _schedule_hosts | join(', ')
+         ~ ", so it was not installed on this host." }}

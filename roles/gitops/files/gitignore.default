@@ -31,6 +31,10 @@ mysql8_dump.sql
 # Backup run log
 backup.log
 
+# Maintenance schedule logs and last-run state
+schedule-*.log
+.schedule-state/
+
 # Uploaded files (use canasta backup)
 /images/
 

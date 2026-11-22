@@ -1,0 +1,103 @@
+---
+# canasta schedule run: run one schedule's command now. The crontab entries
+# call this, so it is also how every scheduled firing runs.
+#
+# The command runs in the service's container without a TTY (as www-data in
+# the web container, the image's user elsewhere) and this exits
+# with its status. A firing that finds the previous run of the same
+# schedule still going is skipped. The last run is recorded in
+# .schedule-state/<name>.yml, which `schedule list` reports.
+#
+# Input: id, schedule_name
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Read the schedules
+  canasta_schedules:
+    action: read
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+  register: _schedule_read
+
+- name: Require the schedule
+  ansible.builtin.fail:
+    msg: >-
+      No schedule named '{{ schedule_name }}' for instance '{{ instance_id }}'.
+      See 'canasta schedule list'.
+  when: schedule_name not in _schedule_read.schedules
+
+- name: Select the schedule
+  ansible.builtin.set_fact:
+    _schedule: "{{ _schedule_read.schedules[schedule_name] }}"
+    _schedule_state_dir: "{{ instance_path }}/.schedule-state"
+    _schedule_started: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+
+- name: Create the schedule state directory
+  ansible.builtin.file:
+    path: "{{ _schedule_state_dir }}"
+    state: directory
+    mode: "0755"
+
+# flock is util-linux; without it (macOS) overlapping runs are not blocked.
+- name: Check for flock
+  ansible.builtin.shell: command -v flock
+  register: _schedule_flock
+  changed_when: false
+  failed_when: false
+
+- name: Run the schedule
+  block:
+    - name: Run the scheduled command
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: "{{ _schedule.service | default('web') }}"
+        exec_command: "{{ _schedule.command }}"
+        # As maintenance scripts do, so files the command creates stay
+        # changeable by the web server.
+        exec_user: "{{ 'www-data' if (_schedule.service | default('web')) == 'web' else '' }}"
+        exec_lock: >-
+          {{ (_schedule_state_dir ~ '/' ~ schedule_name ~ '.lock')
+             if _schedule_flock.rc == 0 else '' }}
+
+    - name: Show the command's output
+      ansible.builtin.debug:
+        msg: "{{ exec_result.stdout }}"
+      when: exec_result.stdout | default('') | length > 0
+
+    - name: Record the result
+      ansible.builtin.set_fact:
+        _schedule_result: ok
+        _schedule_rc: 0
+  rescue:
+    - name: Record the result
+      ansible.builtin.set_fact:
+        _schedule_result: >-
+          {{ 'skipped' if (exec_result.rc | default(-1)) == 75
+             and _schedule_flock.rc == 0 else 'failed' }}
+        _schedule_rc: "{{ exec_result.rc | default(-1) }}"
+  always:
+    # A skipped firing leaves the running one's record alone.
+    - name: Write the schedule state
+      ansible.builtin.copy:
+        dest: "{{ _schedule_state_dir }}/{{ schedule_name }}.yml"
+        content: >-
+          {{ {'started': _schedule_started,
+              'finished': now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ'),
+              'result': _schedule_result | default('failed'),
+              'rc': _schedule_rc | default(-1) | int} | to_nice_yaml }}
+        mode: "0644"
+      when: (_schedule_result | default('failed')) != 'skipped'
+
+- name: Report a skipped run
+  ansible.builtin.debug:
+    msg: >-
+      Skipped schedule '{{ schedule_name }}': its previous run is still in progress.
+  when: _schedule_result == 'skipped'
+
+- name: Fail on a failed run
+  ansible.builtin.fail:
+    msg: >-
+      Schedule '{{ schedule_name }}' failed with exit status {{ _schedule_rc }}.
+      {{ exec_result.stderr | default('') | trim }}
+  when: _schedule_result == 'failed'

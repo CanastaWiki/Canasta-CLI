@@ -1,0 +1,45 @@
+---
+# Work out how this run reaches the crontab of the host the instance runs
+# on (Compose: the instance's host; K8s: the control-plane node, to which
+# resolve_instance switched the connection), and which canasta command a
+# job there runs. The same three layouts as backup_schedule_apply.yml:
+#  - local native: the live crontab, and the path the wrapper recorded in
+#    canasta_cli_bin;
+#  - local containerized (canasta-docker): the host crontab file the
+#    wrapper mounted (CANASTA_HOST_CRONTAB) and installs afterward;
+#  - remote: the live crontab there, and canasta as resolved there.
+#
+# Input: instance_id, instance_path
+# Output: _schedule_crontab_file ('' for the live crontab),
+#   _schedule_canasta_bin ('' when canasta is missing on a remote host),
+#   _schedule_cron_env
+
+- name: Classify the schedule target
+  ansible.builtin.set_fact:
+    _schedule_is_local: >-
+      {{ (target_host is not defined)
+         and (_instance_host | default('localhost') == 'localhost') }}
+
+- name: Resolve canasta on the target host
+  ansible.builtin.shell: command -v canasta
+  register: _schedule_remote_canasta
+  changed_when: false
+  failed_when: false
+  when: not (_schedule_is_local | bool)
+
+# cron's environment carries neither CANASTA_CONFIG_DIR nor XDG_CONFIG_HOME,
+# so a local job names the registry this run used; a remote job uses the
+# registry on its own host.
+- name: Select the crontab and the canasta command for cron
+  ansible.builtin.set_fact:
+    _schedule_crontab_file: >-
+      {{ lookup('env', 'CANASTA_HOST_CRONTAB')
+         if (_schedule_is_local | bool) else '' }}
+    _schedule_canasta_bin: >-
+      {{ (canasta_cli_bin | default('canasta'))
+         if (_schedule_is_local | bool)
+         else (_schedule_remote_canasta.stdout | default('') | trim) }}
+    _schedule_cron_env: >-
+      {{ ('CANASTA_CONFIG_DIR=' ~ (lookup('env', 'CANASTA_CONFIG_DIR') | quote) ~ ' ')
+         if (_schedule_is_local | bool) and lookup('env', 'CANASTA_CONFIG_DIR') != ''
+         else '' }}

@@ -132,7 +132,7 @@ CMD_GROUPS = [
     ]),
     ("Extensions & skins", ["extension", "skin"]),
     ("App sidecars", ["sidecar"]),
-    ("Maintenance", ["maintenance", "sitemap"]),
+    ("Maintenance", ["maintenance", "schedule", "sitemap"]),
     ("Security", ["crowdsec"]),
     ("Data protection", ["backup", "gitops"]),
     ("Development", ["devmode"]),

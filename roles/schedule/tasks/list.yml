@@ -1,0 +1,21 @@
+---
+# canasta schedule list
+# Input: id
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Locate the schedule crontab
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/schedule/tasks/_crontab_target.yml"
+
+- name: Read the schedules
+  canasta_schedules:
+    action: status
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+    crontab_file: "{{ _schedule_crontab_file }}"
+  register: _schedule_status
+
+- name: Display schedules
+  ansible.builtin.debug:
+    msg: "{{ _schedule_status.table }}"

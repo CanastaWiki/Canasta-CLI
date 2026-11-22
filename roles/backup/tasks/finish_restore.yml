@@ -34,6 +34,11 @@
     {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_rematerialize.yml
   when: _finish_restore_due | bool
 
+- name: Re-install the maintenance schedules from restored state
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/schedule/tasks/sync.yml
+  when: _finish_restore_due | bool
+
 - name: Clear the restore marker
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/backup/tasks/_restore_marker.yml

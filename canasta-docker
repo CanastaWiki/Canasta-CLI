@@ -788,10 +788,12 @@ fi
 # The backup schedule lives in the host crontab, which a throwaway
 # container can't write. For local commands that touch it, dump the host
 # crontab to a host-mounted file the container edits, then install it back
-# after the run (see the dispatch at the end). Three such commands:
+# after the run (see the dispatch at the end). These commands:
 #   - backup schedule set|list|remove  (manage the schedule directly)
+#   - schedule add|list|remove         (manage maintenance schedules)
 #   - backup restore                   (re-materializes from restored state)
 #   - gitops pull                      (re-materializes if the schedule changed)
+#   - delete                           (removes the maintenance schedules)
 # Remote (-H) instances leave this file untouched and run through the
 # container/ansible unchanged (the crontab lives on the remote host).
 SCHEDULE_CRONTAB_FILE=""
@@ -803,6 +805,10 @@ for _arg in "$@"; do
     if [[ "$_sched_pprev" == "backup" && "$_sched_prev" == "schedule" ]]; then
         case "$_arg" in set|list|remove) _sched_hit=true ;; esac
     fi
+    if [[ "$_sched_prev" == "schedule" && "$_sched_pprev" != "backup" ]]; then
+        case "$_arg" in add|list|remove) _sched_hit=true ;; esac
+    fi
+    [[ -z "$_sched_prev" && "$_arg" == "delete" ]] && _sched_hit=true
     [[ "$_sched_prev" == "backup" && "$_arg" == "restore" ]] && _sched_hit=true
     [[ "$_sched_prev" == "gitops" && "$_arg" == "pull" ]] && _sched_hit=true
     if [[ "$_sched_hit" == "true" ]]; then

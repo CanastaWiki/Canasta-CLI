@@ -3344,6 +3344,83 @@ def test_maintenance(inst):
     )
 
 
+def _instance_crontab_lines(inst):
+    """This user's crontab lines that schedule the test instance."""
+    result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+    fragment = " schedule run -i %s --name " % inst.id
+    return [ln for ln in result.stdout.splitlines() if fragment in ln]
+
+
+def test_schedule(inst):
+    """schedule add -> run -> one cron firing -> list -> remove -> delete."""
+    if shutil.which("crontab") is None:
+        raise SkipTest("crontab not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+
+    marker = "/tmp/canasta-schedule-%s" % inst.id
+    print("Adding a schedule that fires every minute...")
+    inst.run_ok(
+        "schedule", "add", "-i", inst.id, "--name", "tick",
+        "--cron", "* * * * *", "--command", "echo tick >> %s" % marker,
+    )
+    inst.run_ok(
+        "schedule", "add", "-i", inst.id, "--name", "check",
+        "--cron", "0 0 1 1 *", "--command", "test -s %s" % marker,
+    )
+    inst.run_ok(
+        "schedule", "add", "-i", inst.id, "--name", "broken",
+        "--cron", "0 0 1 1 *", "--command", "exit 4",
+    )
+    _, rc = inst.run("schedule", "add", "-i", inst.id, "--name", "tick",
+                     "--cron", "* * * * *", "--command", "true")
+    assert rc != 0, "adding an existing schedule name should be refused"
+    lines = _instance_crontab_lines(inst)
+    assert len(lines) == 3, "expected 3 crontab entries:\n%s" % lines
+
+    print("Running the schedules by hand...")
+    inst.run_ok("schedule", "run", "-i", inst.id, "--name", "tick")
+    inst.run_ok("schedule", "run", "-i", inst.id, "--name", "check")
+    _, rc = inst.run("schedule", "run", "-i", inst.id, "--name", "broken")
+    assert rc != 0, "a failing command should fail schedule run"
+    output = inst.run_quiet("schedule", "list", "-i", inst.id)
+    assert "exit 4" in output and "ok" in output, output
+
+    state = os.path.join(inst.instance_path(), ".schedule-state", "tick.yml")
+    with open(state) as f:
+        by_hand = f.read()
+    if subprocess.run(["pgrep", "-x", "cron"],
+                      capture_output=True).returncode == 0:
+        print("Waiting for cron to fire the schedule...")
+        deadline = time.time() + 150
+        fired = by_hand
+        while time.time() < deadline and fired == by_hand:
+            time.sleep(5)
+            with open(state) as f:
+                fired = f.read()
+        log = os.path.join(inst.instance_path(), "schedule-tick.log")
+        log_text = open(log).read() if os.path.exists(log) else "(no log)"
+        assert fired != by_hand, "cron never ran the schedule:\n" + log_text
+        assert "result: ok" in fired, fired + "\n" + log_text
+    else:
+        print("No cron daemon running; skipping the cron firing check.")
+
+    print("Removing a schedule...")
+    inst.run_ok("schedule", "remove", "-i", inst.id, "--name", "broken")
+    assert len(_instance_crontab_lines(inst)) == 2
+
+    print("Deleting the instance clears its schedules...")
+    inst.run_ok("delete", "-i", inst.id, "--yes")
+    assert _instance_crontab_lines(inst) == [], (
+        "delete left crontab entries behind")
+
+
 def test_config_set_gitops(inst):
     """Verify config set propagates changes to gitops vars.yaml."""
     if shutil.which("git-crypt") is None:
@@ -5941,6 +6018,7 @@ ALL_TESTS = {
     "host-management": test_host_management,
     "sitemap": test_sitemap,
     "maintenance": test_maintenance,
+    "schedule": test_schedule,
     "config-set-gitops": test_config_set_gitops,
     "config-set-gitops-domain": test_config_set_gitops_domain,
     "config-set-gitops-port": test_config_set_gitops_port,

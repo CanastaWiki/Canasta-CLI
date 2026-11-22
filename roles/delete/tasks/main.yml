@@ -309,6 +309,19 @@
     state: absent
   ignore_errors: true  # OK if no crontab entry exists
 
+- name: Remove maintenance schedules
+  canasta_schedules:
+    action: clear
+    instance_id: "{{ instance_id }}"
+    crontab_file: >-
+      {{ lookup('env', 'CANASTA_HOST_CRONTAB')
+         if (target_host is not defined)
+            and (_instance_host | default('localhost') == 'localhost')
+         else '' }}
+  register: _delete_schedules
+  # A crontab that cannot be edited must not fail a finished teardown.
+  failed_when: false
+
 # Deregister only after teardown, so a failed teardown leaves the
 # registry entry that lets delete be re-run.
 - name: Save connection state before controller deregistration

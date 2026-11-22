@@ -1,0 +1,19 @@
+---
+# Make this instance's crontab block match config/schedules.yml: one entry
+# per schedule active on this host, none for the rest. Run after add and
+# remove, and after a restore or gitops pull brought the file in.
+#
+# Input: instance_id, instance_path
+
+- name: Locate the schedule crontab
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/schedule/tasks/_crontab_target.yml"
+
+- name: Write the schedule crontab entries
+  canasta_schedules:
+    action: sync
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+    canasta_bin: "{{ _schedule_canasta_bin }}"
+    cron_env: "{{ _schedule_cron_env }}"
+    crontab_file: "{{ _schedule_crontab_file }}"
+  register: _schedule_sync

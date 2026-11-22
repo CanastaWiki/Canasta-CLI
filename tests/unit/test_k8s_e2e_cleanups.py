@@ -216,7 +216,9 @@ class TestPullPushHint:
                         "dest": "{{ instance_path }}/hosts/h1/rendered-values.yaml"}})
             elif t.get("name") in ("Update submodules",
                                    "Explain and roll back a failed pull",
-                                   "Refuse a CLI older than another host's"):
+                                   "Refuse a CLI older than another host's",
+                                   # Would edit this machine's crontab.
+                                   "Re-install the maintenance schedules"):
                 continue
             else:
                 out.append(t)

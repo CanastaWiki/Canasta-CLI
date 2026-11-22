@@ -1,0 +1,30 @@
+---
+# canasta schedule remove
+# Input: id, schedule_name
+
+- name: Resolve instance
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
+
+- name: Refuse to remove the backup schedule here
+  ansible.builtin.fail:
+    msg: "The backup schedule is managed with 'canasta backup schedule remove'."
+  when: schedule_name == 'backup'
+
+- name: Remove the schedule from config/schedules.yml
+  canasta_schedules:
+    action: remove
+    instance_id: "{{ instance_id }}"
+    instance_path: "{{ instance_path }}"
+    name: "{{ schedule_name }}"
+
+- name: Stage the schedules for gitops
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/gitops/tasks/stage_schedules.yml"
+
+- name: Remove the schedule from the crontab
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/schedule/tasks/sync.yml"
+
+- name: Report schedule removed
+  ansible.builtin.debug:
+    msg: >-
+      Schedule '{{ schedule_name }}' removed. A run already in progress finishes;
+      its log stays at {{ instance_path }}/schedule-{{ schedule_name }}.log.
