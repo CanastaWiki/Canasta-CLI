@@ -6,8 +6,14 @@ name: Integration Tests
 on:
   push:
     branches: [main]
-  # Manual trigger for re-running the full suite.
+  # Manual trigger for re-running the full suite. Kubernetes support is
+  # deprecated, so its jobs run only when a manual run asks for them.
   workflow_dispatch:
+    inputs:
+      kubernetes:
+        description: "Also run the Kubernetes jobs"
+        type: boolean
+        default: false
   # Weekly full version sweep so push-to-main can run a single
   # representative leg while the matrix is still exercised regularly.
   schedule:
@@ -398,11 +404,16 @@ jobs:
     timeout-minutes: 25
     strategy:
       fail-fast: false
-      max-parallel: 3
+      # GitOps and Features have the most legs, so they get the most
+      # runners, but the run as a whole stays under the account's 20
+      # concurrent jobs (test_integration_workflow_concurrency.py checks
+      # the total). Legs are listed longest first, so the short ones fill
+      # in at the end.
+      max-parallel: 5
       matrix:
-        leg: ["extensions & config", "farms", "backup", "backup-advanced & ops",
-              "backup dockerfiles", "backup data", "reconcile & config",
-              "skin add", "extra databases"]
+        leg: ["backup data", "backup-advanced & ops", "extensions & config",
+              "backup dockerfiles", "reconcile & config", "backup",
+              "crowdsec", "extra databases", "farms", "skin add"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -437,7 +448,8 @@ jobs:
             "backup-advanced & ops") tests=(backup-advanced sitemap maintenance) ;;
             "backup dockerfiles")    tests=(backup-custom-dockerfile backup-missing-dockerfile) ;;
             "backup data")           tests=(backup-extra-database backup-restore-safety) ;;
-            "reconcile & config")    tests=(reconcile config-refresh-template crowdsec) ;;
+            "reconcile & config")    tests=(reconcile config-refresh-template) ;;
+            "crowdsec")              tests=(crowdsec) ;;
             "skin add")              tests=(skin-lifecycle) ;;
             "extra databases")       tests=(add-extra-database) ;;
             *) echo "unknown feature leg: $LEG" >&2; exit 1 ;;
@@ -452,12 +464,13 @@ jobs:
     timeout-minutes: 25
     strategy:
       fail-fast: false
-      max-parallel: 3
+      # See the note on integration-features.
+      max-parallel: 6
       matrix:
-        leg: ["init & join", "pull & config", "push", "add", "submodules",
-              "pull & status", "config domain & port",
-              "upgrade hosts & wikis", "upgrade my.cnf & gitignore",
-              "sidecars", "extension lifecycle"]
+        leg: ["init & join", "upgrade my.cnf & gitignore", "sidecars",
+              "pull & status", "add", "config domain & port",
+              "extension lifecycle", "upgrade hosts & wikis", "push",
+              "pull & config", "submodules"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -506,12 +519,16 @@ jobs:
           sg www-data -c ".venv/bin/python tests/integration/run_tests.py --no-skip $tests"
         timeout-minutes: 18
 
+  # The Kubernetes jobs run only on a manual run with the "kubernetes" input
+  # set: Kubernetes support is deprecated, and these eight jobs took runners
+  # from the rest of the suite on every push to main.
+  #
   # The Kubernetes jobs run on ubuntu-24.04: on 26.04 the AppArmor profile
   # k3s's containerd applies blocks signals inside containers, so MariaDB and
   # the web container never start.
   integration-k8s:
     name: "Integration: Kubernetes"
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.kubernetes
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -566,7 +583,7 @@ jobs:
   # than serializing behind k8s-lifecycle on a shared 2-CPU runner.
   integration-k8s-crowdsec:
     name: "Integration: Kubernetes CrowdSec"
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.kubernetes
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -613,7 +630,7 @@ jobs:
   # which would overrun the k8s-crowdsec leg's budget.
   integration-k8s-crowdsec-rolling:
     name: "Integration: Kubernetes CrowdSec rolling update"
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.kubernetes
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -660,7 +677,7 @@ jobs:
   # the other k8s jobs rather than serializing behind them.
   integration-k8s-backup:
     name: "Integration: Kubernetes Backup"
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.kubernetes
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -709,7 +726,7 @@ jobs:
   # self-hosted forge.
   integration-k8s-gitops:
     name: "Integration: Kubernetes GitOps"
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.kubernetes
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -755,7 +772,7 @@ jobs:
   # that rolls one of them need the node to themselves.
   integration-k8s-multi-instance:
     name: "Integration: Kubernetes Multi-Instance"
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.kubernetes
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -800,7 +817,7 @@ jobs:
   # Separate job (own runner) for the farm, extension and scale paths.
   integration-k8s-farm:
     name: "Integration: Kubernetes Farm"
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.kubernetes
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -846,7 +863,7 @@ jobs:
   # nothing may follow it on this node.
   integration-k8s-uninstall:
     name: "Integration: Kubernetes Uninstall"
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.kubernetes
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -895,6 +912,12 @@ jobs:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # The single-host and multi-host tests take about 8 and 12 minutes, so
+    # they run on separate runners.
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [single, multi]
     steps:
       - uses: actions/checkout@v6
 
@@ -920,5 +943,5 @@ jobs:
           done
 
       - name: Run remote integration tests
-        run: tests/integration/remote/run_tests.sh
+        run: tests/integration/remote/run_tests.sh ${{ matrix.part }}
         timeout-minutes: 40
