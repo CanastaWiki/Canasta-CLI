@@ -42,6 +42,8 @@ REQUIRES = {
     "skins": {
         "Vector": {"name": "Vector", "extensions": [], "skins": []},
         "Chameleon": {"name": "Chameleon", "extensions": [], "skins": []},
+        "Child": {"name": "Child", "extensions": ["PageForms"],
+                  "skins": ["Vector"]},
     },
 }
 
@@ -96,24 +98,17 @@ class TestEnable:
         _, failed, _ = _check(inst, "enable", ["VEForAll"], wiki="main")
         assert not failed
 
-    def test_allows_a_requirement_loaded_by_a_php_settings_file(self, inst):
+    def test_only_the_managed_settings_yaml_counts(self, inst):
         d = _settings(inst, wiki="main")
         (d / "Settings.php").write_text(
-            "<?php\nwfLoadExtensions( [ 'PageForms', \"VisualEditor\" ] );\n")
-        _, failed, _ = _check(inst, "enable", ["VEForAll"], wiki="main")
-        assert not failed
-
-    def test_a_commented_out_load_does_not_count(self, inst):
-        (inst / "config" / "LocalSettings.php").write_text(
-            "<?php\n# wfLoadExtension( 'VisualEditor' );\n"
-            "/* wfLoadExtension( 'VisualEditor' ); */\n")
-        _, failed, _ = _check(inst, "enable", ["VEForAll"])
-        assert failed
-
-    def test_allows_a_requirement_in_another_yaml_file(self, inst):
+            "<?php\nwfLoadExtension( 'VisualEditor' );\n")
         _settings(inst, extensions=["VisualEditor"], name="custom.yaml")
-        _, failed, _ = _check(inst, "enable", ["VEForAll"])
-        assert not failed
+        (inst / "config" / "LocalSettings.php").write_text(
+            "<?php\nwfLoadExtension( 'VisualEditor' );\n")
+        _, failed, msg = _check(inst, "enable", ["VEForAll"], wiki="main")
+        assert failed
+        assert ("Only the extensions and skins enabled with 'canasta "
+                "extension enable' or 'canasta skin enable' count.") in msg
 
     def test_a_requirement_enabled_on_another_wiki_does_not_count(self, inst):
         _settings(inst, wiki="docs", extensions=["VisualEditor"])
@@ -145,6 +140,30 @@ class TestEnable:
         _settings(inst, extensions=["VEForAll"])
         _, failed, _ = _check(inst, "enable", ["PageForms"])
         assert not failed
+
+
+class TestSkins:
+    def test_enabling_a_skin_checks_its_requirements(self, inst):
+        _, failed, msg = _check(inst, "enable", ["Child"], item_type="skins")
+        assert failed
+        assert "Child requires the extension PageForms" in msg
+        assert "Child requires the skin Vector" in msg
+
+    def test_a_skin_whose_requirements_are_enabled(self, inst):
+        _settings(inst, extensions=["PageForms"], skins=["Vector"])
+        _, failed, _ = _check(inst, "enable", ["Child"], item_type="skins")
+        assert not failed
+
+    def test_disabling_an_extension_a_skin_requires(self, inst):
+        _settings(inst, extensions=["PageForms"], skins=["Child", "Vector"])
+        _, failed, msg = _check(inst, "disable", ["PageForms"])
+        assert failed
+        assert "Child requires the extension PageForms and stays enabled." in msg
+
+    def test_disabling_a_skin_another_skin_requires(self, inst):
+        _settings(inst, extensions=["PageForms"], skins=["Child", "Vector"])
+        _, failed, _ = _check(inst, "disable", ["Vector"], item_type="skins")
+        assert failed
 
 
 class TestDisable:
@@ -195,16 +214,6 @@ class TestDisable:
     def test_allows_an_unrelated_disable(self, inst):
         _settings(inst, extensions=["VEForAll", "VisualEditor", "PageForms"])
         _, failed, _ = _check(inst, "disable", ["PageForms"])
-        assert not failed
-
-
-class TestLegacySettingsDirectory:
-    def test_global_legacy_dir_is_read_when_the_new_one_is_absent(self, inst):
-        legacy = inst / "config" / "settings"
-        legacy.mkdir()
-        (legacy / "settings.yaml").write_text(
-            yaml.safe_dump({"extensions": ["VisualEditor"]}))
-        _, failed, _ = _check(inst, "enable", ["VEForAll"])
         assert not failed
 
 
@@ -330,10 +339,11 @@ class TestEnableRollback:
                          "COMMIT Disable VEForAll True", "APPLY"]
         # Cite was enabled before this run and stays.
         assert settings == {"extensions": ["Cite"]}
-        assert "Enabling Cite,VEForAll failed" in proc.stdout
-        assert "ExtensionDependencyError" in proc.stdout
+        out = proc.stdout + proc.stderr
+        assert "Enabling Cite,VEForAll failed" in out
+        assert "ExtensionDependencyError" in out
         assert "VEForAll was disabled again so that the wikis keep loading." \
-            in proc.stdout
+            in out
 
     def test_a_successful_update_keeps_it_enabled(self, tmp_path):
         proc, lines, settings = _run_enable(tmp_path, update_fails=False)

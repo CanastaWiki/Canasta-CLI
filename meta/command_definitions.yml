@@ -1658,7 +1658,9 @@ commands:
 
       An extension whose extension.json requires an extension or skin that is not
       enabled is refused, naming what is missing; enable it first or name
-      it in the same command. If applying the change or `update.php`
+      it in the same command. Only what `canasta extension enable` and
+      `canasta skin enable` enabled counts, not what other settings files
+      load. If applying the change or `update.php`
       fails, what the command enabled is disabled again so the wikis keep
       loading.
     examples:
@@ -1696,9 +1698,10 @@ commands:
       you deploy it with `canasta gitops push`, then `canasta gitops
       sync`.
 
-      An extension that another enabled extension or skin requires is
-      refused, naming the ones that require it. This is checked while the
-      instance is running.
+      An extension that another extension or skin enabled with `canasta
+      extension enable` or `canasta skin enable` requires is refused,
+      naming the ones that require it. This is checked while the instance
+      is running.
     examples:
       - "canasta extension disable VisualEditor"
     playbook: extension_disable.yml
@@ -1734,9 +1737,10 @@ commands:
       does not reverse schema updates. Run `canasta gitops push` afterwards
       to distribute a gitops removal to other hosts.
 
-      An extension that another enabled extension or skin requires is
-      refused, naming the ones that require it. This is checked while the
-      instance is running.
+      An extension that another extension or skin enabled with `canasta
+      extension enable` or `canasta skin enable` requires is refused,
+      naming the ones that require it. This is checked while the instance
+      is running.
     examples:
       - "canasta extension remove MyExtension"
       - "canasta extension remove MyExtension,OtherExtension"
@@ -1772,9 +1776,10 @@ commands:
       `canasta gitops push` afterwards to distribute a gitops removal to
       other hosts.
 
-      A skin that another enabled extension or skin requires is
-      refused, naming the ones that require it. This is checked while the
-      instance is running.
+      A skin that another extension or skin enabled with `canasta
+      extension enable` or `canasta skin enable` requires is refused,
+      naming the ones that require it. This is checked while the instance
+      is running.
     examples:
       - "canasta skin remove Mirage"
       - "canasta skin remove Mirage,Cosmos"
@@ -1986,7 +1991,9 @@ commands:
 
       A skin whose skin.json requires an extension or skin that is not
       enabled is refused, naming what is missing; enable it first or name
-      it in the same command. If applying the change or `update.php`
+      it in the same command. Only what `canasta extension enable` and
+      `canasta skin enable` enabled counts, not what other settings files
+      load. If applying the change or `update.php`
       fails, what the command enabled is disabled again so the wikis keep
       loading.
     examples:
@@ -2023,9 +2030,10 @@ commands:
       you deploy it with `canasta gitops push`, then `canasta gitops
       sync`.
 
-      A skin that another enabled extension or skin requires is
-      refused, naming the ones that require it. This is checked while the
-      instance is running.
+      A skin that another extension or skin enabled with `canasta
+      extension enable` or `canasta skin enable` requires is refused,
+      naming the ones that require it. This is checked while the instance
+      is running.
     examples:
       - "canasta skin disable Timeless"
     playbook: skin_disable.yml
