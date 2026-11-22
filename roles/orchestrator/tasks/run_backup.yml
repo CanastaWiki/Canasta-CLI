@@ -213,7 +213,7 @@
               {% if _backup_local_repo %}
                 -v {{ _backup_local_repo }}:{{ _backup_local_repo }} \
               {% endif %}
-                docker.io/restic/restic \
+                {{ restic_image }} \
                 --cache-dir /tmp/restic-cache \
                 {{ backup_args | map('quote') | join(' ') }} {{ _backup_tee }}
             chdir: "{{ instance_path }}"

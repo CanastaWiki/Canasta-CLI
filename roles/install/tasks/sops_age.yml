@@ -51,10 +51,19 @@
         checksum: "sha256:{{ sops_sha256[_tool_arch] }}"
       when: _sops_installed.rc != 0
 
+    # unarchive cannot verify a checksum, so the tarball is fetched first.
+    - name: Download the age tarball
+      ansible.builtin.get_url:
+        url: >-
+          https://github.com/FiloSottile/age/releases/download/{{ age_version }}/age-{{ age_version }}-linux-{{ _tool_arch }}.tar.gz
+        dest: "/tmp/age-{{ age_version }}-linux-{{ _tool_arch }}.tar.gz"
+        mode: "0644"
+        checksum: "sha256:{{ age_sha256[_tool_arch] }}"
+      when: _age_installed.rc != 0
+
     - name: Install age + age-keygen
       ansible.builtin.unarchive:
-        src: >-
-          https://github.com/FiloSottile/age/releases/download/{{ age_version }}/age-{{ age_version }}-linux-{{ _tool_arch }}.tar.gz
+        src: "/tmp/age-{{ age_version }}-linux-{{ _tool_arch }}.tar.gz"
         dest: /usr/local/bin
         remote_src: true
         include:
@@ -64,6 +73,11 @@
           - "--strip-components=1"
         mode: "0755"
       when: _age_installed.rc != 0
+
+    - name: Remove the age tarball
+      ansible.builtin.file:
+        path: "/tmp/age-{{ age_version }}-linux-{{ _tool_arch }}.tar.gz"
+        state: absent
 
     - name: Report the SOPS toolchain installed
       ansible.builtin.debug:
