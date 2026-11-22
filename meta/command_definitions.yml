@@ -1474,6 +1474,7 @@ commands:
       `canasta gitops sync`.
     examples:
       - "canasta config set MW_SITE_SERVER=https://example.com"
+      - "canasta config set --web MW_MAP_DOMAIN_TO_DOCKER_GATEWAY=false"
       - "canasta config set --secret --web MAPS_API_KEY=abc123"
     playbook: config_set.yml
     parameters:
@@ -1513,12 +1514,20 @@ commands:
         type: bool
         default: false
         description: >-
-          With --secret, also pass the key(s) to MediaWiki, which reads them
-          with getenv() in Settings.php. On Compose the key is listed in
-          config/secret-keys-web and added to the web container's
-          environment (which also runs the job runner) through the generated
-          docker-compose.web-env.yml. On Kubernetes it is listed in
-          config/secrets-web and exposed to the web pods via secretKeyRef.
+          Pass the key(s) to the web container's environment (which also
+          runs the job runner), for a setting the web image or Settings.php
+          reads with getenv() that Canasta does not pass on its own.
+          Without --secret the value is a plain setting: it is stored in
+          .env (and env.template on a gitops instance), shown by 'config
+          get', and the key is listed in config/env-keys-web; on Compose it
+          reaches the container through the generated
+          docker-compose.web-env.yml, on Kubernetes through the web pods'
+          env ConfigMap. Unrecognized keys are accepted without --force;
+          recognized keys and keys named like credentials are refused.
+          With --secret, on Compose the key is listed in
+          config/secret-keys-web and passed the same way; on Kubernetes it
+          is listed in config/secrets-web and exposed to the web pods via
+          secretKeyRef.
 
   - name: config_refresh_template
     description: "List, diff, or adopt template versions of seeded config files"
@@ -1573,7 +1582,9 @@ commands:
       performed.
 
       If a key has side effects (e.g., `HTTPS_PORT`), they are
-      reverted before the key is removed. The instance is then
+      reverted before the key is removed. A key set with `config set --web`
+      is also removed from `config/env-keys-web`, so it is no longer passed
+      to the web container. The instance is then
       restarted unless `--no-restart` is specified.
 
       A Kubernetes instance managed through gitops is not restarted: Argo

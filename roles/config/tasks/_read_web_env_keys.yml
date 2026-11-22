@@ -1,0 +1,17 @@
+---
+# Read config/env-keys-web: the plain keys `config set --web` passes to the
+# web container. They are app keys, so they are accepted without --force.
+# Input: instance_path.  Output: _config_web_env_keys (list).
+
+- name: Read config/env-keys-web
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/config/env-keys-web"
+  register: _web_env_keys_raw
+  failed_when: false
+
+- name: List the plain web keys
+  ansible.builtin.set_fact:
+    _config_web_env_keys: >-
+      {{ ((_web_env_keys_raw.content | b64decode).splitlines()
+          | map('trim') | select() | reject('match', '^#') | list)
+         if _web_env_keys_raw.content is defined else [] }}

@@ -1,7 +1,8 @@
 ---
 # Set .env config values (validation + side effects). Split out of set.yml so
 # `--secret` can take a separate, side-effect-free path (_set_secret.yml).
-# Input: _config_settings, instance_path, force.
+# Input: _config_settings, instance_path, force, web (list the keys in
+#        config/env-keys-web for the web container).
 
 # Checked against the whole pool before any key is written: the keys
 # constrain each other, and a pool PHP-FPM rejects takes the wiki down.
@@ -31,12 +32,29 @@
       {{ _set_pool_env.variables | combine(_set_new_values)
          | php_fpm_pool_error(canasta_known_keys) }}
 
+- name: Read the plain web keys
+  ansible.builtin.include_tasks: _read_web_env_keys.yml
+
 - name: Validate, apply side effects, and set each key
   ansible.builtin.include_tasks: _set_single.yml
   loop: "{{ _config_settings }}"
   loop_control:
     loop_var: _setting
     label: "{{ _setting.split('=', 1)[0] }}"
+
+- name: Record the plain web keys
+  ansible.builtin.lineinfile:
+    path: "{{ instance_path }}/config/env-keys-web"
+    line: "{{ _setting.split('=', 1)[0] }}"
+    create: true
+    mode: "0644"
+  loop: "{{ _config_settings }}"
+  loop_control:
+    loop_var: _setting
+    label: "{{ _setting.split('=', 1)[0] }}"
+  when:
+    - web | default(false) | bool
+    - not (secret | default(false) | bool)
 
 # Surface a pre-existing CRLF .env while the user is here. The CRs are
 # stripped on read (so `config get` looks fine) but reach containers via
@@ -71,6 +89,16 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/config_update_gitops_vars.yml
   when: _config_gitops_stat.stat.exists | default(false)
+
+- name: Stage the plain web key list
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/_stage_tracked_paths.yml
+  vars:
+    _stage_paths:
+      - config/env-keys-web
+  when:
+    - _config_gitops_stat.stat.exists | default(false)
+    - web | default(false) | bool
 
 - name: Regenerate Caddyfile after config change
   ansible.builtin.include_role:
