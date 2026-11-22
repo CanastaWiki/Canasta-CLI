@@ -104,6 +104,8 @@ def _run(setup, *, fail_start, images_updated):
                ANSIBLE_COLLECTIONS_PATH=str(collections),
                ANSIBLE_ROLES_PATH=str(root / "roles"),
                ANSIBLE_FILTER_PLUGINS=os.path.join(REPO_ROOT, "filter_plugins"),
+               ANSIBLE_LIBRARY=os.path.join(REPO_ROOT, "roles", "common", "library"),
+               ANSIBLE_MODULE_UTILS=os.path.join(REPO_ROOT, "roles", "common", "module_utils"),
                ANSIBLE_LOCAL_TEMP=str(play.parent / "ansible-tmp"),
                MARKS=str(marks),
                FAIL_START="1" if fail_start else "0",

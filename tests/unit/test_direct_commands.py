@@ -1703,6 +1703,16 @@ class TestLifecycleCommands:
         assert direct_commands.cmd_start(args) is direct_commands.FALLBACK
         assert direct_commands.cmd_stop(args) is direct_commands.FALLBACK
 
+    def test_podman_stop_falls_back(self, monkeypatch):
+        # Ansible disables the instance's boot unit, so a stopped instance
+        # stays stopped across a reboot.
+        monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
+            lambda args: ("pm", {"path": "/srv/pm", "orchestrator": "compose",
+                                 "host": "remote.example.com",
+                                 "inspectCommand": "podman"}))
+        args = type("Args", (), {"id": "pm"})()
+        assert direct_commands.cmd_stop(args) is direct_commands.FALLBACK
+
     def test_stop_runs_down(self, monkeypatch):
         captured_cmds = []
 

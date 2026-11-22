@@ -217,6 +217,12 @@
       changed_when: true
       ignore_errors: true  # OK if volume doesn't exist
 
+    - name: Remove the instance's boot unit
+      canasta_boot_unit:
+        state: absent
+        instance_id: "{{ instance_id }}"
+        inspect_command: "{{ inspect_command | default('docker') }}"
+
     - name: Take the instance out of the edge
       ansible.builtin.include_tasks: edge_sync.yml
       vars:
