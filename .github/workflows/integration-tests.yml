@@ -6,15 +6,29 @@ name: Integration Tests
 on:
   push:
     branches: [main]
-  # Manual trigger for re-running the full suite.
+  # Manual trigger for re-running the full suite. Kubernetes support is
+  # deprecated, so its jobs run only on the weekly schedule and when a
+  # manual run asks for them.
   workflow_dispatch:
+    inputs:
+      kubernetes:
+        description: "Also run the Kubernetes jobs"
+        type: boolean
+        default: false
+      podman_full_matrix:
+        description: "Test every Podman version, not just the one a push tests"
+        type: boolean
+        default: false
   # Weekly full version sweep so push-to-main can run a single
-  # representative leg while the matrix is still exercised regularly.
+  # representative leg while the matrix is still exercised regularly. It
+  # also runs the Kubernetes jobs, and k8s-report files an issue when they
+  # fail.
   schedule:
     - cron: "0 0 * * 0"
 
-# All jobs in this workflow only read the checkout to run tests; none push
-# images, write back to the repo, or post comments.
+# The jobs in this workflow only read the checkout to run tests; none push
+# images or write back to the repo. k8s-report alone gets issues: write, to
+# file the weekly Kubernetes failures.
 permissions:
   contents: read
 
@@ -88,7 +102,9 @@ jobs:
   #
   # A matrix tests three podman versions (4.9.5, 5.3.2, 5.8.4) and two
   # podman-compose versions (1.3.0, 1.6.0), each split into the same three
-  # test legs. The weekly schedule adds a backup leg on the newest pair. The
+  # test legs. The weekly schedule adds a backup leg on the newest pair. A
+  # push to main tests only 5.3.2 with 1.3.0, and so does a manual run unless
+  # its podman_full_matrix input is set. The
   # full podman binary with its runtime helpers (crun, conmon, netavark,
   # fuse-overlayfs) is downloaded as a self-contained static bundle from
   # mgoltzsche/podman-static.
@@ -104,17 +120,21 @@ jobs:
     steps:
       - name: Set podman test matrix
         id: set-matrix
+        env:
+          EVENT: ${{ github.event_name }}
+          FULL_MATRIX: ${{ inputs.podman_full_matrix }}
         run: |
           legs='"leg":["lifecycle & upgrade","rebuild-buildable","rebuild & socket"]'
-          if [ "${{ github.event_name }}" = "push" ]; then
-            # On push-to-main run one representative version to keep the
-            # long pole short; the full sweep runs on schedule and
-            # workflow_dispatch.
+          if [ "$EVENT" = "push" ] ||
+             { [ "$EVENT" = "workflow_dispatch" ] && [ "$FULL_MATRIX" != "true" ]; }; then
+            # On push-to-main, and on a manual run unless it asks for the
+            # full sweep, run one representative version to keep the long
+            # pole short; the full sweep runs on schedule and on request.
             matrix='{"podman_version":["5.3.2"],"podman_compose_version":["1.3.0"],'"$legs"'}'
           else
             compose16='{"podman_version":"5.8.4","podman_compose_version":"1.6.0","leg":'
             include="[${compose16}\"lifecycle & upgrade\"},${compose16}\"rebuild-buildable\"},${compose16}\"rebuild & socket\"}]"
-            if [ "${{ github.event_name }}" = "schedule" ]; then
+            if [ "$EVENT" = "schedule" ]; then
               include="${include%]},${compose16}\"backup\"}]"
             fi
             matrix='{"podman_version":["4.9.5","5.3.2","5.8.4"],"podman_compose_version":["1.3.0"],'"$legs"',"include":'"$include"'}'
@@ -398,11 +418,16 @@ jobs:
     timeout-minutes: 25
     strategy:
       fail-fast: false
-      max-parallel: 3
+      # GitOps and Features have the most legs, so they get the most
+      # runners, but the run as a whole stays under the account's 20
+      # concurrent jobs (test_integration_workflow_concurrency.py checks
+      # the total). Legs are listed longest first, so the short ones fill
+      # in at the end.
+      max-parallel: 5
       matrix:
-        leg: ["extensions & config", "farms", "backup", "backup-advanced & ops",
-              "backup dockerfiles", "backup data", "reconcile & config",
-              "skin add", "extra databases"]
+        leg: ["backup data", "backup-advanced & ops", "extensions & config",
+              "backup dockerfiles", "reconcile & config", "backup",
+              "crowdsec", "extra databases", "farms", "skin add"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -437,7 +462,8 @@ jobs:
             "backup-advanced & ops") tests=(backup-advanced sitemap maintenance) ;;
             "backup dockerfiles")    tests=(backup-custom-dockerfile backup-missing-dockerfile) ;;
             "backup data")           tests=(backup-extra-database backup-restore-safety) ;;
-            "reconcile & config")    tests=(reconcile config-refresh-template crowdsec) ;;
+            "reconcile & config")    tests=(reconcile config-refresh-template) ;;
+            "crowdsec")              tests=(crowdsec) ;;
             "skin add")              tests=(skin-lifecycle) ;;
             "extra databases")       tests=(add-extra-database) ;;
             *) echo "unknown feature leg: $LEG" >&2; exit 1 ;;
@@ -452,12 +478,13 @@ jobs:
     timeout-minutes: 25
     strategy:
       fail-fast: false
-      max-parallel: 3
+      # See the note on integration-features.
+      max-parallel: 6
       matrix:
-        leg: ["init & join", "pull & config", "push", "add", "submodules",
-              "pull & status", "config domain & port",
-              "upgrade hosts & wikis", "upgrade my.cnf & gitignore",
-              "sidecars", "extension lifecycle"]
+        leg: ["init & join", "upgrade my.cnf & gitignore", "sidecars",
+              "pull & status", "add", "config domain & port",
+              "extension lifecycle", "upgrade hosts & wikis", "push",
+              "pull & config", "submodules"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -506,12 +533,19 @@ jobs:
           sg www-data -c ".venv/bin/python tests/integration/run_tests.py --no-skip $tests"
         timeout-minutes: 18
 
+  # The Kubernetes jobs run only on the weekly schedule and on a manual run
+  # with the "kubernetes" input set: Kubernetes support is deprecated, and
+  # these eight jobs took runners from the rest of the suite on every push
+  # to main. On the schedule, k8s-report files an issue when any fails.
+  #
   # The Kubernetes jobs run on ubuntu-24.04: on 26.04 the AppArmor profile
   # k3s's containerd applies blocks signals inside containers, so MariaDB and
   # the web container never start.
   integration-k8s:
     name: "Integration: Kubernetes"
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.kubernetes)
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -566,7 +600,9 @@ jobs:
   # than serializing behind k8s-lifecycle on a shared 2-CPU runner.
   integration-k8s-crowdsec:
     name: "Integration: Kubernetes CrowdSec"
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.kubernetes)
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -613,7 +649,9 @@ jobs:
   # which would overrun the k8s-crowdsec leg's budget.
   integration-k8s-crowdsec-rolling:
     name: "Integration: Kubernetes CrowdSec rolling update"
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.kubernetes)
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -660,7 +698,9 @@ jobs:
   # the other k8s jobs rather than serializing behind them.
   integration-k8s-backup:
     name: "Integration: Kubernetes Backup"
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.kubernetes)
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -709,7 +749,9 @@ jobs:
   # self-hosted forge.
   integration-k8s-gitops:
     name: "Integration: Kubernetes GitOps"
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.kubernetes)
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -755,7 +797,9 @@ jobs:
   # that rolls one of them need the node to themselves.
   integration-k8s-multi-instance:
     name: "Integration: Kubernetes Multi-Instance"
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.kubernetes)
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -800,7 +844,9 @@ jobs:
   # Separate job (own runner) for the farm, extension and scale paths.
   integration-k8s-farm:
     name: "Integration: Kubernetes Farm"
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.kubernetes)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -846,7 +892,9 @@ jobs:
   # nothing may follow it on this node.
   integration-k8s-uninstall:
     name: "Integration: Kubernetes Uninstall"
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.kubernetes)
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -890,11 +938,87 @@ jobs:
           k8s-uninstall
         timeout-minutes: 20
 
+  # Nobody watches the weekly run, so its Kubernetes results go to an issue:
+  # opened (or refreshed) when a job fails, closed when a later week passes.
+  # Like the image rescans in Canasta and CanastaBase, it adopts only an open
+  # issue, so a closed one stays a record of that failure.
+  k8s-report:
+    name: "Integration: Kubernetes report"
+    needs:
+      - integration-k8s
+      - integration-k8s-crowdsec
+      - integration-k8s-crowdsec-rolling
+      - integration-k8s-backup
+      - integration-k8s-gitops
+      - integration-k8s-multi-instance
+      - integration-k8s-farm
+      - integration-k8s-uninstall
+    # Not when the run itself was cancelled, as a push to main does to a
+    # scheduled run still in progress: that is no test failure to report.
+    if: ${{ !cancelled() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      ISSUE_LABEL: automated
+      ISSUE_TITLE: Scheduled Kubernetes integration tests failed
+    steps:
+      - name: Open, update or close the tracking issue
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          FAILED=$(jq -r 'to_entries[] | select(.value.result != "success")
+                          | "| `\(.key)` | \(.value.result) |"' <<< "$NEEDS")
+
+          gh label create "$ISSUE_LABEL" \
+            --color ededed \
+            --description "Created and maintained by automation" \
+            --force
+
+          ISSUE_NUMBER=$(gh issue list \
+            --state open \
+            --label "$ISSUE_LABEL" \
+            --limit 1000 \
+            --json number,title |
+            jq -r --arg title "$ISSUE_TITLE" \
+              '[.[] | select(.title == $title)][0].number // empty')
+
+          if [ -n "$FAILED" ]; then
+            REPORT="$RUNNER_TEMP/report.md"
+            {
+              echo "The weekly run of the Kubernetes integration tests had jobs that did not pass."
+              echo
+              echo "[View workflow run]($RUN_URL)"
+              echo
+              echo "| Job | Result |"
+              echo "| --- | --- |"
+              echo "$FAILED"
+            } > "$REPORT"
+            cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+            if [ -n "$ISSUE_NUMBER" ]; then
+              gh issue edit "$ISSUE_NUMBER" --body-file "$REPORT"
+            else
+              gh issue create --label "$ISSUE_LABEL" --title "$ISSUE_TITLE" --body-file "$REPORT"
+            fi
+          elif [ -n "$ISSUE_NUMBER" ]; then
+            gh issue close "$ISSUE_NUMBER" \
+              --comment "The weekly Kubernetes integration tests passed: $RUN_URL"
+          fi
+
   remote-integration:
     name: Remote Host Integration Tests
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # The single-host and multi-host tests take about 8 and 12 minutes, so
+    # they run on separate runners.
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [single, multi]
     steps:
       - uses: actions/checkout@v6
 
@@ -920,5 +1044,5 @@ jobs:
           done
 
       - name: Run remote integration tests
-        run: tests/integration/remote/run_tests.sh
+        run: tests/integration/remote/run_tests.sh ${{ matrix.part }}
         timeout-minutes: 40
