@@ -143,6 +143,17 @@ class TestRunModuleEnable:
         assert not failed
         assert result["changed"]
         assert "ParserFunctions" in result["items"]
+        assert result["added"] == ["ParserFunctions"]
+
+    def test_enable_reports_only_newly_added(self, sample_settings_yaml):
+        result, failed, _ = run_module_with_params(canasta_settings_yaml, {
+            "instance_path": sample_settings_yaml, "item_type": "extensions",
+            "state": "enable", "names": ["Cite", "VEForAll", "VEForAll"],
+            "wiki": None,
+        })
+        assert not failed
+        assert result["added"] == ["VEForAll"]
+        assert result["items"].count("VEForAll") == 1
 
     def test_enable_already_enabled(self, sample_settings_yaml):
         result, failed, _ = run_module_with_params(canasta_settings_yaml, {
@@ -151,6 +162,7 @@ class TestRunModuleEnable:
         })
         assert not failed
         assert not result["changed"]
+        assert result["added"] == []
 
     def test_enable_invalid_name(self, sample_settings_yaml):
         result, failed, msg = run_module_with_params(canasta_settings_yaml, {

@@ -34,11 +34,13 @@ def _apply_index(tasks):
 def test_enable_applies_the_change_before_update_php():
     tasks = _load(os.path.join(EXT_TASKS, "enable.yml"))
     names = _names(tasks)
-    apply_i = _apply_index(tasks)
-    assert names.index("Enable {{ _item_type }}") < apply_i
-    assert apply_i < names.index("Run update.php for each affected wiki")
-    assert tasks[apply_i]["when"] == [
-        "_settings_change is changed", "not (_enable_stage_only | bool)"]
+    block_i = next(i for i, t in enumerate(tasks) if "rescue" in t)
+    assert names.index("Enable {{ _item_type }}") < block_i
+    assert tasks[block_i]["when"] == "not (_enable_stage_only | bool)"
+    inner = tasks[block_i]["block"]
+    apply_i = _apply_index(inner)
+    assert apply_i < _names(inner).index("Run update.php for each affected wiki")
+    assert inner[apply_i]["when"] == "_settings_change is changed"
 
 
 def test_disable_applies_the_change():

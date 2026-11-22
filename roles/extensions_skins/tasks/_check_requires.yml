@@ -1,0 +1,43 @@
+---
+# Refuse an enable or disable that would leave an enabled extension or skin
+# without one its extension.json/skin.json "requires": MediaWiki then refuses
+# to load the wiki. The requirements are read in the web container, which
+# holds the bundled items as well as the instance's own.
+# Input: instance_path, _item_type, _requires_state (enable|disable),
+#        _requires_names (list), _requires_wiki (optional),
+#        _requires_everywhere (bool, optional), _requires_wiki_ids (list)
+
+- name: Check whether web is running for the requirements check
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: check_running.yml
+
+# Enable has already read the container, so this only skips a disable.
+- name: "Note that the {{ _item_type }} requirements were not checked"
+  ansible.builtin.debug:
+    msg: >-
+      The instance is not running, so it was not checked whether another
+      enabled extension or skin requires {{ _requires_names | join(', ') }}.
+  when: not (_container_running | bool)
+
+- name: "Check the requirements of {{ _requires_names | join(', ') }}"
+  when: _container_running | bool
+  block:
+    - name: "Read what each installed extension and skin requires"
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+      vars:
+        exec_service: web
+        exec_command: "php --"
+        exec_stdin: "{{ canasta_root }}/roles/extensions_skins/files/item_requires.php"
+
+    - name: "Refuse a change that leaves a requirement unmet"
+      canasta_item_requires:
+        instance_path: "{{ instance_path }}"
+        # The JSON is the last line; a PHP notice may precede it.
+        requires: "{{ exec_result.stdout_lines | last | from_json }}"
+        item_type: "{{ _item_type }}"
+        state: "{{ _requires_state }}"
+        names: "{{ _requires_names }}"
+        wiki: "{{ _requires_wiki | default(omit, true) }}"
+        everywhere: "{{ _requires_everywhere | default(false) | bool }}"
+        wiki_ids: "{{ _requires_wiki_ids }}"

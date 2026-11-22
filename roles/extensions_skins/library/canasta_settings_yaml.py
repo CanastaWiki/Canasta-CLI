@@ -151,15 +151,16 @@ def run_module():
         if not names:
             module.fail_json(msg="names is required for enable")
             return
-        changed = False
+        added = []
         for name in names:
             err = validate_name(name)
             if err:
                 module.fail_json(msg=err)
                 return
-            if name not in items:
-                items.append(name)
-                changed = True
+            if name not in items and name not in added:
+                added.append(name)
+        items.extend(added)
+        changed = bool(added)
         if changed:
             items.sort()
             config[item_type] = items
@@ -167,6 +168,7 @@ def run_module():
                 write_config(path, config)
         result["changed"] = changed
         result["items"] = items
+        result["added"] = added
 
     elif state == "disable":
         if not names:

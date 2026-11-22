@@ -94,7 +94,9 @@ def _run(tmp_path, which, *, k8s=True, gitops=True, running=True,
                ANSIBLE_ROLES_PATH="%s:%s" % (root / "roles",
                                              os.path.join(REPO_ROOT, "roles")),
                ANSIBLE_FILTER_PLUGINS=os.path.join(REPO_ROOT, "filter_plugins"),
-               ANSIBLE_LIBRARY=os.path.join(COMMON, "library"),
+               ANSIBLE_LIBRARY="%s:%s" % (
+                   os.path.join(COMMON, "library"),
+                   os.path.join(REPO_ROOT, "roles", "extensions_skins", "library")),
                ANSIBLE_MODULE_UTILS=os.path.join(COMMON, "module_utils"))
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
     proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
