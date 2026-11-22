@@ -4,7 +4,7 @@
 # (caddy-cdn-ranges). Any tag of this repository counts as Canasta-managed.
 # Read by sync_compose_profiles.yml, k8s_reconcile_caddy.yml and
 # direct_commands/_helpers.py.
-canasta_caddy_plugin_image: "ghcr.io/canastawiki/canasta-caddy:2.11.3"
+canasta_caddy_plugin_image: "ghcr.io/canastawiki/canasta-caddy:2.11.9"
 
 # Image whose netstat lists the host's listeners when the CLI runs in a
 # container, where ss and lsof would see only the container's network. The

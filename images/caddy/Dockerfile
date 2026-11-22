@@ -23,12 +23,15 @@
 #     cluster CIDR) and `cdn_ranges` (the CDN) inside one trusted_proxies
 #     directive. Inert until the Caddyfile uses `combine` (K8s + CDN only).
 #
-# CADDY_VERSION is set by what the bundled plugins require, so it can lead
-# the stock default caddy:<ver>-alpine in docker-compose.yml — the
-# crowdsec bouncer v0.13.1 pins Caddy v2.11.3. Keep the published image
-# tag in lockstep with canasta_caddy_plugin_image in vars/images.yml.
-ARG CADDY_VERSION=2.11.3
-ARG CROWDSEC_BOUNCER_VERSION=v0.13.1
+# CADDY_VERSION is at least what the bundled plugins require, so it can
+# lead the stock default caddy:<ver>-alpine in docker-compose.yml. The
+# image is tagged by this Caddy version, so a plugin bump ships with a
+# Caddy bump: republishing an existing tag with different plugins would
+# leave two instances on the same tag running different code. Keep the
+# published tag (docker-caddy.yml) in lockstep with
+# canasta_caddy_plugin_image in vars/images.yml.
+ARG CADDY_VERSION=2.11.9
+ARG CROWDSEC_BOUNCER_VERSION=v0.14.1
 ARG CDN_RANGES_VERSION=v2.1.0
 ARG COMBINE_IP_RANGES_VERSION=v0.0.1
 
