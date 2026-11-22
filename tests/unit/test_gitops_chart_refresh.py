@@ -178,6 +178,13 @@ class TestGitopsRepoChart:
                      "Refresh values.yaml against the shipped chart defaults")
         assert "7.17.9" not in str(task["ansible.builtin.set_fact"])
 
+    def test_varnish_7_0_is_a_movable_default(self):
+        """A repo without chart-defaults.yaml still moves off Varnish 7.0."""
+        task = _find(REFRESH_CHART,
+                     "Refresh values.yaml against the shipped chart defaults")
+        assert "'varnish.image': ['varnish:7.0.2-alpine']" in str(
+            task["ansible.builtin.set_fact"]["_rc_new_values"])
+
     def test_init_records_the_chart_defaults(self):
         path = os.path.join(GITOPS, "tasks", "init_kubernetes.yml")
         task = _find(path, "Record the chart defaults values.yaml starts from")
