@@ -15,6 +15,10 @@ on:
         description: "Also run the Kubernetes jobs"
         type: boolean
         default: false
+      podman_full_matrix:
+        description: "Test every Podman version, not just the one a push tests"
+        type: boolean
+        default: false
   # Weekly full version sweep so push-to-main can run a single
   # representative leg while the matrix is still exercised regularly. It
   # also runs the Kubernetes jobs, and k8s-report files an issue when they
@@ -98,7 +102,9 @@ jobs:
   #
   # A matrix tests three podman versions (4.9.5, 5.3.2, 5.8.4) and two
   # podman-compose versions (1.3.0, 1.6.0), each split into the same three
-  # test legs. The weekly schedule adds a backup leg on the newest pair. The
+  # test legs. The weekly schedule adds a backup leg on the newest pair. A
+  # push to main tests only 5.3.2 with 1.3.0, and so does a manual run unless
+  # its podman_full_matrix input is set. The
   # full podman binary with its runtime helpers (crun, conmon, netavark,
   # fuse-overlayfs) is downloaded as a self-contained static bundle from
   # mgoltzsche/podman-static.
@@ -114,17 +120,21 @@ jobs:
     steps:
       - name: Set podman test matrix
         id: set-matrix
+        env:
+          EVENT: ${{ github.event_name }}
+          FULL_MATRIX: ${{ inputs.podman_full_matrix }}
         run: |
           legs='"leg":["lifecycle & upgrade","rebuild-buildable","rebuild & socket"]'
-          if [ "${{ github.event_name }}" = "push" ]; then
-            # On push-to-main run one representative version to keep the
-            # long pole short; the full sweep runs on schedule and
-            # workflow_dispatch.
+          if [ "$EVENT" = "push" ] ||
+             { [ "$EVENT" = "workflow_dispatch" ] && [ "$FULL_MATRIX" != "true" ]; }; then
+            # On push-to-main, and on a manual run unless it asks for the
+            # full sweep, run one representative version to keep the long
+            # pole short; the full sweep runs on schedule and on request.
             matrix='{"podman_version":["5.3.2"],"podman_compose_version":["1.3.0"],'"$legs"'}'
           else
             compose16='{"podman_version":"5.8.4","podman_compose_version":"1.6.0","leg":'
             include="[${compose16}\"lifecycle & upgrade\"},${compose16}\"rebuild-buildable\"},${compose16}\"rebuild & socket\"}]"
-            if [ "${{ github.event_name }}" = "schedule" ]; then
+            if [ "$EVENT" = "schedule" ]; then
               include="${include%]},${compose16}\"backup\"}]"
             fi
             matrix='{"podman_version":["4.9.5","5.3.2","5.8.4"],"podman_compose_version":["1.3.0"],'"$legs"',"include":'"$include"'}'
