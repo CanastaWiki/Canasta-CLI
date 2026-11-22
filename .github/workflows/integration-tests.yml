@@ -426,8 +426,8 @@ jobs:
       max-parallel: 5
       matrix:
         leg: ["backup data", "backup-advanced & ops", "extensions & config",
-              "backup dockerfiles", "reconcile & config", "backup",
-              "crowdsec", "extra databases", "farms", "skin add"]
+              "backup dockerfiles", "skin & schedule", "reconcile & config",
+              "backup", "crowdsec", "extra databases", "farms"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -459,12 +459,12 @@ jobs:
             "extensions & config")   tests=(extension-skin config-side-effects) ;;
             "farms")                 tests=(wiki-farm) ;;
             "backup")                tests=(backup) ;;
-            "backup-advanced & ops") tests=(backup-advanced sitemap maintenance schedule) ;;
+            "backup-advanced & ops") tests=(backup-advanced sitemap maintenance) ;;
             "backup dockerfiles")    tests=(backup-custom-dockerfile backup-missing-dockerfile) ;;
             "backup data")           tests=(backup-extra-database backup-restore-safety) ;;
             "reconcile & config")    tests=(reconcile config-refresh-template) ;;
             "crowdsec")              tests=(crowdsec) ;;
-            "skin add")              tests=(skin-lifecycle) ;;
+            "skin & schedule")       tests=(skin-lifecycle schedule) ;;
             "extra databases")       tests=(add-extra-database) ;;
             *) echo "unknown feature leg: $LEG" >&2; exit 1 ;;
           esac
