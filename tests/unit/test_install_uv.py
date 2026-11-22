@@ -105,9 +105,9 @@ class TestFailuresAreNotSwallowed:
         install = _named(UV, "Install each uv target")
         assert install.get("ignore_errors") is not True
 
-    def test_the_installer_failure_is_not_ignored_either(self):
-        installer = _named(UV, "Download and run uv installer")
-        assert installer.get("ignore_errors") is not True
+    def test_the_download_failure_is_not_ignored_either(self):
+        download = _named(UV, "Download the uv release")
+        assert download.get("ignore_errors") is not True
 
     def test_no_ansible_env_clobber(self):
         # set_fact'ing ansible_env replaced the gathered facts with a
@@ -120,11 +120,13 @@ class TestFailuresAreNotSwallowed:
                 "the rest of the play"
             )
 
-    def test_the_installer_pipe_is_guarded(self):
-        # risky-shell-pipe: a mid-pipe curl failure must not pass.
-        installer = _named(UV, "Download and run uv installer")
-        cmd = installer["ansible.builtin.shell"]["cmd"]
-        assert "set -o pipefail" in cmd
+    def test_the_download_is_pinned_and_checksummed(self):
+        # No curl | sh: a pinned release tarball whose sha256 is checked.
+        get_url = _named(UV, "Download the uv release")["ansible.builtin.get_url"]
+        assert "{{ uv_version }}" in get_url["url"]
+        assert get_url["checksum"].startswith("sha256:{{ uv_sha256[")
+        for t in _tasks(UV):
+            assert "ansible.builtin.shell" not in t
 
 
 class TestTheCliAndPlaybookAgreeOnUvTargets:

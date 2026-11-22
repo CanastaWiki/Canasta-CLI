@@ -43,7 +43,7 @@ def test_compose_restic_args_stay_whole():
         task["ansible.builtin.shell"]["cmd"], backup_args=ARGS,
         inspect_command="docker", instance_path="/srv/mysite",
         _backup_sources={}, _bvol="vol", _backup_local_repo="",
-        _backup_tee="")
+        _backup_tee="", restic_image="docker.io/restic/restic:0.20.0")
     run_line = cmd.replace("\\\n", " ").splitlines()[-1]
     words = shlex.split(run_line)
     assert words[-len(ARGS):] == ARGS

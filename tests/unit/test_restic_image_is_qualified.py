@@ -21,6 +21,8 @@ containerd assumes docker.io, so they happen to work under k3s today.
 import os
 import re
 
+import yaml
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 
@@ -40,24 +42,28 @@ def _read(rel):
         return f.read()
 
 
+TOOL_VERSIONS = os.path.join("vars", "tool_versions.yml")
+
+
 class TestEveryResticReferenceIsQualified:
     def test_no_bare_short_name(self):
-        for rel in SITES:
+        for rel in SITES + (TOOL_VERSIONS,):
             body = _read(rel)
             assert not UNQUALIFIED.search(body), (
                 "%s uses the short name; podman refuses it with no "
                 "unqualified-search registry configured" % rel
             )
 
-    def test_the_image_is_still_referenced(self):
+    def test_every_site_uses_the_pinned_image(self):
         # Guard against the regex passing because the reference was
         # deleted rather than qualified.
         for rel in SITES:
-            assert "restic/restic" in _read(rel)
+            assert "restic_image" in _read(rel), rel
 
-    def test_it_is_qualified_to_docker_io(self):
-        for rel in SITES:
-            assert "docker.io/restic/restic" in _read(rel)
+    def test_the_pin_is_qualified_to_docker_io_and_versioned(self):
+        image = yaml.safe_load(_read(TOOL_VERSIONS))["restic_image"]
+        assert image.startswith("docker.io/restic/restic:")
+        assert image.rsplit(":", 1)[1] not in ("", "latest")
 
 
 # The helper container is run in more places than restic, and it runs
