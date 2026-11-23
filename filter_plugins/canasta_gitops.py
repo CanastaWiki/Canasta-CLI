@@ -98,8 +98,9 @@ def canasta_wikis_template_ids(content):
 def _wikis_fields(content):
     """Map each wiki id to its fields other than url; None if unparseable.
 
-    url is host-specific (a placeholder in the template), so it is left out
-    of every comparison between the template and the live file.
+    url and aliases are host-specific (placeholders in the template), so
+    they are left out of every comparison between the template and the live
+    file.
     """
     try:
         doc = yaml.safe_load(_URL_LINE.sub("", str(content or ""))) or {}
@@ -110,8 +111,82 @@ def _wikis_fields(content):
     out = {}
     for w in doc.get("wikis") or []:
         if isinstance(w, dict) and "id" in w:
-            out[str(w["id"])] = {k: v for k, v in w.items() if k != "url"}
+            out[str(w["id"])] = {k: v for k, v in w.items()
+                                 if k not in _HOST_SPECIFIC}
     return out
+
+
+_HOST_SPECIFIC = ("url", "aliases")
+
+
+def _render_placeholders(text, values):
+    """The text with each line's {{placeholder}} replaced by its value, as
+    the gitops render writes config/wikis.yaml: one placeholder per line, an
+    unset one rendering empty."""
+    out = []
+    for line in str(text or "").split("\n"):
+        if "{{" in line and "}}" in line:
+            before, rest = line.split("{{", 1)
+            name = rest.split("}}", 1)[0]
+            after = line.split("}}", 1)[1]
+            line = before + (str(values[name]) if name in values else "") + after
+        out.append(line)
+    return "\n".join(out)
+
+
+def _aliases_by_wiki(content):
+    """{wiki id: sorted aliases} for the wikis that list any; None if the
+    content is not a wikis.yaml."""
+    try:
+        doc = yaml.safe_load(str(content or "")) or {}
+    except yaml.YAMLError:
+        return None
+    if not isinstance(doc, dict):
+        return None
+    out = {}
+    for w in doc.get("wikis") or []:
+        if isinstance(w, dict) and "id" in w:
+            listed = sorted(str(a).strip().lower() for a in _listed_aliases(w))
+            if listed:
+                out[str(w["id"])] = listed
+    return out
+
+
+def canasta_wikis_alias_edits(live, template, base, values, base_values):
+    """The wikis whose aliases in config/wikis.yaml were edited there.
+
+    Under gitops a wiki's aliases come from wikis.yaml.template and the host
+    vars. The live file's aliases are expected to be what the template and
+    vars render to, as they are now or as staged; anything else was edited
+    in config/wikis.yaml. With no staged template there is nothing to hold
+    the live file to.
+    """
+    if not str(base or "").strip():
+        return []
+    live_a = _aliases_by_wiki(live)
+    if live_a is None:
+        return []
+    expected = [_aliases_by_wiki(_render_placeholders(t, v or {}))
+                for t, v in ((template, values), (base, base_values))]
+    ids = set(live_a)
+    for e in expected:
+        ids |= set(e or {})
+    return sorted(i for i in ids
+                  if all(e is not None and live_a.get(i) != e.get(i) for e in expected))
+
+
+def canasta_wikis_template_aliases(template):
+    """{wiki id: [aliases entries]} exactly as wikis.yaml.template lists
+    them, placeholders unrendered; {} when it lists none or cannot be read.
+    The url lines hold unquoted placeholders, which are not YAML."""
+    try:
+        doc = yaml.safe_load(_URL_LINE.sub("", str(template or ""))) or {}
+    except yaml.YAMLError:
+        return {}
+    wikis = (doc.get("wikis") if isinstance(doc, dict) else None) or []
+    return {str(w["id"]): w["aliases"] for w in wikis
+            if isinstance(w, dict) and "id" in w and isinstance(w.get("aliases"), list)
+            and w["aliases"]}
 
 
 def canasta_wikis_sync_action(live, template, base):
@@ -136,8 +211,9 @@ def canasta_wikis_sync_action(live, template, base):
     return "conflict"
 
 
-def canasta_wikis_render_with_live_urls(template, live):
-    """Render a wikis.yaml.template using each wiki's url from the live file.
+def canasta_wikis_render_with_live_urls(template, live, values=None):
+    """Render a wikis.yaml.template using each wiki's url from the live file,
+    and its other placeholders (aliases) from ``values``, the host vars.
 
     Raises when the template names a wiki the live file has no url for, so
     a wiki is never written with a blank url.
@@ -159,8 +235,9 @@ def canasta_wikis_render_with_live_urls(template, live):
             "wikis.yaml.template names wiki(s) %s that config/wikis.yaml has "
             "no url for; add a wiki with 'canasta add' rather than by editing "
             "the template" % ", ".join(missing))
-    return _URL_PLACEHOLDER.sub(lambda m: str(urls[m.group(1)]),
-                                str(template or ""))
+    rendered = _URL_PLACEHOLDER.sub(lambda m: str(urls[m.group(1)]),
+                                    str(template or ""))
+    return _render_placeholders(rendered, values) if values is not None else rendered
 
 
 _ABSENT = object()
@@ -535,6 +612,24 @@ def canasta_wiki_ingress_domains(wikis_yaml, extra=None, fallback=None):
     return domains
 
 
+def canasta_wikis_with_aliases(wikis_yaml):
+    """The ids of the wikis whose aliases list has a hostname in it."""
+    try:
+        doc = yaml.safe_load(str(wikis_yaml or "")) or {}
+    except yaml.YAMLError:
+        doc = {}
+    wikis = (doc.get("wikis") if isinstance(doc, dict) else None) or []
+    return [str(w.get("id", "?")) for w in wikis
+            if isinstance(w, dict) and _listed_aliases(w)]
+
+
+def _listed_aliases(wiki):
+    listed = wiki.get("aliases")
+    if not isinstance(listed, list):
+        return [listed] if listed else []
+    return [a for a in listed if a and not (isinstance(a, str) and not a.strip())]
+
+
 # ssh/forge responses that mean the key was presented and refused. GitHub
 # answers "Repository not found" for a key registered on another repo.
 _REMOTE_UNAUTHORIZED = (
@@ -737,6 +832,9 @@ class FilterModule(object):
             "canasta_gitops_hosts_after": canasta_gitops_hosts_after,
             "canasta_wiki_url_sync_plan": canasta_wiki_url_sync_plan,
             "canasta_wiki_ingress_domains": canasta_wiki_ingress_domains,
+            "canasta_wikis_with_aliases": canasta_wikis_with_aliases,
+            "canasta_wikis_alias_edits": canasta_wikis_alias_edits,
+            "canasta_wikis_template_aliases": canasta_wikis_template_aliases,
             "canasta_git_remote_failure": canasta_git_remote_failure,
             "canasta_git_remote_known_hosts_name":
                 canasta_git_remote_known_hosts_name,

@@ -67,6 +67,18 @@ def _copy_template_content():
     raise AssertionError("no copy task writing wikis.yaml.template found")
 
 
+def _template_filters(env):
+    """The filters the emitter uses, as Ansible provides them."""
+    import base64
+    import sys
+    sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
+    import canasta_gitops
+    env.filters["to_json"] = json.dumps
+    env.filters["b64decode"] = lambda v: base64.b64decode(v).decode()
+    env.filters["canasta_wikis_template_aliases"] = (
+        canasta_gitops.canasta_wikis_template_aliases)
+
+
 class TestReconcileTask:
     def test_template_keeps_url_placeholder_and_name_literal(self):
         with open(RECONCILE) as f:
@@ -113,10 +125,12 @@ class TestExtraDatabasesSurviveRender:
     def _render(self, wikis, db_groups):
         jinja2 = pytest.importorskip("jinja2")
         env = jinja2.Environment(trim_blocks=True, lstrip_blocks=False)
-        env.filters["to_json"] = json.dumps
+        _template_filters(env)
         template = env.from_string(_copy_template_content())
         rendered = template.render(_reconcile_wikis_data={
-            "wikis": wikis, "db_groups": db_groups})
+            "wikis": wikis, "db_groups": db_groups},
+            _reconcile_wikis_tmpl={"stat": {"exists": False}},
+            _reconcile_wikis_tmpl_raw={})
         return rendered
 
     def _rendered_yaml(self, wikis, db_groups):

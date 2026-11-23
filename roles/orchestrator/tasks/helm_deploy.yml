@@ -25,6 +25,20 @@
   register: _hd_wikis_raw
   failed_when: false
 
+# Aliases are redirected by the Compose edge; Kubernetes has no edge.
+- name: Refuse wiki aliases on Kubernetes
+  ansible.builtin.fail:
+    msg: >-
+      Wiki(s) {{ _hd_alias_wikis | join(', ') }} list aliases in
+      config/wikis.yaml. Aliases are redirected by the HAProxy edge, which
+      only Docker Compose instances have. Remove the aliases from
+      config/wikis.yaml.
+  vars:
+    _hd_alias_wikis: >-
+      {{ (_hd_wikis_raw.content | default('') | b64decode)
+         | canasta_wikis_with_aliases }}
+  when: _hd_alias_wikis | length > 0
+
 - name: Read values.yaml for extraDomains + existing domains
   ansible.builtin.slurp:
     src: "{{ instance_path }}/values.yaml"

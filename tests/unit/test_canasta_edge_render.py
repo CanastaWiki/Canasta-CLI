@@ -690,3 +690,107 @@ def test_an_acme_dns_host_needs_the_dns_token():
     inst = _inst(env={"TLS_MODE": "internal", "TLS_MODE_HOSTS": "example.com=acme-dns",
                       "CLOUDFLARE_API_TOKEN": "t"})
     assert inst["dns"]["hook"] == "dns_cf"
+
+
+# --- aliases --------------------------------------------------------------- #
+
+def _farm(urls_aliases, instance_id="wiki1", env=None, extra=()):
+    wikis = [{"id": "w%d" % n, "url": u, "aliases": a}
+             for n, (u, a) in enumerate(urls_aliases)]
+    return edge.instance_from_config(instance_id, env or {}, wikis,
+                                     extra_hostnames=extra)
+
+
+def _frontend(cfg, name):
+    return next(s for s in _frontends(cfg) if s.splitlines()[0] == name)
+
+
+def test_aliases_map_to_their_wiki_hostname():
+    inst = _farm([("example.com", ["www.example.com", "Example.ORG"]),
+                  ("example.com/docs", ["www.example.com"])])
+    assert inst["aliases"] == {"www.example.com": "example.com",
+                               "example.org": "example.com"}
+    assert "www.example.com" not in inst["hostnames"]
+
+
+def test_empty_and_missing_alias_entries_are_skipped():
+    inst = _farm([("example.com", ["", None, "  "]), ("other.example.com", None)])
+    assert inst["aliases"] == {}
+
+
+def test_aliases_redirect_straight_to_the_wiki_from_both_frontends():
+    cfg = edge.render([_farm([("example.com", ["www.example.com", "example.org"])])],
+                      acme_thumbprint="THUMB")["files"]["haproxy.cfg"]
+    rule = ("    http-request redirect prefix https://example.com code 301 if "
+            "{ req.hdr(host),lower,field(1,:) -m str example.org www.example.com }")
+    http, https = _frontend(cfg, "frontend http"), _frontend(cfg, "frontend https")
+    assert rule in https.splitlines()
+    lines = http.splitlines()
+    # After the ACME challenge, so an alias still gets its certificate, and
+    # before the plain-HTTP redirect, so there is no second hop.
+    assert lines.index(rule) > next(i for i, l in enumerate(lines) if "acme-challenge" in l)
+    assert lines.index(rule) < lines.index("    http-request redirect scheme https code 301")
+
+
+def test_alias_redirects_carry_the_wikis_own_port():
+    secure = _farm([("example.com", ["www.example.com"])], "a",
+                   {"HTTP_PORT": "8080", "HTTPS_PORT": "8443"})
+    plain = _farm([("plain.example.net", ["www.plain.example.net"])], "b",
+                  {"TLS_MODE": "off", "HTTP_PORT": "8081"})
+    cfg = edge.render([secure, plain])["files"]["haproxy.cfg"]
+    assert "redirect prefix https://example.com:8443 code 301" in _frontend(cfg, "frontend http_8080")
+    assert "redirect prefix https://example.com:8443 code 301" in _frontend(cfg, "frontend https_8443")
+    assert "redirect prefix http://plain.example.net:8081 code 301" in _frontend(cfg, "frontend http_8081")
+    assert "plain.example.net" not in _frontend(cfg, "frontend https_8443")
+
+
+def test_aliases_get_certificates_and_tls_mode_hosts_may_name_them():
+    inst = _farm([("example.com", ["www.example.com"])],
+                 env={"TLS_MODE_HOSTS": "www.example.com=internal"})
+    certs = {c["file"]: c["mode"] for c in edge.certificates([inst])}
+    assert certs == {"example.com.pem": "acme", "www.example.com.pem": "internal"}
+    assert edge.acme_hostnames(inst) == ["example.com"]
+
+
+def test_an_alias_on_wikis_with_different_hostnames_is_refused():
+    with pytest.raises(edge.EdgeError, match="listed for wikis on"):
+        _farm([("example.com", ["www.example.com"]),
+               ("other.example.com", ["www.example.com"])])
+
+
+@pytest.mark.parametrize("urls_aliases, fragment", [
+    ([("example.com", ["example.com"])], "also a wiki URL host"),
+    ([("example.com", []), ("other.example.com", ["example.com"])], "also a wiki URL host"),
+    ([("localhost", ["www.example.com"])], "localhost or an IP address"),
+    ([("example.com", "www.example.com")], "must be a list"),
+    ([("example.com", [{"wiki_alias_x": None}])], "Quote placeholders"),
+    ([("example.com", ["*.example.com"])], "wildcard"),
+])
+def test_bad_aliases_are_refused(urls_aliases, fragment):
+    with pytest.raises(edge.EdgeError, match=fragment):
+        _farm(urls_aliases)
+
+
+def test_an_alias_that_is_a_media_host_is_refused():
+    wikis = [{"id": "w", "url": "example.com", "aliases": ["images.example.com"]}]
+    with pytest.raises(edge.EdgeError, match="also a media host"):
+        edge.instance_from_config(
+            "wiki1", {}, wikis, [{"hostname": "images.example.com", "bucket": "b",
+                                  "endpoint": "e"}])
+
+
+def test_an_alias_of_another_instance_is_refused():
+    one = _farm([("example.com", ["www.example.com"])], "one")
+    two = _inst("two", ("www.example.com",))
+    with pytest.raises(edge.EdgeError, match="both serve www.example.com"):
+        edge.render([one, two])
+
+
+def test_a_caddyfile_global_site_that_is_an_alias_is_reported_not_served():
+    inst = _farm([("example.com", ["www.example.com"])],
+                 extra=("www.example.com", "get.example.com"))
+    assert inst["alias_sites"] == ["www.example.com"]
+    assert inst["hostnames"] == ["example.com", "get.example.com"]
+    hosts = edge.render([inst])["files"]["hosts.map"].splitlines()
+    assert "www.example.com@443 wiki1/alias" in hosts
+    assert "www.example.com@443 wiki1/wiki" not in hosts

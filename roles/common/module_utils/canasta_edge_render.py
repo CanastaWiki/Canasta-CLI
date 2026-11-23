@@ -310,6 +310,44 @@ def _wiki_server(server, instance_id, where):
     return _hostname(host, instance_id, where), port, False
 
 
+def wiki_aliases(wikis, instance_id):
+    """{alias: wiki hostname} from the wikis' aliases lists. An alias stands
+    for a hostname, so wikis that share one may list the same alias; an
+    entry that rendered empty is skipped."""
+    aliases = {}
+    for wiki in wikis or []:
+        listed = wiki.get("aliases")
+        if listed in (None, "", []):
+            continue
+        where = "wiki '%s'" % wiki.get("id", "?")
+        if not isinstance(listed, list):
+            raise EdgeError("Instance '%s': %s aliases must be a list of "
+                            "hostnames." % (instance_id, where))
+        server = str(wiki.get("url", "")).split("/", 1)[0]
+        target, _, unnamed = _wiki_server(server, instance_id, where + " URL host")
+        for entry in listed:
+            if entry is None or (isinstance(entry, str) and not entry.strip()):
+                continue
+            if not isinstance(entry, str):
+                raise EdgeError(
+                    "Instance '%s': %s alias %r is not a hostname. Quote "
+                    "placeholders in wikis.yaml.template, as in "
+                    "- \"{{wiki_alias_x}}\"." % (instance_id, where, entry))
+            alias = _hostname(entry, instance_id, where + " alias")
+            if unnamed:
+                raise EdgeError(
+                    "Instance '%s': %s has aliases, but its URL host '%s' is "
+                    "localhost or an IP address, which an alias cannot "
+                    "redirect to." % (instance_id, where, target))
+            if aliases.get(alias, target) != target:
+                raise EdgeError(
+                    "Instance '%s': alias '%s' is listed for wikis on %s and "
+                    "%s. An alias redirects to one hostname."
+                    % (instance_id, alias, aliases[alias], target))
+            aliases[alias] = target
+    return aliases
+
+
 def _port(env, key, instance_id, default):
     raw = (env.get(key) or "").strip()
     if not raw:
@@ -353,7 +391,7 @@ def acme_hostnames(inst):
     """The instance's hostnames whose certificates come from Let's Encrypt."""
     if inst["plain"]:
         return []
-    return [h for h in inst["hostnames"] + inst["media_hostnames"]
+    return [h for h in inst["hostnames"] + list(inst["aliases"]) + inst["media_hostnames"]
             if host_tls_mode(inst, h) in ACME_MODES]
 
 
@@ -406,17 +444,35 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
     if not hostnames and not unnamed:
         raise EdgeError("Instance '%s' has no wikis." % instance_id)
 
+    aliases = wiki_aliases(wikis, instance_id)
+    for alias in aliases:
+        if alias in hostnames:
+            raise EdgeError(
+                "Instance '%s': alias '%s' is also a wiki URL host. An alias "
+                "redirects to a wiki, so it cannot serve one."
+                % (instance_id, alias))
+
     media = []
     for entry in media_hosts or []:
         host = _hostname(entry.get("hostname"), instance_id, "media host")
         if host in hostnames or host in media:
             raise EdgeError(
                 "Instance '%s' declares '%s' more than once." % (instance_id, host))
+        if host in aliases:
+            raise EdgeError(
+                "Instance '%s': alias '%s' is also a media host."
+                % (instance_id, host))
         media.append(host)
 
+    # A Caddyfile.global site that is also an alias is never reached: the
+    # edge redirects the alias first.
+    alias_sites = []
     for name in extra_hostnames or ():
         host = _hostname(name, instance_id, "Caddyfile.global site")
-        if host not in hostnames and host not in media:
+        if host in aliases:
+            if host not in alias_sites:
+                alias_sites.append(host)
+        elif host not in hostnames and host not in media:
             hostnames.append(host)
 
     tls_mode_hosts = parse_tls_mode_hosts(env.get("TLS_MODE_HOSTS"), instance_id)
@@ -425,11 +481,11 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
             "Instance '%s': TLS_MODE_HOSTS is set, but TLS_MODE is 'off', so "
             "nothing is served over HTTPS." % instance_id)
     for host in tls_mode_hosts:
-        if host not in hostnames and host not in media:
+        if host not in hostnames and host not in media and host not in aliases:
             raise EdgeError(
                 "Instance '%s': TLS_MODE_HOSTS names '%s', which is not a wiki "
-                "URL host, media host or Caddyfile.global site of the instance."
-                % (instance_id, host))
+                "URL host, alias, media host or Caddyfile.global site of the "
+                "instance." % (instance_id, host))
 
     dns = None
     if tls_mode == "acme-dns" or "acme-dns" in tls_mode_hosts.values():
@@ -496,6 +552,9 @@ def instance_from_config(instance_id, env, wikis, media_hosts=(), snippet="",
         "http_port": http_port,
         "https_port": https_port,
         "media_hostnames": media,
+        # alias -> the wiki hostname it redirects to.
+        "aliases": aliases,
+        "alias_sites": alias_sites,
         # Where its sitemaps are served, when not under /public_assets/.
         "sitemap_paths": sitemap_paths,
         "sitemap_overlaps": farm_collision_warnings(wikis, sitemap_url_path),
@@ -553,7 +612,7 @@ def certificates(instances):
     """
     entries = []
     for inst in instances:
-        names = inst["hostnames"] + inst["media_hostnames"]
+        names = inst["hostnames"] + list(inst["aliases"]) + inst["media_hostnames"]
         # Plain HTTP instances are not served over HTTPS; unnamed ones get
         # the edge's default certificate.
         if inst["plain"] or not names:
@@ -584,7 +643,7 @@ def _check_unique(instances):
             raise EdgeError("Instance ID '%s' appears twice." % inst["id"])
         ids[inst["id"]] = True
         for port in _ports_of(inst):
-            for host in inst["hostnames"] + inst["media_hostnames"]:
+            for host in inst["hostnames"] + list(inst["aliases"]) + inst["media_hostnames"]:
                 if (host, port) in owners:
                     raise EdgeError(
                         "Instances '%s' and '%s' both serve %s on port %d. The "
@@ -864,6 +923,30 @@ def _routing(instances):
     return routing + own + _ROUTING_REST
 
 
+def _alias_redirects(port, tls, instances):
+    """301s from the aliases served on this port straight to the wiki
+    hostname, in the scheme and on the port the wiki itself is served, so
+    an alias reached over plain HTTP needs no second redirect."""
+    targets = {}
+    for inst in instances:
+        if not inst["aliases"]:
+            continue
+        if inst["plain"]:
+            if tls or inst["http_port"] != port:
+                continue
+            base = "http://%s" + ("" if port == 80 else ":%d" % port)
+        else:
+            if port != (inst["https_port"] if tls else inst["http_port"]):
+                continue
+            https = inst["https_port"]
+            base = "https://%s" + ("" if https == 443 else ":%d" % https)
+        for alias, target in sorted(inst["aliases"].items()):
+            targets.setdefault(base % target, []).append(alias)
+    return ["    http-request redirect prefix %s code 301 if "
+            "{ req.hdr(host),lower,field(1,:) -m str %s }" % (target, " ".join(names))
+            for target, names in sorted(targets.items())]
+
+
 def _frontend_name(port, tls):
     base = "https" if tls else "http"
     return base if port == (443 if tls else 80) else "%s_%d" % (base, port)
@@ -892,12 +975,14 @@ def _render_frontend(port, tls, instances, thumbprint, binds):
         out += [PURGE_RULE]
         out += ["    http-request set-header X-Forwarded-Proto https"]
         out += _acme_rule(thumbprint)
+        out += _alias_redirects(port, tls, instances)
         out += _site_lookup(port)
         out += _client_address_rules(instances)
         return out + _routing(instances)
     out += ["    bind %s" % b for b in binds]
     out += [PURGE_RULE]
     out += _acme_rule(thumbprint)
+    out += _alias_redirects(port, tls, instances)
     plain = [i for i in instances if i["plain"] and i["http_port"] == port]
     secure = [i for i in instances if not i["plain"] and i["http_port"] == port]
     elsewhere = [i for i in secure if i["https_port"] != 443]
@@ -1011,12 +1096,16 @@ def _render_crt_list(entries):
 
 
 def _render_hosts_map(instances):
-    """host@port -> instance/kind, and @port for a port's unnamed instance."""
+    """host@port -> instance/kind (wiki, media or alias), and @port for a
+    port's unnamed instance."""
     lines = []
     for inst in instances:
         for port in _ports_of(inst):
             lines += ["%s@%d %s/wiki" % (h, port, inst["id"]) for h in inst["hostnames"]]
             lines += ["%s@%d %s/media" % (h, port, inst["id"]) for h in inst["media_hostnames"]]
+            # The frontends redirect aliases before routing; listed for the
+            # names doctor reports certificates for.
+            lines += ["%s@%d %s/alias" % (h, port, inst["id"]) for h in sorted(inst["aliases"])]
             if inst["unnamed"]:
                 lines.append("@%d %s/wiki" % (port, inst["id"]))
     return "\n".join(lines) + "\n"

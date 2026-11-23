@@ -37,6 +37,12 @@
         state: read
       register: _reconcile_wikis_data
 
+    - name: Read the existing wikis.yaml.template for its aliases
+      ansible.builtin.slurp:
+        src: "{{ instance_path }}/wikis.yaml.template"
+      register: _reconcile_wikis_tmpl_raw
+      when: _reconcile_wikis_tmpl.stat.exists
+
     # Emit list items at column 0 (block-sequence style matching
     # canasta_wikis_yaml.py's yaml.dump output). render_compose.yml copies
     # this indentation verbatim into config/wikis.yaml, and CanastaBase's
@@ -49,11 +55,19 @@
     # render — which for a backup declaration means the Cargo database
     # quietly stops being captured. sitemap_identifier is copied through for
     # the same reason: it names the wiki's published sitemap files.
+    #
+    # aliases are host-specific, like url: the template keeps its own
+    # entries, placeholders that each host's vars fill in, and never takes
+    # this host's rendered values. A new template starts from the live ones.
     - name: Write wikis.yaml.template from live wikis.yaml
       ansible.builtin.copy:
         content: |
           wikis:
+          {% set tmpl_aliases = (_reconcile_wikis_tmpl_raw.content | default('') | b64decode)
+             | canasta_wikis_template_aliases %}
           {% for w in _reconcile_wikis_data.wikis | default([]) %}
+          {% set aliases = tmpl_aliases.get(w.id | string)
+             if _reconcile_wikis_tmpl.stat.exists else (w.aliases | default([])) %}
           {% set extras = _reconcile_wikis_data.db_groups[loop.index0].databases[1:] %}
           - id: {{ w.id }}
             url: {{ '{{' }}wiki_url_{{ w.id }}{{ '}}' }}
@@ -66,6 +80,12 @@
           {% endif %}
           {% if w.sitemap_identifier is defined %}
             sitemap_identifier: {{ w.sitemap_identifier | string | to_json }}
+          {% endif %}
+          {% if aliases %}
+            aliases:
+          {% for a in aliases if a %}
+            - {{ a | string | to_json }}
+          {% endfor %}
           {% endif %}
           {% endfor %}
         dest: "{{ instance_path }}/wikis.yaml.template"

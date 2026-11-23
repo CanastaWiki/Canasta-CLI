@@ -1436,6 +1436,33 @@ def _caddy_tls_lines(inst):
             "  tls directives: WARN — the instance %s." % canasta_caddyfile.tls_directives_problem(found)]
 
 
+def _caddy_alias_lines(inst):
+    """doctor lines for Caddyfile.global site blocks that a wikis.yaml alias
+    has made redundant: the edge redirects the alias before Caddy sees it.
+    [] when there are none, and on Kubernetes."""
+    path = inst.get("path", "")
+    if not path or _helpers._is_k8s(inst):
+        return []
+    host = inst.get("host") or "localhost"
+    try:
+        aliases = canasta_edge_render.wiki_aliases(
+            _helpers._read_wikis(path, host), inst.get("id", "?"))
+    except canasta_edge_render.EdgeError:
+        return []
+    if not aliases:
+        return []
+    sites = canasta_caddyfile.site_hostnames(
+        _helpers._read_instance_file(path, host, "config/Caddyfile.global") or "")[0]
+    redundant = sorted({s.lower().rstrip(".") for s in sites} & set(aliases))
+    if not redundant:
+        return []
+    return ["", "Caddy configuration (%s):" % inst.get("id", "?"),
+            "  Caddyfile.global: WARN — the site block for %s is never reached, "
+            "because the edge redirects %s as an alias in wikis.yaml. Remove "
+            "the block from config/Caddyfile.global."
+            % (", ".join(redundant), "it" if len(redundant) == 1 else "them")]
+
+
 def _origin_tls_server_names(path, host):
     """Unique hostnames the instance serves, derived from wikis.yaml as
     rewrite_caddy.yml derives the Caddy site address."""
@@ -2170,6 +2197,9 @@ def cmd_doctor(args):
             print(line)
 
         for line in _caddy_tls_lines(inst):
+            print(line)
+
+        for line in _caddy_alias_lines(inst):
             print(line)
 
         if not paused:
