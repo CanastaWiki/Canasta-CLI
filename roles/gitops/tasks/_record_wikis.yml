@@ -5,13 +5,21 @@
 # host vars.yaml cannot show: 'canasta config set' stages the vars before
 # their values reach config/wikis.yaml.
 #
-# Input: instance_path.
+# Input: instance_path. Optional: _record_wikis_only, the fields to record
+# from config/wikis.yaml; the others keep their recorded values.
 
 - name: Read config/wikis.yaml for the record
   ansible.builtin.slurp:
     src: "{{ instance_path }}/config/wikis.yaml"
   register: _record_wikis_raw
   failed_when: false
+
+- name: Read the record it replaces
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-wikis-record"
+  register: _record_wikis_previous
+  failed_when: false
+  when: _record_wikis_only is defined
 
 - name: Write the record of config/wikis.yaml
   ansible.builtin.copy:
@@ -21,5 +29,7 @@
   vars:
     _record_wikis_json: >-
       {{ _record_wikis_raw.content | default('') | b64decode
-         | canasta_wikis_record }}
+         | canasta_wikis_record(
+             _record_wikis_previous.content | default('') | b64decode,
+             _record_wikis_only | default(none)) }}
   when: _record_wikis_json | length > 0

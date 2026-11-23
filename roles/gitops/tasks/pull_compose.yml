@@ -367,6 +367,11 @@
         dest: "{{ instance_path }}/config/wikis.yaml"
         mode: "0644"
 
+- name: Record what config/wikis.yaml was rendered with
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/_record_wikis.yml
+  when: _pull_wikis_template_stat.stat.exists
+
 # --- Step 7b: Reconcile COMPOSE_PROFILES with the rendered flags ---
 # .env is rendered verbatim from env.template + vars, so a stale
 # COMPOSE_PROFILES literal (or a render that dropped internal-db / a feature

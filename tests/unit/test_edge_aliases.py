@@ -144,7 +144,8 @@ def test_without_a_staged_template_nothing_is_held_to_it():
 
 def test_the_record_holds_the_aliases_the_live_file_last_agreed_on():
     record = g.canasta_wikis_record(_live("www.example.com"))
-    assert json.loads(record) == {"aliases": {"main": ["www.example.com"]}}
+    assert json.loads(record) == {"aliases": {"main": ["www.example.com"]},
+                                  "urls": {"main": "example.com"}}
     assert g.canasta_wikis_record("- not a wikis.yaml") == ""
     # A vars change already staged has not reached the live file yet.
     new_vars = dict(VARS, wiki_alias_main_www="www.example.org")
@@ -333,6 +334,7 @@ def test_sync_records_the_aliases_it_agrees_on(tmp_path):
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert json.loads((inst / ".gitops-wikis-record").read_text()) == {
         "aliases": {"main": ["www.example.com"]}}
+    # The urls are recorded by the render, after the .env sync compares them.
 
 
 def test_sync_accepts_a_vars_alias_change_staged_before_it_is_rendered(tmp_path):
