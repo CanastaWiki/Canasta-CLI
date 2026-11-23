@@ -17,11 +17,12 @@
     msg: "Instance '{{ instance_id }}' is already in development mode."
   when: instance_devmode | bool
 
-- name: Check for tls directives before changing anything
+- name: Check that Caddy can start and the edge can serve the instance before changing anything
   canasta_edge:
     state: check
     instance_id: "{{ instance_id }}"
     instance_path: "{{ instance_path }}"
+    edge_config: true
   when: not (instance_is_k8s | bool)
 
 - name: Read base image from .env

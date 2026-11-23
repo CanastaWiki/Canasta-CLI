@@ -184,7 +184,9 @@ def _run(tmp_path, playbook, extra, record=None, **stub):
     src.mkdir(parents=True, exist_ok=True)
     (src / "Dockerfile").write_text("FROM scratch\n")
     site = tmp_path / "site"
-    site.mkdir(exist_ok=True)
+    (site / "config").mkdir(parents=True, exist_ok=True)
+    (site / "config" / "wikis.yaml").write_text(
+        "wikis:\n- id: main\n  url: wiki.example.com\n  name: Main\n")
     entry = {"id": "site", "path": str(site), "orchestrator": "compose",
              "buildFrom": str(tmp_path / "src")}
     entry.update(record or {})

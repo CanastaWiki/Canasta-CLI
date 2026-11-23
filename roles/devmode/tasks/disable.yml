@@ -16,11 +16,12 @@
     msg: "Instance '{{ instance_id }}' is not in development mode."
   when: not (instance_devmode | bool)
 
-- name: Check for tls directives before stopping
+- name: Check that Caddy can start and the edge can serve the instance before stopping
   canasta_edge:
     state: check
     instance_id: "{{ instance_id }}"
     instance_path: "{{ instance_path }}"
+    edge_config: true
   when: not (instance_is_k8s | bool)
 
 - name: Stop containers
