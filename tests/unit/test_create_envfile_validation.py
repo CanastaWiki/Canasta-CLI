@@ -68,6 +68,7 @@ def _create(tmp_path, lines, orchestrator="compose"):
     "TRUSTED_PROXIES=cloudflare", "TRUSTED_PROXIES=imperva@203.0.113.10/32",
     "TLS_MODE_HOSTS=origin.example.net=acme",
     "CANASTA_ELASTICSEARCH_HEAP=768m",
+    "CANASTA_BACKUP_TIMEOUT=360", "CANASTA_BACKUP_TIMEOUT=1",
     "MW_SITEMAP_URL_PATH=/wiki/sitemap",
     "CADDY_TLS_MODE=internal", "CADDY_AUTO_HTTPS=off",
 ])
@@ -84,6 +85,10 @@ def test_good_values_pass(tmp_path, line):
     ("TRUSTED_PROXIES=cloudfalre", "TRUSTED_PROXIES must be"),
     ("TLS_MODE_HOSTS=origin.example.net=letsencrypt", "TLS_MODE_HOSTS must be"),
     ("CANASTA_ELASTICSEARCH_HEAP=4gb", "CANASTA_ELASTICSEARCH_HEAP must be"),
+    ("CANASTA_BACKUP_TIMEOUT=0", "CANASTA_BACKUP_TIMEOUT must be a whole number of minutes"),
+    ("CANASTA_BACKUP_TIMEOUT=abc", "CANASTA_BACKUP_TIMEOUT must be a whole number of minutes"),
+    ("CANASTA_BACKUP_TIMEOUT=-5", "CANASTA_BACKUP_TIMEOUT must be a whole number of minutes"),
+    ("CANASTA_BACKUP_TIMEOUT=1.5", "CANASTA_BACKUP_TIMEOUT must be a whole number of minutes"),
     ("MW_SITEMAP_URL_PATH=/wiki/sitemap/", "MW_SITEMAP_URL_PATH must be a URL path"),
     # An old name is checked under the name create renames it to.
     ("CADDY_TLS_MODE=acmee", "TLS_MODE must be"),
