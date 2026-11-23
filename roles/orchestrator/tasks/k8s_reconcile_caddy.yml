@@ -62,6 +62,7 @@
          | to_nice_yaml(indent=2) }}
     dest: "{{ instance_path }}/values.yaml"
     mode: "0644"
+  register: _reconcile_caddy_written
   when: >-
     _reconcile_current_crowdsec_on != (_reconcile_crowdsec_on | bool)
     or (_reconcile_image_managed | bool and _reconcile_current_image != _reconcile_desired_image)

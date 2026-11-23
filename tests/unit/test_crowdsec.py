@@ -507,6 +507,23 @@ class TestCrowdsecBundledFiles:
         content = _read(path)
         assert "ghcr.io/canastawiki/canasta-caddy" in content
 
+    def test_image_tag_matches_caddy_version_everywhere(self):
+        # The image is tagged by its Caddy version. The Dockerfile's
+        # CADDY_VERSION, the tag the workflow publishes and the tag
+        # instances run (canasta_caddy_plugin_image) must agree, or
+        # instances pull a tag that was never built.
+        dockerfile = _read(os.path.join(
+            REPO_ROOT, "images", "caddy", "Dockerfile"))
+        caddy = re.search(r"^ARG CADDY_VERSION=(\S+)$", dockerfile, re.M)
+        assert caddy, "Dockerfile must pin ARG CADDY_VERSION"
+        version = caddy.group(1)
+        workflow = _read(os.path.join(
+            REPO_ROOT, ".github", "workflows", "docker-caddy.yml"))
+        assert "type=raw,value=%s\n" % version in workflow
+        images = _read(os.path.join(REPO_ROOT, "vars", "images.yml"))
+        assert ('canasta_caddy_plugin_image: '
+                '"ghcr.io/canastawiki/canasta-caddy:%s"' % version) in images
+
 
 class TestCrowdsecCommands:
     def _defs(self):

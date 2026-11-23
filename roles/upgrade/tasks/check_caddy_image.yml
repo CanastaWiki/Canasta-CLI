@@ -1,0 +1,85 @@
+---
+# Detect that the instance runs an older tag of the managed Caddy plugin
+# image (canasta_caddy_plugin_image), so the upgrade restarts it onto the
+# current one. The image pull only compares the Canasta image, and a restart
+# is what reconciles the Caddy image (sync_compose_profiles.yml on Compose,
+# k8s_reconcile_caddy.yml on Kubernetes), so without this an instance keeps
+# the old Caddy until its next start.
+#
+# Only a managed tag counts: an operator's own CANASTA_CADDY_IMAGE or
+# caddy.image is left alone, as the reconciles leave it.
+# Input: instance_path, _was_running, _upgrade_caddy_env_before (Compose:
+#   CANASTA_CADDY_IMAGE as read before the stack files were rewritten)
+# Output: _upgrade_caddy_image_changed (bool)
+
+- name: Reset the Caddy image change signal for this instance
+  ansible.builtin.set_fact:
+    _upgrade_caddy_image_changed: false
+    _upgrade_caddy_managed_prefix: >-
+      {{ canasta_caddy_plugin_image | regex_replace(':[^:]*$', ':') }}
+
+- name: Check the Caddy image (Compose)
+  when: not (instance_is_k8s | bool)
+  block:
+    - name: Read CANASTA_CADDY_IMAGE from .env
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: CANASTA_CADDY_IMAGE
+      register: _upgrade_caddy_env
+
+    # The value the profile sync writes: the current managed tag in place
+    # of an older one. Writing the stack files usually did this already;
+    # the value from before that write is what shows the change.
+    - name: Move .env to the current managed Caddy image
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: CANASTA_CADDY_IMAGE
+        value: "{{ canasta_caddy_plugin_image }}"
+      register: _upgrade_caddy_env_set
+      when:
+        - (_upgrade_caddy_env.value | default('', true)).startswith(_upgrade_caddy_managed_prefix)
+        - _upgrade_caddy_env.value != canasta_caddy_plugin_image
+
+    # Also catches a running caddy container that lags a .env another
+    # command already moved. Compared only against the managed repository,
+    # whose reference the runtime reports as written.
+    - name: Read the image the running caddy container uses
+      ansible.builtin.command:
+        cmd: >-
+          {{ inspect_command | default('docker') }}
+          ps --filter label=com.docker.compose.project={{ instance_path | basename | lower }}
+          --filter label=com.docker.compose.service=caddy
+          --format {% raw %}{{.Image}}{% endraw %}
+      register: _upgrade_caddy_running
+      changed_when: false
+      failed_when: false
+      when: _was_running | bool
+
+    - name: Note whether the Caddy image changes (Compose)
+      ansible.builtin.set_fact:
+        _upgrade_caddy_image_changed: >-
+          {{ (_upgrade_caddy_env_set is changed)
+             or (((_upgrade_caddy_env_before.value | default('', true))
+                  .startswith(_upgrade_caddy_managed_prefix))
+                 and _upgrade_caddy_env_before.value != canasta_caddy_plugin_image)
+             or ((_upgrade_caddy_running.stdout_lines | default([]))
+                 | select('match', '^' ~ (_upgrade_caddy_managed_prefix | regex_escape))
+                 | reject('equalto', canasta_caddy_plugin_image)
+                 | list | length > 0) }}
+
+# The reconcile a start runs before it deploys, run here so a values.yaml
+# still on an older managed tag counts as a change: a running instance is
+# redeployed onto it, and a gitops-managed one has it staged for the push.
+- name: Check the Caddy image (Kubernetes)
+  when: instance_is_k8s | bool
+  block:
+    - name: Reconcile the caddy image in values.yaml
+      ansible.builtin.include_role:
+        name: orchestrator
+        tasks_from: k8s_reconcile_caddy.yml
+
+    - name: Note whether the Caddy image changes (Kubernetes)
+      ansible.builtin.set_fact:
+        _upgrade_caddy_image_changed: "{{ _reconcile_caddy_written is changed }}"
