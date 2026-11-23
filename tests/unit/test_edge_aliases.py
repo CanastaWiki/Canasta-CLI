@@ -143,9 +143,9 @@ def test_without_a_staged_template_nothing_is_held_to_it():
 
 
 def test_the_record_holds_the_aliases_the_live_file_last_agreed_on():
-    record = g.canasta_wikis_alias_record(_live("www.example.com"))
-    assert json.loads(record) == {"main": ["www.example.com"]}
-    assert g.canasta_wikis_alias_record("- not a wikis.yaml") == ""
+    record = g.canasta_wikis_record(_live("www.example.com"))
+    assert json.loads(record) == {"aliases": {"main": ["www.example.com"]}}
+    assert g.canasta_wikis_record("- not a wikis.yaml") == ""
     # A vars change already staged has not reached the live file yet.
     new_vars = dict(VARS, wiki_alias_main_www="www.example.org")
     assert g.canasta_wikis_alias_edits(_live("www.example.com"), TEMPLATE,
@@ -153,7 +153,7 @@ def test_the_record_holds_the_aliases_the_live_file_last_agreed_on():
 
 
 def test_aliases_that_differ_from_the_record_and_the_sources_are_edits():
-    record = g.canasta_wikis_alias_record(_live("www.example.com"))
+    record = g.canasta_wikis_record(_live("www.example.com"))
     assert g.canasta_wikis_alias_edits(_live("example.net"), TEMPLATE,
                                        TEMPLATE, VARS, VARS, record) == ["main"]
     # The live file as the sources render it now is never an edit.
@@ -177,10 +177,10 @@ def test_the_record_is_written_wherever_config_wikis_yaml_is_rendered():
             tasks = yaml.safe_load(f)
         names = [t.get("name") for t in tasks]
         record = [i for i, t in enumerate(tasks)
-                  if "_record_wikis_aliases.yml" in str(t.get("ansible.builtin.include_tasks"))]
+                  if "_record_wikis.yml" in str(t.get("ansible.builtin.include_tasks"))]
         assert record and record[0] > names.index(before), path
     with open(os.path.join(TASKS, "gitops", "files", "gitignore.default")) as f:
-        assert ".gitops-wikis-aliases" in f.read().split()
+        assert ".gitops-wikis-record" in f.read().split()
 
 
 def _capture(live_wikis, template=None):
@@ -331,8 +331,8 @@ def test_sync_records_the_aliases_it_agrees_on(tmp_path):
     inst = _gitops_repo(tmp_path, RENDERED)
     proc = _run_sync(tmp_path, inst)
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert json.loads((inst / ".gitops-wikis-aliases").read_text()) == {
-        "main": ["www.example.com"]}
+    assert json.loads((inst / ".gitops-wikis-record").read_text()) == {
+        "aliases": {"main": ["www.example.com"]}}
 
 
 def test_sync_accepts_a_vars_alias_change_staged_before_it_is_rendered(tmp_path):

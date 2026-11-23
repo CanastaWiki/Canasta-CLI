@@ -152,12 +152,12 @@ def _aliases_by_wiki(content):
     return out
 
 
-def canasta_wikis_alias_record(content):
-    """The record of config/wikis.yaml's aliases that the alias check holds
-    a later live file to: JSON {wiki id: sorted aliases}; "" if the content
-    is not a wikis.yaml."""
+def canasta_wikis_record(content):
+    """The record of config/wikis.yaml's host-specific fields that the
+    gitops syncs hold a later live file to: JSON {"aliases": {wiki id:
+    sorted aliases}}; "" if the content is not a wikis.yaml."""
     aliases = _aliases_by_wiki(content)
-    return "" if aliases is None else json.dumps(aliases, sort_keys=True)
+    return "" if aliases is None else json.dumps({"aliases": aliases}, sort_keys=True)
 
 
 def canasta_wikis_alias_edits(live, template, base, values, base_values,
@@ -165,7 +165,7 @@ def canasta_wikis_alias_edits(live, template, base, values, base_values,
     """The wikis whose aliases in config/wikis.yaml were edited there.
 
     Under gitops a wiki's aliases come from wikis.yaml.template and the host
-    vars. ``recorded`` is the canasta_wikis_alias_record of the live file as
+    vars. ``recorded`` is the canasta_wikis_record of the live file as
     it was when it last agreed with them; aliases that differ from it and
     from what the template and vars render to now were edited in
     config/wikis.yaml. Without a record, the template and vars as staged
@@ -177,8 +177,8 @@ def canasta_wikis_alias_edits(live, template, base, values, base_values,
         return []
     now = _aliases_by_wiki(_render_placeholders(template, values or {}))
     try:
-        rec = json.loads(recorded) if str(recorded or "").strip() else None
-    except ValueError:
+        rec = json.loads(recorded).get("aliases") if str(recorded or "").strip() else None
+    except (ValueError, AttributeError):
         rec = None
     if isinstance(rec, dict):
         expected = [rec, now]
@@ -852,7 +852,7 @@ class FilterModule(object):
             "canasta_wiki_ingress_domains": canasta_wiki_ingress_domains,
             "canasta_wikis_with_aliases": canasta_wikis_with_aliases,
             "canasta_wikis_alias_edits": canasta_wikis_alias_edits,
-            "canasta_wikis_alias_record": canasta_wikis_alias_record,
+            "canasta_wikis_record": canasta_wikis_record,
             "canasta_wikis_template_aliases": canasta_wikis_template_aliases,
             "canasta_git_remote_failure": canasta_git_remote_failure,
             "canasta_git_remote_known_hosts_name":
