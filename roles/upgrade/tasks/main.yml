@@ -33,6 +33,17 @@
   ansible.builtin.set_fact:
     _was_running: "{{ _container_running | default(false) | bool }}"
 
+# Writing the stack files reconciles CANASTA_CADDY_IMAGE in .env, so the
+# Caddy image check needs the value from before it.
+- name: Record the Caddy image before the stack files are rewritten
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: CANASTA_CADDY_IMAGE
+  register: _upgrade_caddy_env_before
+  failed_when: false
+  when: not (instance_is_k8s | bool)
+
 # --- Migrations ---
 - name: Report checking migrations
   ansible.builtin.debug:
@@ -324,6 +335,9 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/upgrade_rebuild_buildable.yml
 
+- name: Check whether the managed Caddy image changes
+  ansible.builtin.include_tasks: check_caddy_image.yml
+
 # Left by a run whose restart of this instance failed. That run already
 # pointed .env at the new image, so nothing else here would see a change,
 # and the instance would be reported up to date without ever having come
@@ -338,8 +352,8 @@
     _upgrade_incomplete: "{{ _upgrade_incomplete_marker.stat.exists }}"
 
 # A compose-only change (e.g. gaining the crowdsec service), a chart-only
-# change on Kubernetes, or .env values the migrations quoted, must also
-# trigger a recreate, not just an image bump.
+# change on Kubernetes, a new managed Caddy image, or .env values the
+# migrations quoted, must also trigger a recreate, not just an image bump.
 # A build_from instance pulls nothing, so _images_updated stays false for it;
 # it restarts when its rebuilt image differs from the one it runs.
 # An instance whose custom image failed to build keeps its current
@@ -351,6 +365,7 @@
       {{ ((_images_updated | bool)
           or (_compose_stack_copy is defined and _compose_stack_copy is changed)
           or (_k8s_chart_changed | default(false) | bool)
+          or (_upgrade_caddy_image_changed | default(false) | bool)
           or (_upgrade_rebuilt_image_changed | bool)
           or (_upgrade_incomplete | default(false) | bool)
           or (_mig_requote is defined and _mig_requote is changed))
@@ -495,7 +510,8 @@
     - name: Decide whether the instance awaits a gitops push
       ansible.builtin.set_fact:
         _upgrade_gitops_pending: >-
-          {{ _upgrade_gitops_diff.rc == 1 or (_images_updated | bool) }}
+          {{ _upgrade_gitops_diff.rc == 1 or (_images_updated | bool)
+             or (_upgrade_caddy_image_changed | default(false) | bool) }}
 
     # A rebuilt image is pushed under the same reference, so the pushed
     # values do not change and Argo CD would not roll the pods onto it.
