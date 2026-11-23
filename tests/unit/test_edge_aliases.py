@@ -142,6 +142,47 @@ def test_without_a_staged_template_nothing_is_held_to_it():
                                        VARS, {}) == []
 
 
+def test_the_record_holds_the_aliases_the_live_file_last_agreed_on():
+    record = g.canasta_wikis_alias_record(_live("www.example.com"))
+    assert json.loads(record) == {"main": ["www.example.com"]}
+    assert g.canasta_wikis_alias_record("- not a wikis.yaml") == ""
+    # A vars change already staged has not reached the live file yet.
+    new_vars = dict(VARS, wiki_alias_main_www="www.example.org")
+    assert g.canasta_wikis_alias_edits(_live("www.example.com"), TEMPLATE,
+                                       TEMPLATE, new_vars, new_vars, record) == []
+
+
+def test_aliases_that_differ_from_the_record_and_the_sources_are_edits():
+    record = g.canasta_wikis_alias_record(_live("www.example.com"))
+    assert g.canasta_wikis_alias_edits(_live("example.net"), TEMPLATE,
+                                       TEMPLATE, VARS, VARS, record) == ["main"]
+    # The live file as the sources render it now is never an edit.
+    new_vars = dict(VARS, wiki_alias_main_www="www.example.org")
+    assert g.canasta_wikis_alias_edits(_live("www.example.org"), TEMPLATE,
+                                       TEMPLATE, new_vars, new_vars, record) == []
+
+
+def test_an_unreadable_record_falls_back_to_the_staged_sources():
+    assert g.canasta_wikis_alias_edits(_live("example.net"), TEMPLATE, TEMPLATE,
+                                       VARS, VARS, "not json") == ["main"]
+    assert g.canasta_wikis_alias_edits(_live("www.example.com"), TEMPLATE, TEMPLATE,
+                                       VARS, VARS, "") == []
+
+
+def test_the_record_is_written_wherever_config_wikis_yaml_is_rendered():
+    for path, before in (("gitops/tasks/render_compose.yml", "Render wikis.yaml from template"),
+                         ("gitops/tasks/sync_wikis_yaml.yml",
+                          "Stage the template once it agrees with config/wikis.yaml")):
+        with open(os.path.join(TASKS, *path.split("/"))) as f:
+            tasks = yaml.safe_load(f)
+        names = [t.get("name") for t in tasks]
+        record = [i for i, t in enumerate(tasks)
+                  if "_record_wikis_aliases.yml" in str(t.get("ansible.builtin.include_tasks"))]
+        assert record and record[0] > names.index(before), path
+    with open(os.path.join(TASKS, "gitops", "files", "gitignore.default")) as f:
+        assert ".gitops-wikis-aliases" in f.read().split()
+
+
 def _capture(live_wikis, template=None):
     task = _task("gitops/tasks/_reconcile_wikis_template.yml",
                  "Write wikis.yaml.template from live wikis.yaml")
@@ -261,8 +302,9 @@ def test_sync_refuses_an_alias_edited_in_config_wikis_yaml(tmp_path):
     inst = _gitops_repo(tmp_path, RENDERED.replace('""', '"example.net"'))
     proc = _run_sync(tmp_path, inst)
     assert proc.returncode != 0
-    assert "aliases of wiki main were" in proc.stdout
-    assert "come from wikis.yaml.template" in " ".join(proc.stdout.split())
+    out = " ".join((proc.stdout + proc.stderr).split())
+    assert "aliases of wiki main were" in out
+    assert "come from wikis.yaml.template" in out
 
 
 def test_sync_renders_a_template_edit_with_the_host_aliases(tmp_path):
@@ -282,3 +324,22 @@ def test_sync_captures_a_live_edit_and_keeps_the_alias_placeholders(tmp_path):
     template = (inst / "wikis.yaml.template").read_text()
     assert '"Main Wiki"' in template
     assert '"{{wiki_alias_main_www}}"' in template and "www.example.com" not in template
+
+
+def test_sync_records_the_aliases_it_agrees_on(tmp_path):
+    inst = _gitops_repo(tmp_path, RENDERED)
+    proc = _run_sync(tmp_path, inst)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads((inst / ".gitops-wikis-aliases").read_text()) == {
+        "main": ["www.example.com"]}
+
+
+def test_sync_accepts_a_vars_alias_change_staged_before_it_is_rendered(tmp_path):
+    inst = _gitops_repo(tmp_path, RENDERED)
+    assert _run_sync(tmp_path, inst).returncode == 0
+    # 'canasta config set' stages the vars before the render that applies them.
+    (inst / "hosts" / "prod" / "vars.yaml").write_text(
+        yaml.safe_dump(dict(VARS, wiki_alias_main_www="www.example.org")))
+    _git(inst, "add", "hosts/prod/vars.yaml")
+    proc = _run_sync(tmp_path, inst)
+    assert proc.returncode == 0, proc.stdout + proc.stderr

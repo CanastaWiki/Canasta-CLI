@@ -58,6 +58,15 @@
 # A wiki's aliases are host-specific: wikis.yaml.template names them with
 # placeholders that this host's vars fill in, so an edit made in
 # config/wikis.yaml has nowhere to go and would be lost on the next render.
+# The live file's aliases are held to the record of them written whenever
+# it last agreed with its sources.
+- name: Read the alias record
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-wikis-aliases"
+  register: _sync_wikis_alias_record
+  failed_when: false
+  when: _sync_wikis_active | bool
+
 - name: Read the host name for the alias check
   ansible.builtin.slurp:
     src: "{{ instance_path }}/.gitops-host"
@@ -102,7 +111,8 @@
              _sync_wikis_tmpl_raw.content | b64decode,
              _sync_wikis_base.stdout,
              (_v[1] | b64decode | from_yaml or {}) | combine(_v[0] | b64decode | from_yaml or {}),
-             (_v[3] | b64decode | from_yaml or {}) | combine(_v[2] | b64decode | from_yaml or {})) }}
+             (_v[3] | b64decode | from_yaml or {}) | combine(_v[2] | b64decode | from_yaml or {}),
+             _sync_wikis_alias_record.content | default('') | b64decode) }}
   vars:
     _v: "{{ _sync_wikis_vars.stdout_lines }}"
   no_log: true  # reads the host vars
@@ -164,4 +174,9 @@
     cmd: git add -- wikis.yaml.template
     chdir: "{{ instance_path }}"
   changed_when: false
+  when: _sync_wikis_active | bool
+
+- name: Record the aliases config/wikis.yaml now agrees on
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/_record_wikis_aliases.yml
   when: _sync_wikis_active | bool

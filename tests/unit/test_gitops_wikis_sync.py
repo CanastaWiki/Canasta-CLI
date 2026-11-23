@@ -125,7 +125,9 @@ class TestWiring:
                     if t.get("name") == "Read the template as staged")
         assert read["ansible.builtin.shell"]["cmd"].startswith(
             "git show :wikis.yaml.template")
-        assert tasks[-1]["ansible.builtin.command"]["cmd"] == (
+        stage = next(t for t in tasks if t.get("name") ==
+                     "Stage the template once it agrees with config/wikis.yaml")
+        assert stage["ansible.builtin.command"]["cmd"] == (
             "git add -- wikis.yaml.template")
 
     def test_reconcile_syncs_before_regenerating_config(self):

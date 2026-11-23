@@ -152,22 +152,40 @@ def _aliases_by_wiki(content):
     return out
 
 
-def canasta_wikis_alias_edits(live, template, base, values, base_values):
+def canasta_wikis_alias_record(content):
+    """The record of config/wikis.yaml's aliases that the alias check holds
+    a later live file to: JSON {wiki id: sorted aliases}; "" if the content
+    is not a wikis.yaml."""
+    aliases = _aliases_by_wiki(content)
+    return "" if aliases is None else json.dumps(aliases, sort_keys=True)
+
+
+def canasta_wikis_alias_edits(live, template, base, values, base_values,
+                              recorded=None):
     """The wikis whose aliases in config/wikis.yaml were edited there.
 
     Under gitops a wiki's aliases come from wikis.yaml.template and the host
-    vars. The live file's aliases are expected to be what the template and
-    vars render to, as they are now or as staged; anything else was edited
-    in config/wikis.yaml. With no staged template there is nothing to hold
-    the live file to.
+    vars. ``recorded`` is the canasta_wikis_alias_record of the live file as
+    it was when it last agreed with them; aliases that differ from it and
+    from what the template and vars render to now were edited in
+    config/wikis.yaml. Without a record, the template and vars as staged
+    stand in for it, and with no staged template either there is nothing to
+    hold the live file to.
     """
-    if not str(base or "").strip():
-        return []
     live_a = _aliases_by_wiki(live)
     if live_a is None:
         return []
-    expected = [_aliases_by_wiki(_render_placeholders(t, v or {}))
-                for t, v in ((template, values), (base, base_values))]
+    now = _aliases_by_wiki(_render_placeholders(template, values or {}))
+    try:
+        rec = json.loads(recorded) if str(recorded or "").strip() else None
+    except ValueError:
+        rec = None
+    if isinstance(rec, dict):
+        expected = [rec, now]
+    elif not str(base or "").strip():
+        return []
+    else:
+        expected = [now, _aliases_by_wiki(_render_placeholders(base, base_values or {}))]
     ids = set(live_a)
     for e in expected:
         ids |= set(e or {})
@@ -834,6 +852,7 @@ class FilterModule(object):
             "canasta_wiki_ingress_domains": canasta_wiki_ingress_domains,
             "canasta_wikis_with_aliases": canasta_wikis_with_aliases,
             "canasta_wikis_alias_edits": canasta_wikis_alias_edits,
+            "canasta_wikis_alias_record": canasta_wikis_alias_record,
             "canasta_wikis_template_aliases": canasta_wikis_template_aliases,
             "canasta_git_remote_failure": canasta_git_remote_failure,
             "canasta_git_remote_known_hosts_name":
