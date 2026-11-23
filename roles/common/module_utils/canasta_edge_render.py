@@ -655,6 +655,12 @@ def _acme_rule(thumbprint):
     ]
 
 
+# Varnish accepts PURGE from any private address, which includes every
+# instance's Caddy, and MediaWiki purges Varnish directly, never through
+# the edge.
+PURGE_RULE = "    http-request deny deny_status 405 if { method PURGE }"
+
+
 def _list_path(name):
     return "%s/%s" % (CONFIG_DIR, name)
 
@@ -883,12 +889,14 @@ def _render_frontend(port, tls, instances, thumbprint, binds):
     if tls:
         out += ["    bind %s ssl crt-list %s/crt-list alpn h2,http/1.1" % (b, CONFIG_DIR)
                 for b in binds]
+        out += [PURGE_RULE]
         out += ["    http-request set-header X-Forwarded-Proto https"]
         out += _acme_rule(thumbprint)
         out += _site_lookup(port)
         out += _client_address_rules(instances)
         return out + _routing(instances)
     out += ["    bind %s" % b for b in binds]
+    out += [PURGE_RULE]
     out += _acme_rule(thumbprint)
     plain = [i for i in instances if i["plain"] and i["http_port"] == port]
     secure = [i for i in instances if not i["plain"] and i["http_port"] == port]

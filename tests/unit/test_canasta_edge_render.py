@@ -130,6 +130,31 @@ def test_challenge_is_answered_on_both_frontends():
         assert "acme-challenge" in section and "THUMB" in section, name
 
 
+def _frontends(cfg):
+    return [s for s in re.split(r"\n(?=\S)", cfg) if s.startswith("frontend ")]
+
+
+def _first_rule(section):
+    return next(l for l in section.splitlines() if l.strip().startswith("http-request"))
+
+
+def test_purge_is_refused_first_on_every_frontend():
+    plain = _inst("plain", ("plain.example.net",), {"TLS_MODE": "off", "HTTP_PORT": "8080"})
+    cfg = edge.render(_two() + [plain], acme_thumbprint="THUMB")["files"]["haproxy.cfg"]
+    frontends = _frontends(cfg)
+    assert {s.splitlines()[0] for s in frontends} >= {
+        "frontend http", "frontend https", "frontend http_8080"}
+    for section in frontends:
+        assert _first_rule(section) == edge.PURGE_RULE, section.splitlines()[0]
+
+
+def test_purge_is_refused_on_a_redirect_only_frontend():
+    cfg = edge.render([_inst()])["files"]["haproxy.cfg"]
+    section = next(s for s in _frontends(cfg) if s.startswith("frontend http\n"))
+    assert "redirect scheme https" in section
+    assert _first_rule(section) == edge.PURGE_RULE
+
+
 def test_a_hostname_served_by_two_instances_is_refused():
     with pytest.raises(edge.EdgeError, match="'a' and 'b' both serve example.com"):
         edge.render([_inst("a"), _inst("b")])
