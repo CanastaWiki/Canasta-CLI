@@ -437,6 +437,9 @@
     - name: Find where database administration runs
       ansible.builtin.include_tasks: db_admin.yml
 
+    - name: Find how long each database import may run
+      ansible.builtin.include_tasks: backup_time_limit.yml
+
     - name: Import each wiki database dump
       ansible.builtin.include_tasks: resilient_exec.yml
       vars:
@@ -446,8 +449,9 @@
           '{{ _db_admin_pwd }} exec mariadb {{ _db_admin_args }}'
           < {{ (instance_path ~ '/config/backup/db_' ~ item ~ '.sql') | quote }}
         rx_chdir: "{{ instance_path }}"
-        rx_async: 3600
-        rx_retries: 360
+        rx_async: "{{ _backup_time_limit }}"
+        rx_retries: "{{ ((_backup_time_limit | int) / 10) | int }}"
+        rx_timeout_hint: "{{ _backup_time_limit_hint }}"
       loop: >-
         {{ [wiki] if wiki is defined else _restore_import_wikis }}
 

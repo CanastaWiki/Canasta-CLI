@@ -36,6 +36,10 @@
   ansible.builtin.include_tasks: db_admin.yml
   when: not (instance_is_k8s | bool)
 
+- name: Find how long each database dump may run (Compose)
+  ansible.builtin.include_tasks: backup_time_limit.yml
+  when: not (instance_is_k8s | bool)
+
 # The dumps are written from the host, so the staging directory has to be
 # the host user's. A directory a previous run left from inside the web
 # container belongs to that container's root, so remove it first.

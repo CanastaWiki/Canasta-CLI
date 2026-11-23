@@ -1,0 +1,31 @@
+---
+# How long one database dump or import may run (Compose).
+#
+# Input: instance_path
+# Output: _backup_time_limit - seconds
+#         _backup_time_limit_hint - how to allow more time, for the error
+
+- name: Read the backup time limit from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: CANASTA_BACKUP_TIMEOUT
+  register: _backup_time_limit_env
+
+- name: Check the backup time limit
+  ansible.builtin.fail:
+    msg: >-
+      CANASTA_BACKUP_TIMEOUT must be a whole number of minutes greater than
+      0, not '{{ _backup_time_limit_env.value }}'. Nothing was changed.
+  when:
+    - _backup_time_limit_env.value | default('') | length > 0
+    - not (_backup_time_limit_env.value | trim is match('^[0-9]+$'))
+      or (_backup_time_limit_env.value | int) < 1
+
+- name: Set the backup time limit
+  ansible.builtin.set_fact:
+    _backup_time_limit: >-
+      {{ (_backup_time_limit_env.value | default(240, true) | int) * 60 }}
+    _backup_time_limit_hint: >-
+      To allow more time, run: canasta config set
+      CANASTA_BACKUP_TIMEOUT=<minutes> -i {{ instance_id }} --no-restart

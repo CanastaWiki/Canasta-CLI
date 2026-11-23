@@ -1,7 +1,8 @@
 ---
 # Dump one wiki's database group (Compose) and record it if it failed.
 #
-# Input: item (a db_groups entry), instance_path, dump_command (a host
+# Input: item (a db_groups entry), instance_path, _backup_time_limit,
+#        _backup_time_limit_hint, dump_command (a host
 #        shell command that prints "DUMP-FAILED <db>: <error>" for each
 #        database it could not dump)
 # Output: _backup_dump_failures, appended to
@@ -13,8 +14,9 @@
     rx_name: "dump {{ item.wiki }}"
     rx_cmd: "{{ dump_command }}"
     rx_chdir: "{{ instance_path }}"
-    rx_async: "{{ backup_dump_timeout | default(3600) }}"
-    rx_retries: "{{ ((backup_dump_timeout | default(3600) | int) / 10) | int }}"
+    rx_async: "{{ _backup_time_limit }}"
+    rx_retries: "{{ ((_backup_time_limit | int) / 10) | int }}"
+    rx_timeout_hint: "{{ _backup_time_limit_hint }}"
 
 - name: Collect the group's dump failure
   ansible.builtin.set_fact:
