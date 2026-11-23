@@ -90,6 +90,13 @@
   failed_when: false
   when: _sync_env_active | bool
 
+- name: Read the record of config/wikis.yaml for the url sync
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-wikis-record"
+  register: _sync_url_record
+  failed_when: false
+  when: _sync_env_active | bool
+
 # A wiki's url is rendered from its wiki_url_<id> var, not from
 # wikis.yaml.template, so the wikis.yaml sync leaves it to this one.
 - name: Compare the wiki urls with the host vars
@@ -101,7 +108,8 @@
              | combine(_src[1] | b64decode | from_yaml or {}),
              ((_src[5] | b64decode | from_yaml or {})
               | combine(_src[4] | b64decode | from_yaml or {}))
-             if (_src[4] | length or _src[5] | length) else none) }}
+             if (_src[4] | length or _src[5] | length) else none,
+             _sync_url_record.content | default('') | b64decode) }}
   vars:
     _src: "{{ _sync_env_sources.stdout_lines }}"
   no_log: true  # registers the host vars

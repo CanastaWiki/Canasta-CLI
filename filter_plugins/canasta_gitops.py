@@ -152,12 +152,48 @@ def _aliases_by_wiki(content):
     return out
 
 
-def canasta_wikis_record(content):
+def _urls_by_wiki(content):
+    """{wiki id: url} for the wikis that have one; None if the content is
+    not a wikis.yaml."""
+    try:
+        doc = yaml.safe_load(str(content or "")) or {}
+    except yaml.YAMLError:
+        return None
+    if not isinstance(doc, dict):
+        return None
+    return {str(w["id"]): str(w["url"]) for w in doc.get("wikis") or []
+            if isinstance(w, dict) and w.get("id") and w.get("url")}
+
+
+def _record_field(recorded, field):
+    """The field of a canasta_wikis_record, or None when there is no
+    readable record holding it."""
+    try:
+        value = json.loads(recorded).get(field) if str(recorded or "").strip() else None
+    except (ValueError, AttributeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def canasta_wikis_record(content, previous="", only=None):
     """The record of config/wikis.yaml's host-specific fields that the
     gitops syncs hold a later live file to: JSON {"aliases": {wiki id:
-    sorted aliases}}; "" if the content is not a wikis.yaml."""
-    aliases = _aliases_by_wiki(content)
-    return "" if aliases is None else json.dumps({"aliases": aliases}, sort_keys=True)
+    sorted aliases}, "urls": {wiki id: url}}; "" if the content is not a
+    wikis.yaml. With ``only``, the other fields are kept from ``previous``,
+    the record they replace, and left out when it has none.
+    """
+    fields = {"aliases": _aliases_by_wiki(content), "urls": _urls_by_wiki(content)}
+    if fields["aliases"] is None:
+        return ""
+    if only:
+        for field in list(fields):
+            if field not in only:
+                kept = _record_field(previous, field)
+                if kept is None:
+                    del fields[field]
+                else:
+                    fields[field] = kept
+    return json.dumps(fields, sort_keys=True)
 
 
 def canasta_wikis_alias_edits(live, template, base, values, base_values,
@@ -176,11 +212,8 @@ def canasta_wikis_alias_edits(live, template, base, values, base_values,
     if live_a is None:
         return []
     now = _aliases_by_wiki(_render_placeholders(template, values or {}))
-    try:
-        rec = json.loads(recorded).get("aliases") if str(recorded or "").strip() else None
-    except (ValueError, AttributeError):
-        rec = None
-    if isinstance(rec, dict):
+    rec = _record_field(recorded, "aliases")
+    if rec is not None:
         expected = [rec, now]
     elif not str(base or "").strip():
         return []
@@ -569,16 +602,19 @@ def canasta_cli_version_list(hosts):
                      for h in hosts or [])
 
 
-def canasta_wiki_url_sync_plan(live_wikis, env_vars, base_vars=None):
+def canasta_wiki_url_sync_plan(live_wikis, env_vars, base_vars=None, recorded=None):
     """Decide which config/wikis.yaml urls to write into the host vars.
 
     On a gitops instance each wiki's url is rendered from its
     ``wiki_url_<id>`` var, which wikis.yaml.template references. A url
     edited only in config/wikis.yaml goes into the vars (``set``, a list of
     ``{id, url}``); one edited only in the vars is left for the render;
-    edits to both that disagree are a ``conflict``. ``base_vars`` are the
-    vars as staged; with none, the live file wins.
+    edits to both that disagree are a ``conflict``. Each is told from the
+    url ``recorded`` (a canasta_wikis_record) when config/wikis.yaml last
+    agreed with the vars; a wiki it does not hold is told from
+    ``base_vars``, the vars as staged, and with neither the live file wins.
     """
+    recorded_urls = _record_field(recorded, "urls") or {}
     try:
         doc = yaml.safe_load(str(live_wikis or "")) or {}
     except yaml.YAMLError:
@@ -591,8 +627,8 @@ def canasta_wiki_url_sync_plan(live_wikis, env_vars, base_vars=None):
         if not isinstance(wiki, dict) or not wiki.get("id") or not wiki.get("url"):
             continue
         key = "wiki_url_%s" % wiki["id"]
-        mine, current, old = (str(wiki["url"]), env_vars.get(key),
-                              base_vars.get(key))
+        mine, current = str(wiki["url"]), env_vars.get(key)
+        old = recorded_urls.get(str(wiki["id"]), base_vars.get(key))
         if mine == current or mine == old:
             continue
         if current == old:

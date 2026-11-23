@@ -176,7 +176,10 @@
   changed_when: false
   when: _sync_wikis_active | bool
 
-- name: Record what config/wikis.yaml now agrees on
+# A url edited in config/wikis.yaml is the .env sync's to find, after this.
+- name: Record the aliases config/wikis.yaml now agrees on
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/_record_wikis.yml
+  vars:
+    _record_wikis_only: [aliases]
   when: _sync_wikis_active | bool

@@ -6,6 +6,7 @@ mistaken for one: the side that differs from the last-applied render is the
 one that was edited.
 """
 
+import json
 import os
 import sys
 
@@ -17,6 +18,7 @@ from canasta_gitops import (  # noqa: E402
     canasta_env_render as render,
     canasta_env_sync_plan as plan,
     canasta_wiki_url_sync_plan as url_plan,
+    canasta_wikis_record as record,
 )
 
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
@@ -169,6 +171,50 @@ class TestUrlPlan:
         live = WIKIS.replace("wiki.example.com/docs", "docs.example.com")
         assert url_plan(live, URL_VARS, None)["set"] == [
             {"id": "docs", "url": "docs.example.com"}]
+
+
+class TestUrlPlanWithRecord:
+    """The record of config/wikis.yaml holds the urls it last agreed with
+    the vars on, which the vars as staged may already have moved past."""
+
+    RECORD = record(WIKIS)
+
+    def test_a_vars_edit_staged_before_the_render_is_left_for_it(self):
+        new = dict(URL_VARS, wiki_url_docs="docs.example.com")
+        assert url_plan(WIKIS, new, new, self.RECORD) == {"set": [], "conflict": []}
+
+    def test_a_live_edit_goes_to_the_vars(self):
+        live = WIKIS.replace("wiki.example.com/docs", "docs.example.com")
+        assert url_plan(live, URL_VARS, URL_VARS, self.RECORD)["set"] == [
+            {"id": "docs", "url": "docs.example.com"}]
+
+    def test_different_edits_on_both_sides_conflict(self):
+        live = WIKIS.replace("wiki.example.com/docs", "a.example.com")
+        new = dict(URL_VARS, wiki_url_docs="b.example.com")
+        assert url_plan(live, new, new, self.RECORD)["conflict"] == ["docs"]
+
+    def test_a_wiki_the_record_does_not_hold_uses_the_staged_vars(self):
+        main_only = record(WIKIS.split("- id: docs")[0])
+        live = WIKIS.replace("wiki.example.com/docs", "docs.example.com")
+        assert url_plan(live, URL_VARS, URL_VARS, main_only)["set"] == [
+            {"id": "docs", "url": "docs.example.com"}]
+
+    def test_the_url_sync_reads_the_record_and_the_pull_writes_it(self):
+        tasks = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
+        with open(os.path.join(tasks, "sync_env.yml")) as f:
+            sync = f.read()
+        assert ".gitops-wikis-record" in sync and "_sync_url_record.content" in sync
+        with open(os.path.join(tasks, "pull_compose.yml")) as f:
+            pull = yaml.safe_load(f)
+        names = [t.get("name") for t in pull]
+        assert names.index("Record what config/wikis.yaml was rendered with") > \
+            names.index("Render wikis.yaml from template")
+
+    def test_the_wikis_sync_keeps_the_recorded_urls(self):
+        live = WIKIS.replace("wiki.example.com/docs", "docs.example.com")
+        kept = json.loads(record(live, self.RECORD, ["aliases"]))
+        assert kept["urls"]["docs"] == "wiki.example.com/docs"
+        assert "urls" not in json.loads(record(live, "", ["aliases"]))
 
 
 def _load(path):
