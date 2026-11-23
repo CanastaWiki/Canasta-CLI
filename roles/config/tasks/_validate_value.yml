@@ -59,6 +59,16 @@
     - _config_value is defined
     - _config_value is not match('^[1-9][0-9]*[mMgG]$')
 
+- name: Validate CANASTA_BACKUP_TIMEOUT
+  ansible.builtin.fail:
+    msg: >-
+      CANASTA_BACKUP_TIMEOUT must be a whole number of minutes greater than
+      0, not '{{ _config_value }}'.
+  when:
+    - _config_key == 'CANASTA_BACKUP_TIMEOUT'
+    - _config_value is defined
+    - _config_value is not match('^0*[1-9][0-9]*$')
+
 - name: Validate MW_SITEMAP_URL_PATH
   ansible.builtin.fail:
     msg: "{{ _config_value | sitemap_url_path_error }}"
