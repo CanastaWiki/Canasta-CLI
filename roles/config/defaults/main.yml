@@ -350,6 +350,12 @@ canasta_known_keys:
   - name: RESTIC_PASSWORD
     group: Backup (Restic)
     description: Restic repo password
+  - name: CANASTA_BACKUP_TIMEOUT
+    group: Backup (Restic)
+    description: >-
+      Docker Compose only. Minutes one wiki's database dump (backup create)
+      or import (backup restore) may run before it is stopped
+    default: "240"
 
 # Secret classification (canasta_secret_key_pattern, canasta_secret_prefixes,
 # canasta_secret_key_regex, canasta_backup_backend_prefixes, ...) lives

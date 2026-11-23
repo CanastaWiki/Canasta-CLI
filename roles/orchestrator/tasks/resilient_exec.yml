@@ -27,6 +27,9 @@
 #   rx_timeout_msg - when set, a job still running at the end of the wait
 #                 is reported as a warning ending with this text, and the
 #                 play continues, instead of failing
+#   rx_timeout_hint - text added to the failure when the job is still
+#                 running at the end of the wait, such as how to allow more
+#                 time
 #   rx_no_log   - hide the command and its output from Ansible's display
 #                 (default: false). It does not protect the async job file,
 #                 which holds the command line and output on the target
@@ -114,7 +117,8 @@
         msg: >-
           {% if _rx_timed_out | bool %}{{ rx_name }} did not finish within
           {{ _rx_wait_minutes }} minute{{ '' if _rx_wait_minutes | int == 1 else 's' }}
-          and may still be running.{% else %}{{ rx_name }} failed
+          and may still be running.{{ (' ' ~ rx_timeout_hint)
+          if rx_timeout_hint | default('') | length > 0 else '' }}{% else %}{{ rx_name }} failed
           (rc={{ rx_result.rc | default('unknown') }}):
           {{ (rx_result.stderr | default('')) | trim
              | default(rx_result.stdout | default(''), true) }}{% endif %}

@@ -2872,6 +2872,11 @@ commands:
       `INCOMPLETE` with a `missing-db:<name>` tag for each database it
       lacks, and the command exits non-zero naming each failed database
       and its error. A scheduled backup's purge therefore does not run.
+
+      On Docker Compose, each wiki's dump may run for 240 minutes. A
+      dump still running then is stopped and the backup fails. Set
+      `CANASTA_BACKUP_TIMEOUT` in `.env` to allow a different number of
+      minutes.
     examples:
       - "canasta backup create -t before-upgrade"
     playbook: backup_create.yml
@@ -2907,6 +2912,11 @@ commands:
       restores everything the snapshot has and leaves the missing
       databases as they are. `-s latest` skips `INCOMPLETE` snapshots
       unless `--allow-incomplete` is given.
+
+      On Docker Compose, each wiki's database import may run for
+      `CANASTA_BACKUP_TIMEOUT` minutes (240 by default), read from the
+      `.env` in place when the import starts. A full restore has already
+      replaced `.env` with the snapshot's by then.
     examples:
       - "canasta backup restore -s abc123"
       - "canasta backup restore -s abc123 --allow-incomplete"
