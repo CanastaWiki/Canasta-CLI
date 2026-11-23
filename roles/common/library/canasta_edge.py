@@ -48,7 +48,8 @@ options:
       when the instance's docker-compose.yml predates the edge, which only
       upgrade replaces. check fails as current does, and when the
       instance's Caddyfile.site or Caddyfile.global has a tls directive,
-      which Caddy cannot use behind the edge. writable fails, naming them,
+      which Caddy cannot use behind the edge; with edge_config, also when the
+      edge could not serve the instance as its files now stand. writable fails, naming them,
       when the user running canasta cannot write the edge's files or the
       instance's files the edge writes, and when canasta runs as root on a
       host whose edge belongs to another user. learn asks each of the
@@ -68,6 +69,15 @@ options:
       Path to the instance directory (required for sync, current, check, learn
       and probe).
     type: str
+  edge_config:
+    description: >-
+      With state=check, also fail when the edge could not serve the
+      instance as its configuration files now stand, beside the other
+      instances behind it, as a command that stops the instance checks
+      before stopping it. An error that is only another instance's is
+      left for that instance.
+    type: bool
+    default: false
   allow_pre_edge:
     description: >-
       With state=check, check only the tls directives of an instance whose
@@ -525,16 +535,30 @@ def tls_directives(path):
     return instance_tls_directives(lambda rel: _read(os.path.join(path, rel)))
 
 
+def _config_list(instance_id, path, name, key):
+    """The key list of the instance's config/<name>; raises EdgeError when
+    the file is not a YAML mapping."""
+    try:
+        doc = yaml.safe_load(_read(os.path.join(path, "config", name)) or "") or {}
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        where = " at line %d, column %d" % (mark.line + 1, mark.column + 1) if mark else ""
+        raise EdgeError("Instance '%s': config/%s is not valid YAML: %s%s."
+                        % (instance_id, name, getattr(exc, "problem", None) or exc, where))
+    if not isinstance(doc, dict):
+        raise EdgeError("Instance '%s': config/%s is not a YAML mapping."
+                        % (instance_id, name))
+    return doc.get(key) or []
+
+
 def load_instance(instance_id, path, special_namespace_names=()):
     """The renderer's view of an instance, or None when it is not (or no
     longer) behind the edge."""
     env = read_env(path)
     if not os.path.isdir(path):
         return None
-    wikis = (yaml.safe_load(_read(os.path.join(path, "config", "wikis.yaml")) or "")
-             or {}).get("wikis") or []
-    media = (yaml.safe_load(_read(os.path.join(path, "config", "media-hosts.yaml")) or "")
-             or {}).get("media_hosts") or []
+    wikis = _config_list(instance_id, path, "wikis.yaml", "wikis")
+    media = _config_list(instance_id, path, "media-hosts.yaml", "media_hosts")
     # A gitops template renders an entry this host does not serve with an
     # empty hostname.
     media = [m for m in media if (m.get("hostname") or "").strip()]
@@ -837,6 +861,35 @@ def _load_members(edge_dir, members):
         if inst is not None:
             instances.append(inst)
     return instances
+
+
+def check_config(edge_dir, instance_id, instance_path):
+    """Raise EdgeError when the edge could not serve the instance as its
+    files now stand, beside the other instances behind it. Another
+    instance's own error is left for that instance."""
+    inst = load_instance(instance_id, instance_path,
+                         _all_names(read_special_names(edge_dir, instance_id)))
+    if inst is None:
+        return
+    others = []
+    for other_id, other_path in sorted(read_members(edge_dir).items()):
+        if other_id == instance_id:
+            continue
+        try:
+            other = load_instance(other_id, other_path,
+                                  _all_names(read_special_names(edge_dir, other_id)))
+        except EdgeError:
+            continue
+        if other is not None:
+            others.append(other)
+    try:
+        check_together(others + [inst])
+    except EdgeError:
+        try:
+            check_together(others)
+        except EdgeError:
+            return
+        raise
 
 
 def ensure_account(run, inspect, edge_dir):
@@ -1913,6 +1966,7 @@ def run_module():
                                 "current", "check", "writable", "learn", "probe"],
                        default="sync"),
             allow_pre_edge=dict(type="bool", default=False),
+            edge_config=dict(type="bool", default=False),
             recreate=dict(type="bool", default=False),
             restart=dict(type="bool", default=False),
             retry=dict(type="bool", default=False),
@@ -1980,6 +2034,12 @@ def run_module():
                 module.fail_json(msg="Instance '%s' %s." % (params["instance_id"], problem),
                                  reason="it %s." % problem, tls_directives=found)
                 return
+            if params["state"] == "check" and params.get("edge_config"):
+                try:
+                    check_config(edge_dir, params["instance_id"], params["instance_path"])
+                except EdgeError as exc:
+                    module.fail_json(msg="%s Nothing was changed." % exc, edge_config=str(exc))
+                    return
             result = {"changed": False, "tls_directives": []}
         elif params["state"] == "probe":
             result = probe(params["instance_id"], params["instance_path"])
