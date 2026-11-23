@@ -232,3 +232,11 @@ def test_upgrade_enables_the_unit_for_a_running_instance():
     (task,) = _boot_unit_tasks(_tasks("roles/upgrade/tasks/main.yml"))
     assert task["canasta_boot_unit"]["state"] == "enabled"
     assert "_was_running | bool" in task["when"]
+
+
+def test_stop_uses_the_start_compose_files():
+    with open(os.path.join(ROOT, "roles/orchestrator/tasks/stop.yml")) as f:
+        text = f.read()
+    expr = text[text.index("_compose_files: >-"):text.index("- name: Read COMPOSE_PROFILES")]
+    layers = re.findall(r"'(docker-compose(?:\.[a-z-]+)?\.yml)'", expr)
+    assert layers == ["docker-compose.yml"] + list(mod.LAYERS) + [mod.DEV_LAYER]
