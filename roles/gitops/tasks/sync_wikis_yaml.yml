@@ -55,6 +55,81 @@
   changed_when: false
   when: _sync_wikis_active | bool
 
+# A wiki's aliases are host-specific: wikis.yaml.template names them with
+# placeholders that this host's vars fill in, so an edit made in
+# config/wikis.yaml has nowhere to go and would be lost on the next render.
+# The live file's aliases are held to the record of them written whenever
+# it last agreed with its sources.
+- name: Read the record of config/wikis.yaml
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-wikis-record"
+  register: _sync_wikis_record
+  failed_when: false
+  when: _sync_wikis_active | bool
+
+- name: Read the host name for the alias check
+  ansible.builtin.slurp:
+    src: "{{ instance_path }}/.gitops-host"
+  register: _sync_wikis_host_raw
+  failed_when: false
+  when: _sync_wikis_active | bool
+
+- name: Stop on a locked git-crypt checkout
+  ansible.builtin.include_tasks: _detect_gitcrypt_lock.yml
+  when: _sync_wikis_active | bool
+
+# One base64 line per file: the host's vars.yaml and the shared vars.yaml,
+# first as they are now and then as staged. A file that does not exist is an
+# empty line; the closing line keeps trailing empty lines from being
+# stripped. --filters decrypts git-crypt paths.
+- name: Read the host vars now and as staged for the alias check
+  ansible.builtin.shell:
+    cmd: |
+      set -o pipefail
+      host={{ (_sync_wikis_host_raw.content | default('') | b64decode | trim) | quote }}
+      for f in "hosts/$host/vars.yaml" hosts/_shared/vars.yaml; do
+        if [ -f "$f" ]; then base64 < "$f" | tr -d '\n'; fi; echo
+      done
+      for f in "hosts/$host/vars.yaml" hosts/_shared/vars.yaml; do
+        git cat-file --filters ":$f" 2>/dev/null | base64 | tr -d '\n'; echo
+      done
+      echo end
+    chdir: "{{ instance_path }}"
+    executable: /bin/bash
+  register: _sync_wikis_vars
+  changed_when: false
+  no_log: true  # host vars hold passwords
+  when:
+    - _sync_wikis_active | bool
+    - _sync_wikis_host_raw.content is defined
+
+- name: Find aliases edited in config/wikis.yaml
+  ansible.builtin.set_fact:
+    _sync_wikis_alias_edits: >-
+      {{ (_sync_wikis_live_raw.content | b64decode)
+         | canasta_wikis_alias_edits(
+             _sync_wikis_tmpl_raw.content | b64decode,
+             _sync_wikis_base.stdout,
+             (_v[1] | b64decode | from_yaml or {}) | combine(_v[0] | b64decode | from_yaml or {}),
+             (_v[3] | b64decode | from_yaml or {}) | combine(_v[2] | b64decode | from_yaml or {}),
+             _sync_wikis_record.content | default('') | b64decode) }}
+  vars:
+    _v: "{{ _sync_wikis_vars.stdout_lines }}"
+  no_log: true  # reads the host vars
+  when:
+    - _sync_wikis_active | bool
+    - _sync_wikis_vars.stdout_lines is defined
+
+- name: Refuse alias edits made in config/wikis.yaml
+  ansible.builtin.fail:
+    msg: >-
+      The aliases of wiki {{ _sync_wikis_alias_edits | join(', ') }} were
+      changed in config/wikis.yaml. Under gitops a wiki's aliases come from
+      wikis.yaml.template, as "{{ '{{' }}placeholder{{ '}}' }}" entries whose
+      values are in each host's vars.yaml. Make the change there, and put
+      config/wikis.yaml back as it was.
+  when: _sync_wikis_alias_edits | default([]) | length > 0
+
 - name: Decide which way to sync
   ansible.builtin.set_fact:
     _sync_wikis_live: "{{ _sync_wikis_live_raw.content | b64decode }}"
@@ -84,9 +159,14 @@
   ansible.builtin.copy:
     content: >-
       {{ _sync_wikis_tmpl
-         | canasta_wikis_render_with_live_urls(_sync_wikis_live) }}
+         | canasta_wikis_render_with_live_urls(
+             _sync_wikis_live,
+             ((_v[1] | b64decode | from_yaml or {}) | combine(_v[0] | b64decode | from_yaml or {}))
+             if _v else none) }}
     dest: "{{ instance_path }}/config/wikis.yaml"
     mode: "0644"
+  vars:
+    _v: "{{ _sync_wikis_vars.stdout_lines | default([]) }}"
   when: _sync_wikis_action == 'render'
 
 - name: Stage the template once it agrees with config/wikis.yaml
@@ -94,4 +174,9 @@
     cmd: git add -- wikis.yaml.template
     chdir: "{{ instance_path }}"
   changed_when: false
+  when: _sync_wikis_active | bool
+
+- name: Record what config/wikis.yaml now agrees on
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/gitops/tasks/_record_wikis.yml
   when: _sync_wikis_active | bool
