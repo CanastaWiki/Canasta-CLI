@@ -710,7 +710,7 @@ def test_aliases_map_to_their_wiki_hostname():
                   ("example.com/docs", ["www.example.com"])])
     assert inst["aliases"] == {"www.example.com": "example.com",
                                "example.org": "example.com"}
-    assert "www.example.com" not in inst["hostnames"]
+    assert inst["hostnames"] == ["example.com"]
 
 
 def test_empty_and_missing_alias_entries_are_skipped():
@@ -741,7 +741,7 @@ def test_alias_redirects_carry_the_wikis_own_port():
     assert "redirect prefix https://example.com:8443 code 301" in _frontend(cfg, "frontend http_8080")
     assert "redirect prefix https://example.com:8443 code 301" in _frontend(cfg, "frontend https_8443")
     assert "redirect prefix http://plain.example.net:8081 code 301" in _frontend(cfg, "frontend http_8081")
-    assert "plain.example.net" not in _frontend(cfg, "frontend https_8443")
+    assert "redirect prefix http://plain" not in _frontend(cfg, "frontend https_8443")
 
 
 def test_aliases_get_certificates_and_tls_mode_hosts_may_name_them():

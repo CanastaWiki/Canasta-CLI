@@ -38,8 +38,8 @@ def test_doctor_names_a_caddyfile_global_block_an_alias_replaced(tmp_path):
                      "    redir https://example.com{uri} permanent\n}\n"
                      "get.example.com {\n    respond ok\n}\n")
     out = "\n".join(_lines(path))
-    assert "WARN" in out and "www.example.com" in out
-    assert "get.example.com" not in out
+    assert "WARN" in out
+    assert re.findall(r"site block for (\S+) is never reached", out) == ["www.example.com"]
 
 
 def test_doctor_is_quiet_without_overlap_and_on_kubernetes(tmp_path):
@@ -323,7 +323,8 @@ def test_sync_captures_a_live_edit_and_keeps_the_alias_placeholders(tmp_path):
     assert proc.returncode == 0, proc.stdout + proc.stderr
     template = (inst / "wikis.yaml.template").read_text()
     assert '"Main Wiki"' in template
-    assert '"{{wiki_alias_main_www}}"' in template and "www.example.com" not in template
+    assert g.canasta_wikis_template_aliases(template) == {
+        "main": ["{{wiki_alias_main_www}}", "{{wiki_alias_main_org}}"]}
 
 
 def test_sync_records_the_aliases_it_agrees_on(tmp_path):
