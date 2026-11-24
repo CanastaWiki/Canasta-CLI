@@ -459,10 +459,12 @@ commands:
         description: >-
           Build argument KEY=VALUE forwarded to the --build-from image
           builds (repeatable, e.g. --build-arg MW_VERSION=master). A
-          user-supplied BASE_IMAGE overrides the auto-detected base: the
-          local CanastaBase build when CanastaBase/ is in the source
-          directory, else the published CanastaBase image for Canasta
-          source and the current Canasta release image for an overlay.
+          user-supplied BASE_IMAGE overrides the auto-detected base: a
+          local canasta-base build, from Canasta/ when it has
+          Dockerfile.canasta or else from CanastaBase/ when that is in the
+          source directory, else the published CanastaBase image for
+          Canasta source and the current Canasta release image for an
+          overlay.
       - name: database
         short: d
         type: path
@@ -4470,9 +4472,10 @@ commands:
       not recorded is reported and otherwise ignored.
 
       Without a `BASE_IMAGE` build argument, the image builds on the
-      auto-detected base: the local CanastaBase build when CanastaBase/ is
-      in the source directory, else the published CanastaBase image for
-      Canasta source and the current Canasta release image for an overlay.
+      auto-detected base: a local canasta-base build, from Canasta/ when it
+      has Dockerfile.canasta or else from CanastaBase/ when that is in the
+      source directory, else the published CanastaBase image for Canasta
+      source and the current Canasta release image for an overlay.
 
       The rebuild, recording and restart behave as for
       `canasta image set-build-arg`, including `--no-rebuild`.
