@@ -145,12 +145,12 @@ class TestOverlayDefaultBase:
         assert "'ghcr.io/canastawiki/canasta-base:latest'" in expr
         assert "if _canasta_contents.stat.exists" in expr
         assert "else canasta_default_image" in expr
-        assert published["when"] == "not _base_dockerfile.stat.exists"
+        assert published["when"] == "_base_source_dir == ''"
 
     def test_local_canastabase_build_unchanged(self):
         tasks = _tasks(BUILD_FROM)
         block = _task(tasks, "Build CanastaBase locally")
-        assert block["when"] == "_base_dockerfile.stat.exists"
+        assert block["when"] == "_base_source_dir != ''"
         local = _task(block["block"], "Set base image to local build")
         assert local["ansible.builtin.set_fact"]["_base_image_arg"] == (
             "canasta-base:local")

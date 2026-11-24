@@ -2,7 +2,9 @@
 # Build Canasta image from local source.
 #
 # Input:
-#   build_from (path to workspace containing Canasta/ and optionally CanastaBase/)
+#   build_from (path to workspace containing Canasta/ and optionally CanastaBase/;
+#     a Canasta/ checkout that has Dockerfile.canasta also holds the base image's
+#     source, so it builds both images and CanastaBase/ is not used)
 #   canasta_default_image (the Canasta image an overlay builds on by default)
 #   build_arg  (optional list of "KEY=VALUE" strings forwarded to the builds)
 #   instance_id or id, instance_is_k8s
@@ -66,26 +68,50 @@
          if (_buildkit_probe.rc | default(1)) == 0
          else _build_arg_flags }}
 
+# A Canasta checkout with Dockerfile.canasta holds both images' source:
+# canasta-base builds from its Dockerfile and canasta from Dockerfile.canasta.
+# Otherwise canasta-base comes from a CanastaBase/ checkout, if there is one.
+- name: Check whether the Canasta source holds both images
+  ansible.builtin.stat:
+    path: "{{ build_from }}/Canasta/Dockerfile.canasta"
+  register: _canasta_two_images
+
 - name: Check for CanastaBase source
   ansible.builtin.stat:
     path: "{{ build_from }}/CanastaBase/Dockerfile"
-  register: _base_dockerfile
+  register: _canastabase_dockerfile
+
+- name: Report the CanastaBase source that is not used
+  ansible.builtin.debug:
+    msg: >-
+      Warning: {{ build_from }}/CanastaBase is not used; canasta-base is
+      built from {{ build_from }}/Canasta, which contains its source.
+  when:
+    - _canasta_two_images.stat.exists
+    - _canastabase_dockerfile.stat.exists
+
+- name: Choose the canasta-base source
+  ansible.builtin.set_fact:
+    _base_source_dir: >-
+      {{ 'Canasta' if _canasta_two_images.stat.exists
+         else ('CanastaBase' if _canastabase_dockerfile.stat.exists else '') }}
 
 - name: Build CanastaBase locally
-  when: _base_dockerfile.stat.exists
+  when: _base_source_dir != ''
   block:
     - name: Build CanastaBase image
       ansible.builtin.command:
         cmd: "{{ inspect_command | default('docker') }} build {{ _build_arg_flags }} -t canasta-base:local ."
-        chdir: "{{ build_from }}/CanastaBase"
+        chdir: "{{ build_from }}/{{ _base_source_dir }}"
       changed_when: true
 
     - name: Set base image to local build
       ansible.builtin.set_fact:
         _base_image_arg: "canasta-base:local"
 
-# Canasta source (it carries contents.yaml) builds on CanastaBase. Anything
-# else under Canasta/ is an overlay on the full Canasta image.
+# Canasta source without Dockerfile.canasta (it carries contents.yaml) builds
+# on CanastaBase. Anything else under Canasta/ is an overlay on the full
+# Canasta image.
 - name: Check whether the Canasta source is the Canasta repository
   ansible.builtin.stat:
     path: "{{ build_from }}/Canasta/contents.yaml"
@@ -97,7 +123,7 @@
       {{ 'ghcr.io/canastawiki/canasta-base:latest'
          if _canasta_contents.stat.exists
          else canasta_default_image }}
-  when: not _base_dockerfile.stat.exists
+  when: _base_source_dir == ''
 
 # The effective base is the last BASE_IMAGE build-arg (a user-supplied one
 # wins over the built-in), else the auto-detected base. If the effective base
@@ -127,6 +153,7 @@
   ansible.builtin.command:
     cmd: >-
       {{ inspect_command | default('docker') }} build
+      {{ '-f Dockerfile.canasta' if _canasta_two_images.stat.exists else '' }}
       --build-arg BASE_IMAGE={{ _base_image_arg }}
       {{ _build_arg_flags }} -t {{ _build_image_name }} .
     chdir: "{{ build_from }}/Canasta"
