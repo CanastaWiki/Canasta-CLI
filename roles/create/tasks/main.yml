@@ -4,7 +4,7 @@
 # Input variables (from extra-vars):
 #   id, wiki, path, orchestrator, domain_name, admin, password,
 #   site_name, yamlfile, rootdbpass, wikidbuser, wikidbpass,
-#   envfile, canasta_image, build_from, database, wiki_settings,
+#   envfile, canasta_image, canasta_base, build_from, database, wiki_settings,
 #   global_settings, composer, override, keep_config
 
 # --- Step 0: Pre-flight checks ---
@@ -38,7 +38,10 @@
     _base_image: >-
       {{ (build_from is defined and build_from != '') | ternary(
          _built_image | default('canasta:local'),
-         canasta_image | default(canasta_default_image)) }}
+         canasta_image | default(
+           canasta_default_image | canasta_base_image_for
+           if canasta_base | default(false) | bool
+           else canasta_default_image)) }}
 
 # --- Step 3: Set instance facts early (needed by write_stack_files and init_config) ---
 - name: Report setting up instance

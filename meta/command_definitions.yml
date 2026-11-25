@@ -446,6 +446,17 @@ commands:
         type: string
         mutual_exclusion: build_from
         description: "Custom Canasta image reference"
+      - name: canasta_base
+        type: bool
+        default: false
+        mutual_exclusion: canasta_image
+        description: >-
+          Run the canasta-base image (MediaWiki core without the bundled
+          extensions and skins) instead of canasta. Without --build-from
+          it is the canasta-base release matching this CLI's Canasta
+          version, which upgrade moves to each new release. With
+          --build-from, only canasta-base is built from the source
+          directory, and upgrade rebuilds it the same way.
       - name: build_from
         type: path
         path_kind: instance_host

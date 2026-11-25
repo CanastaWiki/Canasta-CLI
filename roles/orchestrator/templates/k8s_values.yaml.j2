@@ -18,12 +18,13 @@ instance:
 
 {# build_from: the image was pushed to the in-cluster registry, so the pod pulls
    the registry-qualified ref (the registry's fixed ClusterIP, 10.43.0.2:5000 —
-   must match k8s_registry.yaml + the certs.d trust); otherwise use
-   --canasta-image / the default. Split on the LAST colon so a registry address
-   with a port (host:port/repo:tag) parses correctly. #}
+   must match k8s_registry.yaml + the certs.d trust); otherwise use the image
+   create chose (--canasta-image, --canasta-base or the default). Split on the
+   LAST colon so a registry address with a port (host:port/repo:tag) parses
+   correctly. #}
 {% set _k8s_image = (build_from is defined and build_from != '')
    | ternary('10.43.0.2:5000/' ~ (_built_image | default('canasta:local')),
-             canasta_image | default(canasta_default_image)) %}
+             _base_image | default(canasta_image | default(canasta_default_image))) %}
 image:
   repository: {{ _k8s_image | regex_replace(':[^:]+$', '') }}
   tag: "{{ _k8s_image | regex_replace('^.*:', '') }}"
