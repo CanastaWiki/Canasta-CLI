@@ -82,7 +82,7 @@ class TestBuildName:
     def test_the_name_is_set_before_anything_builds(self):
         names = [t.get("name") for t in _tasks(BUILD_FROM)]
         first = names.index("Name the image this build produces")
-        assert first < names.index("Build CanastaBase locally")
+        assert first < names.index("Build canasta-base locally")
         assert first < names.index("Build Canasta image from source")
 
     def test_the_build_and_the_output_fact_use_the_name(self):

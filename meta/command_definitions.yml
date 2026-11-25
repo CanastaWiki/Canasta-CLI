@@ -473,7 +473,7 @@ commands:
           user-supplied BASE_IMAGE overrides the auto-detected base: a
           local canasta-base build, from Canasta/ when it has
           Dockerfile.canasta or else from CanastaBase/ when that is in the
-          source directory, else the published CanastaBase image for
+          source directory, else the published canasta-base image for
           Canasta source and the current Canasta release image for an
           overlay. The local canasta-base build is then skipped.
       - name: database
@@ -4486,7 +4486,7 @@ commands:
       Without a `BASE_IMAGE` build argument, the image builds on the
       auto-detected base: a local canasta-base build, from Canasta/ when it
       has Dockerfile.canasta or else from CanastaBase/ when that is in the
-      source directory, else the published CanastaBase image for Canasta
+      source directory, else the published canasta-base image for Canasta
       source and the current Canasta release image for an overlay.
 
       The rebuild, recording and restart behave as for

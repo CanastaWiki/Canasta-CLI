@@ -129,7 +129,7 @@
 
 # A user-supplied BASE_IMAGE replaces the local canasta-base build, so it
 # is not built.
-- name: Build CanastaBase locally
+- name: Build canasta-base locally
   ansible.builtin.command:
     cmd: >-
       {{ inspect_command | default('docker') }} build
@@ -142,7 +142,7 @@
     - _user_base_image == ''
 
 # Canasta source without Dockerfile.canasta (it carries contents.yaml) builds
-# on CanastaBase. Anything else under Canasta/ is an overlay on the full
+# on canasta-base. Anything else under Canasta/ is an overlay on the full
 # Canasta image.
 - name: Check whether the Canasta source is the Canasta repository
   ansible.builtin.stat:

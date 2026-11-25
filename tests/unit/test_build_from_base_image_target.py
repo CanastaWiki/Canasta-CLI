@@ -4,7 +4,7 @@
     the target release, in the rebuild and in the registry;
   - any other BASE_IMAGE is kept as given;
   - an overlay source with no BASE_IMAGE builds on the target Canasta image,
-    while Canasta source keeps building on CanastaBase.
+    while Canasta source keeps building on canasta-base.
 """
 
 import os
@@ -164,6 +164,6 @@ class TestOverlayDefaultBase:
         name = _task(tasks, "Name the local canasta-base build")
         assert name["ansible.builtin.set_fact"]["_local_base_image"] == (
             "canasta-base:local-{{ instance_id | default(id) }}")
-        build = _task(tasks, "Build CanastaBase locally")
+        build = _task(tasks, "Build canasta-base locally")
         assert "_base_source_dir != ''" in build["when"]
         assert "_user_base_image == ''" in build["when"]
