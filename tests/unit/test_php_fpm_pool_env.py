@@ -19,13 +19,14 @@ from mock_ansible import run_module_with_params
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 OVERLAY = "docker-compose.web-env.yml"
 
-# Image defaults from the CanastaBase Dockerfile.
+# Image defaults from the canasta-base Dockerfile.
 POOL_KEYS = {
     "PHP_MEMORY_LIMIT": "256M",
     "PM_MAX_CHILDREN": "25",
     "PM_START_SERVERS": "10",
     "PM_MIN_SPARE_SERVERS": "5",
     "PM_MAX_SPARE_SERVERS": "15",
+    "PM_MAX_REQUESTS": "2500",
 }
 
 

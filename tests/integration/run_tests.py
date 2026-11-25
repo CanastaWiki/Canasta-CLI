@@ -2315,7 +2315,7 @@ def test_config_side_effects(inst):
     # CANASTA_ENABLE_VERY_SHORT_URLS side-effect validation: the
     # two incompatible-feature combinations should fail-fast at
     # config-set time with descriptive errors, before the
-    # misconfiguration lands in .env. The CanastaBase runtime
+    # misconfiguration lands in .env. The canasta-base runtime
     # catches them too as a safety net, but the CLI should be the
     # friendly first line.
     print("Validating CANASTA_ENABLE_VERY_SHORT_URLS=true is accepted "

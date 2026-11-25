@@ -41,10 +41,9 @@ def test_start_syncs_the_edge_before_building_the_file_list():
 
 
 def test_start_layers_the_edge_file_before_the_user_override():
-    build = next(t for t in _compose_block("start.yml")
-                 if t.get("name") == "Build compose file arguments")
-    files = build["ansible.builtin.set_fact"]["_compose_files"]
-    assert files.index("docker-compose.edge.yml") < files.index("docker-compose.override.yml")
+    layers = next(t for t in _tasks("compose_file_args.yml")
+                  if t.get("name") == "Check for the compose layers")["loop"]
+    assert layers.index("docker-compose.edge.yml") < layers.index("docker-compose.override.yml")
 
 
 def test_destroy_takes_the_instance_out_of_the_edge():
@@ -162,3 +161,47 @@ def test_the_probe_runs_only_for_compose():
     probe = _tasks("edge_probe.yml")[0]
     assert probe["canasta_edge"]["state"] == "probe"
     assert probe["when"] == "not (instance_is_k8s | bool)"
+
+
+def _fast_stop(monkeypatch, tmp_path, host="localhost"):
+    calls = []
+    inst = {"path": str(tmp_path / "one"), "orchestrator": "compose", "host": host}
+    monkeypatch.setattr(_helpers, "_resolve_instance", lambda args: ("one", inst))
+    monkeypatch.setattr(_helpers, "_instance_has_sidecars", lambda inst: False)
+    monkeypatch.setattr(_helpers, "_resolve_inspect_cmd", lambda inst: "docker")
+    monkeypatch.setattr(_helpers, "_get_config_dir", lambda: str(tmp_path / "config"))
+    monkeypatch.setattr(_helpers, "_sync_compose_profiles", lambda inst: {})
+    monkeypatch.setattr(_helpers, "_compose_containers_up", lambda inst: True)
+    monkeypatch.setattr(_helpers, "_run_compose",
+                        lambda i, inst, action, **kw: calls.append(action) or 0)
+    return calls
+
+
+def test_fast_path_stop_refuses_while_the_edge_is_unwritable(monkeypatch, tmp_path, capsys):
+    calls = _fast_stop(monkeypatch, tmp_path)
+    checked = []
+
+    def unwritable(edge_dir, instance_path=None):
+        checked.append((edge_dir, instance_path))
+        raise lifecycle.canasta_edge_render.EdgeError("cannot write the edge")
+    monkeypatch.setattr(lifecycle.canasta_edge_writable, "check_writable", unwritable)
+    args = type("Args", (), {"id": "one"})()
+    assert lifecycle.cmd_stop(args) == 1
+    assert checked == [(str(tmp_path / "config" / "edge"), str(tmp_path / "one"))]
+    assert calls == []
+    assert "cannot write the edge" in capsys.readouterr().err
+
+
+def test_fast_path_stop_runs_when_the_edge_is_writable(monkeypatch, tmp_path):
+    calls = _fast_stop(monkeypatch, tmp_path)
+    args = type("Args", (), {"id": "one"})()
+    assert lifecycle.cmd_stop(args) == 0
+    assert calls == [["down", "--remove-orphans"]]
+
+
+def test_fast_path_stop_hands_remote_instances_to_ansible(monkeypatch, tmp_path):
+    # The edge is on the instance's host, where Ansible makes the check.
+    calls = _fast_stop(monkeypatch, tmp_path, host="remote.example.com")
+    args = type("Args", (), {"id": "one"})()
+    assert lifecycle.cmd_stop(args) is _helpers.FALLBACK
+    assert calls == []

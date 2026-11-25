@@ -105,4 +105,11 @@ persistence:
 {% if access_mode is defined and access_mode != '' %}
     accessMode: {{ access_mode }}
 {% endif %}
+  logs:
+{% if storage_class is defined and storage_class != '' %}
+    storageClass: {{ storage_class }}
+{% endif %}
+{% if access_mode is defined and access_mode != '' %}
+    accessMode: {{ access_mode }}
+{% endif %}
 {% endif %}

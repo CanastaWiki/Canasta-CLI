@@ -7,6 +7,7 @@ rendered configuration.
 
 import json
 import os
+import pwd
 import re
 import shutil
 import subprocess
@@ -15,6 +16,7 @@ import pytest
 import yaml
 
 import canasta_edge as mod
+import canasta_edge_writable as writable
 
 # Pytest imports every test module before running any test, so this is the
 # environment the suite started with, before any test exported DOCKER_HOST.
@@ -803,14 +805,14 @@ def test_the_check_names_files_this_user_cannot_write(tmp_path, monkeypatch):
     layer = tmp_path / "one" / mod.LAYER_FILE
     layer.write_text("x")
     _owned_elsewhere(monkeypatch)
-    assert mod.unwritable_paths(str(edge), path) == []
+    assert writable.unwritable_paths(str(edge), path) == []
     for p in (pem, layer, tmp_path / "config" / "edge.lock"):
         p.chmod(0o444)
     try:
-        assert mod.unwritable_paths(str(edge), path) == [
+        assert writable.unwritable_paths(str(edge), path) == [
             str(tmp_path / "config" / "edge.lock"), str(pem), str(layer)]
         with pytest.raises(mod.EdgeError, match=re.escape(str(pem))):
-            mod.check_writable(str(edge), path)
+            writable.check_writable(str(edge), path)
     finally:
         for p in (pem, layer, tmp_path / "config" / "edge.lock"):
             p.chmod(0o644)
@@ -823,7 +825,7 @@ def test_the_check_needs_the_config_dir_for_a_new_lock(tmp_path, monkeypatch):
     _owned_elsewhere(monkeypatch)
     config.chmod(0o555)
     try:
-        assert mod.unwritable_paths(str(config / "edge")) == [str(config)]
+        assert writable.unwritable_paths(str(config / "edge")) == [str(config)]
     finally:
         config.chmod(0o755)
 
@@ -832,21 +834,21 @@ def test_the_check_needs_the_config_dir_for_a_new_lock(tmp_path, monkeypatch):
 def test_root_is_refused_an_edge_another_user_owns(tmp_path, monkeypatch):
     edge = tmp_path / "config" / "edge"
     edge.mkdir(parents=True)
-    owner = mod._user_name(os.getuid())
+    owner = pwd.getpwuid(os.getuid()).pw_name
     monkeypatch.setattr(mod.os, "getuid", lambda: 0)
-    assert mod.foreign_owner(str(edge)) == owner
+    assert writable.foreign_owner(str(edge)) == owner
     with pytest.raises(mod.EdgeError, match="running as root.*belongs to %s" % re.escape(owner)):
-        mod.check_writable(str(edge))
+        writable.check_writable(str(edge))
     # Before the edge exists, the directory it goes in decides.
-    assert mod.foreign_owner(str(tmp_path / "config" / "other")) == owner
+    assert writable.foreign_owner(str(tmp_path / "config" / "other")) == owner
 
 
 def test_the_operator_is_not_refused_their_own_edge(tmp_path):
     edge = tmp_path / "config" / "edge"
     edge.mkdir(parents=True)
     if os.getuid() != 0:
-        assert mod.foreign_owner(str(edge)) is None
-    mod.check_writable(str(edge), _instance(tmp_path, "one"))
+        assert writable.foreign_owner(str(edge)) is None
+    writable.check_writable(str(edge), _instance(tmp_path, "one"))
 
 
 def test_helpers_decide_again_over_a_cache_without_a_daemon(tmp_path, monkeypatch):

@@ -65,37 +65,10 @@
     - name: Reconcile COMPOSE_PROFILES before stop
       ansible.builtin.include_tasks: sync_compose_profiles.yml
 
-    # Include the same layers as start (if present) so `down` tears down
-    # every service they add; the start path regenerates them. No render here.
-    - name: Check for docker-compose.sidecars.yml
-      ansible.builtin.stat:
-        path: "{{ instance_path }}/docker-compose.sidecars.yml"
-      register: _sidecars_exists
-
-    - name: Check for docker-compose.web-env.yml
-      ansible.builtin.stat:
-        path: "{{ instance_path }}/docker-compose.web-env.yml"
-      register: _web_env_exists
-
-    - name: Check for docker-compose.edge.yml
-      ansible.builtin.stat:
-        path: "{{ instance_path }}/docker-compose.edge.yml"
-      register: _edge_layer_exists
-
-    - name: Check for docker-compose.override.yml
-      ansible.builtin.stat:
-        path: "{{ instance_path }}/docker-compose.override.yml"
-      register: _override_exists
-
+    # The same layers as start, so `down` tears down every service they
+    # add; the start path regenerates them. No render here.
     - name: Build compose file arguments
-      ansible.builtin.set_fact:
-        _compose_files: >-
-          {{ ['-f', 'docker-compose.yml'] +
-             ((_sidecars_exists.stat.exists) | ternary(['-f', 'docker-compose.sidecars.yml'], [])) +
-             ((_web_env_exists.stat.exists) | ternary(['-f', 'docker-compose.web-env.yml'], [])) +
-             ((_edge_layer_exists.stat.exists) | ternary(['-f', 'docker-compose.edge.yml'], [])) +
-             ((_override_exists.stat.exists) | ternary(['-f', 'docker-compose.override.yml'], [])) +
-             ((instance_devmode | default(false) | bool) | ternary(['-f', 'docker-compose.dev.yml'], [])) }}
+      ansible.builtin.include_tasks: compose_file_args.yml
 
     # podman-compose ignores COMPOSE_PROFILES from .env, so we must pass
     # --profile flags explicitly for `down` to tear down all profiled services.

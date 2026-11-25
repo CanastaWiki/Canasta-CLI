@@ -115,22 +115,23 @@ class TestRenderModule:
 
 
 class TestComposeLayering:
-    def _order(self, body, a, b):
-        return body.index("'%s'], [])" % a) < body.index("'%s'], [])" % b)
+    def _order(self, a, b):
+        body = _read(os.path.join(ORCH_TASKS, "compose_file_args.yml"))
+        return body.index("- %s" % a) < body.index("- %s" % b)
 
     def test_start_renders_and_layers_before_override(self):
         body = _read(os.path.join(ORCH_TASKS, "start.yml"))
         assert "render_web_env.yml" in body
-        assert self._order(body, "docker-compose.sidecars.yml",
+        assert "include_tasks: compose_file_args.yml" in body
+        assert self._order("docker-compose.sidecars.yml",
                            "docker-compose.web-env.yml")
-        assert self._order(body, "docker-compose.web-env.yml",
+        assert self._order("docker-compose.web-env.yml",
                            "docker-compose.override.yml")
 
     def test_stop_and_destroy_layer_it(self):
         for name in ("stop.yml", "destroy.yml"):
             body = _read(os.path.join(ORCH_TASKS, name))
-            assert self._order(body, "docker-compose.web-env.yml",
-                               "docker-compose.override.yml"), name
+            assert "include_tasks: compose_file_args.yml" in body, name
 
     def test_update_config_renders_on_compose_only(self):
         tasks = _load(os.path.join(ORCH_TASKS, "update_config.yml"))

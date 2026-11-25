@@ -984,7 +984,7 @@ jobs:
 
   # Nobody watches the weekly run, so its Kubernetes results go to an issue:
   # opened (or refreshed) when a job fails, closed when a later week passes.
-  # Like the image rescans in Canasta and CanastaBase, it adopts only an open
+  # Like the image rescan in Canasta, it adopts only an open
   # issue, so a closed one stays a record of that failure.
   k8s-report:
     name: "Integration: Kubernetes report"
