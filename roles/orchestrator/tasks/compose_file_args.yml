@@ -1,0 +1,30 @@
+---
+# Build the compose -f arguments for a Compose instance, mirroring
+# _compose_file_args in direct_commands/_helpers.py: base, then the
+# generated sidecars, web-env and edge layers, then the user override (so a
+# clash lets the operator's raw override win), then devmode last. Each
+# layer after the base is included when present.
+# Input: instance_path, instance_devmode (bool)
+# Output: _compose_files (list)
+
+- name: Check for the compose layers
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ _compose_layer }}"
+  loop:
+    - docker-compose.sidecars.yml
+    - docker-compose.web-env.yml
+    - docker-compose.edge.yml
+    - docker-compose.override.yml
+  loop_control:
+    loop_var: _compose_layer
+  register: _compose_layers
+
+- name: Build compose file arguments
+  ansible.builtin.set_fact:
+    _compose_files: >-
+      {{ ['-f'] | product(['docker-compose.yml']
+           + (_compose_layers.results | selectattr('stat.exists')
+              | map(attribute='_compose_layer') | list)
+           + ((instance_devmode | default(false) | bool)
+              | ternary(['docker-compose.dev.yml'], [])))
+         | flatten }}

@@ -1,6 +1,10 @@
 """start, stop, restart, scale — lifecycle commands."""
 
+import os
 import sys
+
+import canasta_edge_render
+import canasta_edge_writable
 
 from . import _helpers
 from ._helpers import register
@@ -28,6 +32,16 @@ def cmd_stop(args):
         return _helpers.FALLBACK  # Ansible includes the sidecar -f layer.
     if "podman" in _helpers._resolve_inspect_cmd(inst):
         return _helpers.FALLBACK  # Ansible disables the instance's boot unit.
+    if not _helpers._is_localhost(inst.get("host") or "localhost"):
+        return _helpers.FALLBACK  # Ansible checks the edge on the instance's host.
+    # The start that follows a stop syncs the edge; refuse while the instance
+    # is still running rather than fail with it stopped.
+    try:
+        canasta_edge_writable.check_writable(
+            os.path.join(_helpers._get_config_dir(), "edge"), inst.get("path", ""))
+    except canasta_edge_render.EdgeError as exc:
+        print("Error: %s" % exc, file=sys.stderr)
+        return 1
     # Reconcile COMPOSE_PROFILES before `down`: docker compose down only tears
     # down services in the active profiles, so a drifted profile set leaves a
     # running container as an unmanaged orphan. Sync first so `down` covers the
