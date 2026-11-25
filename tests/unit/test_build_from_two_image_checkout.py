@@ -139,7 +139,14 @@ def test_base_only_uses_a_canastabase_checkout(tmp_path):
 
 
 def test_base_only_without_base_source_fails(tmp_path):
-    builds, out = _build(tmp_path, ["Canasta/Dockerfile"], base_only=True,
-                         expect_rc=2)
+    builds, _ = _build(tmp_path, ["Canasta/Dockerfile"], base_only=True,
+                       expect_rc=2)
     assert builds == []
-    assert "builds canasta-base alone" in out
+
+
+def test_base_only_failure_names_the_missing_source():
+    with open(BUILD_FROM) as f:
+        task = next(t for t in yaml.safe_load(f) if t.get("name")
+                    == "Fail if there is no canasta-base source to build alone")
+    assert "builds canasta-base alone" in task["ansible.builtin.fail"]["msg"]
+    assert task["when"] == ["_build_base_only | bool", "_base_source_dir == ''"]
