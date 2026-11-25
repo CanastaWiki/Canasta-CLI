@@ -8,7 +8,7 @@
   ansible.builtin.set_fact:
     _reclaim_label: "{{ _reclaim_cli | capitalize }}"
 
-- name: List Canasta base images on the host
+- name: List canasta images on the host
   ansible.builtin.command:
     cmd: >-
       {{ _reclaim_cli }} images ghcr.io/canastawiki/canasta
