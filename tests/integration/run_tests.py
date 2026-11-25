@@ -565,6 +565,152 @@ def test_upgrade_rebuilds_buildable(inst):
     wait_for_wiki(inst.http_port)
 
 
+def _cli_canasta_version():
+    with open(os.path.join(REPO_ROOT, "CANASTA_VERSION")) as f:
+        return f.read().strip()
+
+
+def _image_file(image, path):
+    """The contents of a file in an image, read without starting Canasta."""
+    result = subprocess.run(
+        [container_runtime(), "run", "--rm", "--entrypoint", "cat", image,
+         path],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, (
+        "could not read %s from %s: %s" % (path, image, result.stderr)
+    )
+    return result.stdout.strip()
+
+
+def test_canasta_base(inst):
+    """`create --canasta-base` runs the canasta-base release, and upgrade
+    moves an older canasta-base pin to the current release without
+    switching it to canasta."""
+    current = _cli_canasta_version()
+    repo = "ghcr.io/canastawiki/canasta-base"
+    # The first canasta-base release that shares Canasta's version tags.
+    older = "3.6.0"
+    assert older != current, (
+        "the older pin must differ from CANASTA_VERSION (%s)" % current
+    )
+
+    print("Creating instance on canasta-base...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file, "--canasta-base",
+    )
+    image = read_env(inst.env_path())["CANASTA_IMAGE"]
+    assert image == "%s:%s" % (repo, current), (
+        "CANASTA_IMAGE is %r, expected the canasta-base release" % image
+    )
+    wait_for_wiki(inst.http_port, timeout=600)
+
+    print("Pinning the instance to an older canasta-base release...")
+    env = read_env(inst.env_path())
+    env["CANASTA_IMAGE"] = "%s:%s" % (repo, older)
+    with open(inst.env_path(), "w") as f:
+        for k, v in env.items():
+            f.write("%s=%s\n" % (k, v))
+
+    print("Running upgrade...")
+    inst.run_ok("upgrade")
+
+    image = read_env(inst.env_path())["CANASTA_IMAGE"]
+    assert image == "%s:%s" % (repo, current), (
+        "upgrade left CANASTA_IMAGE at %r; a canasta-base pin must move to "
+        "the current canasta-base release" % image
+    )
+    wait_for_wiki(inst.http_port, timeout=600)
+
+
+def test_build_from_overlay(inst):
+    """`create --build-from` on an overlay builds the instance's own image on
+    the current Canasta release, and upgrade rebuilds it from the recorded
+    source."""
+    marker = "/tmp/canasta-build-from-ci"
+    src_root = os.path.join(inst.work_dir, "bfsrc")
+    src = os.path.join(src_root, "Canasta")
+    os.makedirs(src, exist_ok=True)
+
+    def write_dockerfile(value):
+        with open(os.path.join(src, "Dockerfile"), "w") as f:
+            f.write("ARG BASE_IMAGE\nFROM ${BASE_IMAGE}\n"
+                    "RUN echo %s > %s\n" % (value, marker))
+
+    write_dockerfile("first")
+    print("Creating instance from an overlay source (--build-from)...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file, "--build-from", src_root,
+    )
+    image = read_env(inst.env_path())["CANASTA_IMAGE"]
+    assert image == "canasta:local-%s" % inst.id, (
+        "CANASTA_IMAGE is %r, expected the instance's own tag" % image
+    )
+    assert _image_file(image, marker) == "first"
+    version = inst.run_quiet("version", "-i", inst.id)
+    assert ("built on ghcr.io/canastawiki/canasta:%s"
+            % _cli_canasta_version()) in version, version
+    wait_for_wiki(inst.http_port)
+
+    print("Editing the source so the upgrade's rebuild is observable...")
+    write_dockerfile("second")
+    inst.run_ok("upgrade")
+    assert _image_file(image, marker) == "second", (
+        "upgrade did not rebuild the image from the recorded source"
+    )
+    wait_for_wiki(inst.http_port)
+
+
+def _clone_canasta(inst):
+    src_root = os.path.join(inst.work_dir, "bfsrc")
+    os.makedirs(src_root, exist_ok=True)
+    subprocess.run(
+        ["git", "clone", "--depth", "1",
+         "https://github.com/CanastaWiki/Canasta.git",
+         os.path.join(src_root, "Canasta")],
+        check=True,
+    )
+    return src_root
+
+
+def test_build_from_two_image(inst):
+    """`create --build-from` on a Canasta checkout builds canasta-base under
+    the instance's own base tag and canasta on top of it."""
+    src_root = _clone_canasta(inst)
+    print("Creating instance from a Canasta checkout (both images)...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file, "--build-from", src_root,
+    )
+    image = read_env(inst.env_path())["CANASTA_IMAGE"]
+    assert image == "canasta:local-%s" % inst.id, image
+    version = inst.run_quiet("version", "-i", inst.id)
+    assert "built on canasta-base:local-%s" % inst.id in version, version
+    wait_for_wiki(inst.http_port, timeout=600)
+
+
+def test_build_from_canasta_base(inst):
+    """`create --canasta-base --build-from` on a Canasta checkout builds and
+    runs canasta-base alone."""
+    src_root = _clone_canasta(inst)
+    print("Creating instance from a Canasta checkout (canasta-base only)...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file, "--build-from", src_root, "--canasta-base",
+    )
+    image = read_env(inst.env_path())["CANASTA_IMAGE"]
+    assert image == "canasta:local-%s" % inst.id, image
+    version = inst.run_quiet("version", "-i", inst.id)
+    assert "canasta-base built from source" in version, version
+    wait_for_wiki(inst.http_port, timeout=600)
+
+
 def test_rebuild(inst):
     """`canasta rebuild` must actually rebuild, and fail loudly if it can't.
 
@@ -5986,6 +6132,10 @@ ALL_TESTS = {
     "import": test_import_export,
     "upgrade": test_upgrade,
     "upgrade-rebuilds-buildable": test_upgrade_rebuilds_buildable,
+    "canasta-base": test_canasta_base,
+    "build-from-overlay": test_build_from_overlay,
+    "build-from-two-image": test_build_from_two_image,
+    "build-from-canasta-base": test_build_from_canasta_base,
     "rebuild": test_rebuild,
     "upgrade-mysql-to-mariadb": test_upgrade_mysql_to_mariadb,
     "upgrade-mysql-to-mariadb-recovery": test_upgrade_mysql_to_mariadb_recovery,
