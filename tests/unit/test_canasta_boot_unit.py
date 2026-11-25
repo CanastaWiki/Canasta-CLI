@@ -201,12 +201,23 @@ def _boot_unit_tasks(tasks):
     return found
 
 
+def _compose_file_args_layers():
+    tasks = _tasks("roles/orchestrator/tasks/compose_file_args.yml")
+    stat = next(t for t in tasks if "ansible.builtin.stat" in t)
+    build = next(t for t in tasks if "ansible.builtin.set_fact" in t)
+    dev = re.findall(r"'(docker-compose\.dev\.yml)'",
+                     build["ansible.builtin.set_fact"]["_compose_files"])
+    return ["docker-compose.yml"] + stat["loop"] + dev
+
+
+def _includes_compose_file_args(relpath):
+    return "include_tasks: compose_file_args.yml" in open(os.path.join(ROOT, relpath)).read()
+
+
 def test_the_unit_layers_match_the_start_compose_files():
-    with open(os.path.join(ROOT, "roles/orchestrator/tasks/start.yml")) as f:
-        text = f.read()
-    expr = text[text.index("_compose_files: >-"):text.index("- name: Unpause paused containers")]
-    layers = re.findall(r"'(docker-compose(?:\.[a-z-]+)?\.yml)'", expr)
-    assert layers == ["docker-compose.yml"] + list(mod.LAYERS) + [mod.DEV_LAYER]
+    assert _includes_compose_file_args("roles/orchestrator/tasks/start.yml")
+    assert _compose_file_args_layers() == (
+        ["docker-compose.yml"] + list(mod.LAYERS) + [mod.DEV_LAYER])
 
 
 def test_compose_start_enables_the_unit_last():
@@ -235,8 +246,4 @@ def test_upgrade_enables_the_unit_for_a_running_instance():
 
 
 def test_stop_uses_the_start_compose_files():
-    with open(os.path.join(ROOT, "roles/orchestrator/tasks/stop.yml")) as f:
-        text = f.read()
-    expr = text[text.index("_compose_files: >-"):text.index("- name: Read COMPOSE_PROFILES")]
-    layers = re.findall(r"'(docker-compose(?:\.[a-z-]+)?\.yml)'", expr)
-    assert layers == ["docker-compose.yml"] + list(mod.LAYERS) + [mod.DEV_LAYER]
+    assert _includes_compose_file_args("roles/orchestrator/tasks/stop.yml")

@@ -13,6 +13,8 @@ ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 START = os.path.join(ROOT, "roles", "orchestrator", "tasks", "start.yml")
 STOP = os.path.join(ROOT, "roles", "orchestrator", "tasks", "stop.yml")
 DESTROY = os.path.join(ROOT, "roles", "orchestrator", "tasks", "destroy.yml")
+COMPOSE_FILE_ARGS = os.path.join(
+    ROOT, "roles", "orchestrator", "tasks", "compose_file_args.yml")
 HELM = os.path.join(ROOT, "roles", "orchestrator", "tasks", "helm_deploy.yml")
 SCALE_UP = os.path.join(
     ROOT, "roles", "orchestrator", "tasks", "k8s_scale_up_after_stop.yml")
@@ -37,17 +39,17 @@ def test_start_renders_sidecars_for_both_orchestrators():
 
 
 def test_compose_layer_added_before_user_override():
-    body = _text(START)
-    assert "docker-compose.sidecars.yml" in body
+    assert "include_tasks: compose_file_args.yml" in _text(START)
+    body = _text(COMPOSE_FILE_ARGS)
     # Sidecars layer must precede the override in the -f list so the
     # override wins a service-name clash.
-    assert body.index("'docker-compose.sidecars.yml'], [])") < body.index(
-        "'docker-compose.override.yml'], [])")
+    assert body.index("- docker-compose.sidecars.yml") < body.index(
+        "- docker-compose.override.yml")
 
 
 def test_stop_includes_sidecar_layer_for_teardown():
-    body = _text(STOP)
-    assert "docker-compose.sidecars.yml" in body
+    assert "include_tasks: compose_file_args.yml" in _text(STOP)
+    assert "- docker-compose.sidecars.yml" in _text(COMPOSE_FILE_ARGS)
 
 
 def test_destroy_removes_sidecar_orphans_and_volumes():
@@ -57,7 +59,7 @@ def test_destroy_removes_sidecar_orphans_and_volumes():
     # volume survives and later blocks recreate with a stale-volume error.
     body = _text(DESTROY)
     assert "down -v --remove-orphans" in body
-    assert "docker-compose.sidecars.yml" in body
+    assert "include_tasks: compose_file_args.yml" in body
 
 
 def test_scale_up_is_generalized_to_all():

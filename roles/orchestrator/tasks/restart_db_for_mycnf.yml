@@ -88,14 +88,8 @@
     - name: Recreate the database
       when: _mycnf_restart_db | bool
       block:
-        - name: Check for the compose layers start.yml applies
-          ansible.builtin.stat:
-            path: "{{ instance_path }}/{{ item }}"
-          loop:
-            - docker-compose.sidecars.yml
-            - docker-compose.web-env.yml
-            - docker-compose.override.yml
-          register: _mycnf_layers
+        - name: Build compose file arguments
+          ansible.builtin.include_tasks: compose_file_args.yml
 
         - name: Read COMPOSE_PROFILES from .env
           canasta_env:
@@ -110,12 +104,7 @@
         - name: Build the compose arguments
           ansible.builtin.set_fact:
             _mycnf_compose_args: >-
-              {{ (['-f docker-compose.yml']
-                  + (_mycnf_layers.results | selectattr('stat.exists')
-                     | map(attribute='item') | map('regex_replace', '^', '-f ')
-                     | list)
-                  + ((instance_devmode | default(false) | bool)
-                     | ternary(['-f docker-compose.dev.yml'], []))
+              {{ (_compose_files
                   + ((_mycnf_env.variables.COMPOSE_PROFILES | default(''))
                      | split(',') | map('trim') | reject('equalto', '')
                      | map('regex_replace', '^', '--profile ') | list))

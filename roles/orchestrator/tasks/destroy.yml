@@ -12,21 +12,6 @@
         state: writable
         instance_path: "{{ instance_path }}"
 
-    - name: Check for docker-compose.sidecars.yml
-      ansible.builtin.stat:
-        path: "{{ instance_path }}/docker-compose.sidecars.yml"
-      register: _destroy_sidecars
-
-    - name: Check for docker-compose.web-env.yml
-      ansible.builtin.stat:
-        path: "{{ instance_path }}/docker-compose.web-env.yml"
-      register: _destroy_web_env
-
-    - name: Check for docker-compose.override.yml
-      ansible.builtin.stat:
-        path: "{{ instance_path }}/docker-compose.override.yml"
-      register: _destroy_override
-
     # Pass the sidecars layer explicitly: `down -v` only removes volumes
     # declared in the compose files it loads, and an app sidecar's named
     # volume lives in docker-compose.sidecars.yml, which Compose does not
@@ -34,12 +19,7 @@
     # recreate with a stale-volume error. --remove-orphans still sweeps any
     # stray containers.
     - name: Build compose file arguments for destroy
-      ansible.builtin.set_fact:
-        _destroy_compose_files: >-
-          {{ ['-f', 'docker-compose.yml'] +
-             (_destroy_sidecars.stat.exists | ternary(['-f', 'docker-compose.sidecars.yml'], [])) +
-             (_destroy_web_env.stat.exists | ternary(['-f', 'docker-compose.web-env.yml'], [])) +
-             (_destroy_override.stat.exists | ternary(['-f', 'docker-compose.override.yml'], [])) }}
+      ansible.builtin.include_tasks: compose_file_args.yml
 
     # podman-compose ignores COMPOSE_PROFILES from .env, so we must pass
     # --profile flags explicitly for `down` to remove all profiled services.
@@ -63,7 +43,7 @@
     - name: Destroy containers and volumes
       ansible.builtin.command:
         cmd: >-
-          {{ compose_command }} {{ _destroy_compose_files | join(' ') }}
+          {{ compose_command }} {{ _compose_files | join(' ') }}
           {{ _destroy_profile_flags | default('') }} down -v --remove-orphans
         chdir: "{{ instance_path }}"
       register: _destroy_down
