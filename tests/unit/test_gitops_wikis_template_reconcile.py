@@ -100,7 +100,7 @@ class TestReconcileTask:
     def test_template_list_items_are_column_zero(self):
         """List items must sit at column 0 (block-sequence style matching
         canasta_wikis_yaml.py). render_compose.yml copies this indentation
-        verbatim, and CanastaBase's config-subdir-wikis.sh parses it with
+        verbatim, and canasta-base's config-subdir-wikis.sh parses it with
         column-0 line anchors; indenting here silently drops every
         public_assets rewrite rule (broken logos on wiki farms)."""
         content = _copy_template_content()

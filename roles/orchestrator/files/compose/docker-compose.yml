@@ -106,7 +106,7 @@ services:
       - MW_SITEMAP_PAUSE_DAYS=${MW_SITEMAP_PAUSE_DAYS:-1}
       - MW_SITEMAP_URL_PATH=${MW_SITEMAP_URL_PATH:-/public_assets/sitemap}
       # Maintenance-script controls. Defaults mirror the image ENV
-      # (CanastaBase Dockerfile) so an unset .env value keeps image behavior;
+      # (canasta-base Dockerfile) so an unset .env value keeps image behavior;
       # config set can then override them (e.g. disable the job runner during a
       # bulk maintenance operation).
       - MW_ENABLE_JOB_RUNNER=${MW_ENABLE_JOB_RUNNER:-true}
@@ -219,7 +219,7 @@ services:
     <<: *default-network
     logging: *default-logging
     # service_started, not service_healthy: the web image's HEALTHCHECK
-    # is declared in the CanastaBase Dockerfile, but podman-compose does
+    # is declared in the canasta-base Dockerfile, but podman-compose does
     # not expose image-level healthchecks to compose dependency
     # resolution. Asking compose to wait on a healthcheck it can't see
     # makes 'docker compose up' fail on podman targets. Varnish has its

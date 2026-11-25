@@ -2,7 +2,7 @@
 bundled composer list.
 
 The classifier runs the image's composer-local.php; fixtures/composer-local.php
-is a verbatim copy of CanastaBase's _sources/scripts/composer-local.php, so
+is a verbatim copy of Canasta's _sources/scripts/composer-local.php, so
 these tests exercise the image's rules against a MediaWiki layout of real
 directories and symlinks in tmp. The upgrade task file runs as a localhost
 playbook with exec.yml replaced by a local stub.
