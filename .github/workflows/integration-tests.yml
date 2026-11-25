@@ -19,6 +19,10 @@ on:
         description: "Test every Podman version, not just the one a push tests"
         type: boolean
         default: false
+      two_image:
+        description: "Also build both images from a Canasta checkout"
+        type: boolean
+        default: false
   # Weekly full version sweep so push-to-main can run a single
   # representative leg while the matrix is still exercised regularly. It
   # also runs the Kubernetes jobs, and k8s-report files an issue when they
@@ -56,7 +60,8 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        leg: ["lifecycle & import", "upgrade", "rebuild & tools"]
+        leg: ["lifecycle & import", "upgrade", "rebuild & tools",
+              "image choices"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -88,6 +93,7 @@ jobs:
             "lifecycle & import") tests=(lifecycle import) ;;
             "upgrade")            tests=(upgrade upgrade-rebuilds-buildable) ;;
             "rebuild & tools")    tests=(rebuild version doctor host-management) ;;
+            "image choices")      tests=(canasta-base build-from-overlay) ;;
             *) echo "unknown core leg: $LEG" >&2; exit 1 ;;
           esac
           .venv/bin/python tests/integration/run_tests.py --no-skip "${tests[@]}"
@@ -470,6 +476,44 @@ jobs:
           esac
           .venv/bin/python tests/integration/run_tests.py --no-skip "${tests[@]}"
         timeout-minutes: 18
+
+  # Building both images from Canasta's main branch takes far longer than a
+  # push leg allows, so it runs weekly and on request.
+  integration-two-image:
+    name: "Integration: Two-image build from source"
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.two_image)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y git-crypt
+          python -m venv .venv
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install kubernetes
+          # Retry to ride out transient Ansible Galaxy CDN timeouts.
+          for attempt in 1 2 3 4; do
+            .venv/bin/ansible-galaxy collection install kubernetes.core && break
+            if [ "$attempt" -eq 4 ]; then
+              echo "ansible-galaxy install failed after 4 attempts" >&2
+              exit 1
+            fi
+            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
+            sleep $((attempt * 10))
+          done
+          git config --global user.name "CI"
+          git config --global user.email "ci@canasta.wiki"
+      - name: Run two-image build tests
+        run: >-
+          .venv/bin/python tests/integration/run_tests.py --no-skip
+          build-from-two-image build-from-canasta-base
+        timeout-minutes: 80
 
   integration-gitops:
     name: "Integration: GitOps"

@@ -26,7 +26,7 @@ This policy covers the Canasta CLI:
 
 Report these elsewhere:
 - Vulnerabilities in MediaWiki core or Wikimedia-maintained extensions and skins: https://www.mediawiki.org/wiki/Reporting_security_bugs
-- Vulnerabilities in the canasta-base or canasta image, its scripts, its Apache and PHP configuration, or its bundled extensions and skins: https://github.com/CanastaWiki/Canasta
+- Vulnerabilities in the `canasta-base` or `canasta` image, its scripts, its Apache and PHP configuration, or its bundled extensions and skins: https://github.com/CanastaWiki/Canasta
 - Vulnerabilities in Ansible, Kubernetes, Docker, Caddy, or other upstream dependencies: the upstream project
 
 If you are unsure where an issue belongs, report it here and we will help route it.

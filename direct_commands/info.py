@@ -264,6 +264,8 @@ def _image_label(image, inst):
     base = inst.get("buildBase")
     if base:
         return "%s (built on %s)" % (image, base)
+    if inst.get("buildTarget") == "canasta-base":
+        return "%s (canasta-base built from source)" % image
     return image
 
 

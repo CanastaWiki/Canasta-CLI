@@ -29,6 +29,7 @@ echo "$*" >> "$STUB_LOG"
 case "$*" in
   "info "*) echo 5.4.2 ;;
   "images ghcr.io/canastawiki/canasta "*) printf '%s\n' $STUB_CANASTA_IMAGES ;;
+  "images ghcr.io/canastawiki/canasta-base "*) printf '%s\n' $STUB_BASE_IMAGES ;;
   "image rm "*) echo "Untagged: $3" ;;
   "image prune -f") printf '%s\n' $STUB_DANGLING ;;
   *) echo "unexpected: $*" >&2; exit 2 ;;

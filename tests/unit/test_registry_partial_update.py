@@ -253,7 +253,8 @@ class TestThePreserveListCannotGoStale:
         emitted = canasta_registry.instance_to_dict({
             "id": "x", "path": "/x", "orchestrator": "compose",
             "host": "h", "devMode": True, "buildFrom": "/b",
-            "buildArgs": {"a": "1"}, "buildBase": "b", "dockerHost": "d",
+            "buildArgs": {"a": "1"}, "buildBase": "b", "buildTarget": "t",
+            "dockerHost": "d",
             "composeCommand": "c", "inspectCommand": "i",
         })
         optional = {k for k in emitted if k not in ("id", "path",

@@ -4,7 +4,7 @@
     the target release, in the rebuild and in the registry;
   - any other BASE_IMAGE is kept as given;
   - an overlay source with no BASE_IMAGE builds on the target Canasta image,
-    while Canasta source keeps building on CanastaBase.
+    while Canasta source keeps building on canasta-base.
 """
 
 import os
@@ -84,6 +84,18 @@ class TestRetargetBaseImage:
             args = ["BASE_IMAGE=" + ref]
             assert canasta_retarget_base_image(args, TARGET) == args
 
+    def test_moves_older_canasta_base_release_within_its_repository(self):
+        args = ["BASE_IMAGE=ghcr.io/canastawiki/canasta-base:3.6.0"]
+        assert canasta_retarget_base_image(
+            args, "ghcr.io/canastawiki/canasta:3.6.1") == [
+            "BASE_IMAGE=ghcr.io/canastawiki/canasta-base:3.6.1"]
+
+    def test_keeps_canasta_base_of_same_or_newer_release(self):
+        for pin in ("3.6.1", "3.7.0"):
+            args = ["BASE_IMAGE=ghcr.io/canastawiki/canasta-base:" + pin]
+            assert canasta_retarget_base_image(
+                args, "ghcr.io/canastawiki/canasta:3.6.1") == args
+
     def test_keeps_args_when_target_is_not_a_release(self):
         args = ["BASE_IMAGE=ghcr.io/canastawiki/canasta:3.5.28"]
         assert canasta_retarget_base_image(
@@ -139,18 +151,19 @@ class TestOverlayDefaultBase:
             tasks, "Check whether the Canasta source is the Canasta repository")
         assert probe["ansible.builtin.stat"]["path"] == (
             "{{ build_from }}/Canasta/contents.yaml")
-        published = _task(tasks, "Use published base image")
-        assert names.index(probe["name"]) < names.index(published["name"])
-        expr = published["ansible.builtin.set_fact"]["_base_image_arg"]
+        resolve = _task(tasks, "Resolve effective BASE_IMAGE")
+        assert names.index(probe["name"]) < names.index(resolve["name"])
+        expr = resolve["vars"]["_builtin_base"]
+        assert "_local_base_image if _base_source_dir != ''" in expr
         assert "'ghcr.io/canastawiki/canasta-base:latest'" in expr
         assert "if _canasta_contents.stat.exists" in expr
         assert "else canasta_default_image" in expr
-        assert published["when"] == "_base_source_dir == ''"
 
-    def test_local_canastabase_build_unchanged(self):
+    def test_local_canastabase_build_is_per_instance(self):
         tasks = _tasks(BUILD_FROM)
-        block = _task(tasks, "Build CanastaBase locally")
-        assert block["when"] == "_base_source_dir != ''"
-        local = _task(block["block"], "Set base image to local build")
-        assert local["ansible.builtin.set_fact"]["_base_image_arg"] == (
-            "canasta-base:local")
+        name = _task(tasks, "Name the local canasta-base build")
+        assert name["ansible.builtin.set_fact"]["_local_base_image"] == (
+            "canasta-base:local-{{ instance_id | default(id) }}")
+        build = _task(tasks, "Build canasta-base locally")
+        assert "_base_source_dir != ''" in build["when"]
+        assert "_user_base_image == ''" in build["when"]

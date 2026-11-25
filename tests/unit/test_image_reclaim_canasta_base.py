@@ -1,11 +1,13 @@
-"""image prune removes canasta-base:local once nothing builds on it.
+"""image prune removes the canasta-base builds nothing builds on any more.
 
-A --build-from with a CanastaBase source builds canasta-base:local, then
-the instance's canasta:local-<id> on top of it. The base carries no
-compose project label and is not a canasta:local-<id> tag, so once the
-last such instance was deleted nothing removed it. It is now removed when
-no registered instance's built image remains and no Kubernetes instance
-is on the host, whose build copies are reported instead.
+A --build-from with a canasta-base source builds canasta-base:local-<id>,
+then the instance's canasta:local-<id> on top of it; both are removed once
+the instance is no longer registered, the base after the image built on
+it. Older CLIs built one canasta-base:local for the host: it is removed
+when no registered instance's built image remains and no Kubernetes
+instance is on the host, whose build copies are reported instead.
+Published canasta-base release tags no instance is pinned to are removed
+like canasta ones.
 """
 
 import os
@@ -30,10 +32,11 @@ def _render(expr, **variables):
     return templar.template(trust_as_template(expr))
 
 
-def _removable(source, instances=(), k8s=(), pinned=()):
+def _removable(source, instances=(), k8s=(), pinned=(), published_base=()):
     task = _task()
     variables = {
         "_reclaim_images": {"stdout_lines": []},
+        "_reclaim_base_images": {"stdout_lines": list(published_base)},
         "_reclaim_source_images": {"stdout_lines": list(source)},
         "_reclaim_instances": {"instances": dict(
             {i: {"orchestrator": "compose"} for i in instances},
@@ -78,3 +81,26 @@ def test_a_pinned_base_is_kept():
 def test_an_instance_on_a_released_image_does_not_keep_the_base():
     assert _removable(["canasta-base:local"], instances=["site"]) == [
         "canasta-base:local"]
+
+
+def test_a_per_instance_base_of_a_deleted_instance_is_removed_last():
+    assert _removable(["canasta-base:local-gone", "canasta:local-gone",
+                       "mariadb:11.4"]) == [
+        "canasta:local-gone", "canasta-base:local-gone"]
+
+
+def test_a_per_instance_base_is_kept_while_its_instance_is_registered():
+    assert _removable(["canasta-base:local-site", "canasta:local-site"],
+                      instances=["site"]) == []
+    assert _removable(["canasta-base:local-k"], k8s=["k"]) == []
+
+
+def test_podman_per_instance_base_is_removed_by_its_short_name():
+    assert _removable(["localhost/canasta-base:local-gone"]) == [
+        "canasta-base:local-gone"]
+
+
+def test_an_unpinned_canasta_base_release_is_removed():
+    old = "ghcr.io/canastawiki/canasta-base:3.6.0"
+    new = "ghcr.io/canastawiki/canasta-base:3.6.1"
+    assert _removable([], published_base=[old, new], pinned=[new]) == [old]

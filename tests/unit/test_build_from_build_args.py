@@ -5,7 +5,7 @@ A real image build needs Docker, which unit CI can't assume, so these lock
 in the wiring instead:
 
   - `create` exposes a repeatable --build-arg;
-  - the args are validated (KEY=VALUE) and forwarded to BOTH the CanastaBase
+  - the args are validated (KEY=VALUE) and forwarded to BOTH the canasta-base
     and Canasta `docker build` invocations;
   - a user-supplied BASE_IMAGE wins over the auto-detected base (user args
     are appended after the built-in --build-arg, and docker takes the last);
@@ -50,8 +50,8 @@ def test_build_from_validates_key_value():
 
 
 def test_build_args_forwarded_to_canasta_base_build():
-    txt = _text(BUILD_FROM)
-    assert "%s build {{ _build_arg_flags }} -t canasta-base:local" % I in txt
+    txt = " ".join(_text(BUILD_FROM).split())
+    assert "%s build {{ _build_arg_flags }} -t {{ _local_base_image }}" % I in txt
 
 
 def test_build_args_forwarded_to_canasta_build_after_base_image():

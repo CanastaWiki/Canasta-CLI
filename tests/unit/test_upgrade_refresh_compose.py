@@ -137,7 +137,7 @@ class TestImageTagGitopsDurable:
     def test_bump_keeps_its_guards(self):
         when = str(self._compose_bump().get("when", ""))
         assert "buildFrom" in when, "build-from instances must be excluded"
-        assert "_upgrade_cli_pin_pattern" in when, (
+        assert "_upgrade_compose_target != ''" in when, (
             "only a CLI's own pin is moved; a custom image is left alone"
         )
 

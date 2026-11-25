@@ -170,6 +170,8 @@
   vars:
     build_from: "{{ _upgrade_build_from }}"
     build_arg: "{{ _upgrade_build_args }}"
+    build_base_only: >-
+      {{ _upgrade_inst.instance.buildTarget | default('') == 'canasta-base' }}
   when: _upgrade_rebuild | bool
 
 - name: Record the base image of the rebuilt image

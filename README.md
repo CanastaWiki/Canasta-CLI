@@ -18,7 +18,7 @@ Report bugs and request features at **[GitHub Issues](https://github.com/Canasta
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the local dev workflow (test commands, repo layout, regenerating docs).
 
-For ecosystem-wide contributing guidance (the canasta-base and canasta images, custom distributions), see the [Contributing guide on canasta.wiki](https://canasta.wiki/wiki/Help:Contributing).
+For ecosystem-wide contributing guidance (the `canasta-base` and `canasta` images, custom distributions), see the [Contributing guide on canasta.wiki](https://canasta.wiki/wiki/Help:Contributing).
 
 ## Release notes
 

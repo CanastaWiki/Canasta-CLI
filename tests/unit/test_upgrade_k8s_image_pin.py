@@ -50,7 +50,7 @@ def _instance(tmp_path, repository, tag, gitops=False):
     return inst
 
 
-def _run(tmp_path, inst):
+def _run(tmp_path, inst, default=DEFAULT):
     out = tmp_path / "facts.json"
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
@@ -60,7 +60,7 @@ def _run(tmp_path, inst):
         "vars": {
             "instance_path": str(inst),
             "instance_orchestrator": "kubernetes", **INSTANCE_IS_K8S_VARS,
-            "canasta_default_image": DEFAULT,
+            "canasta_default_image": default,
             "canasta_root": REPO_ROOT,
             "_upgrade_inst": {"instance": {}},
             "_mig": {"env_present": {}, "env": {}},
@@ -101,9 +101,22 @@ def test_a_bumped_pin_updates_canasta_image_in_env(tmp_path):
         f"MW_SITE_FQDN=example.com\nCANASTA_IMAGE={DEFAULT}\n")
 
 
+def test_a_canasta_base_pin_moves_within_its_repository(tmp_path):
+    inst = _instance(tmp_path, "ghcr.io/canastawiki/canasta-base", "3.6.0")
+    image, changed = _run(tmp_path, inst, default="ghcr.io/canastawiki/canasta:3.6.1")
+    assert image["repository"] == "ghcr.io/canastawiki/canasta-base"
+    assert image["tag"] == "3.6.1"
+    assert changed is True
+    assert (inst / ".env").read_text() == (
+        "MW_SITE_FQDN=example.com\n"
+        "CANASTA_IMAGE=ghcr.io/canastawiki/canasta-base:3.6.1\n")
+
+
 @pytest.mark.parametrize("repository, tag", [
     ("myregistry.example.com/custom", "1.0.0"),
     ("ghcr.io/example/canasta", "3.5.23"),
+    ("ghcr.io/canastawiki/canasta-base", "1.3.24"),
+    ("ghcr.io/canastawiki/canasta-base", "latest"),
     ("ghcr.io/canastawiki/canasta", "latest"),
     ("ghcr.io/canastawiki/canasta", "edge"),
     ("ghcr.io/canastawiki/canasta", "1.43.9-20260801-228"),

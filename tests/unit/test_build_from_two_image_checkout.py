@@ -26,7 +26,7 @@ exit 0
 """
 
 
-def _build(tmp_path, files):
+def _build(tmp_path, files, build_arg=(), base_only=False, expect_rc=0):
     bindir = tmp_path / "bin"
     bindir.mkdir()
     (bindir / "podman").write_text(STUB)
@@ -44,7 +44,9 @@ def _build(tmp_path, files):
         "connection": "local",
         "gather_facts": False,
         "vars": {"inspect_command": "podman", "build_from": str(src),
-                 "build_arg": [], "canasta_default_image": DEFAULT_IMAGE,
+                 "build_arg": list(build_arg),
+                 "build_base_only": base_only,
+                 "canasta_default_image": DEFAULT_IMAGE,
                  "instance_is_k8s": False, "id": "site",
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_tasks": BUILD_FROM}],
@@ -55,7 +57,7 @@ def _build(tmp_path, files):
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
     proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
                           capture_output=True, text=True, env=env, cwd=tmp_path)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert proc.returncode == expect_rc, proc.stdout + proc.stderr
     builds = [line.split() for line in log.read_text().splitlines()]
     return builds, proc.stdout
 
@@ -66,11 +68,11 @@ def test_two_image_checkout_builds_base_then_canasta(tmp_path):
     assert len(builds) == 2, builds
     base, canasta = builds
     assert base[0] == "Canasta"
-    assert base[-3:] == ["-t", "canasta-base:local", "."]
+    assert base[-3:] == ["-t", "canasta-base:local-site", "."]
     assert "-f" not in base
     assert canasta[0] == "Canasta"
     assert canasta[canasta.index("-f") + 1] == "Dockerfile.canasta"
-    assert "BASE_IMAGE=canasta-base:local" in canasta
+    assert "BASE_IMAGE=canasta-base:local-site" in canasta
     assert canasta[-3:] == ["-t", "canasta:local-site", "."]
 
 
@@ -88,7 +90,7 @@ def test_separate_canastabase_checkout(tmp_path):
                                     "CanastaBase/Dockerfile"])
     assert [b[0] for b in builds] == ["CanastaBase", "Canasta"]
     assert "-f" not in builds[1]
-    assert "BASE_IMAGE=canasta-base:local" in builds[1]
+    assert "BASE_IMAGE=canasta-base:local-site" in builds[1]
     assert "Warning:" not in out
 
 
@@ -106,3 +108,45 @@ def test_overlay_builds_on_the_canasta_release(tmp_path):
     assert len(builds) == 1, builds
     assert "-f" not in builds[0]
     assert "BASE_IMAGE=" + DEFAULT_IMAGE in builds[0]
+
+
+def test_user_base_image_skips_the_base_build(tmp_path):
+    builds, _ = _build(tmp_path, ["Canasta/Dockerfile",
+                                  "Canasta/Dockerfile.canasta"],
+                       build_arg=["BASE_IMAGE=example.com/base:1"])
+    assert len(builds) == 1, builds
+    assert builds[0][builds[0].index("-f") + 1] == "Dockerfile.canasta"
+    assert builds[0][-5:-3] == ["--build-arg", "BASE_IMAGE=example.com/base:1"]
+
+
+def test_base_only_builds_canasta_base_under_the_output_tag(tmp_path):
+    builds, _ = _build(tmp_path, ["Canasta/Dockerfile",
+                                  "Canasta/Dockerfile.canasta"],
+                       base_only=True)
+    assert len(builds) == 1, builds
+    assert builds[0][0] == "Canasta"
+    assert "-f" not in builds[0]
+    assert builds[0][-3:] == ["-t", "canasta:local-site", "."]
+
+
+def test_base_only_uses_a_canastabase_checkout(tmp_path):
+    builds, _ = _build(tmp_path, ["Canasta/Dockerfile",
+                                  "Canasta/contents.yaml",
+                                  "CanastaBase/Dockerfile"],
+                       base_only=True)
+    assert [b[0] for b in builds] == ["CanastaBase"]
+    assert builds[0][-3:] == ["-t", "canasta:local-site", "."]
+
+
+def test_base_only_without_base_source_fails(tmp_path):
+    builds, _ = _build(tmp_path, ["Canasta/Dockerfile"], base_only=True,
+                       expect_rc=2)
+    assert builds == []
+
+
+def test_base_only_failure_names_the_missing_source():
+    with open(BUILD_FROM) as f:
+        task = next(t for t in yaml.safe_load(f) if t.get("name")
+                    == "Fail if there is no canasta-base source to build alone")
+    assert "builds canasta-base alone" in task["ansible.builtin.fail"]["msg"]
+    assert task["when"] == ["_build_base_only | bool", "_base_source_dir == ''"]

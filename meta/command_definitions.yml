@@ -446,6 +446,17 @@ commands:
         type: string
         mutual_exclusion: build_from
         description: "Custom Canasta image reference"
+      - name: canasta_base
+        type: bool
+        default: false
+        mutual_exclusion: canasta_image
+        description: >-
+          Run the `canasta-base` image (MediaWiki core without the bundled
+          extensions and skins) instead of canasta. Without --build-from
+          it is the `canasta-base` release matching this CLI's Canasta
+          version, which upgrade moves to each new release. With
+          --build-from, only `canasta-base` is built from the source
+          directory, and upgrade rebuilds it the same way.
       - name: build_from
         type: path
         path_kind: instance_host
@@ -460,11 +471,11 @@ commands:
           Build argument KEY=VALUE forwarded to the --build-from image
           builds (repeatable, e.g. --build-arg MW_VERSION=master). A
           user-supplied BASE_IMAGE overrides the auto-detected base: a
-          local canasta-base build, from Canasta/ when it has
+          local `canasta-base` build, from Canasta/ when it has
           Dockerfile.canasta or else from CanastaBase/ when that is in the
-          source directory, else the published CanastaBase image for
+          source directory, else the published `canasta-base` image for
           Canasta source and the current Canasta release image for an
-          overlay.
+          overlay. The local `canasta-base` build is then skipped.
       - name: database
         short: d
         type: path
@@ -4364,8 +4375,9 @@ commands:
 
       On a Docker or Podman host, removes the Canasta image tags no instance
       registered on the host is pinned to, and the `--build-from` images
-      (`canasta:local-<id>`) of instances no longer registered, and the
-      canasta-base image they were built on (`canasta-base:local`) once no
+      (`canasta:local-<id>`) and the `canasta-base` builds under them
+      (`canasta-base:local-<id>`) of instances no longer registered, and
+      the shared `canasta-base:local` an older CLI built once no
       registered instance's `--build-from` image remains and no Kubernetes
       instance is on the host, then prunes dangling layers. A
       host carrying both runtimes is reclaimed in each. On a Kubernetes
@@ -4472,9 +4484,9 @@ commands:
       not recorded is reported and otherwise ignored.
 
       Without a `BASE_IMAGE` build argument, the image builds on the
-      auto-detected base: a local canasta-base build, from Canasta/ when it
+      auto-detected base: a local `canasta-base` build, from Canasta/ when it
       has Dockerfile.canasta or else from CanastaBase/ when that is in the
-      source directory, else the published CanastaBase image for Canasta
+      source directory, else the published `canasta-base` image for Canasta
       source and the current Canasta release image for an overlay.
 
       The rebuild, recording and restart behave as for

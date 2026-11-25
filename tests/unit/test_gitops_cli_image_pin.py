@@ -23,17 +23,21 @@ from canasta_gitops import (  # noqa: E402
     canasta_env_sync_plan as plan,
 )
 from canasta_image_pin import (  # noqa: E402
-    CLI_IMAGE_PIN_PATTERN,
     is_cli_image_pin,
+    retarget_release_image,
 )
 
-HOST_DEFAULT = "ghcr.io/canastawiki/canasta:3.5.30"
-OTHER_CLI = "ghcr.io/canastawiki/canasta:3.5.29"
+HOST_DEFAULT = "ghcr.io/canastawiki/canasta:3.6.2"
+OTHER_CLI = "ghcr.io/canastawiki/canasta:3.6.1"
+HOST_BASE = "ghcr.io/canastawiki/canasta-base:3.6.2"
+OTHER_BASE = "ghcr.io/canastawiki/canasta-base:3.6.1"
 OPERATOR_IMAGES = (
     "ghcr.io/canastawiki/canasta:latest",
     "ghcr.io/canastawiki/canasta:1.43.9-20260801-228",
     "ghcr.io/example/canasta:3.5.29",
     "canasta:local",
+    "ghcr.io/canastawiki/canasta-base:latest",
+    "ghcr.io/canastawiki/canasta-base:1.3.24",
 )
 
 BASE = "MW_SITE_SERVER={{mw_site_server}}\nHTTP_PORT=80\n"
@@ -53,14 +57,12 @@ def _load(*parts):
 
 
 class TestPattern:
-    def test_matches_the_upgrade_rule(self):
-        for task in _load("roles", "orchestrator", "tasks",
-                          "upgrade_image_tag.yml"):
-            facts = task.get("ansible.builtin.set_fact") or {}
-            if "_upgrade_cli_pin_pattern" in facts:
-                assert facts["_upgrade_cli_pin_pattern"] == CLI_IMAGE_PIN_PATTERN
-                return
-        raise AssertionError("_upgrade_cli_pin_pattern not set")
+    def test_the_upgrade_rule_moves_the_same_pins(self):
+        with open(os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
+                               "upgrade_image_tag.yml")) as f:
+            text = f.read()
+        assert "canasta_retarget_release_image(canasta_default_image)" in text
+        assert retarget_release_image(OTHER_CLI, HOST_DEFAULT) == HOST_DEFAULT
 
     def test_cli_pins(self):
         assert is_cli_image_pin(OTHER_CLI)
@@ -90,6 +92,10 @@ class TestRender:
         for image in OPERATOR_IMAGES:
             template = "CANASTA_IMAGE=%s\n%s" % (image, BASE)
             assert _image(render(template, VARS, HOST_DEFAULT)) == image
+
+    def test_a_canasta_base_pin_takes_the_host_version(self):
+        template = "CANASTA_IMAGE=%s\n%s" % (OTHER_BASE, BASE)
+        assert _image(render(template, VARS, HOST_DEFAULT)) == HOST_BASE
 
     def test_without_a_default_the_template_is_copied(self):
         template = "CANASTA_IMAGE=%s\n%s" % (OTHER_CLI, BASE)
@@ -136,6 +142,16 @@ class TestSync:
         assert p == {"set": {"CANASTA_IMAGE": HOST_DEFAULT}, "unset": [],
                      "conflict": []}
 
+    def test_a_canasta_base_pin_differing_only_in_version_is_not_written(self):
+        template = "CANASTA_IMAGE=%s\n%s" % (OTHER_BASE, BASE)
+        p = plan(self._live(HOST_BASE), template, VARS, template, VARS)
+        assert p == {"set": {}, "unset": [], "conflict": []}
+
+    def test_switching_env_to_canasta_base_is_written(self):
+        for template in (BASE, "CANASTA_IMAGE=%s\n%s" % (OTHER_CLI, BASE)):
+            p = plan(self._live(HOST_BASE), template, VARS, template, VARS)
+            assert p["set"] == {"CANASTA_IMAGE": HOST_BASE}, template
+
     def test_a_cli_pin_in_env_template_is_never_removed(self):
         template = "CANASTA_IMAGE=%s\n%s" % (OTHER_CLI, BASE)
         for live in (self._live(HOST_DEFAULT), self._live(OTHER_CLI)):
@@ -163,6 +179,10 @@ class TestInit:
         out = self._capture("CANASTA_IMAGE=%s\nHTTP_PORT=80\n" % OTHER_CLI)
         assert "CANASTA_IMAGE" not in out
         assert "HTTP_PORT=80" in out
+
+    def test_init_keeps_a_canasta_base_pin(self):
+        out = self._capture("CANASTA_IMAGE=%s\nHTTP_PORT=80\n" % OTHER_BASE)
+        assert "CANASTA_IMAGE=%s\n" % OTHER_BASE in out
 
     def test_init_keeps_an_operator_image(self):
         for image in OPERATOR_IMAGES:

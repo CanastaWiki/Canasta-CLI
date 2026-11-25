@@ -96,6 +96,26 @@ class TestConsistencyWarnings:
                 "CANASTA_IMAGE": "ghcr.io/canastawiki/canasta:3.5.1"})
         assert out == []
 
+    def test_canasta_base_pin_of_another_version_is_not_drift(self):
+        env = {"CANASTA_IMAGE": "ghcr.io/canastawiki/canasta-base:3.6.2",
+               "COMPOSE_PROFILES": "internal-db,varnish"}
+        out = doctor._consistency_warnings(
+            env, ["internal-db", "varnish"], ["web"], False,
+            template_literals={
+                "CANASTA_IMAGE": "ghcr.io/canastawiki/canasta-base:3.6.1"})
+        assert out == []
+
+    def test_canasta_base_pin_against_another_image_drifts(self):
+        for image in ("ghcr.io/canastawiki/canasta:3.6.2",
+                      "ghcr.io/canastawiki/canasta-base:latest"):
+            env = {"CANASTA_IMAGE": image,
+                   "COMPOSE_PROFILES": "internal-db,varnish"}
+            out = doctor._consistency_warnings(
+                env, ["internal-db", "varnish"], ["web"], False,
+                template_literals={
+                    "CANASTA_IMAGE": "ghcr.io/canastawiki/canasta-base:3.6.1"})
+            assert any("CANASTA_IMAGE" in o for o in out), image
+
     def test_operator_image_in_env_template_still_drifts(self):
         for image in ("ghcr.io/canastawiki/canasta:latest",
                       "ghcr.io/example/canasta:3.5.1",
