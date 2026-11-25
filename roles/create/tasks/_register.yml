@@ -28,6 +28,11 @@
     build_base: >-
       {{ _effective_base_image
          if (build_from | default('')) != '' else omit }}
+    build_target: >-
+      {{ 'canasta-base'
+         if (build_from | default('')) != ''
+            and (canasta_base | default(false) | bool)
+         else omit }}
     state: present
   delegate_to: canasta_controller
   vars:

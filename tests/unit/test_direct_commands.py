@@ -1404,6 +1404,8 @@ class TestCmdVersionInstanceModes:
                       "buildBase": "ghcr.io/canastawiki/canasta:3.5.29"},
             "legacy": {"path": str(legacy), "host": "localhost",
                        "buildFrom": "/src"},
+            "baseonly": {"path": str(legacy), "host": "localhost",
+                         "buildFrom": "/src", "buildTarget": "canasta-base"},
         })
         outside = tmp_path / "outside"
         outside.mkdir()
@@ -1414,6 +1416,8 @@ class TestCmdVersionInstanceModes:
         assert ("Instance 'built': canasta:local "
                 "(built on ghcr.io/canastawiki/canasta:3.5.29)") in lines
         assert "Instance 'legacy': canasta:local" in lines
+        assert ("Instance 'baseonly': canasta:local "
+                "(canasta-base built from source)") in lines
 
     def test_inside_build_from_instance_reports_build_base(
         self, tmp_path, monkeypatch, capsys

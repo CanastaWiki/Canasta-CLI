@@ -78,3 +78,36 @@ def test_upgrade_records_the_base_of_each_rebuild():
     assert reg["state"] == "update"
     assert reg["id"] == "{{ instance_id }}"
     assert reg["build_base"] == "{{ _effective_base_image }}"
+
+
+def test_create_records_a_canasta_base_build_target():
+    task = _by_name(_tasks(CREATE_REGISTER),
+                    "Register instance in controller config")
+    expr = task["canasta_registry"]["build_target"]
+    env = jinja2.Environment()
+    env.filters["bool"] = lambda v: str(v).lower() in ("true", "1", "yes")
+
+    def render(**context):
+        return env.from_string(expr).render(omit="__omit__", **context).strip()
+
+    assert render(build_from="/src", canasta_base="true") == "canasta-base"
+    assert render(build_from="/src") == "__omit__"
+    assert render(canasta_base="true") == "__omit__"
+
+
+def test_every_rebuild_replays_the_build_target():
+    apply_args = os.path.join(
+        REPO_ROOT, "roles", "imagebuild", "tasks", "apply_build_args.yml")
+    rebuilds = [
+        (_by_name(_tasks(UPGRADE_MAIN), REBUILD), "_upgrade_inst"),
+        (_by_name(_tasks(apply_args), "Rebuild the image from source"),
+         "_instance_result"),
+    ]
+    for task, source in rebuilds:
+        expr = task["vars"]["build_base_only"]
+        assert "%s.instance.buildTarget" % source in expr
+        assert "== 'canasta-base'" in expr
+    create = _by_name(
+        _tasks(os.path.join(REPO_ROOT, "roles", "create", "tasks", "main.yml")),
+        "Build from source if requested")
+    assert "canasta_base" in create["vars"]["build_base_only"]

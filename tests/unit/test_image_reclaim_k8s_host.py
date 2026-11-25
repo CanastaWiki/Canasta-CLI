@@ -38,6 +38,7 @@ echo "$*" >> "$STUB_LOG"
 case "$*" in
   "info "*) echo 27.0.0 ;;
   "images ghcr.io/canastawiki/canasta "*) echo ghcr.io/canastawiki/canasta:3.5.0 ;;
+  "images ghcr.io/canastawiki/canasta-base "*) ;;
   "images --filter label=com.docker.compose.project=site "*) echo site-web:custom ;;
   "images --filter "*) ;;
   "images --format "*) printf '%s\n' $STUB_ALL_IMAGES ;;

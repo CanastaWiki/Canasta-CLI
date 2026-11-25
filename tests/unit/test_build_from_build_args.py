@@ -50,8 +50,8 @@ def test_build_from_validates_key_value():
 
 
 def test_build_args_forwarded_to_canasta_base_build():
-    txt = _text(BUILD_FROM)
-    assert "%s build {{ _build_arg_flags }} -t canasta-base:local" % I in txt
+    txt = " ".join(_text(BUILD_FROM).split())
+    assert "%s build {{ _build_arg_flags }} -t {{ _local_base_image }}" % I in txt
 
 
 def test_build_args_forwarded_to_canasta_build_after_base_image():

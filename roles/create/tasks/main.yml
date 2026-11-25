@@ -32,6 +32,8 @@
   ansible.builtin.include_role:
     name: imagebuild
     tasks_from: build_from_source.yml
+  vars:
+    build_base_only: "{{ canasta_base | default(false) | bool }}"
 
 - name: Set base image
   ansible.builtin.set_fact:

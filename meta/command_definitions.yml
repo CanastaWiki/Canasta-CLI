@@ -475,7 +475,7 @@ commands:
           Dockerfile.canasta or else from CanastaBase/ when that is in the
           source directory, else the published CanastaBase image for
           Canasta source and the current Canasta release image for an
-          overlay.
+          overlay. The local canasta-base build is then skipped.
       - name: database
         short: d
         type: path
@@ -4375,8 +4375,9 @@ commands:
 
       On a Docker or Podman host, removes the Canasta image tags no instance
       registered on the host is pinned to, and the `--build-from` images
-      (`canasta:local-<id>`) of instances no longer registered, and the
-      CanastaBase image they were built on (`canasta-base:local`) once no
+      (`canasta:local-<id>`) and the canasta-base builds under them
+      (`canasta-base:local-<id>`) of instances no longer registered, and
+      the shared `canasta-base:local` an older CLI built once no
       registered instance's `--build-from` image remains and no Kubernetes
       instance is on the host, then prunes dangling layers. A
       host carrying both runtimes is reclaimed in each. On a Kubernetes

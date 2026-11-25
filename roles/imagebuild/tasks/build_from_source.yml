@@ -7,6 +7,7 @@
 #     source, so it builds both images and CanastaBase/ is not used)
 #   canasta_default_image (the Canasta image an overlay builds on by default)
 #   build_arg  (optional list of "KEY=VALUE" strings forwarded to the builds)
+#   build_base_only (optional bool: build canasta-base alone under the output tag)
 #   instance_id or id, instance_is_k8s
 # Output fact: _built_image (str: "canasta:local-<id>" on Compose,
 #   "canasta:local" on Kubernetes)
@@ -95,19 +96,50 @@
     _base_source_dir: >-
       {{ 'Canasta' if _canasta_two_images.stat.exists
          else ('CanastaBase' if _canastabase_dockerfile.stat.exists else '') }}
+    _build_base_only: "{{ build_base_only | default(false) | bool }}"
+    _user_base_image: >-
+      {{ build_arg | default([]) | select('match', '^BASE_IMAGE=')
+         | map('regex_replace', '^BASE_IMAGE=', '') | list | last
+         | default('') }}
 
+- name: Fail if there is no canasta-base source to build alone
+  ansible.builtin.fail:
+    msg: >-
+      --canasta-base with --build-from builds canasta-base alone, but
+      {{ build_from }} has neither a Canasta/ checkout with
+      Dockerfile.canasta nor a CanastaBase/ checkout.
+  when:
+    - _build_base_only | bool
+    - _base_source_dir == ''
+
+# The base tag is per instance, like the output tag: a host-wide one would
+# let two overlapping builds put one instance's image on another's base.
+- name: Name the local canasta-base build
+  ansible.builtin.set_fact:
+    _local_base_image: "canasta-base:local-{{ instance_id | default(id) }}"
+
+- name: Build canasta-base alone
+  ansible.builtin.command:
+    cmd: >-
+      {{ inspect_command | default('docker') }} build
+      {{ _build_arg_flags }} -t {{ _build_image_name }} .
+    chdir: "{{ build_from }}/{{ _base_source_dir }}"
+  changed_when: true
+  when: _build_base_only | bool
+
+# A user-supplied BASE_IMAGE replaces the local canasta-base build, so it
+# is not built.
 - name: Build CanastaBase locally
-  when: _base_source_dir != ''
-  block:
-    - name: Build CanastaBase image
-      ansible.builtin.command:
-        cmd: "{{ inspect_command | default('docker') }} build {{ _build_arg_flags }} -t canasta-base:local ."
-        chdir: "{{ build_from }}/{{ _base_source_dir }}"
-      changed_when: true
-
-    - name: Set base image to local build
-      ansible.builtin.set_fact:
-        _base_image_arg: "canasta-base:local"
+  ansible.builtin.command:
+    cmd: >-
+      {{ inspect_command | default('docker') }} build
+      {{ _build_arg_flags }} -t {{ _local_base_image }} .
+    chdir: "{{ build_from }}/{{ _base_source_dir }}"
+  changed_when: true
+  when:
+    - not (_build_base_only | bool)
+    - _base_source_dir != ''
+    - _user_base_image == ''
 
 # Canasta source without Dockerfile.canasta (it carries contents.yaml) builds
 # on CanastaBase. Anything else under Canasta/ is an overlay on the full
@@ -117,27 +149,23 @@
     path: "{{ build_from }}/Canasta/contents.yaml"
   register: _canasta_contents
 
-- name: Use published base image
-  ansible.builtin.set_fact:
-    _base_image_arg: >-
-      {{ 'ghcr.io/canastawiki/canasta-base:latest'
-         if _canasta_contents.stat.exists
-         else canasta_default_image }}
-  when: _base_source_dir == ''
-
-# The effective base is the last BASE_IMAGE build-arg (a user-supplied one
-# wins over the built-in), else the auto-detected base. If the effective base
-# resolves to the output tag, the overlay would build FROM its own output —
-# overwriting the base and, on a repeat build, silently layering the overlay
-# on top of itself. Guard it.
+# The effective base is a user-supplied BASE_IMAGE, else the built-in one.
+# A canasta-base build alone has no base to record.
 - name: Resolve effective BASE_IMAGE
   ansible.builtin.set_fact:
+    _base_image_arg: "{{ _builtin_base }}"
     _effective_base_image: >-
-      {{ (build_arg | default([]) | select('match', '^BASE_IMAGE=')
-          | map('regex_replace', '^BASE_IMAGE=', '') | list | last)
-         if (build_arg | default([]) | select('match', '^BASE_IMAGE=') | list | length > 0)
-         else _base_image_arg }}
+      {{ '' if _build_base_only | bool else (_user_base_image or _builtin_base) }}
+  vars:
+    _builtin_base: >-
+      {{ _local_base_image if _base_source_dir != ''
+         else ('ghcr.io/canastawiki/canasta-base:latest'
+               if _canasta_contents.stat.exists
+               else canasta_default_image) }}
 
+# If the effective base resolves to the output tag, the overlay would build
+# FROM its own output — overwriting the base and, on a repeat build,
+# silently layering the overlay on top of itself.
 - name: Fail if the base image collides with the build-from output tag
   ansible.builtin.fail:
     msg: >-
@@ -149,6 +177,7 @@
       --build-arg BASE_IMAGE=canasta:merged.
   when: _effective_base_image == _build_image_name
 
+# The user's build args follow the built-in BASE_IMAGE, so theirs wins.
 - name: Build Canasta image from source
   ansible.builtin.command:
     cmd: >-
@@ -158,6 +187,7 @@
       {{ _build_arg_flags }} -t {{ _build_image_name }} .
     chdir: "{{ build_from }}/Canasta"
   changed_when: true
+  when: not (_build_base_only | bool)
 
 - name: Set built image fact
   ansible.builtin.set_fact:

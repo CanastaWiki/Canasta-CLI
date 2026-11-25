@@ -64,6 +64,11 @@ options:
       Base image (the effective BASE_IMAGE) the instance's image was last
       built on from source.
     type: str
+  build_target:
+    description: >-
+      Image built from source: canasta-base for canasta-base alone, else
+      unset for canasta.
+    type: str
   host:
     description: SSH host (user@host or host) for instances on a remote machine.
     type: str
@@ -155,6 +160,8 @@ def instance_to_dict(instance):
         result["buildArgs"] = instance["buildArgs"]
     if instance.get("buildBase"):
         result["buildBase"] = instance["buildBase"]
+    if instance.get("buildTarget"):
+        result["buildTarget"] = instance["buildTarget"]
     if instance.get("dockerHost"):
         result["dockerHost"] = instance["dockerHost"]
     if instance.get("composeCommand"):
@@ -182,7 +189,8 @@ def preserved_on_present():
     probe = instance_to_dict({
         "id": "probe", "path": "/probe", "orchestrator": "compose",
         "host": "probe", "devMode": True, "buildFrom": "/probe",
-        "buildArgs": {"probe": "1"}, "buildBase": "probe", "dockerHost": "probe",
+        "buildArgs": {"probe": "1"}, "buildBase": "probe",
+        "buildTarget": "probe", "dockerHost": "probe",
         "composeCommand": "probe", "inspectCommand": "probe",
     })
     return tuple(k for k in probe if k not in _ALWAYS_WRITTEN)
@@ -270,6 +278,7 @@ def _state_present(module, config_dir, data, instances):
         "buildFrom": module.params.get("build_from"),
         "buildArgs": module.params.get("build_args"),
         "buildBase": module.params.get("build_base"),
+        "buildTarget": module.params.get("build_target"),
         "dockerHost": module.params.get("docker_host"),
         "composeCommand": module.params.get("compose_command"),
         "inspectCommand": module.params.get("inspect_command"),
@@ -403,6 +412,7 @@ def run_module():
         build_from=dict(type="str", required=False),
         build_args=dict(type="list", elements="str", required=False),
         build_base=dict(type="str", required=False),
+        build_target=dict(type="str", required=False),
         host=dict(type="str", required=False),
         docker_host=dict(type="str", required=False),
         compose_command=dict(type="str", required=False),

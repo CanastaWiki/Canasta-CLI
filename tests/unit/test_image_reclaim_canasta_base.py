@@ -30,10 +30,11 @@ def _render(expr, **variables):
     return templar.template(trust_as_template(expr))
 
 
-def _removable(source, instances=(), k8s=(), pinned=()):
+def _removable(source, instances=(), k8s=(), pinned=(), published_base=()):
     task = _task()
     variables = {
         "_reclaim_images": {"stdout_lines": []},
+        "_reclaim_base_images": {"stdout_lines": list(published_base)},
         "_reclaim_source_images": {"stdout_lines": list(source)},
         "_reclaim_instances": {"instances": dict(
             {i: {"orchestrator": "compose"} for i in instances},
@@ -78,3 +79,26 @@ def test_a_pinned_base_is_kept():
 def test_an_instance_on_a_released_image_does_not_keep_the_base():
     assert _removable(["canasta-base:local"], instances=["site"]) == [
         "canasta-base:local"]
+
+
+def test_a_per_instance_base_of_a_deleted_instance_is_removed_last():
+    assert _removable(["canasta-base:local-gone", "canasta:local-gone",
+                       "mariadb:11.4"]) == [
+        "canasta:local-gone", "canasta-base:local-gone"]
+
+
+def test_a_per_instance_base_is_kept_while_its_instance_is_registered():
+    assert _removable(["canasta-base:local-site", "canasta:local-site"],
+                      instances=["site"]) == []
+    assert _removable(["canasta-base:local-k"], k8s=["k"]) == []
+
+
+def test_podman_per_instance_base_is_removed_by_its_short_name():
+    assert _removable(["localhost/canasta-base:local-gone"]) == [
+        "canasta-base:local-gone"]
+
+
+def test_an_unpinned_canasta_base_release_is_removed():
+    old = "ghcr.io/canastawiki/canasta-base:3.6.0"
+    new = "ghcr.io/canastawiki/canasta-base:3.6.1"
+    assert _removable([], published_base=[old, new], pinned=[new]) == [old]

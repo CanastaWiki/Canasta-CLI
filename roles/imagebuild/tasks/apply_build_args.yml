@@ -64,6 +64,8 @@
   vars:
     build_from: "{{ _instance_result.instance.buildFrom }}"
     build_arg: "{{ _build_args_target }}"
+    build_base_only: >-
+      {{ _instance_result.instance.buildTarget | default('') == 'canasta-base' }}
   when: _build_args_rebuild | bool
 
 - name: Record the build arguments

@@ -151,18 +151,19 @@ class TestOverlayDefaultBase:
             tasks, "Check whether the Canasta source is the Canasta repository")
         assert probe["ansible.builtin.stat"]["path"] == (
             "{{ build_from }}/Canasta/contents.yaml")
-        published = _task(tasks, "Use published base image")
-        assert names.index(probe["name"]) < names.index(published["name"])
-        expr = published["ansible.builtin.set_fact"]["_base_image_arg"]
+        resolve = _task(tasks, "Resolve effective BASE_IMAGE")
+        assert names.index(probe["name"]) < names.index(resolve["name"])
+        expr = resolve["vars"]["_builtin_base"]
+        assert "_local_base_image if _base_source_dir != ''" in expr
         assert "'ghcr.io/canastawiki/canasta-base:latest'" in expr
         assert "if _canasta_contents.stat.exists" in expr
         assert "else canasta_default_image" in expr
-        assert published["when"] == "_base_source_dir == ''"
 
-    def test_local_canastabase_build_unchanged(self):
+    def test_local_canastabase_build_is_per_instance(self):
         tasks = _tasks(BUILD_FROM)
-        block = _task(tasks, "Build CanastaBase locally")
-        assert block["when"] == "_base_source_dir != ''"
-        local = _task(block["block"], "Set base image to local build")
-        assert local["ansible.builtin.set_fact"]["_base_image_arg"] == (
-            "canasta-base:local")
+        name = _task(tasks, "Name the local canasta-base build")
+        assert name["ansible.builtin.set_fact"]["_local_base_image"] == (
+            "canasta-base:local-{{ instance_id | default(id) }}")
+        build = _task(tasks, "Build CanastaBase locally")
+        assert "_base_source_dir != ''" in build["when"]
+        assert "_user_base_image == ''" in build["when"]
