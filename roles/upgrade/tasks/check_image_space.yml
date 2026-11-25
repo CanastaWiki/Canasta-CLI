@@ -32,17 +32,16 @@
   register: _space_current
 
 # Mirrors upgrade_image_tag.yml: only a version tag under the official
-# repository is moved to the release's image.
+# repositories is moved to the release's image.
 - name: Name the image the upgrade pulls
   ansible.builtin.set_fact:
     _space_current_image: >-
       {{ (_space_current.value | default('', true))
          if (space_measure_image | default(true) | bool) else '' }}
     _space_target_image: >-
-      {{ canasta_default_image
-         if (_space_current.value | default('', true))
-            is match('^ghcr\.io/canastawiki/canasta:[0-9]+\.[0-9]+\.[0-9]+$')
-         else (_space_current.value | default('', true)) }}
+      {{ (_space_current.value | default('', true)
+          | canasta_retarget_release_image(canasta_default_image))
+         or (_space_current.value | default('', true)) }}
 
 # A version tag never changes, so one already on the host is not pulled
 # again. Any other tag may have moved since it was last pulled.

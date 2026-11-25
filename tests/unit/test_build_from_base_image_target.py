@@ -84,6 +84,18 @@ class TestRetargetBaseImage:
             args = ["BASE_IMAGE=" + ref]
             assert canasta_retarget_base_image(args, TARGET) == args
 
+    def test_moves_older_canasta_base_release_within_its_repository(self):
+        args = ["BASE_IMAGE=ghcr.io/canastawiki/canasta-base:3.6.0"]
+        assert canasta_retarget_base_image(
+            args, "ghcr.io/canastawiki/canasta:3.6.1") == [
+            "BASE_IMAGE=ghcr.io/canastawiki/canasta-base:3.6.1"]
+
+    def test_keeps_canasta_base_of_same_or_newer_release(self):
+        for pin in ("3.6.1", "3.7.0"):
+            args = ["BASE_IMAGE=ghcr.io/canastawiki/canasta-base:" + pin]
+            assert canasta_retarget_base_image(
+                args, "ghcr.io/canastawiki/canasta:3.6.1") == args
+
     def test_keeps_args_when_target_is_not_a_release(self):
         args = ["BASE_IMAGE=ghcr.io/canastawiki/canasta:3.5.28"]
         assert canasta_retarget_base_image(

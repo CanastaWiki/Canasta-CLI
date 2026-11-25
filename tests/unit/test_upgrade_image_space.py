@@ -112,7 +112,8 @@ def _run(tmp_path, cli="docker", size=4 * GIB, free=2 * GIB,
                STUB_SITE_FREE_KB=str(site_free // 1024),
                STUB_ITOTAL=str(itotal), STUB_IFREE=str(ifree),
                ANSIBLE_LIBRARY=os.path.join(COMMON, "library"),
-               ANSIBLE_MODULE_UTILS=os.path.join(COMMON, "module_utils"))
+               ANSIBLE_MODULE_UTILS=os.path.join(COMMON, "module_utils"),
+               ANSIBLE_FILTER_PLUGINS=os.path.join(REPO_ROOT, "filter_plugins"))
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
     proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
                           capture_output=True, text=True, env=env, cwd=tmp_path)

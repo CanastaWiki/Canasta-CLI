@@ -2,7 +2,19 @@
 #
 # Loaded via the `filter_plugins` path in ansible.cfg (see canasta_crowdsec.py).
 
+import os
 import re
+import sys
+
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "roles", "common", "module_utils"))
+
+from canasta_image_pin import (  # noqa: E402
+    base_image_for,
+    release_image,
+    retarget_release_image,
+)
 
 _CANASTA_RELEASE = re.compile(
     r"^ghcr\.io/canastawiki/canasta:(\d+)\.(\d+)\.(\d+)$")
@@ -19,9 +31,10 @@ def canasta_release_version(image):
 
 
 def canasta_retarget_base_image(build_args, target_image):
-    """Build args with every BASE_IMAGE that names a Canasta release older
-    than target_image moved to target_image. Every other entry, and every
-    other BASE_IMAGE value, is returned unchanged."""
+    """Build args with every BASE_IMAGE that names a canasta or
+    canasta-base release older than target_image moved to target_image's
+    version in its own repository. Every other entry, and every other
+    BASE_IMAGE value, is returned unchanged."""
     args = list(build_args or [])
     target = canasta_release_version(target_image)
     if target is None:
@@ -30,9 +43,10 @@ def canasta_retarget_base_image(build_args, target_image):
     for arg in args:
         key, sep, value = str(arg).partition("=")
         if key == "BASE_IMAGE" and sep:
-            version = canasta_release_version(value)
-            if version is not None and version < target:
-                arg = "BASE_IMAGE=" + target_image
+            pin = release_image(value)
+            if pin is not None and pin[1] < target:
+                arg = "BASE_IMAGE=" + retarget_release_image(
+                    value, target_image)
         result.append(arg)
     return result
 
@@ -79,6 +93,8 @@ class FilterModule:
     def filters(self):
         return {
             "canasta_retarget_base_image": canasta_retarget_base_image,
+            "canasta_retarget_release_image": retarget_release_image,
+            "canasta_base_image_for": base_image_for,
             "canasta_set_build_args": canasta_set_build_args,
             "canasta_unset_build_args": canasta_unset_build_args,
             "canasta_build_arg_keys": canasta_build_arg_keys,

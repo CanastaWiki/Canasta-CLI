@@ -795,6 +795,16 @@ _SERVICE_PROFILE = {
 _SERVICE_PROFILE["db"] = "internal-db"
 
 
+def _same_release_line(template_image, env_image):
+    """Whether a pull would leave env_image as it is: the template's
+    image is a CLI's own pin, or a release pin of the same repository."""
+    if canasta_image_pin.is_cli_image_pin(template_image):
+        return True
+    pin = canasta_image_pin.release_image(template_image)
+    live = canasta_image_pin.release_image(env_image)
+    return pin is not None and live is not None and pin[0] == live[0]
+
+
 def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
                           template_literals=None):
     """Pure: warnings about config/runtime drift for a Compose instance.
@@ -808,7 +818,8 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
     - any env.template literal that differs from .env (the durable gitops
       source and the live config have diverged; a pull would reset .env to it).
       A CANASTA_IMAGE that is a CLI's own pin is not compared: the render
-      gives each host its own CLI's default in its place.
+      gives each host its own CLI's default in its place. A canasta-base
+      release pin is compared by repository only, for the same reason.
     """
     warns = []
     active = set(current_profiles)
@@ -857,7 +868,7 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
         k for k, tv in (template_literals or {}).items()
         if k in env and env[k] != tv
         and not (k == canasta_image_pin.CLI_IMAGE_KEY
-                 and canasta_image_pin.is_cli_image_pin(tv)))
+                 and _same_release_line(tv, env[k])))
     if drifted:
         detail = "; ".join(
             "%s (env.template=%s, .env=%s)" % (k, template_literals[k], env[k])

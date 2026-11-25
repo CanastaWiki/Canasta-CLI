@@ -33,6 +33,8 @@ from canasta_env_quote import (  # noqa: E402
 from canasta_image_pin import (  # noqa: E402
     CLI_IMAGE_KEY,
     is_cli_image_pin,
+    release_image,
+    retarget_release_image,
 )
 
 ENCRYPTION_FILTER = "git-crypt"
@@ -348,7 +350,8 @@ def canasta_env_render(template, env_vars, default_image=None):
     With ``default_image``, CANASTA_IMAGE is that image unless the
     template names one the operator chose: a CLI's own pin follows the
     CLI of the host rendering it, so one written by another host's CLI
-    is not carried over.
+    is not carried over. A canasta-base release pin takes the host's
+    version and stays canasta-base.
     """
     env_vars = env_vars or {}
     defined = _template_keys(template)
@@ -379,11 +382,17 @@ def _env_line_key(line):
 
 def _with_default_image(lines, default_image):
     image_line = "%s=%s" % (CLI_IMAGE_KEY, default_image)
-    out = [
-        image_line if _env_line_key(line) == CLI_IMAGE_KEY
-        and is_cli_image_pin(line.split("=", 1)[1]) else line
-        for line in lines
-    ]
+
+    def _rendered(line):
+        if _env_line_key(line) != CLI_IMAGE_KEY:
+            return line
+        value = line.split("=", 1)[1]
+        if is_cli_image_pin(value):
+            return image_line
+        moved = retarget_release_image(value, default_image)
+        return "%s=%s" % (CLI_IMAGE_KEY, moved) if moved else line
+
+    out = [_rendered(line) for line in lines]
     if not any(_env_line_key(line) == CLI_IMAGE_KEY for line in out):
         end = len(out)
         while end and not out[end - 1].strip():
@@ -460,15 +469,22 @@ CLI_DERIVED_ENV_KEYS = ("COMPOSE_PROFILES", "CANASTA_CADDY_IMAGE",
 
 
 # Stands for "this host's CLI default" in the .env sync: a CLI's own pin,
-# or no CANASTA_IMAGE at all, both render as the host's default.
+# or no CANASTA_IMAGE at all, both render as the host's default. A
+# canasta-base release pin renders as the host's canasta-base release.
 _CLI_DEFAULT_IMAGE = object()
+_CLI_BASE_IMAGE = object()
 
 
 def _cli_image_as_default(values):
-    if values.get(CLI_IMAGE_KEY) is None or is_cli_image_pin(
-            values.get(CLI_IMAGE_KEY)):
-        values = dict(values)
-        values[CLI_IMAGE_KEY] = _CLI_DEFAULT_IMAGE
+    image = values.get(CLI_IMAGE_KEY)
+    if image is None or is_cli_image_pin(image):
+        marker = _CLI_DEFAULT_IMAGE
+    elif release_image(image) is not None:
+        marker = _CLI_BASE_IMAGE
+    else:
+        return values
+    values = dict(values)
+    values[CLI_IMAGE_KEY] = marker
     return values
 
 
