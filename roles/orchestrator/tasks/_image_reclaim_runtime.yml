@@ -28,11 +28,11 @@
   changed_when: false
   failed_when: false
 
-# A --build-from with a CanastaBase source builds canasta-base:local and
-# the instance's canasta:local-<id> on top of it. The base is kept while a
-# registered instance's built image remains, and for a Kubernetes
-# instance, whose build copies are reported below instead. It comes last,
-# after the images built on it.
+# A --build-from of a Canasta checkout with Dockerfile.canasta builds
+# canasta-base:local and the instance's canasta:local-<id> on top of it.
+# The base is kept while a registered instance's built image remains, and
+# for a Kubernetes instance, whose build copies are reported below instead.
+# It comes last, after the images built on it.
 - name: Select the tags no instance on this host is pinned to
   ansible.builtin.set_fact:
     _reclaim_removable: >-

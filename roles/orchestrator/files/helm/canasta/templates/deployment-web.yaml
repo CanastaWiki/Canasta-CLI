@@ -208,6 +208,8 @@ spec:
               mountPath: /var/www/mediawiki/w/user-skins
             - name: public-assets
               mountPath: /mediawiki/public_assets
+            - name: mediawiki-logs
+              mountPath: /var/log/mediawiki
           {{- with .Values.web.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -255,3 +257,6 @@ spec:
         - name: public-assets
           persistentVolumeClaim:
             claimName: {{ include "canasta.fullname" . }}-public-assets
+        - name: mediawiki-logs
+          persistentVolumeClaim:
+            claimName: {{ include "canasta.fullname" . }}-mediawiki-logs

@@ -78,6 +78,10 @@ canasta_known_keys:
     group: PHP
     description: Most idle PHP-FPM workers
     default: "15"
+  - name: PM_MAX_REQUESTS
+    group: PHP
+    description: Requests each PHP-FPM worker serves before it is replaced; 0 never replaces it
+    default: "2500"
 
   - name: MW_SITEMAP_PAUSE_DAYS
     group: Sitemaps

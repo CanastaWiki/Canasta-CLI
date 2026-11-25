@@ -888,7 +888,7 @@ def _dump_db_error_log(inst):
 
 
 # Readiness gate after `up -d`. Mirrors roles/orchestrator/tasks/start.yml:
-# 60 x 10s = 10 min, comfortably above the CanastaBase healthcheck's 5 min
+# 60 x 10s = 10 min, comfortably above the canasta-base healthcheck's 5 min
 # --start-period plus a slow first-time composer install. The Podman fallback
 # probe's 30 x 10s matches the --start-period alone.
 _WEB_HEALTH_RETRIES = 60

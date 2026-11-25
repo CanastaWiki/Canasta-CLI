@@ -1,6 +1,6 @@
 # Contributing to Canasta CLI
 
-This document covers the local development workflow for the Canasta CLI repository. For ecosystem-wide contributing guidance (CanastaBase, the Canasta image, building a custom Canasta-like distribution), see the [Contributing guide on canasta.wiki](https://canasta.wiki/wiki/Help:Contributing).
+This document covers the local development workflow for the Canasta CLI repository. For ecosystem-wide contributing guidance (the canasta-base and canasta images, building a custom Canasta-like distribution), see the [Contributing guide on canasta.wiki](https://canasta.wiki/wiki/Help:Contributing).
 
 ## Setting up a development environment
 

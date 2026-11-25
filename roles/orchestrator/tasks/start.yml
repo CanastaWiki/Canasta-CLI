@@ -412,7 +412,7 @@
     # `docker compose exec web php …` task that runs immediately after
     # `up -d` will race composer and crash with "vendor/composer/...
     # bootstrap.php: No such file or directory" if vendor is mid-write.
-    # The CanastaBase HEALTHCHECK probes /server-status, which only
+    # The canasta-base HEALTHCHECK probes /server-status, which only
     # responds once both composer AND apache have finished — so
     # "healthy" is the right gate. Custom images that do not declare a
     # HEALTHCHECK skip the wait (we trust them to define their own
@@ -464,7 +464,7 @@
       when: _start_web_cid.stdout | trim != ''
 
     # Up to 60 retries × 10s = 10 min — comfortably above the
-    # CanastaBase healthcheck's 5 min --start-period plus a slow
+    # canasta-base healthcheck's 5 min --start-period plus a slow
     # first-time composer install.
     #
     # failed_when: false so the fail below can name the last status;
