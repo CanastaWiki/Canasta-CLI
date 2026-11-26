@@ -1341,7 +1341,7 @@ def warn_root_on_shared_install():
 
 
 KUBERNETES_DEPRECATION_WARNING = (
-    "Warning: Kubernetes support in the canasta CLI is deprecated. Canasta "
+    "Warning: Kubernetes support in the Canasta CLI is deprecated. Canasta "
     "for MediaWiki 1.47 will not include it, and it ends with the last "
     "Canasta release for MediaWiki 1.43. If you run Canasta on Kubernetes, "
     "please let us know at "
