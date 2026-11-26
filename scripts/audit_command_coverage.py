@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Static integration-test coverage report for the canasta CLI.
 
-Walks tests/integration/run_tests.py with Python's ast module, finds every
-inst.run / inst.run_ok / inst.run_quiet call, and extracts the command name
-(or `<group> <subcommand>` pair) from the first one or two string arguments.
+Walks tests/integration/run_tests.py and k8s_tests.py with Python's ast
+module, finds every inst.run / inst.run_ok / inst.run_quiet call, and
+extracts the command name (or `<group> <subcommand>` pair) from the first
+one or two string arguments.
 Cross-references against meta/command_definitions.yml to report:
 
   * which commands have at least one integration test that exercises them
@@ -34,7 +35,10 @@ import yaml
 
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-TEST_FILE = os.path.join(REPO_ROOT, "tests", "integration", "run_tests.py")
+TEST_FILES = (
+    os.path.join(REPO_ROOT, "tests", "integration", "run_tests.py"),
+    os.path.join(REPO_ROOT, "tests", "integration", "k8s_tests.py"),
+)
 DEFS_FILE = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
 
 RUN_METHODS = {"run", "run_ok", "run_quiet"}
@@ -173,11 +177,13 @@ def main():
     coverage = defaultdict(set)  # command -> {test_func_name, ...}
     unknown = set()              # invoked commands not in definitions
 
-    for test_name, command in extract_test_invocations(TEST_FILE, groups, all_commands):
-        if command in all_commands:
-            coverage[command].add(test_name or "?")
-        else:
-            unknown.add(command)
+    for test_file in TEST_FILES:
+        for test_name, command in extract_test_invocations(
+                test_file, groups, all_commands):
+            if command in all_commands:
+                coverage[command].add(test_name or "?")
+            else:
+                unknown.add(command)
 
     covered = sorted(c for c in all_commands if c in coverage)
     uncovered = sorted(c for c in all_commands if c not in coverage)

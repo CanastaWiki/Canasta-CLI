@@ -9,6 +9,7 @@ prerequisite it means the provisioning broke, and the run must fail.
 import importlib.util
 import os
 import re
+import sys
 
 import pytest
 import yaml
@@ -22,6 +23,7 @@ WORKFLOWS = os.path.join(REPO_ROOT, ".github", "workflows")
 def _load_run_tests():
     spec = importlib.util.spec_from_file_location("int_run_tests", RUN_TESTS)
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 

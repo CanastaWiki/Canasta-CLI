@@ -18,6 +18,7 @@ import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUN_TESTS = os.path.join(REPO_ROOT, "tests", "integration", "run_tests.py")
+K8S_TESTS = os.path.join(REPO_ROOT, "tests", "integration", "k8s_tests.py")
 WORKFLOWS = os.path.join(REPO_ROOT, ".github", "workflows")
 
 # name -> why CI does not run it. Keep the reason specific: "slow" is a
@@ -30,13 +31,19 @@ NOT_IN_CI = {
 }
 
 
-def registered_tests():
-    """Names from the ALL_TESTS mapping in run_tests.py."""
-    with open(RUN_TESTS) as f:
+def _registry(path, name):
+    with open(path) as f:
         source = f.read()
-    start = source.index("ALL_TESTS = {")
+    start = source.index(name + " = {")
     end = source.index("}", start)
     return set(re.findall(r'"([a-z0-9-]+)":', source[start:end]))
+
+
+def registered_tests():
+    """Names from ALL_TESTS in run_tests.py and K8S_TESTS in k8s_tests.py,
+    which ALL_TESTS takes in."""
+    return (_registry(RUN_TESTS, "ALL_TESTS")
+            | _registry(K8S_TESTS, "K8S_TESTS"))
 
 
 def tests_named_by_ci():
