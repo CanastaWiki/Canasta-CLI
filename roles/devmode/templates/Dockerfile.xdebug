@@ -8,7 +8,7 @@ FROM ${BASE_IMAGE} AS builder
 RUN PHP_VERSION=$(php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;') \
  && apt-get update && apt-get install -y --no-install-recommends \
     "php${PHP_VERSION}-dev" autoconf build-essential php-pear \
- && pecl install xdebug-3.2.1 \
+ && pecl install xdebug-3.5.3 \
  && mkdir -p /xdebug-out \
  && cp "$(php -r 'echo ini_get("extension_dir");')/xdebug.so" /xdebug-out/
 
