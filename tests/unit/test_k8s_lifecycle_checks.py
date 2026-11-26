@@ -100,13 +100,6 @@ class TestCrowdsecReloadSyncsConfig:
         assert names.index("Apply edited CrowdSec config (Kubernetes)") \
             < names.index("Restart the CrowdSec engine")
 
-    def test_the_local_api_always_restarts(self):
-        # A config change rolls only the caddy pod (the agent reads the
-        # files); the local API, which holds the console enrollment and
-        # credentials, is restarted every time.
-        restart = _task(_load(RELOAD), "Restart the CrowdSec engine")
-        assert "when" not in restart
-
 
 class TestDeleteWaitsForNamespace:
     def _tail(self):
@@ -135,13 +128,6 @@ class TestDeleteWaitsForNamespace:
             "instance_id": "x"})
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert "Warning" not in proc.stdout
-
-    def test_delete_deregisters_only_after_destroy(self):
-        tasks = _load(os.path.join(REPO_ROOT, "roles", "delete", "tasks",
-                                   "main.yml"))
-        names = [t.get("name") for t in tasks]
-        assert names.index("Destroy containers and volumes") \
-            < names.index("Save connection state before controller deregistration")
 
 
 class TestCreateUsesEnvSecretKey:

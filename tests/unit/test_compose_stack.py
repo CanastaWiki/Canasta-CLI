@@ -119,3 +119,8 @@ class TestVarnishWaitsForWeb:
         assert proc.returncode == 1
         assert lookups == 60
         assert not started.exists()
+
+
+def test_web_mounts_the_log_volume():
+    assert ("mediawiki-logs:/var/log/mediawiki"
+            in _load_compose()["services"]["web"]["volumes"])

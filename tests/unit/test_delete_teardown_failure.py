@@ -166,6 +166,13 @@ class TestDeregistrationFollowsTeardown:
         assert (self._index("Destroy containers and volumes")
                 < self._index("Deregister instance from controller"))
 
+    def test_connection_state_is_saved_after_destroy(self):
+        # Top level only: the deregister-only block saves it too, with no
+        # destroy before it.
+        names = [t.get("name") for t in self._top()]
+        assert (names.index("Destroy containers and volumes")
+                < names.index("Save connection state before controller deregistration"))
+
     def test_target_deregistration_after_destroy(self):
         assert (self._index("Destroy containers and volumes")
                 < self._index("Deregister instance from target host"))

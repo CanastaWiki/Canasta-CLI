@@ -58,8 +58,8 @@ class TestBackupEnvSecretSyncTask:
 
     def test_filter_covers_known_backup_env_prefixes(self):
         """The backup-env filter must cover every backup-backend prefix (via
-        the canonical list) plus the DB keys the dump-databases init container
-        needs. RCLONE_ was historically absent and broke restic rclone on K8s."""
+        the canonical list, checked in test_secret_classifier.py) plus the DB
+        keys the dump-databases init container needs."""
         with open(self.SYNC_PATH) as f:
             content = f.read()
         assert "canasta_backup_backend_prefixes" in content, (
@@ -69,13 +69,6 @@ class TestBackupEnvSecretSyncTask:
             assert db_key in content, (
                 "backup-env filter must include %r for the dump-databases "
                 "init container." % db_key
-            )
-        classifier = yaml.safe_load(open(os.path.join(
-            REPO_ROOT, "vars", "secret_classification.yml")).read())
-        for prefix in ("RESTIC_", "AWS_", "B2_", "AZURE_", "GOOGLE_", "OS_",
-                       "ST_", "RCLONE_"):
-            assert prefix in classifier["canasta_backup_backend_prefixes"], (
-                "%r must be a backup-backend prefix." % prefix
             )
 
 

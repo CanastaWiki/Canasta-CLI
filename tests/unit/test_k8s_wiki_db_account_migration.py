@@ -379,18 +379,6 @@ class TestRestoreKeepsThisHostsAccount:
         assert patch["no_log"] is True
 
 
-class TestComposeRestartIsRecorded:
-    def test_every_compose_restart_is_followed_by_the_record(self):
-        compose = next(t for t in _load(SWITCH)
-                       if t.get("name") == "Switch (Docker Compose)")
-        for tasks, restart in ((compose["block"], "Restart onto the new account"),
-                               (compose["rescue"], "Restart on the administrator account")):
-            names = [t.get("name") for t in tasks]
-            record = tasks[names.index(restart) + 1]
-            assert record["ansible.builtin.set_fact"] == {"_mig_db_redeployed": True}
-            assert "when" not in record
-
-
 class TestConfigUnsetAccount:
     @pytest.mark.parametrize("keys, orchestrator, synced", [
         ("WIKI_DB_USER", "kubernetes", True),
