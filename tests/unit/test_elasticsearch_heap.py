@@ -1,8 +1,9 @@
-"""CANASTA_ELASTICSEARCH_HEAP sets the Elasticsearch heap on both orchestrators.
+"""CANASTA_ELASTICSEARCH_HEAP sets the Elasticsearch heap on Kubernetes.
 
-Compose reads it from .env in ES_JAVA_OPTS. On Kubernetes a deploy-time
-reconcile copies it into values.yaml as elasticsearch.heap, and the chart
-derives ES_JAVA_OPTS and the container's memory request and limit from it.
+A deploy-time reconcile copies it into values.yaml as elasticsearch.heap, and
+the chart derives ES_JAVA_OPTS and the container's memory request and limit
+from it. Compose runs OpenSearch instead, sized by CANASTA_OPENSEARCH_HEAP,
+which is validated the same way.
 """
 
 import os
@@ -15,14 +16,13 @@ import yaml
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 CHART = os.path.join(REPO_ROOT, "roles", "orchestrator", "files", "helm", "canasta")
-COMPOSE = os.path.join(REPO_ROOT, "roles", "orchestrator", "files", "compose",
-                       "docker-compose.yml")
 DEFAULTS = os.path.join(REPO_ROOT, "roles", "config", "defaults", "main.yml")
 CLASSIFIER = os.path.join(REPO_ROOT, "vars", "secret_classification.yml")
 VALIDATE_VALUE = os.path.join(REPO_ROOT, "roles", "config", "tasks", "_validate_value.yml")
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
 
 KEY = "CANASTA_ELASTICSEARCH_HEAP"
+HEAP_KEYS = [KEY, "CANASTA_OPENSEARCH_HEAP"]
 
 
 def _read(*parts):
@@ -65,34 +65,27 @@ class TestKey:
         assert KEY in _load(CLASSIFIER)["canasta_host_specific_nonsecret"]
 
 
-class TestCompose:
-    def test_heap_comes_from_env_with_512m_default(self):
-        compose = yaml.safe_load(_read(COMPOSE))
-        env = compose["services"]["elasticsearch"]["environment"]
-        assert ("ES_JAVA_OPTS=-Xms${CANASTA_ELASTICSEARCH_HEAP:-512m} "
-                "-Xmx${CANASTA_ELASTICSEARCH_HEAP:-512m}") in env
-
-
 def _validate_task():
     return next(t for t in _load(VALIDATE_VALUE)
-                if t.get("name") == "Validate CANASTA_ELASTICSEARCH_HEAP")
+                if t.get("name") == "Validate the Elasticsearch and OpenSearch heap sizes")
 
 
+@pytest.mark.parametrize("key", HEAP_KEYS)
 class TestValidation:
     @pytest.mark.parametrize("value", ["512m", "768M", "4g", "16G"])
-    def test_accepted(self, tmp_path, value):
+    def test_accepted(self, tmp_path, key, value):
         code, out = _run_play(tmp_path, [_validate_task()],
-                              {"_config_key": KEY, "_config_value": value})
+                              {"_config_key": key, "_config_value": value})
         assert code == 0, out
 
     @pytest.mark.parametrize("value", ["", "4", "4gb", "0m", "1.5g", "-1g", "4 g", "4k"])
-    def test_refused(self, tmp_path, value):
+    def test_refused(self, tmp_path, key, value):
         code, out = _run_play(tmp_path, [_validate_task()],
-                              {"_config_key": KEY, "_config_value": value})
-        assert code != 0 and "must be a whole number" in out, out
+                              {"_config_key": key, "_config_value": value})
+        assert code != 0 and key + " must be a whole number" in out, out
 
-    def test_unset_is_not_validated(self, tmp_path):
-        code, out = _run_play(tmp_path, [_validate_task()], {"_config_key": KEY})
+    def test_unset_is_not_validated(self, tmp_path, key):
+        code, out = _run_play(tmp_path, [_validate_task()], {"_config_key": key})
         assert code == 0, out
 
 

@@ -1763,15 +1763,17 @@ class TestSyncComposeProfiles:
             ),
         )
 
-    def test_adds_elasticsearch_when_flag_true(self, tmp_path):
-        # User toggled CANASTA_ENABLE_ELASTICSEARCH=true by hand-editing
+    def test_adds_redis_when_flag_true(self, tmp_path):
+        # User toggled CANASTA_ENABLE_REDIS=true by hand-editing
         # .env. COMPOSE_PROFILES hasn't been updated. _sync should fix it.
         (tmp_path / ".env").write_text(
-            "CANASTA_ENABLE_ELASTICSEARCH=true\nCOMPOSE_PROFILES=\n"
+            "CANASTA_ENABLE_REDIS=true\nCOMPOSE_PROFILES=\n"
         )
         direct_commands._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
-        assert "COMPOSE_PROFILES=elasticsearch" in content
+        profiles = next(line for line in content.split("\n")
+                        if line.startswith("COMPOSE_PROFILES="))
+        assert "redis" in profiles.split("=", 1)[1].split(",")
 
     def test_adds_varnish_by_default(self, tmp_path):
         # CANASTA_ENABLE_VARNISH defaults to true even when unset.
@@ -1781,12 +1783,12 @@ class TestSyncComposeProfiles:
         assert "COMPOSE_PROFILES=varnish" in content
 
     def test_removes_stale_managed_profile(self, tmp_path):
-        # COMPOSE_PROFILES has 'elasticsearch' but the flag is false.
+        # COMPOSE_PROFILES has 'redis' but the flag is false.
         (tmp_path / ".env").write_text(
-            "CANASTA_ENABLE_ELASTICSEARCH=false\n"
+            "CANASTA_ENABLE_REDIS=false\n"
             "CANASTA_ENABLE_VARNISH=false\n"
             "CANASTA_ENABLE_OBSERVABILITY=false\n"
-            "COMPOSE_PROFILES=elasticsearch,varnish\n"
+            "COMPOSE_PROFILES=redis,varnish\n"
         )
         direct_commands._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
@@ -1802,7 +1804,7 @@ class TestSyncComposeProfiles:
         # It must survive the sync.
         (tmp_path / ".env").write_text(
             "CANASTA_ENABLE_VARNISH=false\n"
-            "CANASTA_ENABLE_ELASTICSEARCH=false\n"
+            "CANASTA_ENABLE_REDIS=false\n"
             "CANASTA_ENABLE_OBSERVABILITY=false\n"
             "COMPOSE_PROFILES=mytest,varnish\n"
         )
@@ -1874,7 +1876,7 @@ class TestSyncComposeProfiles:
         # be truncated by compose's env parser if the quotes were dropped.
         (tmp_path / ".env").write_text(
             'RESTIC_PASSWORD="abc #def"\n'
-            "CANASTA_ENABLE_ELASTICSEARCH=true\n"
+            "CANASTA_ENABLE_REDIS=true\n"
             "COMPOSE_PROFILES=\n"
             "# trailing comment\n"
         )
@@ -1884,23 +1886,23 @@ class TestSyncComposeProfiles:
         assert "# trailing comment" in content
         for line in content.split("\n"):
             if line.startswith("COMPOSE_PROFILES="):
-                assert "elasticsearch" in line
+                assert "redis" in line
                 break
 
     def test_deactivated_profile_tears_down_its_container(self, tmp_path):
-        # elasticsearch was active; the flag is now false. The profile is
+        # redis was active; the flag is now false. The profile is
         # dropped AND its orphaned container must be stopped and removed.
         (tmp_path / ".env").write_text(
-            "CANASTA_ENABLE_ELASTICSEARCH=false\n"
+            "CANASTA_ENABLE_REDIS=false\n"
             "CANASTA_ENABLE_VARNISH=true\n"
-            "COMPOSE_PROFILES=elasticsearch,varnish\n"
+            "COMPOSE_PROFILES=redis,varnish\n"
         )
         direct_commands._sync_compose_profiles(self._inst(tmp_path))
         assert len(self.compose_calls) == 1
         argv = self.compose_calls[0]
-        assert argv[:2] == ["--profile", "elasticsearch"]
+        assert argv[:2] == ["--profile", "redis"]
         assert argv[2:4] == ["rm", "-sf"]
-        assert "elasticsearch" in argv[4:]
+        assert "redis" in argv[4:]
         # varnish stays active, so it is never torn down.
         assert "varnish" not in argv
 
@@ -1969,9 +1971,9 @@ class TestSyncComposeProfiles:
         os.makedirs(inst["path"])
         with open(os.path.join(inst["path"], ".env"), "w") as f:
             f.write(
-                "CANASTA_ENABLE_ELASTICSEARCH=false\n"
+                "CANASTA_ENABLE_REDIS=false\n"
                 "CANASTA_ENABLE_VARNISH=true\n"
-                "COMPOSE_PROFILES=elasticsearch,varnish\n"
+                "COMPOSE_PROFILES=redis,varnish\n"
             )
         calls = self._stub_runtime(monkeypatch, {})
         direct_commands._sync_compose_profiles(inst)
@@ -1981,7 +1983,7 @@ class TestSyncComposeProfiles:
     def test_no_teardown_when_nothing_deactivated(self, tmp_path):
         # Adding a profile (or steady state) must not tear anything down.
         (tmp_path / ".env").write_text(
-            "CANASTA_ENABLE_ELASTICSEARCH=true\n"
+            "CANASTA_ENABLE_REDIS=true\n"
             "CANASTA_ENABLE_VARNISH=true\n"
             "COMPOSE_PROFILES=varnish\n"
         )

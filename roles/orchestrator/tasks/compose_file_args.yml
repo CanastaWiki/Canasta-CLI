@@ -1,7 +1,7 @@
 ---
 # Build the compose -f arguments for a Compose instance, mirroring
 # _compose_file_args in direct_commands/_helpers.py: base, then the
-# generated sidecars, web-env and edge layers, then the user override (so a
+# generated sidecars, web-env, edge and OpenSearch layers, then the user override (so a
 # clash lets the operator's raw override win), then devmode last. Each
 # layer after the base is included when present.
 # Input: instance_path, instance_devmode (bool)
@@ -14,6 +14,7 @@
     - docker-compose.sidecars.yml
     - docker-compose.web-env.yml
     - docker-compose.edge.yml
+    - docker-compose.opensearch.yml
     - docker-compose.override.yml
   loop_control:
     loop_var: _compose_layer

@@ -2,25 +2,25 @@
 # Apply side effects when specific config keys are changed.
 # Input: _config_key (str), _config_value (str), instance_path
 
-# Enabling Elasticsearch or the observability stack raises the host memory a
+# Enabling OpenSearch or the observability stack raises the host memory a
 # Canasta instance needs (either -> ~4 GiB, both -> ~8 GiB). Enforce it BEFORE
 # the flag is written to .env (this runs earlier in _set_single than the
 # canasta_env write), so a host that can't run the feature is refused with the
 # flag left off rather than left half-enabled. Only checks on enable (true);
 # disabling never needs more memory. Compose-only host-memory check.
-- name: Enforce memory floor when enabling Elasticsearch or observability
+- name: Enforce memory floor when enabling OpenSearch or observability
   when:
     - not (instance_is_k8s | bool)
-    - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ENABLE_OBSERVABILITY']
+    - _config_key in ['CANASTA_ENABLE_OPENSEARCH', 'CANASTA_ENABLE_OBSERVABILITY']
     - _config_value | lower == 'true'
   block:
-    - name: Read the current ES/observability flags from .env
+    - name: Read the current OpenSearch and observability flags from .env
       canasta_env:
         path: "{{ instance_path }}/.env"
         state: read
         key: "{{ item }}"
       loop:
-        - CANASTA_ENABLE_ELASTICSEARCH
+        - CANASTA_ENABLE_OPENSEARCH
         - CANASTA_ENABLE_OBSERVABILITY
       register: _se_mem_flags
 
@@ -30,12 +30,45 @@
       vars:
         # The key being set is going to true; the other flag keeps its current
         # .env value.
-        _mem_es_enabled: >-
-          {{ (_config_key == 'CANASTA_ENABLE_ELASTICSEARCH')
+        _mem_search_enabled: >-
+          {{ (_config_key == 'CANASTA_ENABLE_OPENSEARCH')
              or (_se_mem_flags.results[0].value | default('false') | lower == 'true') }}
         _mem_obs_enabled: >-
           {{ (_config_key == 'CANASTA_ENABLE_OBSERVABILITY')
              or (_se_mem_flags.results[1].value | default('false') | lower == 'true') }}
+
+# Search runs on the host's OpenSearch on Docker Compose, and on a
+# per-instance Elasticsearch on Kubernetes.
+- name: Refuse a search setting of the other orchestrator
+  ansible.builtin.fail:
+    msg: >-
+      {{ _config_key }} applies only to
+      {{ 'Docker Compose' if instance_is_k8s | bool else 'Kubernetes' }}
+      instances. {{ 'Kubernetes instances use CANASTA_ENABLE_ELASTICSEARCH.'
+      if instance_is_k8s | bool else
+      'Docker Compose instances search with OpenSearch (CANASTA_ENABLE_OPENSEARCH).' }}
+  when:
+    - _config_value is defined
+    - >-
+      (instance_is_k8s | bool and _config_key is match('^CANASTA_(ENABLE_)?OPENSEARCH'))
+      or (not (instance_is_k8s | bool)
+          and _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ELASTICSEARCH_HEAP',
+                              'CANASTA_ELASTICSEARCH_IMAGE'])
+
+# OpenSearch is for CirrusSearch, so turning it on enables Elastica and
+# CirrusSearch for every wiki (unless already enabled), and turning it off
+# disables them: CirrusSearch can do nothing without it. The restart that
+# follows brings the cluster and the instance's settings in line.
+- name: Enable or disable CirrusSearch with OpenSearch
+  canasta_settings_yaml:
+    instance_path: "{{ instance_path }}"
+    item_type: extensions
+    state: "{{ 'enable' if _config_value | lower == 'true' else 'disable' }}"
+    names: [Elastica, CirrusSearch]
+  when:
+    - not (instance_is_k8s | bool)
+    - _config_key == 'CANASTA_ENABLE_OPENSEARCH'
+    - _config_value is defined
 
 # Two incompatible-feature combinations are caught here at config-set
 # time, before the misconfiguration can land in .env. The runtime
@@ -318,7 +351,7 @@
 - name: Sync COMPOSE_PROFILES / caddy image when feature flags change
   when:
     - not (instance_is_k8s | bool)
-    - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ENABLE_VARNISH',
+    - _config_key in ['CANASTA_ENABLE_VARNISH',
                       'CANASTA_ENABLE_OBSERVABILITY', 'CANASTA_ENABLE_CROWDSEC',
                       'CANASTA_ENABLE_REDIS', 'TRUSTED_PROXIES']
   ansible.builtin.include_tasks: >-
