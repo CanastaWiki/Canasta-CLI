@@ -1340,6 +1340,47 @@ def warn_root_on_shared_install():
     )
 
 
+KUBERNETES_DEPRECATION_WARNING = (
+    "Warning: Kubernetes support in the canasta CLI is deprecated. Canasta "
+    "for MediaWiki 1.47 will not include it, and it ends with the last "
+    "Canasta release for MediaWiki 1.43. If you run Canasta on Kubernetes, "
+    "please let us know at "
+    "https://github.com/CanastaWiki/Canasta-CLI/issues/2510"
+)
+
+KUBERNETES_PACKAGES = {"k8s-cp", "k8s-worker"}
+KUBERNETES_COMMAND_GROUPS = {"argocd", "storage"}
+
+
+def uses_kubernetes(command_name, cmd_def, args):
+    """Whether this run sets up, or acts on, Kubernetes."""
+    if command_name == "create":
+        return canasta_config.is_k8s_orchestrator(
+            getattr(args, "orchestrator", None))
+    if KUBERNETES_PACKAGES & set(getattr(args, "packages", None) or []):
+        return True
+    if (cmd_def.get("orchestrators") == ["kubernetes"]
+            or command_name.partition("_")[0] in KUBERNETES_COMMAND_GROUPS):
+        return True
+    if any(p.get("name") == "id" for p in cmd_def.get("parameters", [])):
+        inst = resolve_instance(getattr(args, "id", None), required=False)
+        return bool(inst) and _is_k8s(inst)
+    # Commands across every registered instance, such as list and upgrade.
+    if not os.path.isfile(get_config_file_path()):
+        return False
+    instances = canasta_config.read_config(get_config_dir()).get(
+        "Instances", {})
+    return any(_is_k8s(i) for i in instances.values())
+
+
+def warn_kubernetes_deprecated(command_name, cmd_def, args):
+    # The re-exec after a self-update has already warned.
+    if os.environ.get("CANASTA_SELF_UPDATED"):
+        return
+    if uses_kubernetes(command_name, cmd_def, args):
+        print(KUBERNETES_DEPRECATION_WARNING, file=sys.stderr)
+
+
 def acquire_instance_lock(command_name, args):
     """Hold the instance's command lock for the rest of this run.
 
@@ -2800,6 +2841,7 @@ def main():
 
     check_command_orchestrator(cmd_def, command_name, args)
     run_preflight_checks(command_name, args)
+    warn_kubernetes_deprecated(command_name, cmd_def, args)
 
     lock_fd = acquire_instance_lock(command_name, args)
 

@@ -354,3 +354,75 @@ class TestUpgradeSelfUpdate:
         monkeypatch.setattr(canasta, "self_update_cli", lambda **kw: seen.append(kw))
         assert _run(monkeypatch, argv) == "exec"
         assert seen == [{"dev": False, "allow_major": False, "dry_run": dry_run}]
+
+
+class TestKubernetesDeprecationWarning:
+    """Every run that sets up or acts on Kubernetes warns that support is
+    going away; Compose runs stay silent."""
+
+    @staticmethod
+    def _register(tmp_path, orchestrator):
+        import json
+        (tmp_path / "conf.json").write_text(json.dumps({"Instances": {
+            "mysite": {"path": str(tmp_path / "mysite"), "host": "localhost",
+                       "orchestrator": orchestrator},
+        }}))
+
+    @staticmethod
+    def _warned(capsys):
+        return (canasta.KUBERNETES_DEPRECATION_WARNING
+                in capsys.readouterr().err)
+
+    @pytest.mark.parametrize("orchestrator", ["kubernetes", "k8s"])
+    def test_instance_command_on_kubernetes(
+            self, harness, monkeypatch, tmp_path, capsys, orchestrator):
+        self._register(tmp_path, orchestrator)
+        _run(monkeypatch, ["restart", "-i", "mysite"])
+        assert self._warned(capsys)
+
+    def test_instance_command_on_compose(
+            self, harness, monkeypatch, tmp_path, capsys):
+        self._register(tmp_path, "compose")
+        _run(monkeypatch, ["restart", "-i", "mysite"])
+        assert not self._warned(capsys)
+
+    def test_instance_found_from_working_directory(
+            self, harness, monkeypatch, tmp_path, capsys):
+        self._register(tmp_path, "kubernetes")
+        (tmp_path / "mysite").mkdir()
+        monkeypatch.setenv("CANASTA_HOST_PWD", str(tmp_path / "mysite"))
+        _run(monkeypatch, ["restart"])
+        assert self._warned(capsys)
+
+    @pytest.mark.parametrize("orchestrator,warned", [
+        ("k8s", True), ("kubernetes", True), ("compose", False)])
+    def test_create(self, harness, monkeypatch, capsys, orchestrator, warned):
+        _run(monkeypatch, ["create", "-i", "new", "-w", "main",
+                           "-n", "example.com", "-o", orchestrator])
+        assert self._warned(capsys) is warned
+
+    @pytest.mark.parametrize("package,warned", [
+        ("k8s-cp", True), ("k8s-worker", True), ("docker", False)])
+    def test_install(self, harness, monkeypatch, capsys, package, warned):
+        _run(monkeypatch, ["install", package, "-H", "node1"])
+        assert self._warned(capsys) is warned
+
+    @pytest.mark.parametrize("orchestrator,warned", [
+        ("kubernetes", True), ("compose", False)])
+    def test_command_across_instances(
+            self, harness, monkeypatch, tmp_path, capsys, orchestrator,
+            warned):
+        self._register(tmp_path, orchestrator)
+        _run(monkeypatch, ["list"])
+        assert self._warned(capsys) is warned
+
+    def test_kubernetes_only_command(self, harness, monkeypatch, capsys):
+        _run(monkeypatch, ["storage", "list"])
+        assert self._warned(capsys)
+
+    def test_not_repeated_after_self_update(
+            self, harness, monkeypatch, tmp_path, capsys):
+        self._register(tmp_path, "kubernetes")
+        monkeypatch.setenv("CANASTA_SELF_UPDATED", "1")
+        _run(monkeypatch, ["list"])
+        assert not self._warned(capsys)
