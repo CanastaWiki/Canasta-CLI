@@ -1,4 +1,4 @@
-.PHONY: test-unit test-integration test lint docs validate validate-ci-coverage validate-wiki audit-coverage refresh-extension-json clean build-info
+.PHONY: test-unit test-unit-k8s test-integration test lint docs validate validate-ci-coverage validate-wiki audit-coverage refresh-extension-json clean build-info
 
 VENV := .venv
 PYTHON := $(VENV)/bin/python
@@ -24,8 +24,13 @@ venv: $(VENV)/bin/activate
 # PYTEST_ARGS="-n 0" to run serially, for example when debugging one test.
 PYTEST_ARGS ?= -n auto
 
+# Kubernetes support is deprecated, so its tests live apart in
+# tests/unit/k8s and test-unit leaves them out. CI runs both.
 test-unit: venv
-	$(PYTEST) tests/unit/ -v $(PYTEST_ARGS)
+	$(PYTEST) tests/unit/ --ignore=tests/unit/k8s -v $(PYTEST_ARGS)
+
+test-unit-k8s: venv
+	$(PYTEST) tests/unit/k8s/ -v $(PYTEST_ARGS)
 
 # Integration tests call ./canasta commands as subprocesses. Requires
 # git-crypt and a container runtime (Docker or Podman). Pass a test name
@@ -34,7 +39,7 @@ test-unit: venv
 test-integration: venv
 	$(PYTHON) tests/integration/run_tests.py
 
-test: test-unit
+test: test-unit test-unit-k8s
 
 # --- Linting -----------------------------------------------------------------
 
