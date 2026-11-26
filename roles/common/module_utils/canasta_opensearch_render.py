@@ -113,8 +113,10 @@ services:
       - CANASTA_OPENSEARCH_PASSWORD=${CANASTA_OPENSEARCH_PASSWORD:-}
     volumes:
       - %(ca)s:%(web_ca)s:ro
+    # A list, as the web service's own networks are: podman-compose cannot
+    # merge a mapping into a list.
     networks:
-      %(network)s: {}
+      - %(network)s
 networks:
   %(network)s:
     external: true

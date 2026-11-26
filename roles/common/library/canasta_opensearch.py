@@ -374,6 +374,10 @@ def _compose(compose_command, os_dir, *args):
 
 def start_cluster(run, compose_command, os_dir, recreate):
     args = ["up", "-d"] + (["--force-recreate"] if recreate else [])
+    if os.path.exists(os.path.join(os_dir, OVERRIDE_FILE)):
+        # An image the override builds is rebuilt, from the build cache
+        # when nothing in it changed.
+        args.append("--build")
     rc, out, err = run(_compose(compose_command, os_dir, *args), cwd=os_dir)
     if rc != 0:
         raise OpenSearchError("Could not start OpenSearch: %s" % _tail(out, err))
@@ -421,7 +425,7 @@ def wait_ready(run, inspect, timeout=READY_TIMEOUT):
         code, body = api(run, inspect, "GET", "/_plugins/_security/authinfo")
         if code == 200 and isinstance(body, dict):
             return True
-        if code == 503:
+        if code and "Security not initialized" in json.dumps(body):
             # The node answers, but security has not been set up yet.
             return False
         last = body
@@ -586,11 +590,19 @@ def _sync(run, inspect, compose_command, os_dir, instance_id, instance_path, mem
     conf_changed = install_conf(run, inspect, os_dir)
     heap = heap_mb(m["heap"] for m in members.values())
     compose_file = os.path.join(os_dir, "docker-compose.yml")
-    compose_changed = _write_if_changed(compose_file, render_compose(heap))
+    _write_if_changed(compose_file, render_compose(heap))
+    # The operator's override counts too, so adding or editing it takes
+    # effect at the next start, and an image it builds is built again.
+    applied = os.path.join(os_dir, ".compose-applied")
+    project = hashlib.sha256(
+        ((_read(compose_file) or "") + "\0" +
+         (_read(os.path.join(os_dir, OVERRIDE_FILE)) or "")).encode()).hexdigest()
+    compose_changed = (_read(applied) or "").strip() != project
     result["heap_mb"] = heap
     was_running = running(run, inspect)
     if not was_running or compose_changed or conf_changed:
         start_cluster(run, compose_command, os_dir, recreate=conf_changed and was_running)
+        _write_if_changed(applied, project + "\n")
         result["restarted"] = was_running
         changed = True
     if not wait_ready(run, inspect):

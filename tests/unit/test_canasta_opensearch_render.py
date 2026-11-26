@@ -53,7 +53,7 @@ def test_the_instance_layer_joins_the_cluster_network():
     web = layer["services"]["web"]
     assert "CANASTA_OPENSEARCH_PASSWORD=${CANASTA_OPENSEARCH_PASSWORD:-}" in web["environment"]
     assert "/srv/os/ca.pem:%s:ro" % render.WEB_CA in web["volumes"]
-    assert render.NETWORK in web["networks"]
+    assert web["networks"] == [render.NETWORK]
     assert layer["networks"][render.NETWORK] == {"external": True}
 
 

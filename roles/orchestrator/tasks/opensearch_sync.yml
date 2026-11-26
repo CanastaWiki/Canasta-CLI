@@ -52,7 +52,7 @@
     instance_id: "{{ instance_id | default(id) }}"
     instance_path: "{{ instance_path }}"
     member: "{{ _os_member }}"
-    compose_command: "{{ compose_command }}"
+    compose_command: "{{ compose_command | default('docker compose') }}"
     inspect_command: "{{ inspect_command | default('docker') }}"
   register: _os
 
@@ -62,6 +62,10 @@
 - name: Replace a token another instance on this host has
   when: _os.token_conflict is defined
   block:
+    - name: Note the instance that has the token
+      ansible.builtin.set_fact:
+        _os_conflict: "{{ _os.token_conflict }}"
+
     - name: Generate a new OpenSearch token
       canasta_env:
         path: "{{ instance_path }}/.env"
@@ -76,14 +80,19 @@
         instance_id: "{{ instance_id | default(id) }}"
         instance_path: "{{ instance_path }}"
         member: "{{ _os_member }}"
-        compose_command: "{{ compose_command }}"
+        compose_command: "{{ compose_command | default('docker compose') }}"
         inspect_command: "{{ inspect_command | default('docker') }}"
-      register: _os
+      register: _os_retry
+
+    # A register of its own: one the skipped block made would replace _os.
+    - name: Keep the result with the new token
+      ansible.builtin.set_fact:
+        _os: "{{ _os_retry }}"
 
     - name: Report the new token
       ansible.builtin.debug:
         msg: >-
-          Instance '{{ _os.token_conflict }}' on this host already had this
+          Instance '{{ _os_conflict }}' on this host already had this
           instance's CANASTA_OPENSEARCH_TOKEN, so it has a new one. Its wikis'
           search indexes have new names and need building again.
 

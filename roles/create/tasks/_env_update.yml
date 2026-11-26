@@ -212,3 +212,14 @@
     _mem_obs_enabled: >-
       {{ _create_mem_flags.results[1].value | default('false') | lower == 'true' }}
   when: not (instance_is_k8s | bool)
+
+# As config set does when CANASTA_ENABLE_OPENSEARCH turns on.
+- name: Enable CirrusSearch with OpenSearch
+  canasta_settings_yaml:
+    instance_path: "{{ instance_path }}"
+    item_type: extensions
+    state: enable
+    names: [Elastica, CirrusSearch]
+  when:
+    - not (instance_is_k8s | bool)
+    - _create_mem_flags.results[0].value | default('false') | lower == 'true'

@@ -87,7 +87,10 @@ class FakeCluster:
         if not self.running:
             return 0, None
         if path == "/_plugins/_security/authinfo":
-            return (200, {"user": "admin"}) if self.secured else (503, "not initialized")
+            if self.secured:
+                return 200, {"user": "admin"}
+            # What OpenSearch 3.8.0 answers before its security index exists.
+            return 500, {"error": "OpenSearchSecurityException[OpenSearch Security not initialized.]"}
         security = "/_plugins/_security/api/"
         if path.startswith(security):
             kind, _, name = path[len(security):].partition("/")
@@ -338,3 +341,19 @@ def test_a_new_ca_makes_new_certificates_and_reinstalls_them(tmp_path):
     assert result["restarted"] is True
     up = run.compose_calls()[-1]
     assert "--force-recreate" in up
+
+
+def test_an_override_added_later_is_applied_at_the_next_start(tmp_path):
+    run, os_dir = FakeCluster(), tmp_path / "opensearch"
+    a = _instance(tmp_path, "a")
+    _sync(run, os_dir, "a", a)
+    ups = len(run.compose_calls())
+    (os_dir / mod.OVERRIDE_FILE).write_text("services: {}\n")
+    result = _sync(run, os_dir, "a", a)
+    assert len(run.compose_calls()) == ups + 1
+    up = run.compose_calls()[-1]
+    assert mod.OVERRIDE_FILE in up and "--build" in up
+    assert result["restarted"] is True
+    # Applied once: the next start changes nothing.
+    _sync(run, os_dir, "a", a)
+    assert len(run.compose_calls()) == ups + 1
