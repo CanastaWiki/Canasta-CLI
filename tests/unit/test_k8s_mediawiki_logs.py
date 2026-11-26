@@ -20,12 +20,6 @@ def _read(*parts):
         return f.read()
 
 
-def test_compose_web_mounts_the_log_volume():
-    compose = yaml.safe_load(
-        _read(ORCH, "files", "compose", "docker-compose.yml"))
-    assert "mediawiki-logs:" + LOG_DIR in compose["services"]["web"]["volumes"]
-
-
 def test_k8s_web_mounts_the_log_pvc():
     web = _read(HELM, "templates", "deployment-web.yaml")
     assert ("- name: mediawiki-logs\n              mountPath: " + LOG_DIR

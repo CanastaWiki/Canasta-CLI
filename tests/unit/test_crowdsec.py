@@ -1891,3 +1891,14 @@ class TestCrowdsecPreflightEnabledButNotRunning:
             assert "CrowdSec is enabled" in enabled
             assert "canasta status -i mysite" in enabled
             assert "Enable it first" in disabled
+
+
+def test_reload_always_restarts_the_local_api():
+    # The local API holds the console enrollment and credentials, so a
+    # config reload restarts it on every orchestrator.
+    with open(os.path.join(REPO_ROOT, "roles", "crowdsec", "tasks",
+                           "reload.yml")) as f:
+        tasks = yaml.safe_load(f)
+    restart = next(t for t in tasks
+                   if t.get("name") == "Restart the CrowdSec engine")
+    assert "when" not in restart

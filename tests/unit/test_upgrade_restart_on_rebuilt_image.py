@@ -151,3 +151,15 @@ def _restart_needed(**overrides):
 ])
 def test_a_rebuild_alone_does_not_restart(overrides, expected):
     assert _restart_needed(**overrides) is expected
+
+
+def test_pull_signal_is_reset_before_the_bump_and_feeds_the_restart():
+    tasks = yaml.safe_load(open(MAIN))
+    names = [t.get("name") for t in tasks]
+    reset = tasks[names.index("Reset image change signals for this instance")]
+    assert reset["ansible.builtin.set_fact"]["_pull_changed"] is False
+    assert names.index("Reset image change signals for this instance") < names.index(
+        "Update configured image tag") < names.index("Check if new images were pulled")
+    updated = tasks[names.index("Check if new images were pulled")][
+        "ansible.builtin.set_fact"]["_images_updated"]
+    assert "_pull_changed" in updated

@@ -47,14 +47,11 @@ def test_tag_change_is_detected(old, new, changed):
     assert str(templar.template(trust_as_template(expr))).strip() == str(changed)
 
 
-def test_signals_are_reset_before_the_bump_and_feed_the_restart():
+def test_tag_signal_is_reset_with_the_pull_signal_and_feeds_the_restart():
     tasks = _load(MAIN)
     names = [t.get("name") for t in tasks]
     reset = tasks[names.index("Reset image change signals for this instance")]
-    assert reset["ansible.builtin.set_fact"] == {
-        "_pull_changed": False, "_k8s_image_tag_changed": False}
-    assert names.index("Reset image change signals for this instance") < names.index(
-        "Update configured image tag") < names.index("Check if new images were pulled")
+    assert reset["ansible.builtin.set_fact"]["_k8s_image_tag_changed"] is False
     updated = tasks[names.index("Check if new images were pulled")][
         "ansible.builtin.set_fact"]["_images_updated"]
-    assert "_k8s_image_tag_changed" in updated and "_pull_changed" in updated
+    assert "_k8s_image_tag_changed" in updated

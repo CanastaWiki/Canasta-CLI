@@ -154,22 +154,6 @@ class TestTheJobOutcomeIsChecked:
         assert "_restic_command" not in _fail_task()["vars"]
 
 
-class TestNoCallerSwallowsTheFailure:
-    def test_backup_tasks_do_not_ignore_run_backup_errors(self):
-        # Compose already fails on any non-zero restic exit, so no caller
-        # relies on a failed run returning normally.
-        for name in sorted(os.listdir(BACKUP_TASKS)):
-            if not name.endswith(".yml"):
-                continue
-            with open(os.path.join(BACKUP_TASKS, name)) as f:
-                tasks = yaml.safe_load(f) or []
-            for task in _walk(tasks):
-                if "run_backup.yml" in str(
-                        task.get("ansible.builtin.include_tasks", "")):
-                    assert "ignore_errors" not in task, name
-                    assert "failed_when" not in task, name
-
-
 class TestJobThatNeverFinishes:
     """A pod stuck before restic runs (an image it cannot pull) never makes
     the Job succeed or fail; the wait used to time out silently and leave

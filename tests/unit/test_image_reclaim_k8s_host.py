@@ -152,16 +152,6 @@ DF = "Images|10.09GB (95%)\nBuild Cache|6.3GB"
 
 
 class TestDoctorAdvice:
-    def test_build_cache_points_at_docker_builder_prune(self):
-        line = _reclaimable_line(DF, "MISSING")
-        assert ("reclaim images with 'canasta image prune', build cache "
-                "with 'docker builder prune'") in line
-
-    def test_build_cache_alone_does_not_name_image_prune(self):
-        line = _reclaimable_line("Images|0B (0%)\nBuild Cache|6.3GB", "MISSING")
-        assert "canasta image prune" not in line
-        assert "docker builder prune" in line
-
     def test_cluster_host_says_image_prune_keeps_the_kubernetes_copies(self):
         line = _reclaimable_line(DF, K3S)
         assert "keeps, the Docker copies of images built for Kubernetes" in line

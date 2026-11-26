@@ -153,3 +153,18 @@ class TestRenderedReportText:
         assert out == (
             "containerd reclaim failed (rc=1); no images were removed. "
             "connection refused")
+
+
+class TestBuildCache:
+    def test_it_is_reported_with_its_prune_command(self):
+        msg = _debug_messages()["Report the build cache kept"]
+        assert _render(msg, _reclaim_build_cache="6.3GB") == (
+            "Docker build cache: 6.3GB reclaimable, kept to speed up "
+            "rebuilds; reclaim it with 'docker builder prune'.")
+
+    def test_it_is_never_pruned(self):
+        for path in RECLAIM_FILES:
+            with open(path) as f:
+                for task in yaml.safe_load(f):
+                    cmd = (task.get("ansible.builtin.command") or {})
+                    assert "builder prune" not in str(cmd), path

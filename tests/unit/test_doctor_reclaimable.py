@@ -78,3 +78,16 @@ def test_zero_size_detection():
     assert not _is_zero_size("5.1GB")
     # An unparseable figure is reported rather than silently called zero.
     assert not _is_zero_size("unknown")
+
+
+def test_build_cache_points_at_docker_builder_prune():
+    line = _reclaimable_line(
+        "Images|10.09GB (95%)\nBuild Cache|6.3GB", NO_K3S)
+    assert ("reclaim images with 'canasta image prune', build cache "
+            "with 'docker builder prune'") in line
+
+
+def test_build_cache_alone_does_not_name_image_prune():
+    line = _reclaimable_line("Images|0B (0%)\nBuild Cache|6.3GB", NO_K3S)
+    assert "canasta image prune" not in line
+    assert "docker builder prune" in line

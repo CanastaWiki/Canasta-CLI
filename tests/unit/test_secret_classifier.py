@@ -66,6 +66,13 @@ def test_rclone_covered_but_smtp_excluded_in_backup_backends():
     assert "SMTP_" not in cls["canasta_backup_backend_prefixes"]
 
 
+def test_backup_backends_cover_every_restic_backend():
+    prefixes = _load()["canasta_backup_backend_prefixes"]
+    for prefix in ("RESTIC_", "AWS_", "B2_", "AZURE_", "GOOGLE_", "OS_",
+                   "ST_", "RCLONE_"):
+        assert prefix in prefixes, "%r must be a backup-backend prefix." % prefix
+
+
 def test_python_masking_agrees_with_the_ansible_classifier():
     # `config get` masks through direct_commands._helpers, which reads the
     # same vars file but matches with re.search on the bare key.
