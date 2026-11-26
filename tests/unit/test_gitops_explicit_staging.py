@@ -1,9 +1,9 @@
 """Guard: gitops flows that stage on their own stage an explicit path list.
 
-gitops init (Compose and Kubernetes) and Kubernetes push commit without the
-operator choosing files. A whole-tree `git add -A` there sweeps in anything
-lying in the instance directory — editor backups of .env, stray dumps, scratch
-files — and pushes it to the remote. These flows must stage only the
+gitops init commits without the operator choosing files. A whole-tree
+`git add -A` there sweeps in anything lying in the instance directory —
+editor backups of .env, stray dumps, scratch files — and pushes it to the
+remote. These flows must stage only the
 gitops-managed paths, while still recording deletions within them.
 """
 
@@ -25,8 +25,6 @@ GITIGNORE = os.path.join(REPO_ROOT, "roles", "gitops", "files", "gitignore.defau
 
 SITES = {
     "init_compose.yml": "gitops_compose_tracked_paths",
-    "init_kubernetes.yml": "gitops_k8s_tracked_paths",
-    "push_kubernetes.yml": "gitops_k8s_tracked_paths",
 }
 
 # Files that hold secrets or host-local state and must never be staged by name.
@@ -117,6 +115,11 @@ class TestNoWholeTreeStaging:
 
 
 class TestPathLists:
+    @pytest.mark.parametrize("key", ["gitops_compose_tracked_paths"])
+    def test_lists_exclude_secret_and_local_files(self, key):
+        v = _load(VARS)
+        assert not NEVER_STAGED & set(v[key]), key
+
     def test_lists_cover_repo_layout(self):
         v = _load(VARS)
         common = {".gitignore", ".gitmodules", "hosts", "config",
@@ -126,14 +129,6 @@ class TestPathLists:
                          "media-hosts.yaml.template",
                          "docker-compose.override.yml"} \
             <= set(v["gitops_compose_tracked_paths"])
-        assert common | {".sops.yaml", "Chart.yaml", "templates",
-                         "values.yaml", "values.template.yaml", "argocd"} \
-            <= set(v["gitops_k8s_tracked_paths"])
-
-    def test_lists_exclude_secret_and_local_files(self):
-        v = _load(VARS)
-        for key in ("gitops_compose_tracked_paths", "gitops_k8s_tracked_paths"):
-            assert not NEVER_STAGED & set(v[key]), key
 
 
 class TestComposeInitGuard:

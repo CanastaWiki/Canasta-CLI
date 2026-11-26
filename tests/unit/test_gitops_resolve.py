@@ -2,6 +2,7 @@
 and finish or abandon it with canasta commands instead of raw git."""
 import os
 
+import pytest
 import yaml
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -60,15 +61,15 @@ def _load_defs():
 
 
 class TestStart:
-    def test_the_pull_stops_at_conflicts_instead_of_rolling_back(self):
-        for name, result in (("pull_compose.yml", "_pull_result"), ("pull_kubernetes.yml", "_git_pull")):
-            path = os.path.join(TASKS, name)
-            explain = _named(path, "Explain and roll back a failed pull")
-            assert "gitops_resolve_mode | default('') != 'start'" in explain["when"]
-            stop = _named(path, "Stop at the conflicts for gitops resolve")
-            assert stop["ansible.builtin.include_tasks"] == "_resolve_stop.yml"
-            assert "gitops_resolve_mode | default('') == 'start'" in stop["when"]
-            assert stop["vars"]["_resolve_failure"] == "{{ %s }}" % result
+    @pytest.mark.parametrize("name,result", [("pull_compose.yml", "_pull_result")])
+    def test_the_pull_stops_at_conflicts_instead_of_rolling_back(self, name, result):
+        path = os.path.join(TASKS, name)
+        explain = _named(path, "Explain and roll back a failed pull")
+        assert "gitops_resolve_mode | default('') != 'start'" in explain["when"]
+        stop = _named(path, "Stop at the conflicts for gitops resolve")
+        assert stop["ansible.builtin.include_tasks"] == "_resolve_stop.yml"
+        assert "gitops_resolve_mode | default('') == 'start'" in stop["when"]
+        assert stop["vars"]["_resolve_failure"] == "{{ %s }}" % result
 
     def test_stopping_reports_then_ends_the_run(self):
         names = _names(STOP)
@@ -98,6 +99,14 @@ class TestKeep:
 
 
 class TestContinue:
+    def test_the_pull_skips_its_rebase_when_continuing(self):
+        path = os.path.join(TASKS, "pull_compose.yml")
+        for name in ("Set local changes aside for the rebase", "Get current commit hash",
+                     "Put back local changes an interrupted pull set aside",
+                     "Pull from remote", "Sync wikis.yaml with its gitops template",
+                     "Write .env edits into the gitops sources"):
+            assert "gitops_resolve_mode | default('') != 'continue'" in str(_named(path, name)["when"]), name
+
     def test_leftover_markers_and_unkept_files_refuse(self):
         grep = _named(RESOLVE, "Look for conflict markers left in edited files")
         assert "^(<<<<<<<|>>>>>>>) " in grep["ansible.builtin.command"]["argv"]
@@ -120,19 +129,9 @@ class TestContinue:
         # returns to the commit that holds them.
         assert hand["_pull_prev_commit"]["stdout"] == "{{ _local_changes_base }}"
         assert hand["_pull_rollback_commit"] == "{{ _resolve_orig_head.stdout | trim }}"
-        assert hand["_pull_result"]["changed"] is True and hand["_git_pull"]["changed"] is True
+        assert hand["_pull_result"]["changed"] is True
         apply = _named(RESOLVE, "Apply the resolved pull")
         assert apply["vars"]["gitops_resolve_mode"] == "continue"
-
-    def test_the_pull_skips_its_rebase_when_continuing(self):
-        path = os.path.join(TASKS, "pull_compose.yml")
-        for name in ("Set local changes aside for the rebase", "Get current commit hash",
-                     "Put back local changes an interrupted pull set aside",
-                     "Pull from remote", "Sync wikis.yaml with its gitops template",
-                     "Write .env edits into the gitops sources"):
-            assert "gitops_resolve_mode | default('') != 'continue'" in str(_named(path, name)["when"]), name
-        assert "gitops_resolve_mode | default('') != 'continue'" in \
-            _named(os.path.join(TASKS, "pull_kubernetes.yml"), "Pull values repo")["when"]
 
 
 class TestMessages:

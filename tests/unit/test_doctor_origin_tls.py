@@ -191,22 +191,6 @@ class TestOriginTlsGate:
         assert "127.0.0.1:'8443'" in seen["script"]
         assert "-servername" in seen["script"]
 
-    def test_kubernetes_probes_the_ingress_on_443(self, monkeypatch):
-        seen = {}
-
-        class _R:
-            stdout = ""
-
-        monkeypatch.setattr(
-            doctor._helpers, "_read_wikis",
-            lambda path, host: [{"url": "a.example.org"}])
-        monkeypatch.setattr(doctor._helpers, "_is_localhost", lambda h: True)
-        monkeypatch.setattr(
-            doctor.subprocess, "run",
-            lambda *a, **k: (seen.update(script=a[0][2]) or _R()))
-        doctor._origin_tls_lines(self._inst(orchestrator="kubernetes"))
-        assert "127.0.0.1:'443'" in seen["script"]
-
 
 # Real issuer string from a Let's Encrypt staging certificate.
 LE_STAGING = ("C=US, O=(STAGING) Let's Encrypt, "

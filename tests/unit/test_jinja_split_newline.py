@@ -149,25 +149,12 @@ def _b64(s):
 
 
 @pytest.mark.parametrize("path, key, variables, expected", [
-    ("roles/gitops/tasks/_apply_argo_repo_secret.yml", "_existing",
-     {"_argo_known_hosts": {"resources": [
-         {"data": {"ssh_known_hosts": "h1 k1\nh2 k2\n"}}]}},
-     ["h1 k1", "h2 k2"]),
     ("roles/gitops/tasks/_render_mycnf.yml", "_mycnf_missing",
      {"_mycnf_missing_raw": "A\nB\n"}, ["A", "B"]),
     ("roles/gitops/tasks/_migrate_reclassified_secrets.yml", "_rc_lines",
      {"_rc_template": {"content": _b64("FOO_PASSWORD=x\nBAR_SECRET=y\n")},
       "canasta_secret_key_regex": ".*"},
      ["FOO_PASSWORD=x", "BAR_SECRET=y"]),
-    ("roles/orchestrator/tasks/k8s_capture_rollout_failure.yml",
-     "Report cluster state for the failed rollout::msg",
-     {"_rollout_state": {"stdout": "l1\nl2"}},
-     ["The rollout did not finish. What the cluster reports:", "",
-      "l1", "l2"]),
-    ("roles/orchestrator/tasks/k8s_sync_config.yml", "_app_secret_env",
-     {"_app_secrets_web_raw": {"content": _b64("K1\nK2\n")},
-      "_app_secrets_web_stat": {"stat": {"exists": True}}},
-     ["K1", "K2"]),
 ])
 def test_expression_splits_into_lines(path, key, variables, expected):
     with open(os.path.join(REPO_ROOT, path)) as f:

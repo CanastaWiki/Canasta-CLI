@@ -1,8 +1,8 @@
 """Alias hostnames in wikis.yaml, which the HAProxy edge redirects to a wiki.
 
-doctor names Caddyfile.global site blocks an alias has made redundant, a
-Kubernetes instance refuses aliases, and under gitops the aliases come from
-wikis.yaml.template rather than edits to config/wikis.yaml.
+doctor names Caddyfile.global site blocks an alias has made redundant, and
+under gitops the aliases come from wikis.yaml.template rather than edits to
+config/wikis.yaml.
 """
 
 import os
@@ -42,17 +42,15 @@ def test_doctor_names_a_caddyfile_global_block_an_alias_replaced(tmp_path):
     assert re.findall(r"site block for (\S+) is never reached", out) == ["www.example.com"]
 
 
-def test_doctor_is_quiet_without_overlap_and_on_kubernetes(tmp_path):
-    assert _lines(_instance(tmp_path / "a", WIKIS, "get.example.com {\n}\n")) == []
-    assert _lines(_instance(tmp_path / "b", [{"id": "main", "url": "example.com"}],
-                            "www.example.com {\n}\n")) == []
-    overlap = _instance(tmp_path / "c", WIKIS, "www.example.com {\n}\n")
-    assert _lines(overlap, "k8s") == []
-
-
 def test_doctor_leaves_bad_aliases_to_the_edge(tmp_path):
     bad = [{"id": "main", "url": "example.com", "aliases": "www.example.com"}]
     assert _lines(_instance(tmp_path, bad, "www.example.com {\n}\n")) == []
+
+
+def test_doctor_is_quiet_without_overlap(tmp_path):
+    assert _lines(_instance(tmp_path / "a", WIKIS, "get.example.com {\n}\n")) == []
+    assert _lines(_instance(tmp_path / "b", [{"id": "main", "url": "example.com"}],
+                            "www.example.com {\n}\n")) == []
 
 
 # --- gitops ------------------------------------------------------------- #
@@ -222,18 +220,6 @@ def test_the_sync_refuses_live_alias_edits_before_rewriting_anything():
     refuse = names.index("Refuse alias edits made in config/wikis.yaml")
     assert refuse < names.index("Capture config/wikis.yaml edits into the template")
     assert refuse < names.index("Render template edits into config/wikis.yaml")
-
-
-# --- Kubernetes --------------------------------------------------------- #
-
-def test_wikis_listing_aliases_are_found_for_the_kubernetes_refusal():
-    doc = yaml.safe_dump({"wikis": [
-        {"id": "a", "url": "a.example.com", "aliases": ["www.a.example.com"]},
-        {"id": "b", "url": "b.example.com", "aliases": ["", None]},
-        {"id": "c", "url": "c.example.com"}]})
-    assert g.canasta_wikis_with_aliases(doc) == ["a"]
-    task = _task("orchestrator/tasks/helm_deploy.yml", "Refuse wiki aliases on Kubernetes")
-    assert "canasta_wikis_with_aliases" in task["vars"]["_hd_alias_wikis"]
 
 
 def test_the_syncs_template_render_fills_in_aliases_from_the_host_vars():

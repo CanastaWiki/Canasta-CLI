@@ -66,7 +66,7 @@ def test_default_ignores_uploads_but_not_shipped_images(tmp_path):
         assert not _ignored(inst, path), path
 
 
-@pytest.mark.parametrize("k8s", [False, True])
+@pytest.mark.parametrize("k8s", [False])
 def test_refresh_replaces_the_unanchored_rule(tmp_path, k8s):
     inst = _instance(tmp_path, ".env\nimages/\nmy-own-rule\n")
     _refresh(tmp_path, inst, k8s)

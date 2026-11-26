@@ -76,9 +76,6 @@ class TestBuildName:
         assert self._name(instance_is_k8s=False, instance_id="b",
                           id="a") == "canasta:local-b"
 
-    def test_kubernetes_keeps_the_shared_name(self):
-        assert self._name(instance_is_k8s=True, id="wiki") == "canasta:local"
-
     def test_the_name_is_set_before_anything_builds(self):
         names = [t.get("name") for t in _tasks(BUILD_FROM)]
         first = names.index("Name the image this build produces")
@@ -119,9 +116,6 @@ class TestUpgradeMovesOffTheSharedTag:
     def test_an_instance_not_rebuilt_keeps_its_image(self):
         # Its source is gone, so its own tag was never built.
         assert not self._applies(rebuilt=False)
-
-    def test_kubernetes_is_left_alone(self):
-        assert not self._applies(k8s=True, built="canasta:local")
 
     def test_an_instance_already_on_its_own_tag_is_left_alone(self):
         assert not self._applies(image="canasta:local-wiki")

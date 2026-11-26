@@ -3,7 +3,7 @@
 `-w`/`--wiki` used to be accepted by the CLI but ignored by every restore
 task, so a "single wiki" restore silently restored the whole instance —
 overwriting all wikis' databases plus shared state (.env, global config,
-extensions, skins). These tests lock the scoping wiring on both orchestrators:
+extensions, skins). These tests lock the scoping wiring on Compose:
 a scoped restore touches only the target wiki's DB and per-wiki files, and the
 shared-state steps are gated off when `wiki` is defined. Runtime behavior is
 covered by the live e2e.
@@ -19,7 +19,6 @@ REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 RESTORE = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "restore.yml")
 COMPOSE = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "restore_instance.yml")
-K8S = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml")
 
 
 def _flatten(tasks):
@@ -82,52 +81,17 @@ def test_compose_db_import_is_scoped():
     assert "[wiki] if wiki is defined else _restore_import_wikis" in task["loop"]
 
 
+def _env_password_preserves(block_name):
+    """The .env password-preserve tasks inside a top-level block of
+    restore_instance.yml."""
+    with open(COMPOSE) as f:
+        block = next(t for t in yaml.safe_load(f) if t.get("name") == block_name)
+    return [t for t in _flatten([block])
+            if t.get("name") == "Preserve DB password in restored .env"]
+
+
 def test_compose_env_password_preserve_gated_off_for_single_wiki():
-    # There are two "Preserve DB password in restored .env" tasks (Compose +
-    # K8s block); both must be gated off for a single-wiki restore.
-    preserves = [t for t in _tasks(COMPOSE)
-                 if t.get("name") == "Preserve DB password in restored .env"]
-    assert len(preserves) == 2
+    preserves = _env_password_preserves("Restore (Compose)")
+    assert len(preserves) == 1
     assert all("wiki is not defined" in _when(t) for t in preserves), (
         "single-wiki restore must not rewrite the shared .env")
-
-
-# --- Kubernetes (k8s_restore_instance.yml) ---
-
-def test_k8s_builds_include_filters_for_single_wiki():
-    inc = _by_name(K8S, "Build restic include filters for single-wiki restore")
-    assert inc is not None and "wiki is defined" in _when(inc)
-    val = inc["ansible.builtin.set_fact"]["_restore_include"]
-    for path in ("config/settings/wikis/", "config/backup/db_",
-                 "images/", "public_assets/"):
-        assert path in val, "include filter must cover %s" % path
-
-
-def test_k8s_restic_restore_uses_the_include_filter():
-    with open(K8S) as f:
-        text = f.read()
-    assert "restore {{ _resolved_snapshot }}{{ _restore_include }}" in text, (
-        "restic restore must apply the single-wiki include filter")
-
-
-def test_k8s_full_host_copies_are_gated_off_for_single_wiki():
-    for name in ("Copy restored config to host",
-                 "Copy restored .env to host",
-                 "Restore extensions/skins/public_assets to host"):
-        t = _by_name(K8S, name)
-        assert t is not None, "missing task: %s" % name
-        assert "wiki is not defined" in _when(t), (
-            "%s must be gated off for single-wiki restore" % name)
-
-
-def test_k8s_has_scoped_single_wiki_restores():
-    settings = _by_name(K8S, "Copy restored single wiki settings to host")
-    assert settings is not None and "wiki is defined" in _when(settings)
-    assets = _by_name(K8S, "Restore single wiki public assets to host")
-    assert assets is not None and "wiki is defined" in _when(assets)
-
-
-def test_k8s_fails_when_wiki_absent_from_snapshot():
-    fail = _by_name(K8S, "Fail when the target wiki is absent from the snapshot")
-    assert fail is not None, (
-        "a wiki missing from the snapshot must fail, not silently no-op")

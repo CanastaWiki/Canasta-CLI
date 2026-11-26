@@ -6,8 +6,6 @@ added/edited/removed in the repo actually takes effect on the instance's
 host. This path writes a real host crontab, so it is skipped by the CI
 integration suite (see run_tests.py) — these structural assertions are the
 CI-runnable guard for the wiring instead.
-
-Also pins that `gitops sync` is a Compose no-op (Argo CD only).
 """
 
 import os
@@ -19,9 +17,6 @@ REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 PULL_COMPOSE = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "pull_compose.yml")
 REMATERIALIZE = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_rematerialize.yml"
-)
-TRIGGER_SYNC = os.path.join(
-    REPO_ROOT, "roles", "orchestrator", "tasks", "gitops_trigger_sync.yml"
 )
 
 
@@ -64,22 +59,6 @@ def test_rematerialize_applies_when_present_and_unapplies_when_absent():
     # Unapply only when the file is gone.
     assert "not _sched_state.stat.exists" in str(unapply[0].get("when", "")), (
         "unapply must be gated on the schedule file being absent"
-    )
-
-
-def test_gitops_sync_is_a_compose_noop():
-    tasks = _tasks(TRIGGER_SYNC)
-    # On Compose, the only action is a debug message gated on the compose
-    # orchestrator — no reconciler to trigger.
-    debug_compose = [
-        t for t in tasks
-        if "ansible.builtin.debug" in t and t.get("when") == "not (instance_is_k8s | bool)"
-    ]
-    assert debug_compose, "gitops sync must be a no-op (debug only) on Compose"
-    # The Argo CD sync is gated on the kubernetes orchestrator.
-    argocd = [t for t in tasks if "k8s_argocd_sync.yml" in _includes(t)]
-    assert argocd and argocd[0].get("when") == "instance_is_k8s | bool", (
-        "gitops sync must dispatch to Argo CD sync only on Kubernetes"
     )
 
 

@@ -55,13 +55,6 @@ def test_refused_values(tmp_path, value):
     assert code != 0 and "TRUSTED_PROXIES must be" in out, out
 
 
-def test_the_cdn_behind_proxies_form_is_refused_on_kubernetes(tmp_path):
-    code, out = _validate(tmp_path, "imperva@203.0.113.10/32", "kubernetes")
-    assert code != 0 and "Docker Compose only" in out, out
-    code, out = _validate(tmp_path, "imperva", "kubernetes")
-    assert code == 0, out
-
-
 def test_config_set_runs_the_check():
     with open(VALIDATE_VALUE) as f:
         tasks = yaml.safe_load(f)

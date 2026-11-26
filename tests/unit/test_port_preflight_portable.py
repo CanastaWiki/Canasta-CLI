@@ -128,12 +128,3 @@ class TestPortsComeFromTheEnvFile:
             "no default; an absent envfile must still probe 80")
         assert "HTTPS_PORT=443" in facts["_preflight_https_port"], (
             "no default; an absent envfile must still probe 443")
-
-    def test_k3s_gate_only_fires_for_the_traefik_ports(self):
-        tasks = self._named("Fail if k3s is running")
-        assert tasks, "k3s gate disappeared"
-        when = tasks[0].get("when")
-        when_text = " ".join(when) if isinstance(when, list) else str(when)
-        assert "_preflight_http_port" in when_text, (
-            "Traefik claims 80 and 443 only; an instance binding neither "
-            "must not be blocked by a running k3s")

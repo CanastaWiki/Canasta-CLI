@@ -116,10 +116,6 @@ class TestAnsiblePath:
         (False, 0, "", "False"),
         (False, 0, "abc123\n", "True"),
         (False, 1, "", "True"),
-        (True, 0, "", "False"),
-        (True, 0, "0 0 0", "False"),
-        (True, 0, "0 1 0", "True"),
-        (True, 1, "", "True"),
     ])
     def test_was_running(self, k8s, rc, stdout, expected):
         assert self._was_running(k8s, rc, stdout) == expected

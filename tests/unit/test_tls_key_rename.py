@@ -190,17 +190,6 @@ def test_the_migration_renames_the_keys(tmp_path):
     assert oct((inst / ".env").stat().st_mode & 0o777) == "0o600"
 
 
-def test_the_migration_drops_plain_http_on_kubernetes(tmp_path):
-    inst = tmp_path / "inst"
-    inst.mkdir()
-    (inst / ".env").write_text("CADDY_AUTO_HTTPS=off\nCADDY_TRUSTED_PROXIES=cloudflare\n")
-    proc = _playbook(tmp_path, [{"ansible.builtin.include_tasks": os.path.join(
-        ROOT, "roles", "upgrade", "tasks", "migrations", "rename_tls_keys.yml")}],
-        {"instance_path": str(inst), "instance_is_k8s": True})
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert (inst / ".env").read_text() == "TRUSTED_PROXIES=cloudflare\n"
-
-
 def test_upgrade_runs_the_migration():
     with open(os.path.join(ROOT, "roles", "upgrade", "tasks", "main.yml")) as f:
         assert "- rename_tls_keys.yml" in f.read()

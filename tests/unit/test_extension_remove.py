@@ -39,15 +39,6 @@ def _cmds(tasks):
     return out
 
 
-class TestKubernetesGuard:
-    def test_declared_compose_only(self):
-        # canasta.py refuses the command on Kubernetes from this key.
-        with open(DEFS) as f:
-            commands = {c["name"]: c for c in yaml.safe_load(f)["commands"]}
-        for name in ['extension_remove', 'skin_remove']:
-            assert commands[name].get("orchestrators") == ['compose'], name
-
-
 class TestNameValidation:
     def test_validates_before_any_deletion(self):
         # The validation tasks must appear before the removal block so one

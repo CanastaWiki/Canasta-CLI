@@ -1,10 +1,8 @@
 """On a gitops instance, `config unset` must remove the key from the durable
 source, not just .env: a placeholder key from vars.yaml and its env.template
 placeholder line, a literal key from env.template. Otherwise the next pull /
-config regenerate re-renders .env and resurrects the key. On K8s gitops the
-committed source (values.template.yaml -> rendered-values.yaml) can't be
-written through, so unset must warn the operator to push. Mirrors the set-side
-gitops tests (test_config_gitops_writethrough / test_config_gitops_k8s_warn).
+config regenerate re-renders .env and resurrects the key. Mirrors the set-side
+gitops tests (test_config_gitops_writethrough).
 """
 
 import os
@@ -44,11 +42,6 @@ def _lineinfile(task):
             or task.get("lineinfile")) if isinstance(task, dict) else None
 
 
-def _debug_msg(task):
-    d = task.get("ansible.builtin.debug") or task.get("debug") or {}
-    return d.get("msg", "") if isinstance(d, dict) else ""
-
-
 # --- the .env path wires the gitops check + dispatch (mirrors _set_config.yml) ---
 
 def test_unset_dispatches_secret_and_env_paths():
@@ -82,6 +75,14 @@ def test_unset_dispatches_to_orchestrator_role():
         "must dispatch to the orchestrator role, not branch on "
         "instance_orchestrator in the action code")
     assert "_config_gitops_stat.stat.exists" in _when(dispatch)
+
+
+def test_compose_branch_removes_vars():
+    tasks = _load(DISPATCH)
+    compose = [t for t in tasks
+               if str(t.get("ansible.builtin.include_tasks", ""))
+               .endswith("_remove_gitops_vars.yml")]
+    assert compose, "Compose must remove vars from the gitops source"
 
 
 # --- Compose removal: placeholder -> vars.yaml + env.template line ----------
@@ -127,32 +128,3 @@ def test_non_placeholder_key_removed_from_env_template():
     assert li is not None, "must lineinfile the literal absent in env.template"
     assert _lineinfile(li).get("state") == "absent"
     assert "_config_key" in str(_lineinfile(li).get("regexp", ""))
-
-
-# --- K8s dispatch warns to push (not a silent no-op) ------------------------
-
-def test_compose_branch_removes_vars():
-    tasks = _load(DISPATCH)
-    compose = [t for t in tasks
-               if str(t.get("ansible.builtin.include_tasks", ""))
-               .endswith("_remove_gitops_vars.yml")]
-    assert compose, "Compose must remove vars from the gitops source"
-    assert _when(compose[0]) == "not (instance_is_k8s | bool)"
-
-
-def test_k8s_branch_warns_to_push():
-    tasks = _load(DISPATCH)
-    k8s = [t for t in tasks
-           if _when(t).startswith("instance_is_k8s | bool")]
-    assert k8s, "must have a K8s-gated task"
-    msg = _debug_msg(next((t for t in k8s if _debug_msg(t)), k8s[0]))
-    assert "gitops push" in msg, "K8s warning must tell the user to push"
-    assert "unchanged" in msg or "not" in msg.lower()
-
-
-def test_k8s_branch_is_not_a_silent_noop():
-    tasks = _load(DISPATCH)
-    k8s = [t for t in tasks if _when(t).startswith("instance_is_k8s | bool")]
-    assert any(_debug_msg(t) for t in k8s), (
-        "K8s config unset on a gitops instance must surface a warning, "
-        "not silently skip")

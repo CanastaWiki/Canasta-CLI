@@ -431,12 +431,6 @@ def test_pull_compose_resyncs_when_the_file_changed():
     assert hits and "config/schedules.yml" in str(hits[0]["when"])
 
 
-def test_pull_kubernetes_resyncs_after_a_pull():
-    hits = [t for t in _tasks("roles", "gitops", "tasks",
-                              "pull_kubernetes.yml") if _includes_sync(t)]
-    assert hits and "_git_pull.changed" in str(hits[0]["when"])
-
-
 def test_restore_resyncs():
     assert any(_includes_sync(t) for t in
                _tasks("roles", "backup", "tasks", "finish_restore.yml"))

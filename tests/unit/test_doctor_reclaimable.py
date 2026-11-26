@@ -13,13 +13,10 @@ from direct_commands.doctor import (
     _reclaimable_line,
 )
 
-# A host with one stopped instance: 9.9GB of "reclaimable" volume is that
-# instance's database.
-# The k3s probe, which is what tells a cluster host from a host whose
-# kubeconfig merely points at someone else's cluster.
-K3S = "k3s version v1.31.5+k3s1"
 NO_K3S = "MISSING"
 
+# A host with one stopped instance: 9.9GB of "reclaimable" volume is that
+# instance's database.
 DF_WITH_VOLUMES = (
     "Images|5.1GB (60%)\n"
     "Containers|0B (0%)\n"
@@ -51,25 +48,6 @@ def test_missing_rows_default_to_zero():
 def test_no_docker_daemon_omits_the_line_on_a_compose_host():
     assert _reclaimable_line("unknown", NO_K3S) is None
     assert _reclaimable_line("", NO_K3S) is None
-
-
-def test_kubeconfig_pointing_elsewhere_is_not_a_cluster_host():
-    """A laptop whose kubectl reaches a remote cluster stores no
-    containerd images of its own, so the caveat would be noise."""
-    line = _reclaimable_line(DF_WITH_VOLUMES, NO_K3S)
-    assert "containerd" not in line
-
-
-def test_cluster_host_without_docker_still_names_the_reclaim_command():
-    line = _reclaimable_line("unknown", K3S)
-    assert "canasta image prune" in line
-    assert "containerd" in line
-
-
-def test_cluster_host_labels_the_docker_figure_as_partial():
-    line = _reclaimable_line(DF_WITH_VOLUMES, K3S)
-    assert "not measured" in line
-    assert "5.1GB images" in line
 
 
 def test_zero_size_detection():

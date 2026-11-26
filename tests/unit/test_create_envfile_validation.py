@@ -100,42 +100,7 @@ def test_bad_values_fail_with_config_set_messages(tmp_path, line, message):
     assert message in out, out
 
 
-@pytest.mark.parametrize("line, key", [
-    ("TLS_MODE=acme", "TLS_MODE"), ("TLS_MODE_HOSTS=origin.example.net=acme", "TLS_MODE_HOSTS"),
-    ("TLS_CERT=origin.crt", "TLS_CERT"), ("TLS_KEY=origin.key", "TLS_KEY"),
-    ("HTTP_PORT=80", "HTTP_PORT"), ("HTTPS_PORT=443", "HTTPS_PORT"),
-    ("CADDY_TLS_MODE=internal", "TLS_MODE"),
-])
-def test_compose_only_keys_are_warned_about_on_kubernetes(tmp_path, line, key):
-    code, out = _create(tmp_path, [line], "kubernetes")
-    assert code == 0, out
-    assert ("Warning: %s does not apply to a Kubernetes instance;"
-            " it is written to .env as is." % key) in out, out
-    code, out = _create(tmp_path, [line], "compose")
-    assert code == 0, out
-    assert "does not apply to a Kubernetes instance" not in out, out
-
-
-def test_an_env_file_shared_with_compose_creates_on_kubernetes(tmp_path):
-    code, out = _create(tmp_path, ["HTTP_PORT=8080", "HTTPS_PORT=8443", "TLS_MODE=off"],
-                        "kubernetes")
-    assert code == 0, out
-
-
-@pytest.mark.parametrize("line", ["HTTP_PORT=44x", "TLS_MODE=acmee"])
-def test_malformed_compose_only_values_still_fail_on_kubernetes(tmp_path, line):
-    code, out = _create(tmp_path, [line], "kubernetes")
-    assert code != 0, out
-
-
-def test_the_cdn_behind_proxy_form_is_refused_on_kubernetes(tmp_path):
-    code, out = _create(tmp_path, ["TRUSTED_PROXIES=imperva@203.0.113.10/32"], "k8s")
-    assert code != 0 and "Docker Compose only" in out, out
-    code, out = _create(tmp_path, ["TRUSTED_PROXIES=cloudflare"], "k8s")
-    assert code == 0, out
-
-
-@pytest.mark.parametrize("orchestrator", ["compose", "kubernetes"])
+@pytest.mark.parametrize("orchestrator", ["compose"])
 def test_keys_create_sets_pass_without_a_warning(tmp_path, orchestrator):
     # config set refuses these, or needs --force for them; create takes them.
     code, out = _create(tmp_path, [
@@ -196,18 +161,6 @@ def _names(tasks):
     return [t.get("name") for t in tasks]
 
 
-def test_create_validates_before_it_writes():
-    inputs = _tasks(os.path.join(CREATE_TASKS, "_validate_inputs.yml"))
-    include = next(t for t in inputs
-                   if t.get("ansible.builtin.include_tasks") == "_validate_envfile.yml")
-    # Before the Kubernetes setup, which installs Argo CD.
-    assert inputs.index(include) < _names(inputs).index(
-        "Kubernetes setup (validate + stale-state check + Argo CD)")
-    main = _names(_tasks(os.path.join(CREATE_TASKS, "main.yml")))
-    assert main.index("Validate inputs and check for stale state") < main.index(
-        "Create instance directory")
-
-
 def test_config_set_and_create_share_the_value_checks():
     validate_key = _tasks(os.path.join(CONFIG_TASKS, "_validate_key.yml"))
     assert any(t.get("ansible.builtin.include_tasks") == "_validate_value.yml"
@@ -215,6 +168,15 @@ def test_config_set_and_create_share_the_value_checks():
     side_effects = _names(_tasks(os.path.join(CONFIG_TASKS, "_side_effects.yml")))
     for name in ("Validate port is numeric", "Validate TLS_MODE value"):
         assert name not in side_effects
+
+
+def test_create_validates_before_it_writes():
+    inputs = _tasks(os.path.join(CREATE_TASKS, "_validate_inputs.yml"))
+    assert any(t.get("ansible.builtin.include_tasks") == "_validate_envfile.yml"
+               for t in inputs)
+    main = _names(_tasks(os.path.join(CREATE_TASKS, "main.yml")))
+    assert main.index("Validate inputs and check for stale state") < main.index(
+        "Create instance directory")
 
 
 def _config(tmp_path, tasks_from, play_vars):
@@ -238,14 +200,6 @@ def test_config_set_still_refuses(tmp_path, setting, message):
                                               "instance_orchestrator": "compose"})
     assert code != 0, out
     assert message in out, out
-
-
-@pytest.mark.parametrize("setting", ["HTTP_PORT=8080", "MW_SECRET_KEY=x"])
-def test_config_set_refuses_on_kubernetes(tmp_path, setting):
-    code, out = _config(tmp_path, "set.yml", {"settings": [setting],
-                                              "instance_orchestrator": "kubernetes"})
-    assert code != 0, out
-    assert "cannot be set" in out and "Kubernetes instance" in out, out
 
 
 def test_config_unset_of_a_port_still_works(tmp_path):

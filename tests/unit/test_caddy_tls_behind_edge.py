@@ -235,11 +235,8 @@ def test_doctor_reports_them(tmp_path):
     assert "WARN" in out and "config/Caddyfile.global:2" in out
 
 
-def test_doctor_is_quiet_without_them_and_on_kubernetes(tmp_path):
-    path = _instance(tmp_path, site="tls internal\n")
+def test_doctor_is_quiet_without_them(tmp_path):
     assert doctor._caddy_tls_lines({"id": "one", "path": _instance(tmp_path / "x")}) == []
-    assert doctor._caddy_tls_lines({"id": "one", "path": path,
-                                    "orchestrator": "k8s"}) == []
 
 
 def test_an_instance_not_behind_the_edge_keeps_its_tls_for_rebuild_and_doctor(

@@ -4,8 +4,6 @@ Compose bind-mounts config/Caddyfile and config/Caddyfile.site, so `docker
 compose up -d` never recreates the container on a content change and a
 regenerated Caddyfile is left unread. reconcile must therefore reload Caddy
 explicitly, after the converge and only when Caddy is actually running.
-Kubernetes rolls the caddy pod off the ConfigMap checksum annotation and must
-not be reloaded this way.
 """
 
 import os
@@ -19,10 +17,6 @@ RECONCILE = os.path.join(
 )
 RELOAD_CADDY = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "reload_caddy.yml"
-)
-CADDY_DEPLOYMENT = os.path.join(
-    REPO_ROOT, "roles", "orchestrator", "files", "helm", "canasta",
-    "templates", "deployment-caddy.yaml",
 )
 
 
@@ -105,7 +99,7 @@ class TestReloadCaddyTask:
             "partially converged instance"
         )
 
-    def test_gate_requires_compose_and_a_running_caddy(self):
+    def test_gate_requires_a_running_caddy(self):
         gate = next(
             (t for t in _walk(_load(RELOAD_CADDY))
              if "_reload_caddy" in (t.get("ansible.builtin.set_fact") or {})),
@@ -113,10 +107,6 @@ class TestReloadCaddyTask:
         )
         assert gate is not None, "reload_caddy must compute a _reload_caddy gate"
         expr = gate["ansible.builtin.set_fact"]["_reload_caddy"]
-        assert "not (instance_is_k8s | bool)" in expr, (
-            "K8s rolls the caddy pod off the ConfigMap checksum annotation; "
-            "it must not be reloaded through the Compose path"
-        )
         assert "caddy" in expr and "_running_services" in expr, (
             "the gate must check that caddy is among the running services"
         )
@@ -150,20 +140,6 @@ class TestReloadCaddyTask:
         assert "previously loaded" in msg, (
             "must say the old config is still serving — `caddy reload` is "
             "atomic, so the site is not down"
-        )
-
-
-class TestKubernetesStillRollsOnChecksum:
-    """The reload is Compose-only because K8s already handles it. If that
-    annotation ever goes away, K8s loses config delivery silently."""
-
-    def test_caddy_deployment_has_a_config_checksum_annotation(self):
-        with open(CADDY_DEPLOYMENT) as f:
-            body = f.read()
-        assert "checksum/caddy-config" in body, (
-            "the caddy deployment must keep its config checksum annotation — "
-            "it is what rolls the pod on a ConfigMap change, and the reason "
-            "reload_caddy.yml is Compose-only"
         )
 
 

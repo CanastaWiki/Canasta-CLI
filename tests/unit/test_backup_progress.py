@@ -19,8 +19,6 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 RUN_BACKUP = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "run_backup.yml")
-K8S_RUN_BACKUP = os.path.join(
-    REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_run_backup.yml")
 CREATE = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "create.yml")
 RESTORE = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "restore_instance.yml")
@@ -60,14 +58,6 @@ class TestResticProgress:
         assert "RESTIC_PROGRESS_FPS" in cmd, (
             "restic prints progress only to a terminal, and the container "
             "has none"
-        )
-
-    def test_kubernetes_job_sets_progress_fps(self):
-        with open(K8S_RUN_BACKUP) as f:
-            content = f.read()
-        assert "RESTIC_PROGRESS_FPS" in content, (
-            "a Job's container has no terminal either, so `kubectl logs -f` "
-            "shows nothing while a long backup runs"
         )
 
 

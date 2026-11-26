@@ -6,8 +6,6 @@ are held to fixed shapes, and the chart quotes what it interpolates.
 """
 
 import os
-import shutil
-import subprocess
 
 import pytest
 import yaml
@@ -24,7 +22,6 @@ SECRET_RE = secret_key_regex()
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 CHART = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "files", "helm", "canasta")
-TPL = os.path.join(CHART, "templates", "sidecars.yaml")
 
 
 def _one(**extra):
@@ -202,7 +199,6 @@ def _write_sidecars(instance_path, sidecars):
 
 @pytest.mark.parametrize("orchestrator, artifact", [
     ("compose", "docker-compose.sidecars.yml"),
-    ("kubernetes", "values-sidecars.yaml"),
 ])
 def test_render_module_refuses_and_writes_nothing(tmp_dir, orchestrator, artifact):
     _write_sidecars(tmp_dir, _built(
@@ -218,7 +214,6 @@ def test_render_module_refuses_and_writes_nothing(tmp_dir, orchestrator, artifac
 
 @pytest.mark.parametrize("orchestrator, artifact", [
     ("compose", "docker-compose.sidecars.yml"),
-    ("kubernetes", "values-sidecars.yaml"),
 ])
 def test_render_module_refuses_an_unknown_key(tmp_dir, orchestrator, artifact):
     _write_sidecars(tmp_dir, _one(port=80))
@@ -246,46 +241,3 @@ def test_sidecar_add_refuses_a_disallowed_build_option():
     error = canasta_sidecars_yaml.validate_sidecars(_built(
         {"context": "sc", "network": "host"}))
     assert error is not None and "network" in error
-
-
-# --- Helm chart ------------------------------------------------------------- #
-
-def test_chart_quotes_sidecar_supplied_strings():
-    with open(TPL) as handle:
-        body = handle.read()
-    for unquoted in ("name: {{ $k }}", "memory: {{ . }}", "key: {{ . }}",
-                     "mountPath: {{ .mountPath }}",
-                     "mountPath: {{ $f.mountPath }}",
-                     "component: {{ $sc.name }}"):
-        assert unquoted not in body
-    assert 'storage: {{ .size | default "1Gi" | quote }}' in body
-
-
-def test_chart_renders_hostile_values_as_plain_strings(tmp_path):
-    if not shutil.which("helm"):
-        pytest.skip("helm is not installed")
-    injected = "128Mi\n          securityContext:\n            privileged: true"
-    values = {"sidecars": [{
-        "name": "helper", "image": "example/helper:1.0",
-        "env": {"A": "x\ny: z"},
-        "volumes": [{"name": "tmp", "mountPath": "/tmp/a: b"}],
-        "healthcheck": {"path": "/x\n  exec: y", "port": 8080},
-        "resources": {"memory": injected, "cpu": "0.5"},
-    }]}
-    values_file = tmp_path / "values.yaml"
-    values_file.write_text(yaml.safe_dump(values))
-    out = subprocess.run(
-        ["helm", "template", "canasta", CHART, "-f", str(values_file),
-         "--show-only", "templates/sidecars.yaml"],
-        capture_output=True, text=True)
-    if out.returncode != 0:
-        pytest.skip("helm template failed: %s" % out.stderr.strip()[:200])
-    deployment = next(d for d in yaml.safe_load_all(out.stdout)
-                      if d and d["kind"] == "Deployment")
-    container = deployment["spec"]["template"]["spec"]["containers"][0]
-    assert "securityContext" not in container
-    assert container["resources"]["limits"]["memory"] == injected
-    assert container["volumeMounts"][0]["mountPath"] == "/tmp/a: b"
-    probe = container["readinessProbe"]
-    assert probe["httpGet"]["path"] == "/x\n  exec: y"
-    assert "exec" not in probe

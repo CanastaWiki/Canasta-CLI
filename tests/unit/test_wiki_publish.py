@@ -362,16 +362,6 @@ class TestOrchestratorColumn:
         page = self._create_page()
         assert "Orchestrator" in page
 
-    def test_kubernetes_only_param_labelled_kubernetes(self):
-        page = self._create_page()
-        # --storage-class has orchestrator_only: kubernetes. Its row
-        # must include the 'Kubernetes' label.
-        for line in page.splitlines():
-            if "<code>--storage-class</code>" in line:
-                assert "Kubernetes" in line
-                return
-        raise AssertionError("--storage-class row not found")
-
     def test_compose_only_param_labelled_compose(self):
         page = self._create_page()
         for line in page.splitlines():

@@ -83,9 +83,3 @@ def _parse(tmp_path, url, env_lines):
 ])
 def test_url_gets_the_instance_port(tmp_path, url, env_lines, expected):
     assert _parse(tmp_path, url, env_lines) == expected
-
-
-def test_k8s_values_domains_never_carry_a_port():
-    with open(ADD) as f:
-        text = f.read()
-    assert "union([_add_domain | trim | regex_replace(':[0-9]+$', '')])" in text

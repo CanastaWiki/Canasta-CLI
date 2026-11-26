@@ -24,7 +24,7 @@ import yaml
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 VARS = os.path.join(REPO_ROOT, "roles", "gitops", "vars", "main.yml")
-PULLS = ("pull_compose.yml", "pull_kubernetes.yml")
+PULLS = ("pull_compose.yml",)
 
 
 def _load(name):
@@ -523,7 +523,7 @@ def test_an_interrupted_pull_is_put_back_first(name):
         "/_put_back_local_changes.yml")
 
 
-@pytest.mark.parametrize("name", ("push_compose.yml", "push_kubernetes.yml"))
+@pytest.mark.parametrize("name", ("push_compose.yml",))
 def test_push_never_pushes_set_aside_changes(name):
     tasks = _load(name)
     names = [t.get("name") for t in tasks]

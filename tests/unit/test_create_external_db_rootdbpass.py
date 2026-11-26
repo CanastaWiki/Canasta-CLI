@@ -98,10 +98,6 @@ class TestExternalDb:
         facts = _run(tmp_path, EXTERNAL, wikidbuser="root")
         assert facts == {"root": FILE_PW, "wiki": FILE_PW, "user": "admin"}
 
-    def test_kubernetes_uses_the_administrator_account(self, tmp_path):
-        facts = _run(tmp_path, EXTERNAL, k8s=True)
-        assert facts == {"root": FILE_PW, "wiki": FILE_PW, "user": "admin"}
-
 
 class TestBundledDb:
     def test_bundled_db_keeps_resolved_passwords(self, tmp_path):

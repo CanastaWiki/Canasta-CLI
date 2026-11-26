@@ -21,9 +21,7 @@ GITOPS_TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 HELPER = os.path.join(GITOPS_TASKS, "_update_submodules.yml")
 CALLERS = [
     "pull_compose.yml",
-    "pull_kubernetes.yml",
     "join.yml",
-    "join_kubernetes.yml",
 ]
 
 
@@ -166,13 +164,7 @@ class TestCallers:
         assert names.index("Update submodules") < names.index(
             "Write .gitops-applied")
 
-    def test_pull_kubernetes_updates_submodules_before_rendering(self):
-        names = _names(
-            _load(os.path.join(GITOPS_TASKS, "pull_kubernetes.yml")))
-        assert names.index("Update submodules") < names.index(
-            "Render per-host values")
-
-    @pytest.mark.parametrize("filename", ["join.yml", "join_kubernetes.yml"])
+    @pytest.mark.parametrize("filename", ["join.yml"])
     def test_join_updates_submodules_before_pushing(self, filename):
         tasks = flow_tasks(filename)
         names = _names(tasks)

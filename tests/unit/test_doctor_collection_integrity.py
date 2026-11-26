@@ -37,17 +37,17 @@ def main():
 """
 
 REAL_BODY = """DOCUMENTATION = '''
-description: Manage Kubernetes objects
+description: Adds or removes an SSH authorized key
 author:
-    - Chris Houseknecht (@chouseknecht)
+    - Ansible Core Team
 '''
 """
 
 
 @pytest.fixture
 def collections(tmp_path, monkeypatch):
-    """An ANSIBLE_COLLECTIONS_PATH with kubernetes.core installed."""
-    mod_dir = (tmp_path / "ansible_collections" / "kubernetes" / "core"
+    """An ANSIBLE_COLLECTIONS_PATH with ansible.posix installed."""
+    mod_dir = (tmp_path / "ansible_collections" / "ansible" / "posix"
                / "plugins" / "modules")
     mod_dir.mkdir(parents=True)
     monkeypatch.setenv("ANSIBLE_COLLECTIONS_PATH", str(tmp_path))
@@ -57,20 +57,20 @@ def collections(tmp_path, monkeypatch):
 
 class TestDetection:
     def test_a_healthy_collection_reports_nothing(self, collections):
-        (collections / "k8s.py").write_text(REAL_BODY)
+        (collections / "authorized_key.py").write_text(REAL_BODY)
         assert doctor._mocked_collection_modules() == []
         assert doctor._collection_integrity_lines() == []
 
     def test_a_stub_is_found(self, collections):
-        (collections / "k8s.py").write_text(MOCK_BODY)
-        assert doctor._mocked_collection_modules() == ["kubernetes.core: k8s"]
+        (collections / "authorized_key.py").write_text(MOCK_BODY)
+        assert doctor._mocked_collection_modules() == ["ansible.posix: authorized_key"]
 
     def test_only_the_stubs_are_named(self, collections):
-        (collections / "k8s.py").write_text(MOCK_BODY)
-        (collections / "k8s_info.py").write_text(MOCK_BODY)
-        (collections / "k8s_cp.py").write_text(REAL_BODY)
+        (collections / "authorized_key.py").write_text(MOCK_BODY)
+        (collections / "sysctl.py").write_text(MOCK_BODY)
+        (collections / "mount.py").write_text(REAL_BODY)
         assert doctor._mocked_collection_modules() == [
-            "kubernetes.core: k8s", "kubernetes.core: k8s_info"]
+            "ansible.posix: authorized_key", "ansible.posix: sysctl"]
 
     def test_a_missing_collection_is_not_an_error(self, tmp_path, monkeypatch):
         """Not having a collection installed is a different problem."""
@@ -89,20 +89,20 @@ class TestDetection:
 
 class TestReport:
     def test_the_report_names_the_repair(self, collections):
-        (collections / "k8s.py").write_text(MOCK_BODY)
+        (collections / "authorized_key.py").write_text(MOCK_BODY)
         text = "\n".join(doctor._collection_integrity_lines())
         assert "--force" in text, (
             "only --force rewrites the files; without it the operator "
             "re-runs a command that skips and changes nothing"
         )
-        assert "kubernetes.core: k8s" in text
+        assert "ansible.posix: authorized_key" in text
         assert "Supported parameters include" in text, (
             "the report has to quote the runtime error, since that string "
             "is all an operator has to search for"
         )
 
     def test_the_report_says_upgrade_will_not_help(self, collections):
-        (collections / "k8s.py").write_text(MOCK_BODY)
+        (collections / "authorized_key.py").write_text(MOCK_BODY)
         text = "\n".join(doctor._collection_integrity_lines())
         assert "--upgrade" in text
 
@@ -111,8 +111,8 @@ class TestPinnedCollections:
     def test_requirements_pins_are_read(self):
         """Drives which collections are inspected; empty means no checking."""
         pinned = doctor._pinned_collections()
-        assert ("kubernetes", "core") in pinned, (
-            "kubernetes.core is the collection whose stubs break remote K8s"
+        assert ("ansible", "posix") in pinned, (
+            "ansible.posix is pinned in requirements.yml"
         )
         assert all(len(p) == 2 for p in pinned)
 

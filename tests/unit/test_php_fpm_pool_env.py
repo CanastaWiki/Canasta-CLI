@@ -35,15 +35,6 @@ def _load(*parts):
         return yaml.safe_load(f)
 
 
-def _k8s_allowlist():
-    tasks = _load("roles", "orchestrator", "tasks", "k8s_sync_config.yml")
-    for task in tasks:
-        facts = task.get("ansible.builtin.set_fact", {})
-        if "_k8s_pod_env_allowlist" in facts:
-            return facts["_k8s_pod_env_allowlist"]
-    raise AssertionError("no _k8s_pod_env_allowlist in k8s_sync_config.yml")
-
-
 def _render(inst, env, web_keys=()):
     with open(os.path.join(inst, ".env"), "w") as f:
         f.write(env)
@@ -103,12 +94,6 @@ def test_unset_pool_key_is_not_reported_missing(tmp_dir):
     result, _ = _render(
         tmp_dir, "MAPS_API_KEY=v\n", web_keys=["MAPS_API_KEY"])
     assert result["missing"] == []
-
-
-def test_k8s_passes_pool_keys():
-    allowlist = _k8s_allowlist()
-    for key in POOL_KEYS:
-        assert key in allowlist, key
 
 
 def test_pool_keys_are_known_with_image_defaults():

@@ -49,19 +49,10 @@ def _run(tmp_path, step, play_vars, include_vars=None):
                   "_join_move_git.yml", "_git_identity_repo.yml",
                   "_join_checkout_differing.yml",
                   "_register_host.yml", "_join_commit_push.yml"]),
-    ("join_kubernetes.yml", ["_join_require_no_repo.yml",
-                             "_join_clone_repo.yml", "_join_read_hosts.yml",
-                             "_join_move_git.yml", "_git_identity_repo.yml",
-                             "_join_checkout_differing.yml",
-                             "_register_host.yml", "_join_commit_push.yml"]),
     ("init_compose.yml", ["_git_identity.yml", "_init_require_no_repo.yml",
                           "_git_identity_repo.yml",
                           "_init_convert_submodules.yml",
                           "_init_commit_push.yml"]),
-    ("init_kubernetes.yml", ["_git_identity.yml", "_init_require_no_repo.yml",
-                             "_git_identity_repo.yml",
-                             "_init_convert_submodules.yml",
-                             "_init_commit_push.yml"]),
 ])
 def test_each_flow_includes_its_shared_steps_in_order(flow, steps):
     with open(os.path.join(GITOPS_TASKS, flow)) as f:
@@ -71,8 +62,7 @@ def test_each_flow_includes_its_shared_steps_in_order(flow, steps):
     assert included == steps
 
 
-@pytest.mark.parametrize("flow", ["join.yml", "join_kubernetes.yml",
-                                  "init_compose.yml", "init_kubernetes.yml"])
+@pytest.mark.parametrize("flow", ["join.yml", "init_compose.yml"])
 def test_every_parameter_of_a_shared_step_is_passed(flow):
     text = yaml.safe_dump(flow_tasks(flow))
     for name in ("_join_git_env", "_join_host_noun", "_join_blocked_remedy",

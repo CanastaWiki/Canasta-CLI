@@ -20,7 +20,6 @@ REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 BACKUP = os.path.join(REPO_ROOT, "roles", "backup", "tasks")
 ORCH = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 RESTORE = os.path.join(BACKUP, "restore.yml")
-RESTORE_K8S = os.path.join(ORCH, "k8s_restore_instance.yml")
 RESTORE_INSTANCE = os.path.join(ORCH, "restore_instance.yml")
 RUN_BACKUP = os.path.join(ORCH, "run_backup.yml")
 
@@ -140,10 +139,6 @@ class TestFilesPhaseIsMarkedBeforeTheFirstChange:
         mark = names.index("Mark the files phase")
         assert names.index("Fail when the target wiki is absent from the snapshot") < mark
         assert mark < names.index("Copy files from volume to host")
-
-    def test_kubernetes_marks_before_the_restore_pod(self):
-        names = _names(RESTORE_K8S)
-        assert names.index("Mark the files phase") < names.index("Create restore pod")
 
 
 class TestComposeResticFailureIsReadable:

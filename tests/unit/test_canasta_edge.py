@@ -1385,13 +1385,6 @@ def test_a_custom_hostname_beside_a_cached_one_is_left_alone(tmp_path):
     assert hosts == ["example.com"]
 
 
-def test_kubernetes_instances_are_left_out_of_the_plan(tmp_path):
-    one = _plain(tmp_path, "one")
-    entry = dict(_entry("one", one), orchestrator="kubernetes")
-    assert mod.plan_conversion([entry]) == {"convert": [], "rootless": [], "rated": [],
-                                            "refuse": None, "held": []}
-
-
 # --- IPv6 --------------------------------------------------------------------- #
 
 @pytest.mark.parametrize("has_ipv6", [True, False])
@@ -1595,15 +1588,6 @@ def test_the_upgrade_replaces_a_bouncer_that_predates_its_tmpfs_mounts():
     assert "'rm', '-f', '-v'" in remove["ansible.builtin.command"]["argv"]
     start = tasks[names.index("Start the edge bouncer on the new layer")]
     assert "running" in str(start["when"])
-
-
-def test_the_upgrade_prunes_on_compose_only():
-    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    with open(os.path.join(repo, "playbooks", "_upgrade_single.yml")) as f:
-        tasks = {t.get("name"): t for t in yaml.safe_load(f)}
-    prune = tasks["Remove volumes earlier CrowdSec bouncers left behind"]
-    assert prune["canasta_edge"]["state"] == "prune"
-    assert prune["when"] == "not (instance_is_k8s | bool)"
 
 
 def test_a_new_edge_directory_asks_for_recreated_containers(tmp_path):

@@ -112,13 +112,6 @@ class TestBuildParser:
         assert args.id == "mysite"
         assert args.wiki == "main"
 
-    def test_choice_flag(self, parser):
-        args = parser.parse_args([
-            "create", "-i", "mysite", "-w", "main", "-n", "example.com",
-            "-o", "kubernetes"
-        ])
-        assert args.orchestrator == "kubernetes"
-
     def test_invalid_choice_rejected(self, parser):
         with pytest.raises(SystemExit):
             parser.parse_args([
@@ -876,28 +869,6 @@ class TestCreateFlags:
         ])
         assert args.skip_tls is True
 
-    def test_skip_tls_accepted_with_kubernetes(self, parser):
-        args = parser.parse_args([
-            "create", "-i", "mysite", "-w", "main", "-n", "example.com",
-            "-o", "kubernetes", "--skip-tls"
-        ])
-        assert args.skip_tls is True
-        assert args.orchestrator == "kubernetes"
-
-    def test_storage_class_accepted_with_kubernetes(self, parser):
-        args = parser.parse_args([
-            "create", "-i", "mysite", "-w", "main", "-n", "example.com",
-            "-o", "kubernetes", "--storage-class", "nfs"
-        ])
-        assert args.storage_class == "nfs"
-
-    def test_tls_email_accepted_with_kubernetes(self, parser):
-        args = parser.parse_args([
-            "create", "-i", "mysite", "-w", "main", "-n", "example.com",
-            "-o", "kubernetes", "--tls-email", "test@example.com"
-        ])
-        assert args.tls_email == "test@example.com"
-
     def test_service_flag_on_maintenance_exec(self, parser):
         args = parser.parse_args([
             "maintenance", "exec", "-i", "mysite", "-s", "db",
@@ -915,20 +886,6 @@ class TestCreateFlags:
 
 class TestOrchestratorValidation:
     """Test that orchestrator_only params are rejected for wrong orchestrator."""
-
-    def test_storage_class_rejected_with_compose(self, data):
-        """--storage-class with --orchestrator compose should be rejected."""
-        cmd_index = {c["name"]: c for c in data["commands"]}
-        cmd_def = cmd_index["create"]
-        # Simulate: orchestrator=compose, storage_class=nfs
-        orchestrator = "compose"
-        for param in cmd_def.get("parameters", []):
-            orch_only = param.get("orchestrator_only")
-            if not orch_only:
-                continue
-            if param["name"] == "storage_class":
-                assert orch_only == "kubernetes"
-                assert orchestrator != orch_only  # would be rejected
 
     def test_skip_tls_not_orchestrator_restricted(self, data):
         """--skip-tls should work with any orchestrator."""
@@ -1139,14 +1096,6 @@ class TestInstallCommand:
         args = parser.parse_args(["install", "docker"])
         assert args.command == "install"
         assert args.packages == ["docker"]
-
-    def test_install_multiple_packages(self, parser):
-        # Was `k3s` — the internal name k8s-cp maps to, and the
-        # user-facing name back when install shipped. It kept parsing
-        # after the rename only because nothing constrained the argument.
-        args = parser.parse_args(["install", "docker", "k8s-cp", "git-crypt"])
-        assert args.command == "install"
-        assert args.packages == ["docker", "k8s-cp", "git-crypt"]
 
     def test_install_rejects_an_unknown_package(self, parser, capsys):
         # argparse rejects it outright: before, anything parsed and only
@@ -1893,39 +1842,6 @@ class TestHandleInteractiveExecStdin:
         _binary, argv = calls["execvp"]
         assert "-T" not in argv
         assert calls["redirect"] is None
-
-    def test_k8s_stdin_file_drops_tty(self, monkeypatch):
-        calls = self._run(monkeypatch, "/tmp/page.txt", orchestrator="k8s")
-        binary, argv = calls["execvp"]
-        assert binary == "kubectl"
-        assert "-i" in argv and "-it" not in argv
-        assert calls["redirect"] == "/tmp/page.txt"
-
-    def test_k8s_pod_resolution_filters_running(self, monkeypatch):
-        """The pod lookup must select only Running pods, matching
-        roles/orchestrator/tasks/k8s_get_pod.yml. Without the phase filter,
-        items[0] during a rollout/scale/crash-loop can be a
-        Pending/Terminating/Failed pod and the exec targets the wrong
-        replica (or fails)."""
-        from argparse import Namespace
-        captured = {}
-
-        monkeypatch.setattr(canasta_cli, "resolve_instance", lambda _id: {
-            "id": "rsdev", "orchestrator": "k8s",
-            "host": "localhost", "path": "/tmp/inst"})
-        monkeypatch.setattr(
-            canasta_cli, "_redirect_stdin_from_file", lambda p: None)
-        monkeypatch.setattr(canasta_cli.os, "execvp", lambda f, argv: None)
-
-        def fake_run(cmd, *a, **k):
-            captured["cmd"] = cmd
-            return types.SimpleNamespace(returncode=0, stdout="pod-1")
-
-        monkeypatch.setattr(canasta_cli.subprocess, "run", fake_run)
-        args = Namespace(id="rsdev", service="web",
-                         exec_args=["php", "version"], stdin_file=None)
-        canasta_cli.handle_interactive_exec(args)
-        assert "--field-selector=status.phase=Running" in captured["cmd"]
 
     def test_string_exec_args_preserves_quoting(self, monkeypatch):
         """A `--` passthrough arrives as one string; quoted args (a spaced

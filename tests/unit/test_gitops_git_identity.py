@@ -15,7 +15,7 @@ import yaml
 
 from _gitops_flow import flow_tasks
 
-FILES = ["init_compose.yml", "init_kubernetes.yml", "join.yml"]
+FILES = ["init_compose.yml", "join.yml"]
 NAME = "Sean O'Brien $HOME"
 EMAIL = "o'brien@example.com"
 CHECK = ("Check git identity is configured", "Fail if git identity not configured")

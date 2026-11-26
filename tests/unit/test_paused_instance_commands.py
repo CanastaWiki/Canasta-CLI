@@ -131,10 +131,6 @@ class TestRefusePaused:
         proc = _refuse(tmp_path, "")
         assert proc.returncode == 0, proc.stdout + proc.stderr
 
-    def test_kubernetes_is_not_checked(self, tmp_path):
-        proc = _refuse(tmp_path, "c1 web\\n", k8s=True)
-        assert proc.returncode == 0, proc.stdout + proc.stderr
-
 
 def _tasks(path):
     with open(path) as f:
