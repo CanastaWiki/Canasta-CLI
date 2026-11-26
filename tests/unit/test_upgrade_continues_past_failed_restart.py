@@ -182,16 +182,3 @@ class TestComposeRestartFailure:
         proc, _ = _run(tmp_path, stage_only=False)
         out = proc.stdout + proc.stderr
         assert out.count("Canasta upgraded successfully!") == 1, out
-
-
-class TestGitopsRolloutFailure:
-    def test_the_next_instance_still_upgrades_and_the_play_fails(
-            self, tmp_path):
-        proc, marks = _run(tmp_path, stage_only=True)
-        out = proc.stdout + proc.stderr
-        assert proc.returncode != 0, out
-        rollouts = (marks / "kubectl").read_text()
-        assert "rollout status deployment/canasta-second-web" in rollouts, out
-        assert ("'first': restarting failed: error: deployment "
-                "\"canasta-first-web\" exceeded its progress deadline") in out
-        assert "Upgraded 1 instance(s). 1 of them (second)" in out, out

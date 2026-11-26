@@ -39,10 +39,6 @@ def _hosts_yaml(*names, **roles):
     return "Y " + base64.b64encode(text.encode()).decode()
 
 
-def _names(path):
-    return [t.get("name") for t in _load(path)]
-
-
 def _includes(task, target):
     return target in str(task.get("ansible.builtin.include_tasks", ""))
 
@@ -129,9 +125,7 @@ class TestCompare:
 class TestWhereTheCheckRuns:
     @pytest.mark.parametrize("flow, before", [
         ("pull_compose.yml", "Sync wikis.yaml with its gitops template"),
-        ("pull_kubernetes.yml", "Pull with local changes carried through"),
         ("push_compose.yml", "Install and register the git-crypt merge driver"),
-        ("push_kubernetes.yml", "Regenerate Caddyfile from current wikis.yaml"),
     ])
     def test_pull_and_push_check_before_touching_anything(self, flow, before):
         tasks = _load(os.path.join(TASKS, flow))
@@ -148,7 +142,6 @@ class TestWhereTheCheckRuns:
 
     @pytest.mark.parametrize("flow, env", [
         ("join.yml", "gitops_git_env"),
-        ("join_kubernetes.yml", "gitops_k8s_git_env"),
     ])
     def test_join_checks_the_clone_before_changing_the_instance(self, flow, env):
         tasks = _load(os.path.join(TASKS, flow))
@@ -174,14 +167,13 @@ class TestWhereTheCheckRuns:
 
 class TestWhereTheRecordIsWritten:
     @pytest.mark.parametrize("flow", [
-        "init_compose.yml", "init_kubernetes.yml", "join.yml",
-        "join_kubernetes.yml", "push_compose.yml", "push_kubernetes.yml",
+        "init_compose.yml", "join.yml", "push_compose.yml",
     ])
     def test_each_flow_writes_this_hosts_record(self, flow):
         assert any(_includes(t, "_write_cli_version.yml")
                    for t in _load(os.path.join(TASKS, flow))), flow
 
-    @pytest.mark.parametrize("flow", ["join.yml", "join_kubernetes.yml"])
+    @pytest.mark.parametrize("flow", ["join.yml"])
     def test_join_stages_the_record_with_its_registration(self, flow):
         tasks = _load(os.path.join(TASKS, flow))
         write = next(i for i, t in enumerate(tasks)
@@ -200,19 +192,14 @@ class TestWhereTheRecordIsWritten:
         assert names.index("Record this host's CLI version") < stage
         assert stage < names.index("Check for staged changes")
 
-    def test_kubernetes_push_writes_the_record_before_staging(self):
-        names = _names(os.path.join(TASKS, "push_kubernetes.yml"))
-        assert (names.index("Record this host's CLI version")
-                < names.index("Stage changes to the gitops-managed paths"))
-
-    def test_init_writes_the_record_before_staging(self):
-        for flow in ("init_compose.yml", "init_kubernetes.yml"):
-            tasks = _load(os.path.join(TASKS, flow))
-            write = next(i for i, t in enumerate(tasks)
-                         if _includes(t, "_write_cli_version.yml"))
-            stage = next(i for i, t in enumerate(tasks)
-                         if _includes(t, "_stage_tracked_paths.yml"))
-            assert write < stage, flow
+    @pytest.mark.parametrize("flow", ["init_compose.yml"])
+    def test_init_writes_the_record_before_staging(self, flow):
+        tasks = _load(os.path.join(TASKS, flow))
+        write = next(i for i, t in enumerate(tasks)
+                     if _includes(t, "_write_cli_version.yml"))
+        stage = next(i for i, t in enumerate(tasks)
+                     if _includes(t, "_stage_tracked_paths.yml"))
+        assert write < stage, flow
 
     def test_the_record_is_the_cli_version_under_the_hosts_dir(self):
         task = _load(WRITE)[0]["ansible.builtin.copy"]
@@ -427,7 +414,7 @@ class TestPushReadsRemoteRoles:
         _git(a, "branch", "-q", "--unset-upstream")
         assert _remote_role(tmp_path, a, "a") == "both"
 
-    @pytest.mark.parametrize("flow", ["push_compose.yml", "push_kubernetes.yml"])
+    @pytest.mark.parametrize("flow", ["push_compose.yml"])
     def test_push_takes_its_role_from_the_remote(self, flow):
         tasks = _load(os.path.join(TASKS, flow))
         read = next(i for i, t in enumerate(tasks)

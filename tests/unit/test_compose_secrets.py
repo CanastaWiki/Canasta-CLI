@@ -169,19 +169,13 @@ class TestComposeLayering:
 
 
 class TestDispatch:
-    def test_set_and_unset_dispatch_by_orchestrator(self):
+    def test_set_and_unset_dispatch_to_compose(self):
         body = _read(os.path.join(ORCH_TASKS, "config_set_secret.yml"))
         assert "_set_secret_compose.yml" in body
-        assert "_set_secret_kubernetes.yml" in body
         assert "_unset_secret_compose.yml" in _read(
             os.path.join(ORCH_TASKS, "config_unset_secret.yml"))
         assert "config_unset_secret.yml" in _read(
             os.path.join(CONFIG_TASKS, "_unset_secret.yml"))
-
-    def test_kubernetes_still_writes_secrets_env(self):
-        body = _read(os.path.join(CONFIG_TASKS, "_set_secret_kubernetes.yml"))
-        assert "config/secrets.env" in body
-        assert "config/secrets-web" in body
 
     def test_compose_value_write_is_no_log(self):
         tasks = _load(os.path.join(CONFIG_TASKS, "_set_secret_compose.yml"))

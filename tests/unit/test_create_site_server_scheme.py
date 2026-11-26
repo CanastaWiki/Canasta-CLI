@@ -106,19 +106,6 @@ class TestSkipTlsScheme:
             "TLS_MODE (e.g. via --envfile)"
         )
 
-    def test_http_only_is_not_forced_by_orchestrator(self):
-        """K8s must keep https://, or MediaWiki emits http:// links.
-
-        On Kubernetes the ingress terminates TLS, so https:// is the
-        correct $wgServer.
-        """
-        expr = _http_only_expr()
-        for token in ("orchestrator", "kubernetes", "k8s"):
-            assert token not in expr, (
-                "_http_only must not key off the orchestrator: on K8s the "
-                "ingress terminates TLS and MW_SITE_SERVER stays https"
-            )
-
     def test_skip_tls_env_write_happens_after_the_scheme_is_derived(self):
         """Pins the ordering that makes the fix necessary.
 

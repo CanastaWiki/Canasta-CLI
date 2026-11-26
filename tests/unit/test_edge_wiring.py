@@ -130,13 +130,6 @@ def test_upgrade_learns_the_special_names_of_instances_left_running():
     assert "not (_upgrade_restart_failed | default(false) | bool)" in tasks[learn]["when"]
 
 
-def test_learning_is_a_no_op_on_kubernetes_and_never_fails_the_command():
-    task = _tasks("edge_learn.yml")[0]
-    assert task["canasta_edge"]["state"] == "learn"
-    assert task["when"] == "not (instance_is_k8s | bool)"
-    assert task["failed_when"] is False
-
-
 def _probes(task):
     return (task.get("ansible.builtin.include_role") or {}).get("tasks_from") == "edge_probe.yml"
 
@@ -155,12 +148,6 @@ def test_upgrade_reports_wikis_of_the_running_instances_it_upgraded():
     assert "not (_upgrade_skip | bool)" in probe["when"]
     assert any("_was_running" in w for w in probe["when"])
     assert any("_upgrade_restart_failed" in w for w in probe["when"])
-
-
-def test_the_probe_runs_only_for_compose():
-    probe = _tasks("edge_probe.yml")[0]
-    assert probe["canasta_edge"]["state"] == "probe"
-    assert probe["when"] == "not (instance_is_k8s | bool)"
 
 
 def _fast_stop(monkeypatch, tmp_path, host="localhost"):

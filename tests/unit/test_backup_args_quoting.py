@@ -49,16 +49,6 @@ def test_compose_restic_args_stay_whole():
     assert words[-len(ARGS):] == ARGS
 
 
-def test_k8s_restic_args_stay_whole():
-    task = _task(os.path.join(ORCH, "k8s_run_backup.yml"),
-                 "Build the restic container command")
-    cmd = _render(task["ansible.builtin.set_fact"]["_restic_command"],
-                  backup_args=ARGS + ["--keep-last", 3])
-    assert shlex.split(cmd) == [
-        "restic", "--cache-dir", "/tmp/restic-cache"] + ARGS + [
-        "--keep-last", "3"]
-
-
 def _tag_errors(value):
     cmd_def = next(c for c in canasta.load_definitions()["commands"]
                    if c["name"] == "backup_create")

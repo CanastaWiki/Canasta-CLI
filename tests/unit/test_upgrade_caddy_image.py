@@ -16,8 +16,6 @@ from ansible.template import Templar, trust_as_template
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 CHECK = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "check_caddy_image.yml")
 MAIN = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "main.yml")
-RECONCILE = os.path.join(
-    REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_reconcile_caddy.yml")
 
 PLUGIN = "ghcr.io/canastawiki/canasta-caddy:2.11.9"
 PREFIX = "ghcr.io/canastawiki/canasta-caddy:"
@@ -98,20 +96,6 @@ def test_running_check_only_for_a_running_instance():
     assert task["when"] == "_was_running | bool"
     assert task["changed_when"] is False and task["failed_when"] is False
     assert "com.docker.compose.service=caddy" in task["ansible.builtin.command"]["cmd"]
-
-
-def test_kubernetes_runs_the_deploy_reconcile_and_reads_its_write():
-    tasks = _load(CHECK)
-    k8s = _named(tasks, "Check the Caddy image (Kubernetes)")
-    assert k8s["when"] == "instance_is_k8s | bool"
-    include = _named(k8s["block"], "Reconcile the caddy image in values.yaml")
-    assert include["ansible.builtin.include_role"] == {
-        "name": "orchestrator", "tasks_from": "k8s_reconcile_caddy.yml"}
-    note = _named(k8s["block"], "Note whether the Caddy image changes (Kubernetes)")
-    assert note["ansible.builtin.set_fact"]["_upgrade_caddy_image_changed"] == (
-        "{{ _reconcile_caddy_written is changed }}")
-    write = _named(_load(RECONCILE), "Write reconciled values.yaml")
-    assert write["register"] == "_reconcile_caddy_written"
 
 
 def test_signal_is_reset_per_instance():

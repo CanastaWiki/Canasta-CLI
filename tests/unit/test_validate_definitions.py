@@ -240,11 +240,6 @@ class TestDispatchChecks:
         assert validate_definitions.check_dispatch(
             {}, param, self._playbook("install.yml")) == []
 
-    def test_uninstall_choices_and_branches_agree(self):
-        param = {"name": "packages", "choices": ["k8s"]}
-        assert validate_definitions.check_dispatch(
-            {}, param, self._playbook("uninstall.yml")) == []
-
 
 class TestDirectOnlyInvariants:
     """Invariants that have to hold for 'direct_only: true' commands.

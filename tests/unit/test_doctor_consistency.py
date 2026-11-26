@@ -192,10 +192,8 @@ class TestGatherRuntime:
 
 
 class TestInstanceConsistencyLines:
-    def test_skips_when_no_instance_or_k8s(self):
+    def test_skips_when_no_instance(self):
         assert doctor._instance_consistency_lines(None) == []
-        assert doctor._instance_consistency_lines(
-            {"orchestrator": "kubernetes", "path": "/x"}) == []
 
     def test_compose_instance_reports_warnings(self, monkeypatch):
         inst = {"id": "site", "orchestrator": "compose", "path": "/srv/site",

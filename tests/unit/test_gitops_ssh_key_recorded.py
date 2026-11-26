@@ -63,14 +63,6 @@ class TestTheKeyIsRecordedAndRecalled:
         assert "KEY=[/new]" in _play(tmp_path, tmp_path, {"ssh_key": "/new"})
         assert (tmp_path / ".gitops-ssh-key").read_text() == "/new\n"
 
-    def test_kubernetes_keeps_its_deploy_key(self, tmp_path):
-        # Its later commands authenticate with the generated deploy key,
-        # which Argo CD uses too.
-        _play(tmp_path, tmp_path, {"ssh_key": "/home/u/.ssh/op"}, k8s=True)
-        assert not (tmp_path / ".gitops-ssh-key").exists()
-        (tmp_path / ".gitops-ssh-key").write_text("/home/u/.ssh/op\n")
-        assert "KEY=[]" in _play(tmp_path, tmp_path, k8s=True)
-
     def test_without_a_recorded_key_nothing_changes(self, tmp_path):
         assert "KEY=[]" in _play(tmp_path, tmp_path)
         assert not (tmp_path / ".gitops-ssh-key").exists()
@@ -101,11 +93,6 @@ class TestStatusAndDiffUseIt:
         (tmp_path / ".gitops-ssh-key").write_text("/home/u/.ssh/deploy\n")
         assert _git_ssh_command(tmp_path).startswith(
             "ssh -i /home/u/.ssh/deploy ")
-
-    def test_it_comes_before_the_kubernetes_deploy_key(self, tmp_path):
-        (tmp_path / ".gitops-ssh-key").write_text("/home/u/.ssh/deploy\n")
-        (tmp_path / ".gitops-deploy-key").write_text("k")
-        assert "/home/u/.ssh/deploy" in _git_ssh_command(tmp_path)
 
     def test_an_explicit_key_wins(self, tmp_path):
         (tmp_path / ".gitops-ssh-key").write_text("/home/u/.ssh/deploy\n")

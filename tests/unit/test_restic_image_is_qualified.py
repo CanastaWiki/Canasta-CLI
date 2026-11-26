@@ -13,14 +13,12 @@ so `canasta backup` could not run at all on Podman.
 The Canasta stack itself was never affected because every image in the
 rendered compose file is already fully qualified (docker.io/library/...,
 ghcr.io/..., docker.elastic.co/...). restic was the one that was missed.
-
-The K8s references matter for the same reason on a CRI-O cluster;
-containerd assumes docker.io, so they happen to work under k3s today.
 """
 
 import os
 import re
 
+import pytest
 import yaml
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
@@ -29,8 +27,6 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
 SITES = (
     os.path.join("roles", "orchestrator", "tasks", "run_backup.yml"),
     os.path.join("direct_commands", "backup.py"),
-    os.path.join("roles", "orchestrator", "tasks", "k8s_restore_instance.yml"),
-    os.path.join("roles", "orchestrator", "tasks", "k8s_run_backup.yml"),
 )
 
 # `restic/restic` not preceded by a registry host.
@@ -45,20 +41,28 @@ def _read(rel):
 TOOL_VERSIONS = os.path.join("vars", "tool_versions.yml")
 
 
-class TestEveryResticReferenceIsQualified:
-    def test_no_bare_short_name(self):
-        for rel in SITES + (TOOL_VERSIONS,):
-            body = _read(rel)
-            assert not UNQUALIFIED.search(body), (
-                "%s uses the short name; podman refuses it with no "
-                "unqualified-search registry configured" % rel
-            )
+def _check_no_bare_short_name(rel):
+    body = _read(rel)
+    assert not UNQUALIFIED.search(body), (
+        "%s uses the short name; podman refuses it with no "
+        "unqualified-search registry configured" % rel
+    )
 
-    def test_every_site_uses_the_pinned_image(self):
-        # Guard against the regex passing because the reference was
-        # deleted rather than qualified.
-        for rel in SITES:
-            assert "restic_image" in _read(rel), rel
+
+def _check_site_uses_the_pinned_image(rel):
+    # Guard against the regex passing because the reference was
+    # deleted rather than qualified.
+    assert "restic_image" in _read(rel), rel
+
+
+class TestEveryResticReferenceIsQualified:
+    @pytest.mark.parametrize("rel", SITES + (TOOL_VERSIONS,))
+    def test_no_bare_short_name(self, rel):
+        _check_no_bare_short_name(rel)
+
+    @pytest.mark.parametrize("rel", SITES)
+    def test_every_site_uses_the_pinned_image(self, rel):
+        _check_site_uses_the_pinned_image(rel)
 
     def test_the_pin_is_qualified_to_docker_io_and_versioned(self):
         image = yaml.safe_load(_read(TOOL_VERSIONS))["restic_image"]

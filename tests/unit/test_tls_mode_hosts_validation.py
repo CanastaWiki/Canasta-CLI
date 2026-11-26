@@ -53,10 +53,8 @@ def test_refused_values(tmp_path, value):
     assert code != 0 and "TLS_MODE_HOSTS must be" in out, out
 
 
-def test_config_set_runs_the_check_and_refuses_it_on_kubernetes():
+def test_config_set_runs_the_check():
     with open(VALIDATE_VALUE) as f:
         tasks = yaml.safe_load(f)
     assert any(t.get("ansible.builtin.include_tasks") == "_validate_tls_mode_hosts.yml"
                and t.get("when") == "_config_key == 'TLS_MODE_HOSTS'" for t in tasks)
-    k8s_block = next(t for t in tasks if t.get("name", "").startswith("Block the edge's TLS keys"))
-    assert "'TLS_MODE_HOSTS'" in " ".join(k8s_block["when"])

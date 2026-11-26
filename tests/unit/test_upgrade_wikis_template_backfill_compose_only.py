@@ -35,8 +35,6 @@ def test_the_include_is_not_wrapped_in_a_block():
 @pytest.mark.parametrize("variables, runs", [
     ({"instance_orchestrator": "compose"}, True),
     ({}, True),
-    ({"instance_orchestrator": "kubernetes"}, False),
-    ({"instance_orchestrator": "k8s"}, False),
 ])
 def test_runs_only_on_compose(variables, runs):
     when = _backfill_task()["when"]
@@ -45,8 +43,7 @@ def test_runs_only_on_compose(variables, runs):
     assert str(result).strip() == str(runs)
 
 
-def test_only_compose_tracks_the_template():
+def test_compose_tracks_the_template():
     with open(GITOPS_VARS) as f:
         gitops_vars = yaml.safe_load(f)
     assert "wikis.yaml.template" in gitops_vars["gitops_compose_tracked_paths"]
-    assert "wikis.yaml.template" not in gitops_vars["gitops_k8s_tracked_paths"]

@@ -20,15 +20,3 @@ def test_extension_and_skin_list_are_direct_only():
         assert "playbook" not in defs[name]
     assert not os.path.exists(os.path.join(
         REPO_ROOT, "roles", "extensions_skins", "tasks", "list.yml"))
-
-
-def test_gitops_diff_ansible_path_is_kubernetes_only():
-    tasks_dir = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
-    assert not os.path.exists(os.path.join(tasks_dir, "diff_compose.yml"))
-    with open(os.path.join(tasks_dir, "diff.yml")) as f:
-        tasks = yaml.safe_load(f)
-    guard = next(t for t in tasks if "ansible.builtin.fail" in t)
-    assert guard["when"] == "not (instance_is_k8s | bool)"
-    includes = [t["ansible.builtin.include_tasks"] for t in tasks
-                if "ansible.builtin.include_tasks" in t]
-    assert "diff_kubernetes.yml" in includes

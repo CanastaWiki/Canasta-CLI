@@ -10,7 +10,6 @@ run against a stub cscli.
 """
 
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -207,16 +206,6 @@ class TestWrapperIsShared:
             svc = yaml.safe_load(f)["services"]["crowdsec"]
         assert svc["entrypoint"][:2] == ["/bin/sh", "-c"]
         assert svc["entrypoint"][2].replace("$$", "$") == _wrapper()
-
-    def test_chart_local_api_runs_the_wrapper(self):
-        with open(os.path.join(CHART, "templates",
-                               "deployment-crowdsec.yaml")) as f:
-            template = f.read()
-        sidecar = template[template.index("- name: crowdsec\n"):]
-        assert re.search(
-            r'command:\s*- /bin/sh\s*- -c\s*'
-            r'- \{\{ \.Files\.Get "files/crowdsec-start\.sh" \| toJson \}\}',
-            sidecar[:sidecar.index("env:")])
 
     def test_chart_wrapper_has_no_compose_escaping(self):
         assert "$$" not in _wrapper()

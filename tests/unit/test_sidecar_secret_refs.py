@@ -1,15 +1,11 @@
 """Secret variables referenced by sidecars never land in a cleartext file.
 
 A secret variable is one whose name matches the secret classifier or that was
-set with `config set --secret` (config/secret-keys on Compose, the keys of
-config/secrets.env on Kubernetes).
+set with `config set --secret` (config/secret-keys).
 
 Compose interpolates a sidecar's ${VAR} from .env at runtime, so the only
 cleartext copy would be the web env bridge: secrets are left out of it, and
-each start names them. Kubernetes resolves ${VAR} into the rendered values,
-so a plain reference to a secret is refused unless the env key is taken from
-the app Secret (envSecret) — at render, and already at `sidecar add` and
-`sidecar migrate`.
+each start names them.
 
 On Compose the bridge is rendered per host and gitignored; the upgrade's
 .gitignore refresh untracks it in existing repos, and an upgrade that does
@@ -25,7 +21,6 @@ import yaml
 
 import canasta_render_sidecars
 import canasta_sidecar_migrate
-import canasta_sidecar_render as render
 import canasta_sidecars_yaml
 from _classifier import secret_key_regex
 from mock_ansible import run_module_with_params
@@ -121,66 +116,6 @@ class TestComposeBridge:
         assert not (inst / BRIDGE).exists()
 
 
-class TestKubernetesRefusal:
-    def test_env_ref_refused(self, tmp_path):
-        inst = _instance(tmp_path, [LINKER], ENV)
-        _, failed, msg = _render(inst, "kubernetes")
-        assert failed
-        assert "sidecar 'linker'" in msg and "DB_PASS" in msg
-        assert "MYSQL_PASSWORD" in msg
-        assert "canasta config set --secret DB_PASS=VALUE" in msg
-        assert "envSecret" in msg
-        assert not (inst / "values-sidecars.yaml").exists()
-
-    def test_refused_in_check_mode(self, tmp_path):
-        inst = _instance(tmp_path, [LINKER], ENV)
-        _, failed, _ = _render(inst, "kubernetes", check_mode=True)
-        assert failed
-
-    def test_envsecret_allowed(self, tmp_path):
-        sidecar = dict(LINKER, envSecret=["DB_PASS"],
-                       env={"DB_PASS": "${MYSQL_PASSWORD}",
-                            "UPSTREAM": "${LINKER_HOST}"})
-        inst = _instance(tmp_path, [sidecar], ENV)
-        _, failed, msg = _render(inst, "kubernetes")
-        assert not failed, msg
-        values = (inst / "values-sidecars.yaml").read_text()
-        assert "dbpw" not in values
-        assert "dbpw" not in _bridge(inst)
-
-    def test_envprivate_does_not_exempt(self, tmp_path):
-        sidecar = {"name": "x", "image": "x:1", "envPrivate": ["P"],
-                   "env": {"P": "${MYSQL_PASSWORD}"}}
-        inst = _instance(tmp_path, [sidecar], ENV)
-        _, failed, _ = _render(inst, "kubernetes")
-        assert failed
-
-    def test_recorded_secret_refused(self, tmp_path):
-        sidecar = {"name": "x", "image": "x:1",
-                   "env": {"OAUTH": "${OAUTH_CLIENT}"}}
-        inst = _instance(tmp_path, [sidecar], {},
-                         {"config/secrets.env": "OAUTH_CLIENT=abc\n"})
-        _, failed, msg = _render(inst, "kubernetes")
-        assert failed and "OAUTH_CLIENT" in msg
-
-    @pytest.mark.parametrize("command", [
-        ["run", "--pw=${MYSQL_PASSWORD}"], "run --pw=${MYSQL_PASSWORD}"])
-    def test_command_ref_refused(self, tmp_path, command):
-        sidecar = {"name": "x", "image": "x:1", "command": command}
-        inst = _instance(tmp_path, [sidecar], ENV)
-        _, failed, msg = _render(inst, "kubernetes")
-        assert failed
-        assert "command references the secret variable MYSQL_PASSWORD" in msg
-
-    def test_non_secret_refs_allowed(self, tmp_path):
-        sidecar = {"name": "x", "image": "x:1",
-                   "command": "serve ${LINKER_HOST}",
-                   "env": {"UPSTREAM": "${LINKER_HOST}"}}
-        inst = _instance(tmp_path, [sidecar], ENV)
-        _, failed, msg = _render(inst, "kubernetes")
-        assert not failed, msg
-
-
 def _add(inst, sidecars, orchestrator):
     return run_module_with_params(canasta_sidecars_yaml, {
         "instance_path": str(inst), "state": "import",
@@ -200,75 +135,22 @@ TOKEN = {"name": "x", "image": "x:1", "env": {"TOKEN": "${K8S_TOKEN}"}}
 
 
 class TestAddRefusal:
-    def test_kubernetes_refuses_with_render_message(self, tmp_path):
-        inst = _instance(tmp_path, [], {},
-                         {"config/secrets.env": "K8S_TOKEN=abc\n"})
-        _, failed, msg = _add(inst, [TOKEN], "kubernetes")
-        assert failed
-        assert msg == render.validate_k8s_secret_refs(
-            [TOKEN], lambda name: name == "K8S_TOKEN")
-        assert yaml.safe_load(
-            (inst / "config" / "sidecars.yaml").read_text()) == {
-                "sidecars": []}
-        _, failed, render_msg = _render(inst, "kubernetes")
-        assert not failed, render_msg
-
-    def test_kubernetes_refuses_classified_secret(self, tmp_path):
-        inst = _instance(tmp_path, [], ENV)
-        _, failed, msg = _add(inst, [LINKER], "kubernetes")
-        assert failed and "MYSQL_PASSWORD" in msg
-
-    def test_kubernetes_allows_envsecret(self, tmp_path):
-        inst = _instance(tmp_path, [], {},
-                         {"config/secrets.env": "K8S_TOKEN=abc\n"})
-        sidecar = dict(TOKEN, envSecret=["TOKEN"])
-        result, failed, msg = _add(inst, [sidecar], "kubernetes")
-        assert not failed, msg
-        assert result["names"] == ["x"]
-
     def test_compose_accepts(self, tmp_path):
         inst = _instance(tmp_path, [], ENV,
                          {"config/secret-keys": "K8S_TOKEN\n"})
         _, failed, msg = _add(inst, [TOKEN, LINKER], "compose")
         assert not failed, msg
 
-    def test_kubernetes_requires_classifier(self, tmp_path):
-        inst = _instance(tmp_path, [], {})
-        _, failed, msg = run_module_with_params(canasta_sidecars_yaml, {
-            "instance_path": str(inst), "state": "import",
-            "definitions": yaml.safe_dump([TOKEN]),
-            "orchestrator": "kubernetes", "secret_key_regex": None})
-        assert failed and "secret_key_regex" in msg
-
 
 class TestMigrateRefusal:
     SERVICES = {"linker": {"image": "example/linker:1.0",
                            "environment": {"DB_PASS": "${MYSQL_PASSWORD}"}}}
-
-    @pytest.mark.parametrize("dry_run", [False, True])
-    def test_kubernetes_refuses(self, tmp_path, dry_run):
-        inst = _instance(tmp_path, [], ENV)
-        _, failed, msg = _migrate(inst, self.SERVICES, "kubernetes", dry_run)
-        assert failed
-        assert "sidecar 'linker'" in msg and "MYSQL_PASSWORD" in msg
-        assert "linker" in (inst / "docker-compose.override.yml").read_text()
-        assert "linker" not in (inst / "config" / "sidecars.yaml").read_text()
 
     def test_compose_migrates(self, tmp_path):
         inst = _instance(tmp_path, [], ENV)
         result, failed, msg = _migrate(inst, self.SERVICES, "compose")
         assert not failed, msg
         assert result["migrated"] == ["linker"]
-
-
-def test_validate_is_pure():
-    def is_secret(name):
-        return name == "S"
-    assert render.validate_k8s_secret_refs(
-        [{"name": "a", "env": {"K": "${S}"}, "envSecret": ["K"]}],
-        is_secret) is None
-    assert render.validate_k8s_secret_refs(
-        [{"name": "a", "env": {"K": "x-${S:-d}"}}], is_secret) is not None
 
 
 # --- Wiring ---------------------------------------------------------------- #
@@ -425,33 +307,11 @@ def test_upgrade_rerenders_when_not_restarted(tmp_path, restart_needed,
             in proc.stdout)
 
 
-def test_upgrade_rerender_skips_kubernetes(tmp_path):
-    inst = _old_instance(tmp_path)
-    proc = _play(tmp_path, inst, [
-        {"ansible.builtin.set_fact": {"_restart_needed": False,
-                                      "_was_running": True}},
-        _upgrade_rerender_task()], orchestrator="kubernetes")
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "dbpw" in _bridge(inst)
-    assert not (inst / "values-sidecars.yaml").exists()
-    assert not (inst / "docker-compose.web-env.yml").exists()
-
-
 # --- Gitignore ------------------------------------------------------------- #
 
 def _read(path):
     with open(path) as handle:
         return handle.read()
-
-
-def test_bridge_ignored_on_compose_only():
-    assert BRIDGE in _read(os.path.join(GITOPS, "files", "gitignore.compose"))
-    assert BRIDGE not in _read(os.path.join(GITOPS, "files",
-                                            "gitignore.default"))
-    assert "gitignore.compose" in _read(
-        os.path.join(GITOPS, "tasks", "init_compose.yml"))
-    assert "gitignore.compose" not in _read(
-        os.path.join(GITOPS, "tasks", "init_kubernetes.yml"))
 
 
 def _git(inst, *args):
@@ -501,13 +361,12 @@ def test_refresh_untracks_bridge_on_compose(tmp_path):
     assert _git(inst, "status", "--porcelain") == ""
 
 
-def test_refresh_leaves_kubernetes_tracking(tmp_path):
-    inst = _gitops_repo(tmp_path)
-    proc = _refresh(tmp_path, inst, "kubernetes")
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert BRIDGE not in (inst / ".gitignore").read_text()
-    assert _git(inst, "ls-files", BRIDGE).strip() == BRIDGE
-    assert _git(inst, "diff", "--cached", "--name-only") == ""
+def test_bridge_ignored_on_compose_only():
+    assert BRIDGE in _read(os.path.join(GITOPS, "files", "gitignore.compose"))
+    assert BRIDGE not in _read(os.path.join(GITOPS, "files",
+                                            "gitignore.default"))
+    assert "gitignore.compose" in _read(
+        os.path.join(GITOPS, "tasks", "init_compose.yml"))
 
 
 def test_sidecars_layer_ignored_on_compose_only():

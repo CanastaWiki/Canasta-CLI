@@ -211,11 +211,6 @@ class TestCreate:
         events = self._create(tmp_path, database="/d/main.sql")
         assert events == ["STOP", "START", "UPDATE main"]
 
-    def test_kubernetes_database_runs_update(self, tmp_path):
-        events = self._create(tmp_path, database="/d/main.sql",
-                              instance_orchestrator="kubernetes")
-        assert events == ["UPDATE main"]
-
     def test_no_database_leaves_update_to_start(self, tmp_path):
         assert self._create(tmp_path) == ["STOP", "START"]
 

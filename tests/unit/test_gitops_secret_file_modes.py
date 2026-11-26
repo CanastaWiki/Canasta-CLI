@@ -16,13 +16,10 @@ import yaml
 
 from _gitops_flow import flow_tasks
 
-from _k8s_restore_copy import resolve_copy_task
-
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 GITOPS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 CONFIG = os.path.join(REPO_ROOT, "roles", "config", "tasks")
 RESTRICT = os.path.join(GITOPS, "_restrict_hosts_dir.yml")
-RESTORE_K8S = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_restore_instance.yml")
 
 
 def _load(path):
@@ -165,19 +162,3 @@ class TestRestrictWiring:
         restrict = next(i for i, t in enumerate(tasks)
                         if t in _includes_restrict([t]))
         assert restrict > checkout
-
-
-class TestK8sRestoreKeepsDumpsOffHost:
-    def test_full_restore_does_not_copy_config_backup(self):
-        task = resolve_copy_task(next(
-            t for t in _load(RESTORE_K8S)
-            if t.get("name") == "Copy restored config to host"))
-        cmd = task["ansible.builtin.shell"]["cmd"]
-        assert "tar xf - --exclude=./backup" in cmd
-
-    def test_dumps_and_secrets_are_read_from_the_pod(self):
-        tasks = list(_walk(_load(RESTORE_K8S)))
-        text = yaml.safe_dump(tasks)
-        assert "instance_path }}/config/backup" not in text
-        assert "/currentsnapshot/config/backup/{{ item }}" in text
-        assert "/currentsnapshot/config/backup/{{ _restore_secrets_filename }}" in text

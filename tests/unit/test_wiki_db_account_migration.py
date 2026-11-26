@@ -74,7 +74,7 @@ class TestWhoIsMoved:
                        instance_orchestrator=orchestrator, _was_running=running,
                        **TEMPLAR_VARS)
 
-    @pytest.mark.parametrize("orchestrator", ["compose", "kubernetes"])
+    @pytest.mark.parametrize("orchestrator", ["compose"])
     def test_a_running_root_instance_is_moved(self, orchestrator):
         assert self._decide({"WIKI_DB_USER": "root"}, orchestrator) is True
         assert self._decide({}, orchestrator) is True
@@ -85,15 +85,11 @@ class TestWhoIsMoved:
         assert self._decide({"WIKI_DB_USER": "op", **self.EXTERNAL}) is True
         assert self._decide(dict(self.EXTERNAL)) is True
 
-    def test_an_external_kubernetes_instance_is_left_alone(self):
-        assert self._decide({"WIKI_DB_USER": "op", **self.EXTERNAL},
-                            "kubernetes") is False
-
     def test_an_external_instance_with_its_own_account_is_left_alone(self):
         assert self._decide({"WIKI_DB_USER": "mediawiki_site",
                              **self.EXTERNAL}) is False
 
-    @pytest.mark.parametrize("orchestrator", ["compose", "kubernetes"])
+    @pytest.mark.parametrize("orchestrator", ["compose"])
     @pytest.mark.parametrize("env, running", [
         ({"WIKI_DB_USER": "mediawiki"}, True),
         ({"WIKI_DB_USER": "root", "CANASTA_DB_ROOT_ACCOUNT": "true"}, True),

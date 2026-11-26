@@ -22,8 +22,8 @@ def test_keep_data_takes_the_deregister_only_path():
     assert "keep_data" in " ".join(str(c) for c in block["when"])
     assert block["block"][-1].get("ansible.builtin.meta") == "end_play"
     # Every teardown step comes after it, so the play ends before them.
-    for step in ("Clean up container-owned files", "Remove Argo CD Application if present",
-                 "Destroy containers and volumes", "Remove instance directory contents"):
+    for step in ("Clean up container-owned files", "Destroy containers and volumes",
+                 "Remove instance directory contents"):
         assert names.index(step) > names.index("Deregister only"), step
 
 

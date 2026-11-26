@@ -20,8 +20,6 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 COMPOSE_BACKUP = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "run_backup.yml")
-K8S_BACKUP = os.path.join(
-    REPO_ROOT, "roles", "orchestrator", "tasks", "k8s_run_backup.yml")
 
 
 def _load(path):
@@ -106,16 +104,4 @@ class TestComposeReclaimsOwnership:
         assert task.get("failed_when") is False, (
             "a chown failure must not turn a successful backup into a "
             "failed one"
-        )
-
-
-class TestBothOrchestratorsAgree:
-    def test_k8s_still_reclaims_too(self):
-        # If the K8s side ever loses this, the asymmetry returns the other
-        # way round and this test says so.
-        with open(K8S_BACKUP) as f:
-            body = f.read()
-        assert "chown -R" in body, (
-            "k8s_run_backup.yml no longer reclaims repo ownership; the two "
-            "orchestrators have diverged again"
         )

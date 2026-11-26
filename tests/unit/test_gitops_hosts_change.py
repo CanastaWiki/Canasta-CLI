@@ -260,15 +260,10 @@ class TestWiring:
         assert tasks[0]["ansible.builtin.include_tasks"] == "_detect_gitcrypt_lock.yml"
         assert tasks[1]["vars"]["_hc_encrypted"] is True
 
-    def test_kubernetes_uses_the_deploy_key(self):
-        tasks = _load(os.path.join(TASKS, "hosts_change_kubernetes.yml"))
-        assert tasks[0]["vars"] == {"_hc_git_env": "{{ gitops_k8s_git_env }}",
-                                    "_hc_encrypted": False}
-
     def test_no_version_check(self):
         for name in ("set_role.yml", "remove_host.yml", "_hosts_change_dispatch.yml",
-                     "hosts_change_compose.yml", "hosts_change_kubernetes.yml",
-                     "_hosts_change.yml", "_hosts_change_attempt.yml"):
+                     "hosts_change_compose.yml", "_hosts_change.yml",
+                     "_hosts_change_attempt.yml"):
             with open(os.path.join(TASKS, name)) as f:
                 assert "_check_cli_versions.yml" not in f.read(), name
 

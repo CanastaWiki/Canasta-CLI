@@ -70,9 +70,6 @@ class TestJoinClonesBeforeCleanup:
     def test_compose_join(self):
         self._assert("join.yml")
 
-    def test_k8s_join(self):
-        self._assert("join_kubernetes.yml")
-
 
 class TestJoinGuardSkippedUnderReinit:
     """The '.git already exists' guard must not fire under --reinit, since
@@ -89,12 +86,6 @@ class TestJoinGuardSkippedUnderReinit:
         w = self._guard_when("join.yml")
         assert "reinit" in w and "not" in w, (
             "join guard must be gated on `not reinit`: %r" % w
-        )
-
-    def test_k8s_join(self):
-        w = self._guard_when("join_kubernetes.yml")
-        assert "reinit" in w and "not" in w, (
-            "k8s join guard must be gated on `not reinit`: %r" % w
         )
 
 

@@ -1,11 +1,9 @@
 """Legacy cleanups that run once, on upgrade, rather than on every command.
 
 Instances cloned from Canasta-DockerCompose carry extensions/, skins/ and
-config/ .gitignore files that hide user content from gitops, and older
-Kubernetes instances were scheduled by an in-cluster backup CronJob that
-the crontab schedule replaced. Both are removed by upgrade migrations;
-gitops init/join and backup schedule set/remove no longer carry the
-cleanup themselves.
+config/ .gitignore files that hide user content from gitops. An upgrade
+migration removes them; gitops init/join and backup schedule set/remove no
+longer carry the cleanup themselves.
 """
 
 import os
@@ -21,8 +19,6 @@ PROBE = os.path.join(REPO_ROOT, "roles", "upgrade", "files",
                      "probe_migration_state.py")
 GITIGNORE_MIGRATION = os.path.join(MIGRATIONS,
                                    "remove_legacy_gitignore_files.yml")
-CRONJOB_MIGRATION = os.path.join(MIGRATIONS,
-                                 "remove_legacy_backup_cronjob.yml")
 LEGACY = ("extensions", "skins", "config")
 
 
@@ -91,25 +87,11 @@ class TestGitignoreMigration:
             assert (inst / d / ".gitignore").exists()
 
 
-class TestCronJobMigration:
-    def test_targets_the_legacy_cronjob_on_kubernetes_only(self):
-        task = _load(CRONJOB_MIGRATION)[0]
-        spec = task["kubernetes.core.k8s"]
-        assert spec["state"] == "absent"
-        assert spec["kind"] == "CronJob"
-        assert spec["name"] == "canasta-backup-{{ instance_id }}"
-        assert spec["namespace"] == "canasta-{{ instance_id }}"
-        assert task["when"] == "instance_is_k8s | bool"
-        # An absent CronJob is not a failure, so any failure is real.
-        assert "ignore_errors" not in task
-
-
 class TestWiring:
-    def test_both_run_on_upgrade(self):
+    def test_gitignore_migration_runs_on_upgrade(self):
         loop = next(t for t in _load(UPGRADE_MAIN)
                     if t.get("name") == "Run migrations")["loop"]
         assert "remove_legacy_gitignore_files.yml" in loop
-        assert "remove_legacy_backup_cronjob.yml" in loop
 
     def test_no_longer_inline_elsewhere(self):
         inline = {

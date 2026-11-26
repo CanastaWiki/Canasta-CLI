@@ -57,23 +57,3 @@ def test_a_push_run_leaves_a_runner_free():
         else:
             total += job.get("strategy", {}).get("max-parallel", 1)
     assert total < RUNNER_LIMIT, total
-
-
-def test_kubernetes_jobs_run_weekly_and_on_request_only():
-    jobs = _workflow()["jobs"]
-    k8s = [name for name in jobs if name.startswith("integration-k8s")]
-    assert k8s
-    for name in k8s:
-        assert jobs[name]["if"] == (
-            "github.event_name == 'schedule' || "
-            "(github.event_name == 'workflow_dispatch' && inputs.kubernetes)"
-        ), name
-
-
-def test_every_kubernetes_job_is_reported():
-    jobs = _workflow()["jobs"]
-    k8s = sorted(name for name in jobs if name.startswith("integration-k8s"))
-    report = jobs["k8s-report"]
-    assert sorted(report["needs"]) == k8s
-    assert "schedule" in report["if"]
-    assert report["permissions"] == {"issues": "write"}

@@ -72,13 +72,6 @@ class TestMaintenanceEnvForwarding:
             "Compose web `environment:` block (config set would silently do "
             "nothing): %s" % sorted(missing))
 
-    def test_forwarded_to_k8s_pod_env(self):
-        missing = _maintenance_keys() - _k8s_pod_env_allowlist()
-        assert not missing, (
-            "maintenance keys recognized by config set but NOT in the K8s "
-            "_k8s_pod_env_allowlist (they'd never reach the pods): %s"
-            % sorted(missing))
-
     def test_compose_fallback_matches_documented_default(self):
         fallbacks = _compose_web_env_fallbacks()
         mismatched = {

@@ -30,30 +30,9 @@ def _patch_compose_inst(monkeypatch):
     )
 
 
-def _patch_k8s_inst(monkeypatch):
-    monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
-        lambda args: ("test", {
-            "path": "/srv/test",
-            "orchestrator": "k8s",
-            "host": "localhost",
-            "devMode": False,
-        }),
-    )
-
-
 class TestRebuildRegistered:
     def test_registered_as_direct(self):
         assert direct_commands.is_direct_command("rebuild")
-
-
-class TestRebuildK8sRefused:
-    def test_k8s_instance_rejects_with_error(self, monkeypatch, capsys):
-        _patch_k8s_inst(monkeypatch)
-        rc = direct_commands.cmd_rebuild(_args())
-        assert rc == 1
-        err = capsys.readouterr().err
-        assert "Compose" in err
-        assert "Kubernetes" in err
 
 
 class TestRebuildNoBuildableServices:

@@ -138,19 +138,28 @@ class TestTheScript:
         assert result.returncode == 2
         assert sql == ""
 
-    def test_db_host_sends_every_login_over_tcp(self, db, tmp_path):
-        # The Kubernetes init container runs beside the database, not in it.
-        result, _ = db("main", "main_cargo", db_host="db")
-        assert result.returncode == 0, result.stderr
-        calls = (tmp_path / "calls").read_text().splitlines()
-        assert calls and all(c == "-h db" for c in calls), calls
-        assert "pw" in (tmp_path / "logins").read_text().split()
-
     def test_without_db_host_logins_use_the_socket(self, db, tmp_path):
         result, _ = db("main")
         assert result.returncode == 0, result.stderr
         calls = (tmp_path / "calls").read_text().splitlines()
         assert calls and not any("-h" in c for c in calls), calls
+
+
+EXTERNAL = {"USE_EXTERNAL_DB": "true", "MYSQL_USER": "op"}
+
+
+def _ensure_needed_expr():
+    with open(os.path.join(TASKS, "ensure_wiki_db_account.yml")) as f:
+        decide = next(t for t in yaml.safe_load(f)
+                      if t.get("name") == "Decide whether the account needs ensuring")
+    return decide["ansible.builtin.set_fact"]["_ensure_needed"]
+
+
+def _wiki_db_user_expr():
+    with open(os.path.join(REPO_ROOT, "roles", "create", "tasks", "_passwords.yml")) as f:
+        choose = next(t for t in yaml.safe_load(f)
+                      if t.get("name") == "Choose MediaWiki's database account")
+    return choose["ansible.builtin.set_fact"]["_wiki_db_user"]
 
 
 class TestWiring:
@@ -191,23 +200,20 @@ class TestWiring:
         assert "--protocol=tcp -h 127.0.0.1" in (
             ping["ansible.builtin.command"]["cmd"])
 
-    def test_skipped_for_the_administrator_account_and_kubernetes(self):
-        decide = next(t for t in self._tasks("ensure_wiki_db_account.yml")
-                      if t.get("name") == "Decide whether the account needs ensuring")
-        expr = decide["ansible.builtin.set_fact"]["_ensure_needed"]
-        external = {"USE_EXTERNAL_DB": "true", "MYSQL_USER": "op"}
-        for env, orch, needed in (
-                ({"WIKI_DB_USER": "mediawiki"}, "compose", True),
-                ({"WIKI_DB_USER": "root"}, "compose", False),
-                ({}, "compose", False),
-                ({"WIKI_DB_USER": "mediawiki_site", **external}, "compose", True),
-                ({"WIKI_DB_USER": "op", **external}, "compose", False),
-                ({"WIKI_DB_USER": "mediawiki_site", **external}, "kubernetes", False),
-                ({"WIKI_DB_USER": "mediawiki"}, "kubernetes", False)):
-            templar = Templar(loader=DataLoader(), variables={
-                "_ensure_env": {"variables": env},
-                "instance_orchestrator": orch, **TEMPLAR_VARS})
-            assert templar.template(trust_as_template(expr)) is needed, (env, orch)
+    @pytest.mark.parametrize("env, orch, needed", [
+        ({"WIKI_DB_USER": "mediawiki"}, "compose", True),
+        ({"WIKI_DB_USER": "root"}, "compose", False),
+        ({}, "compose", False),
+        ({"WIKI_DB_USER": "mediawiki_site", **EXTERNAL}, "compose", True),
+        ({"WIKI_DB_USER": "op", **EXTERNAL}, "compose", False),
+    ])
+    def test_skipped_for_the_administrator_account(
+            self, env, orch, needed):
+        templar = Templar(loader=DataLoader(), variables={
+            "_ensure_env": {"variables": env},
+            "instance_orchestrator": orch, **TEMPLAR_VARS})
+        assert templar.template(trust_as_template(_ensure_needed_expr())) is needed, (
+            env, orch)
 
     def test_web_gets_the_wiki_account_and_db_can_set_it(self):
         with open(COMPOSE) as f:
@@ -219,19 +225,15 @@ class TestWiring:
         assert "WIKI_DB_USER=${WIKI_DB_USER}" in services["db"]["environment"]
         assert "WIKI_DB_PASSWORD=${WIKI_DB_PASSWORD}" in services["db"]["environment"]
 
-    def test_create_defaults_to_the_mediawiki_account(self):
-        tasks = yaml.safe_load(open(os.path.join(
-            REPO_ROOT, "roles", "create", "tasks", "_passwords.yml")))
-        choose = next(t for t in tasks if t.get("name") == "Choose MediaWiki's database account")
-        expr = choose["ansible.builtin.set_fact"]["_wiki_db_user"]
-        for given, orch, expected in (("", "compose", "mediawiki"),
-                                      ("", "kubernetes", "mediawiki"),
-                                      ("wiki", "kubernetes", "wiki"),
-                                      ("root", "compose", "root"),
-                                      ("wiki", "compose", "wiki")):
-            templar = Templar(loader=DataLoader(), variables={
-                "wikidbuser": given, "orchestrator": orch, **TEMPLAR_VARS})
-            assert templar.template(trust_as_template(expr)) == expected
+    @pytest.mark.parametrize("given, orch, expected", [
+        ("", "compose", "mediawiki"),
+        ("root", "compose", "root"),
+        ("wiki", "compose", "wiki"),
+    ])
+    def test_create_defaults_to_the_mediawiki_account(self, given, orch, expected):
+        templar = Templar(loader=DataLoader(), variables={
+            "wikidbuser": given, "orchestrator": orch, **TEMPLAR_VARS})
+        assert templar.template(trust_as_template(_wiki_db_user_expr())) == expected
 
 
 class TestFastPath:

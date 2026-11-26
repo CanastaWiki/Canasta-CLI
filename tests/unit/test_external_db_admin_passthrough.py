@@ -116,14 +116,6 @@ class TestDbAdmin:
         assert " ".join(out["exec"].split()) == str(fake) + " exec -T db"
         assert "USER=<unset>" in log.splitlines()
 
-    def test_external_kubernetes_uses_the_pod_account(self, tmp_path):
-        inst, fake = _instance(tmp_path, EXTERNAL_ENV)
-        out, _ = _play(tmp_path, inst, fake, [DB_ADMIN, SAVE], k8s=True)
-        assert out["pwd"] == 'MYSQL_PWD="$MYSQL_PASSWORD"'
-        assert '-u "${MYSQL_USER:-root}"' in out["args"]
-        assert out["dotenv"] == {}
-        assert out["exec"].startswith("kubectl exec")
-
 
 class TestExec:
     def test_exec_dotenv_reaches_the_command_off_its_command_line(self, tmp_path):

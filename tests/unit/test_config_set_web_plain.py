@@ -20,7 +20,6 @@ from mock_ansible import run_module_with_params
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 CONFIG_TASKS = os.path.join(REPO_ROOT, "roles", "config", "tasks")
-ORCH_TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 GITOPS_TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 CLASSIFICATION = os.path.join(REPO_ROOT, "vars", "secret_classification.yml")
 CONFIG_DEFAULTS = os.path.join(REPO_ROOT, "roles", "config", "defaults", "main.yml")
@@ -234,44 +233,6 @@ class TestSetAndUnsetLists:
         assert names.index("Read the plain web keys") < names.index(
             "Validate, unapply, and remove each key")
         assert "Stage the plain web key list" in names
-
-
-class TestKubernetes:
-    SYNC = os.path.join(ORCH_TASKS, "k8s_sync_config.yml")
-
-    def _env_config(self, tmp_path, listed):
-        inst = _instance(tmp_path, lists={"config/env-keys-web": listed})
-        tasks = [t for t in _load(self.SYNC)
-                 if t["name"] == "Set K8s namespace and pod env allowlist"]
-        tasks += _tasks_named(self.SYNC, "Read the plain web keys",
-                              "List the plain web keys", "Build pod env config data")
-        tasks.append({"ansible.builtin.copy": {
-            "content": "{{ _env_config_data | to_json }}",
-            "dest": str(inst / "out.json")}})
-        proc = _play(tmp_path, inst, tasks, {
-            "instance_id": "t",
-            "_sync_env_dict": {"variables": {
-                KEY: "false", "PM_MAX_CHILDREN": "12", "MAPS_API_KEY": "abc",
-                "UNLISTED": "x"}}})
-        assert proc.returncode == 0, proc.stdout + proc.stderr
-        return yaml.safe_load((inst / "out.json").read_text())
-
-    def test_listed_keys_join_the_env_configmap(self, tmp_path):
-        data = self._env_config(tmp_path, "%s\n" % KEY)
-        assert data == {KEY: "false", "PM_MAX_CHILDREN": "12"}
-
-    def test_secret_named_keys_stay_out_of_the_configmap(self, tmp_path):
-        data = self._env_config(tmp_path, "MAPS_API_KEY\n")
-        assert "MAPS_API_KEY" not in data
-
-    def test_no_list_keeps_the_allowlist(self, tmp_path):
-        inst = _instance(tmp_path)
-        tasks = _tasks_named(self.SYNC, "Read the plain web keys",
-                             "List the plain web keys")
-        tasks.append({"ansible.builtin.assert": {
-            "that": ["_sync_web_env_keys == []"]}})
-        proc = _play(tmp_path, inst, tasks)
-        assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
 class TestGitops:

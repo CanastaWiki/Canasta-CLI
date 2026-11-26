@@ -69,10 +69,6 @@ def test_base_is_kept_while_a_registered_instance_is_built_on_it():
                       instances=["site"]) == []
 
 
-def test_base_is_kept_on_a_host_with_a_kubernetes_instance():
-    assert _removable(["canasta-base:local"], k8s=["k"]) == []
-
-
 def test_a_pinned_base_is_kept():
     assert _removable(["canasta-base:local"],
                       pinned=["canasta-base:local"]) == []

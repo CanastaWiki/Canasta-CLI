@@ -26,7 +26,6 @@ COMMON = os.path.join(ROLES, "common")
 DEFAULTS = os.path.join(ROLES, "config", "defaults", "main.yml")
 CLASSIFIER = os.path.join(REPO_ROOT, "vars", "secret_classification.yml")
 COMPOSE = os.path.join(ROLES, "orchestrator", "files", "compose", "docker-compose.yml")
-K8S_SYNC = os.path.join(ROLES, "orchestrator", "tasks", "k8s_sync_config.yml")
 VALIDATE_VALUE = os.path.join(ROLES, "config", "tasks", "_validate_value.yml")
 REWRITE = os.path.join(ROLES, "orchestrator", "tasks", "rewrite_caddy.yml")
 GENERATE = os.path.join(ROLES, "sitemap", "tasks", "generate.yml")
@@ -239,12 +238,6 @@ class TestSetting:
         env = _load(COMPOSE)["services"]["web"]["environment"]
         assert "MW_SITEMAP_URL_PATH=${MW_SITEMAP_URL_PATH:-/public_assets/sitemap}" in env
 
-    def test_kubernetes_passes_it_to_the_web_pods(self):
-        allow = next(t["ansible.builtin.set_fact"]["_k8s_pod_env_allowlist"]
-                     for t in _load(K8S_SYNC)
-                     if "_k8s_pod_env_allowlist" in t.get("ansible.builtin.set_fact", {}))
-        assert KEY in allow
-
     def _validate(self, tmp_path, value):
         task = next(t for t in _load(VALIDATE_VALUE)
                     if t.get("name") == "Validate MW_SITEMAP_URL_PATH")
@@ -378,7 +371,7 @@ class TestCaddy:
         assert renders[0] == renders[1] == renders[2]
         assert "sitemap" not in renders[0] and "uri " not in renders[0]
 
-    @pytest.mark.parametrize("k8s", [False, True])
+    @pytest.mark.parametrize("k8s", [False])
     def test_each_wiki_is_rewritten_onto_the_images_path(self, tmp_path, k8s):
         code, out, path = _caddyfile(tmp_path, ["MW_SITEMAP_URL_PATH=/wiki/sitemap"], k8s=k8s)
         assert code == 0, out
@@ -404,7 +397,7 @@ class TestCaddy:
         assert code != 0 and "MW_SITEMAP_URL_PATH must be a URL path" in out, out
         assert not path.exists()
 
-    @pytest.mark.parametrize("k8s", [False, True])
+    @pytest.mark.parametrize("k8s", [False])
     def test_an_overlapping_wikis_rewrite_is_left_out(self, tmp_path, k8s):
         code, out, path = _caddyfile(tmp_path, ["MW_SITEMAP_URL_PATH=/docs/sitemap"],
                                      wikis=PATH_FARM, k8s=k8s)
@@ -689,10 +682,3 @@ class TestGenerate:
         code, out, _, log = _generate(tmp_path, {}, wikis=wikis)
         assert code != 0 and "gives wiki 'en' an unusable sitemap_identifier" in out, out
         assert log == []
-
-    def test_a_gitops_kubernetes_instance_only_stages_the_identifier(self, tmp_path):
-        code, out, _, log = _generate(tmp_path, {"wiki": "en", "identifier": "mediawiki"},
-                                      k8s=True, gitops=True)
-        assert code == 0, out
-        assert log == ["captured", "check_running"]
-        assert "staged in its gitops repo but not deployed" in out

@@ -153,12 +153,6 @@ class TestItDoesNotRefuseAnythingElse:
         registry({"pod1": PODMAN_LOCAL}, mode="native")
         self._ok(_args(id="pod1"))
 
-    def test_a_kubernetes_instance_is_not_compose_and_is_allowed(self,
-                                                                 registry):
-        k8s = dict(PODMAN_LOCAL, id="k1", orchestrator="kubernetes")
-        registry({"k1": k8s})
-        self._ok(_args(id="k1"))
-
     def test_targeting_a_docker_instance_ignores_an_unrelated_podman_one(
             self, registry):
         # Scoped commands must not be blocked by a record they never touch.

@@ -84,33 +84,6 @@ def _publish(tmp_path, k8s, **stub):
     return False
 
 
-def _pods(*digests):
-    return " ".join("10.43.0.2:5000/canasta@" + d for d in digests)
-
-
-class TestKubernetes:
-    def test_an_unchanged_rebuild_does_not_restart(self, tmp_path):
-        assert _publish(tmp_path, True, pushed=NEW, pods=_pods(NEW)) is False
-
-    def test_a_changed_rebuild_restarts(self, tmp_path):
-        assert _publish(tmp_path, True, pushed=NEW, pods=_pods(OLD)) is True
-
-    def test_any_pod_on_the_old_image_restarts(self, tmp_path):
-        assert _publish(
-            tmp_path, True, pushed=NEW, pods=_pods(NEW, OLD)) is True
-
-    def test_no_running_pod_counts_as_changed(self, tmp_path):
-        assert _publish(tmp_path, True, pushed=NEW, pods="") is True
-
-    def test_an_unread_push_digest_counts_as_changed(self, tmp_path):
-        assert _publish(tmp_path, True, pushed="", pods=_pods(NEW)) is True
-
-    def test_the_image_is_still_pushed(self, tmp_path):
-        _publish(tmp_path, True, pushed=NEW, pods=_pods(NEW))
-        calls = (tmp_path / "calls.log").read_text()
-        assert "push localhost:5000/canasta:local" in calls
-
-
 class TestCompose:
     def test_an_unchanged_rebuild_does_not_restart(self, tmp_path):
         assert _publish(tmp_path, False, containers="c1", running=NEW,
@@ -147,7 +120,6 @@ def _restart_needed(**overrides):
 @pytest.mark.parametrize("overrides, expected", [
     ({}, False),
     ({"_upgrade_rebuilt_image_changed": True}, True),
-    ({"_k8s_chart_changed": True}, True),
 ])
 def test_a_rebuild_alone_does_not_restart(overrides, expected):
     assert _restart_needed(**overrides) is expected
