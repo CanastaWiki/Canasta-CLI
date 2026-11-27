@@ -16,7 +16,8 @@ Output JSON shape:
     "stray_php": [absolute-path-str],
     "host_dirs": [str],
     "override_services": [str],
-    "sidecar_names": [str]
+    "sidecar_names": [str],
+    "search_settings": {"only": [str], "mixed": [str]}
   }
 """
 import json
@@ -34,6 +35,11 @@ ENV_KEYS_OF_INTEREST = (
     "USE_EXTERNAL_DB",
     "CANASTA_ENABLE_EDGE",
     "CANASTA_ENABLE_REDIS",
+    "CANASTA_ENABLE_ELASTICSEARCH",
+    "CANASTA_ELASTICSEARCH_HEAP",
+    "CANASTA_ELASTICSEARCH_IMAGE",
+    "CANASTA_ENABLE_OPENSEARCH",
+    "CANASTA_OPENSEARCH_HEAP",
 )
 
 
@@ -249,6 +255,52 @@ def sidecar_names(path):
     return names
 
 
+# Statements of the hand-written search settings Canasta's documentation
+# had operators add for Elasticsearch, all of which Canasta now writes or
+# does itself.
+_SEARCH_STATEMENTS = (
+    re.compile(r"\$wgCirrusSearchServers\s*=[^;]*", re.S),
+    re.compile(r"""\$wgSearchType\s*=\s*["']CirrusSearch["']"""),
+    re.compile(r"""wfLoadExtensions?\s*\((?:[\s,\[\]]|["'](?:CirrusSearch|Elastica)["'])*\)"""),
+)
+_SEARCH_MENTION = re.compile(
+    r"""\$wgCirrusSearchServers|\$wgSearchType\s*=\s*["']CirrusSearch["']"""
+    r"""|wfLoadExtensions?\s*\([^)]*["'](?:CirrusSearch|Elastica)["']""")
+_PHP_COMMENT = re.compile(r"/\*.*?\*/|(?://|#)[^\n]*", re.S)
+
+
+def search_settings(base):
+    """Settings files under config/settings that configure CirrusSearch the
+    way Canasta's Elasticsearch documentation did.
+
+    "only" lists the files holding nothing else, which the migration
+    removes; "mixed" lists those that hold other settings too, which it
+    leaves for the operator. Canasta's own rendered files are skipped.
+    """
+    found = {"only": [], "mixed": []}
+    root = os.path.join(base, "config", "settings")
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames.sort()
+        for name in sorted(filenames):
+            if not name.endswith(".php") or name.startswith("00-canasta-"):
+                continue
+            path = os.path.join(dirpath, name)
+            try:
+                with open(path) as f:
+                    text = f.read()
+            except (OSError, UnicodeDecodeError):
+                continue
+            code = _PHP_COMMENT.sub("", text)
+            if not _SEARCH_MENTION.search(code):
+                continue
+            rest = re.sub(r"^\s*<\?php|\?>\s*$", "", code.strip())
+            for statement in _SEARCH_STATEMENTS:
+                rest = statement.sub("", rest)
+            only = not rest.replace(";", "").strip()
+            found["only" if only else "mixed"].append(path)
+    return found
+
+
 def env_has_bare_dollar(path):
     """True if a bare (unquoted) .env value contains a `$` other than the
     `$$` escape, which Compose expands."""
@@ -332,6 +384,7 @@ def main():
         "sidecar_names": sidecar_names(
             os.path.join(base, "config", "sidecars.yaml"),
         ),
+        "search_settings": search_settings(base),
     }
 
     print(json.dumps(state))
