@@ -1,5 +1,5 @@
 ---
-# Profile-aware host memory floor (Compose). Elasticsearch and the
+# Profile-aware host memory floor (Compose). OpenSearch and the
 # observability stack each raise the memory a Canasta instance needs, so the
 # minimum depends on which are enabled:
 #   neither    -> ~2 GiB
@@ -11,22 +11,22 @@
 # per-node capacity check (k8s_preflight.yml) is separate — the host-memory
 # numbers here do not transfer to per-node cluster capacity.
 #
-# Input: _mem_es_enabled (bool), _mem_obs_enabled (bool)
+# Input: _mem_search_enabled (bool), _mem_obs_enabled (bool)
 
 - name: Determine the required memory floor
   ansible.builtin.set_fact:
     _mem_floor_mib: >-
-      {{ 7000 if ((_mem_es_enabled | bool) and (_mem_obs_enabled | bool))
-         else (3500 if ((_mem_es_enabled | bool) or (_mem_obs_enabled | bool))
+      {{ 7000 if ((_mem_search_enabled | bool) and (_mem_obs_enabled | bool))
+         else (3500 if ((_mem_search_enabled | bool) or (_mem_obs_enabled | bool))
                else 1600) }}
     _mem_floor_label: >-
-      {{ '8 GiB' if ((_mem_es_enabled | bool) and (_mem_obs_enabled | bool))
-         else ('4 GiB' if ((_mem_es_enabled | bool) or (_mem_obs_enabled | bool))
+      {{ '8 GiB' if ((_mem_search_enabled | bool) and (_mem_obs_enabled | bool))
+         else ('4 GiB' if ((_mem_search_enabled | bool) or (_mem_obs_enabled | bool))
                else '2 GiB') }}
     _mem_reason: >-
-      {{ 'Elasticsearch and the observability stack are both enabled'
-         if ((_mem_es_enabled | bool) and (_mem_obs_enabled | bool))
-         else ('Elasticsearch is enabled' if (_mem_es_enabled | bool)
+      {{ 'OpenSearch and the observability stack are both enabled'
+         if ((_mem_search_enabled | bool) and (_mem_obs_enabled | bool))
+         else ('OpenSearch is enabled' if (_mem_search_enabled | bool)
                else ('the observability stack is enabled'
                      if (_mem_obs_enabled | bool) else 'the base requirement')) }}
 

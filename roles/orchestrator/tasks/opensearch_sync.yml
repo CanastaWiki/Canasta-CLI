@@ -1,0 +1,120 @@
+---
+# Bring this instance's place in the host's OpenSearch cluster, and the
+# cluster itself, in line. Runs before the instance's containers start,
+# because its web container joins the cluster's network.
+#
+# Input: instance_path, instance_id (or id during create)
+# Optional: opensearch_member: absent, to take the instance out, as delete does.
+
+- name: Read the instance's OpenSearch settings
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _os_env
+  no_log: true  # holds the instance's OpenSearch password
+
+- name: Decide the instance's OpenSearch membership
+  ansible.builtin.set_fact:
+    _os_member: >-
+      {{ 'present'
+         if (opensearch_member | default('present')) == 'present'
+            and (_os_env.variables.CANASTA_ENABLE_OPENSEARCH | default('false') | lower) == 'true'
+         else 'absent' }}
+
+# Generated whenever OpenSearch is on and one is missing, so an instance gets
+# them however it came to have OpenSearch on. A restore or a gitops join
+# brings them back with .env and keeps the wikis' index names.
+- name: Generate the instance's OpenSearch token
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: CANASTA_OPENSEARCH_TOKEN
+    value: >-
+      {{ lookup('ansible.builtin.password', '/dev/null length=1 chars=ascii_lowercase')
+         ~ lookup('ansible.builtin.password', '/dev/null length=11 chars=ascii_lowercase,digits') }}
+  when:
+    - _os_member == 'present'
+    - (_os_env.variables.CANASTA_OPENSEARCH_TOKEN | default('')) | length == 0
+
+- name: Generate the instance's OpenSearch password
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: CANASTA_OPENSEARCH_PASSWORD
+    value: "{{ lookup('ansible.builtin.password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+  no_log: true  # the instance's OpenSearch password
+  when:
+    - _os_member == 'present'
+    - (_os_env.variables.CANASTA_OPENSEARCH_PASSWORD | default('')) | length == 0
+
+- name: Bring the host's OpenSearch cluster in line
+  canasta_opensearch:
+    instance_id: "{{ instance_id | default(id) }}"
+    instance_path: "{{ instance_path }}"
+    member: "{{ _os_member }}"
+    compose_command: "{{ compose_command | default('docker compose') }}"
+    inspect_command: "{{ inspect_command | default('docker') }}"
+  register: _os
+
+# Only after a restore or a move: another instance on this host has the
+# token. A new one renames this instance's indexes, so its wikis need
+# indexing again.
+- name: Replace a token another instance on this host has
+  when: _os.token_conflict is defined
+  block:
+    - name: Note the instance that has the token
+      ansible.builtin.set_fact:
+        _os_conflict: "{{ _os.token_conflict }}"
+
+    - name: Generate a new OpenSearch token
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: CANASTA_OPENSEARCH_TOKEN
+        value: >-
+          {{ lookup('ansible.builtin.password', '/dev/null length=1 chars=ascii_lowercase')
+             ~ lookup('ansible.builtin.password', '/dev/null length=11 chars=ascii_lowercase,digits') }}
+
+    - name: Bring the host's OpenSearch cluster in line with the new token
+      canasta_opensearch:
+        instance_id: "{{ instance_id | default(id) }}"
+        instance_path: "{{ instance_path }}"
+        member: "{{ _os_member }}"
+        compose_command: "{{ compose_command | default('docker compose') }}"
+        inspect_command: "{{ inspect_command | default('docker') }}"
+      register: _os_retry
+
+    # A register of its own: one the skipped block made would replace _os.
+    - name: Keep the result with the new token
+      ansible.builtin.set_fact:
+        _os: "{{ _os_retry }}"
+
+    - name: Report the new token
+      ansible.builtin.debug:
+        msg: >-
+          Instance '{{ _os_conflict }}' on this host already had this
+          instance's CANASTA_OPENSEARCH_TOKEN, so it has a new one. Its wikis'
+          search indexes have new names and need building again.
+
+- name: Report the OpenSearch restart
+  ansible.builtin.debug:
+    msg: >-
+      The host's OpenSearch was restarted with a {{ _os.heap_mb }} MB heap,
+      so search on every instance on this host was unavailable for a moment.
+  when: _os.restarted | default(false) | bool
+
+- name: Report wikis whose search index is not built yet
+  ansible.builtin.debug:
+    msg: >-
+      CirrusSearch becomes the search engine of
+      {{ _os_unindexed | join(', ') }} once {{ 'its' if _os_unindexed | length == 1 else 'their' }}
+      OpenSearch {{ 'index is' if _os_unindexed | length == 1 else 'indexes are' }} built;
+      until then {{ 'it searches' if _os_unindexed | length == 1 else 'they search' }}
+      the database.
+  vars:
+    _os_unindexed: >-
+      {{ (_os.wikis | default([])) | difference(_os.indexed | default([])) }}
+  when:
+    - _os_member == 'present'
+    - _os.indexed is defined
+    - _os_unindexed | length > 0

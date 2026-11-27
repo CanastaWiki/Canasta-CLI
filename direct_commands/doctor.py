@@ -845,11 +845,12 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
                 "COMPOSE_PROFILES — it is unmanaged, and a stop/start cycle "
                 "won't bring it back" % (svc, prof))
 
-    if uses_cirrus and "elasticsearch" not in active:
+    opensearch_on = env.get("CANASTA_ENABLE_OPENSEARCH", "").strip().lower() == "true"
+    if uses_cirrus and not opensearch_on:
         warns.append(
-            "CirrusSearch is configured (config/settings) but the "
-            "'elasticsearch' profile is inactive — search depends on an "
-            "unmanaged Elasticsearch; set CANASTA_ENABLE_ELASTICSEARCH=true")
+            "CirrusSearch is configured (config/settings) but "
+            "CANASTA_ENABLE_OPENSEARCH is not true, so search depends on an "
+            "OpenSearch Canasta does not run")
 
     crowdsec_on = env.get("CANASTA_ENABLE_CROWDSEC", "").strip().lower() == "true"
     if crowdsec_on and not env.get("TRUSTED_PROXIES", "").strip():
