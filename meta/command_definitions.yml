@@ -1228,7 +1228,10 @@ commands:
       `canasta backup create`, tagged `before-<major>.x`, and the CLI moves
       only if every backup succeeds. An instance with no backup repository
       (`RESTIC_REPOSITORY`) therefore stops the move too. Pass
-      --skip-backup when the instances are backed up already.
+      --skip-backup when the instances are backed up already. To go back,
+      put the CLI back on the earlier release and restore that snapshot with
+      `canasta backup restore -s <snapshot>`, which returns the instance to
+      the image and database it had before the move.
 
       Pass --purge to reclaim disk after the upgrade: each upgraded host has
       the Canasta images the upgrade superseded removed (never one an instance
