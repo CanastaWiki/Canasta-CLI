@@ -1214,7 +1214,7 @@ commands:
       nothing does; otherwise it names each problem and stays where it is,
       with no instance moved. For the move to 5.x, which runs MediaWiki
       1.47 on Docker Compose only, these stop it: a Kubernetes instance; the
-      Interwiki, Lingo or SemanticWatchlist extension enabled or loaded, which
+      Interwiki or Lingo extension enabled or loaded, which
       the 1.47 image does not ship; an enabled extension in `user-extensions`
       whose `requires.MediaWiki` excludes 1.47; and `php8.2` packages or
       `/etc/php/8.2` in `docker-compose.override.yml`, `config/sidecars.yaml`,

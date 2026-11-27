@@ -18,7 +18,6 @@ MW_TARGET = (1, 47, 0)
 DROPPED = {
     "Interwiki": "it is part of MediaWiki core since 1.44",
     "Lingo": "it has no version that works with MediaWiki 1.47",
-    "SemanticWatchlist": "it has no version that works with MediaWiki 1.47",
 }
 
 # Settings MediaWiki 1.44 removed, with what replaces them.
