@@ -10,10 +10,6 @@
 # Output:
 #   _restic_result - command result
 
-- name: Run backup (Kubernetes)
-  ansible.builtin.include_tasks: k8s_run_backup.yml
-  when: instance_is_k8s | bool
-
 - name: Run backup (Compose)
   when: not (instance_is_k8s | bool)
   block:

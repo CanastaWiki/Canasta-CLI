@@ -196,11 +196,6 @@
           true
       when: not (_upgrade_stage_only | bool)
 
-    - name: Stage the account in this host's gitops vars
-      ansible.builtin.include_tasks: >-
-        {{ canasta_root }}/roles/gitops/tasks/sync_wiki_db_user_var.yml
-      when: _upgrade_stage_only | bool
-
     - name: Record that the move awaits a gitops push
       ansible.builtin.set_fact:
         _mig_db_staged: "{{ _upgrade_stage_only | bool }}"
@@ -244,11 +239,6 @@
       ansible.builtin.set_fact:
         _mig_db_redeployed: true
       when: not (_upgrade_stage_only | bool)
-
-    - name: Put this host's gitops vars back on the root account
-      ansible.builtin.include_tasks: >-
-        {{ canasta_root }}/roles/gitops/tasks/sync_wiki_db_user_var.yml
-      when: _upgrade_stage_only | bool
 
     - name: Record that no move awaits a gitops push
       ansible.builtin.set_fact:

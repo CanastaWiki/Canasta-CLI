@@ -52,8 +52,7 @@ global_flags:
     default: false
     description: "Enable verbose output"
 
-# Subcommand groups (canasta host, canasta gitops, canasta storage setup,
-# etc.). These have no leaf-command entry of their own; they exist as
+# Subcommand groups (canasta host, canasta gitops, etc.). These have no leaf-command entry of their own; they exist as
 # parents in canasta.py:SUBCOMMAND_GROUPS / NESTED_SUBCOMMAND_GROUPS and
 # get help text when invoked without a subcommand. wiki_publish.py reads
 # this list to auto-generate CLI: landing pages so they don't drift from
@@ -66,22 +65,6 @@ command_groups:
       Manage the persistent host inventory at `$CANASTA_CONFIG_DIR/hosts.yml`.
       Saved hosts are targeted by short name with `--host` on subsequent
       canasta commands instead of repeating SSH details every time.
-
-  - name: storage
-    description: "Manage shared cluster storage"
-    long_description: |
-      Configure shared storage for Canasta on Kubernetes. The `setup`
-      subcommand group installs CSI drivers and creates StorageClasses
-      needed for multi-replica web pods that span multiple nodes
-      (ReadWriteMany). See [[Help:Multi-node Kubernetes]].
-
-  - name: storage_setup
-    description: "Set up shared storage for Kubernetes"
-    long_description: |
-      Install a CSI driver and create a StorageClass for shared
-      (ReadWriteMany-capable) storage on a Kubernetes cluster. Required
-      to run multi-replica web pods across nodes — see
-      [[Help:Multi-node Kubernetes]].
 
   - name: config
     description: "View and modify Canasta configuration"
@@ -231,22 +214,6 @@ command_groups:
       enables Xdebug for step debugging. Only supported with Docker
       Compose.
 
-  - name: argocd
-    description: "Inspect Argo CD on a Canasta-managed cluster"
-    long_description: |
-      Convenience commands for the Argo CD instance that
-      `canasta install k8s-cp` deploys. The subcommands replace the
-      raw `ssh <cp> 'sudo k3s kubectl …'` reach the multi-node K8s
-      walkthrough on canasta.wiki currently leans on:
-
-      * `ui` opens an SSH tunnel + kubectl port-forward to Argo CD's
-        web UI and prints the localhost URL.
-      * `password` prints the initial admin password.
-      * `apps` lists Argo CD Applications (synced state, health).
-
-      All three accept `--host` to dispatch via SSH to the
-      controlling host. See [[Help:Multi-node Kubernetes]].
-
   - name: crowdsec
     description: "Manage CrowdSec threat detection"
     long_description: |
@@ -308,16 +275,11 @@ command_groups:
   - name: image
     description: "Manage locally built images and reclaim image storage"
     long_description: |
-      `image push` pushes a locally built image to the in-cluster registry
-      of a Kubernetes host, the registry that serves locally built images
-      (`canasta create --build-from`, `build:` sidecars) to the cluster's
-      pods. It is Kubernetes only: on Docker Compose, a locally built tag is
-      directly usable with no push. `image prune` reclaims image storage on
-      Docker Compose and Kubernetes hosts alike.
+      `image prune` reclaims image storage on a host.
 
       `image build-args`, `image set-build-arg` and `image unset-build-arg`
       show and change the build arguments an instance created with
-      `--build-from` is built with, on both orchestrators.
+      `--build-from` is built with.
 
 commands:
   # ---------------------------------------------------------------------------
@@ -518,31 +480,6 @@ commands:
       - name: composer
         type: path
         description: "Path on the controller (the machine running canasta) to a custom composer.local.json"
-      - name: skip_argocd_install
-        type: bool
-        default: false
-        orchestrator_only: kubernetes
-        description: "Skip Argo CD installation (assume already present)"
-      - name: argocd_namespace
-        type: string
-        default: argocd
-        orchestrator_only: kubernetes
-        description: "Namespace for Argo CD"
-      - name: ingress_class
-        type: string
-        orchestrator_only: kubernetes
-        description: "Kubernetes ingress class name (e.g. nginx, traefik, alb)"
-      - name: storage_class
-        type: string
-        orchestrator_only: kubernetes
-        description: "Kubernetes storage class for shared volumes (e.g. nfs, efs)"
-      - name: access_mode
-        type: string
-        orchestrator_only: kubernetes
-        description: >-
-          Access mode for content PVCs (ReadWriteOnce or
-          ReadWriteMany). Use ReadWriteMany with an RWM-capable
-          storage class for multi-node multi-replica web pods.
       - name: tls_email
         type: string
         orchestrator_only: kubernetes
@@ -741,18 +678,12 @@ commands:
       rebuild automatically when the configured image changes;
       `canasta rebuild` is the standalone form for cases where the
       operator wants to rebuild without an upgrade.
-
-      Compose only. On Kubernetes, push a locally built image to the
-      in-cluster registry with `canasta image push` and point the
-      instance at the printed reference via `canasta config set`.
     examples:
       - "canasta rebuild"
       - "canasta rebuild -i mywiki --no-cache"
       - "canasta rebuild --no-restart"
     direct_only: true
     orchestrators: [compose]
-    orchestrators_note: >-
-      On Kubernetes, push a locally built image with `canasta image push`.
     parameters:
       - name: id
         short: i
@@ -946,28 +877,8 @@ commands:
     unfinished_pull_ok: true
     long_description: |
       Install one or more dependencies on the target host. Supported
-      packages: docker, k8s-cp, k8s-worker, git-crypt, sops, canasta,
-      podman, docker-rootless, uv, uv:<tool>.
-
-      `k8s-cp` installs k3s as a control-plane node — the cluster's
-      API server, scheduler, etc., plus kubectl + helm on the same
-      machine. The right install for single-node K8s deployments and
-      for the first node of a multi-node cluster.
-
-      `k8s-worker` joins the target host to an existing k3s cluster as
-      a worker (agent) node — runs only the kubelet + container
-      runtime, no kubectl/helm. Use `--cp-host <name>` to point at a
-      registered host where the control plane lives; canasta will SSH
-      to the control plane to fetch the join token and the cluster's
-      internal API URL automatically.
-
-      Pass `--public-ip <addr>` (k8s-cp only) whenever the canasta CLI
-      runs on a different machine than the control plane — i.e. for
-      any multi-node cluster, and for single-node setups where canasta
-      is installed on a separate host (laptop / VPS / etc.). The
-      address is added to the k3s API server's TLS certificate so
-      kubectl can verify the cert when reaching the cluster over that
-      address. Repeat to add more than one (e.g. an IP and a hostname).
+      packages: docker, git-crypt, sops, canasta, podman,
+      docker-rootless, uv, uv:<tool>.
 
       `sops` installs the SOPS toolchain (sops + age), required for
       encrypted secrets in Kubernetes gitops (`gitops init
@@ -1010,14 +921,9 @@ commands:
       that breaks Canasta's docker-compose.yml defaults. Idempotent —
       skips if the tool is already present.
 
-      Multiple packages can be combined in a single command, except
-      that `k8s-cp` and `k8s-worker` are mutually exclusive on a given
-      host.
+      Multiple packages can be combined in a single command.
     examples:
       - "canasta install docker"
-      - "canasta install k8s-cp"
-      - "canasta install k8s-cp --public-ip 203.0.113.10"
-      - "canasta install --host node2 k8s-worker --cp-host node1"
       - "canasta install docker git-crypt"
       - "canasta install -i mysite git-crypt"
       - "canasta install -i mysite sops"
@@ -1055,7 +961,7 @@ commands:
         positional: true
         multi: true
         required: true
-        choices: [docker, k8s-cp, k8s-worker, git-crypt, sops, podman, docker-rootless, canasta, uv]
+        choices: [docker, git-crypt, sops, podman, docker-rootless, canasta, uv]
         choices_dynamic_prefix: "uv:"
         # Charset the tail after the prefix must match. Mirrors the
         # playbook's `^uv:[a-zA-Z0-9_-]+$` validation in install.yml so
@@ -1063,84 +969,8 @@ commands:
         # tests/unit/test_install_podman.py asserts the two agree.
         choices_dynamic_pattern: "[a-zA-Z0-9_-]+"
         description: >-
-          Dependencies to install (docker, k8s-cp, k8s-worker,
-          git-crypt, sops, podman, docker-rootless, canasta, uv,
-          uv:<tool>)
-      - name: public_ip
-        type: string
-        multi: true
-        description: >-
-          Public IP or hostname of the cluster node, added to the k3s
-          API server's TLS cert (k8s-cp only). Required when canasta
-          runs on a different machine than the control plane — any
-          multi-node cluster, plus single-node setups where canasta is
-          on a separate host. Repeat the flag to add multiple
-          addresses.
-      - name: cp_host
-        type: string
-        description: >-
-          Name of the registered control-plane host (k8s-worker only).
-          Canasta SSHs to this host to fetch the join token and the
-          cluster's internal API URL. The host must already be
-          registered via 'canasta host add'.
-
-  - name: uninstall
-    description: "Uninstall dependencies from the target host"
-    unfinished_pull_ok: true
-    long_description: |
-      Uninstall dependencies from the target host. Supported packages:
-      k8s (removes k3s, kubectl, helm, and cleans up iptables rules;
-      NFS exports that `canasta storage setup nfs --install-server`
-      scoped to the cluster are withdrawn, their contents left on disk;
-      the NFS server it started is stopped once nothing else is exported).
-
-      When uninstalling k8s from a worker, pass `--cp-host <name>` to
-      also delete the worker's Node entry from the control plane.
-      Without it, the Node lingers in `kubectl get nodes` until manually
-      removed (and a worker rejoining with the same hostname will
-      reclaim it, masking the uninstall).
-    examples:
-      - "canasta uninstall k8s"
-      - "canasta uninstall k8s --host worker1 --cp-host cp"
-    playbook: uninstall.yml
-    parameters:
-      - name: host
-        short: H
-        type: string
-        description: "Target host (default: localhost)"
-      - name: docker_host
-        type: string
-        description: >-
-          Docker API socket on the target. Set this when the target
-          uses rootless podman or rootless Docker. Defaults to system
-          Docker's `/var/run/docker.sock`.
-      - name: packages
-        type: string
-        positional: true
-        multi: true
-        required: true
-        choices: [k8s]
-        description: "Dependencies to uninstall (k8s)"
-      - name: cp_host
-        type: string
-        description: >-
-          For k8s worker uninstalls, name of the registered control-plane
-          host. Canasta SSHs there after stopping the agent and runs
-          'kubectl delete node <hostname>' so the Node entry is cleaned
-          up. On a host whose k3s is already gone, only that Node removal
-          runs. Ignored on control-plane uninstalls.
-      - name: force
-        short: f
-        type: bool
-        description: >-
-          Proceed even when the target node holds PersistentVolumes whose
-          data the uninstall would destroy, or when the control plane
-          cannot be reached to check them or to remove the worker's Node.
-      - name: "yes"
-        short: "y"
-        type: bool
-        default: false
-        description: "Skip confirmation prompt"
+          Dependencies to install (docker, git-crypt, sops, podman,
+          docker-rootless, canasta, uv, uv:<tool>)
 
   - name: upgrade
     description: "Upgrade Canasta instances"
@@ -3957,54 +3787,6 @@ commands:
         description: "Canasta instance ID"
 
   # ---------------------------------------------------------------------------
-  # Storage provisioning (Kubernetes only)
-  # ---------------------------------------------------------------------------
-  - name: storage_setup_nfs
-    description: "Set up NFS shared storage for Kubernetes"
-    long_description: |
-      Install the NFS CSI driver and create a StorageClass for shared storage
-      on Kubernetes clusters. Optionally install an NFS server on the target host.
-      After setup, set persistence.*.storageClass in values.yaml to use it.
-
-      When canasta runs on a different machine than the Kubernetes cluster
-      (e.g. a laptop driving an EC2 cluster), pass `--host <name>` to target
-      a registered host that already has kubectl/helm and a kubeconfig
-      pointing at the cluster — typically the control plane. `--install-server`
-      then installs NFS on that same host, and the StorageClass points back
-      at it.
-
-      With `--install-server`, the share is exported only to the cluster's
-      node addresses and pod networks, in /etc/exports.d/canasta.exports. A
-      timer (canasta-nfs-exports-sync.timer) refreshes that list every minute,
-      so nodes that join or leave the cluster are picked up automatically.
-      Debian/Ubuntu and RHEL/Fedora hosts are supported.
-    examples:
-      - "canasta storage setup nfs --host cp --install-server --share /srv/nfs/canasta"
-      - "canasta storage setup nfs --host cp --server 192.168.1.10 --share /srv/nfs/canasta"
-      - "canasta storage setup nfs --install-server --share /srv/nfs/canasta"
-    playbook: storage_setup_nfs.yml
-    parameters:
-      - name: host
-        short: H
-        type: string
-        description: "Target host (default: localhost)"
-      - name: server
-        type: string
-        description: "NFS server IP or hostname"
-      - name: share
-        type: string
-        required: true
-        description: "NFS export path (e.g. /srv/nfs/canasta)"
-      - name: install_server
-        type: bool
-        default: false
-        description: "Install NFS server on the target host"
-      - name: storage_class_name
-        type: string
-        default: nfs
-        description: "Name for the Kubernetes StorageClass"
-
-  # ---------------------------------------------------------------------------
   # Host management (persistent hosts.yml in user config dir)
   # ---------------------------------------------------------------------------
   - name: host_add
@@ -4067,107 +3849,6 @@ commands:
     direct_only: true
     parameters: []
 
-  - name: storage_setup_efs
-    description: "Set up AWS EFS shared storage for Kubernetes"
-    long_description: |
-      Install the EFS CSI driver and create a StorageClass for shared storage
-      on AWS Kubernetes clusters. The EFS filesystem must be created separately
-      via AWS console or CLI.
-
-      When canasta runs on a different machine than the Kubernetes cluster
-      (e.g. a laptop driving an EC2 cluster), pass `--host <name>` to target
-      a registered host that already has kubectl/helm and a kubeconfig
-      pointing at the cluster — typically the control plane.
-    examples:
-      - "canasta storage setup efs --host cp --filesystem-id fs-0123456789abcdef0"
-      - "canasta storage setup efs --filesystem-id fs-0123456789abcdef0"
-    playbook: storage_setup_efs.yml
-    parameters:
-      - name: host
-        short: H
-        type: string
-        description: "Target host (default: localhost)"
-      - name: filesystem_id
-        type: string
-        required: true
-        description: "AWS EFS filesystem ID (e.g. fs-0123456789abcdef0)"
-      - name: storage_class_name
-        type: string
-        default: efs
-        description: "Name for the Kubernetes StorageClass"
-
-  - name: storage_list
-    description: "List StorageClasses on the cluster"
-    unfinished_pull_ok: true
-    long_description: |
-      List the StorageClasses installed on the target Kubernetes
-      cluster, alongside the StorageClass canasta will use by default
-      when `canasta create --storage-class` isn't passed (set by the
-      most recent `canasta storage setup`).
-
-      For a laptop driving a remote cluster, pass `--host <name>` to
-      target a registered host that has a kubeconfig pointing at the
-      cluster — typically the control plane.
-    examples:
-      - "canasta storage list --host cp"
-      - "canasta storage list"
-    playbook: storage_list.yml
-    parameters:
-      - name: host
-        short: H
-        type: string
-        description: "Target host (default: localhost)"
-
-  - name: scale
-    description: "Set the number of replicas for the web tier (Kubernetes)"
-    long_description: |
-      Set the number of replicas for the web tier of a Canasta
-      instance running on Kubernetes. The new count is persisted to
-      the instance's `values.yaml` and applied via `helm upgrade`,
-      so it survives a later `canasta upgrade` (which would
-      otherwise reset the chart's default).
-
-      Multi-replica web requires a ReadWriteMany storage class for
-      the config and images PVCs. With ReadWriteOnce, additional
-      pods will fail to start with `Multi-Attach` errors — see
-      `canasta storage list` and `canasta storage setup`.
-
-      Kubernetes-only by design. Compose runs all replicas on a
-      single host with no built-in load balancing between them, so
-      the multi-replica model that motivates this command (spread
-      across cluster nodes, fault tolerance, horizontal capacity)
-      doesn't apply. If you need more concurrency on a Compose
-      instance, raise PHP-FPM worker limits inside the web image
-      rather than running multiple replicas of the same container.
-
-      Only `web` is currently supported. The Helm chart's other
-      Deployments (caddy, varnish) run a single replica
-      and do not accept a replica-count override.
-    examples:
-      - "canasta scale -i mysite --replicas 3"
-    playbook: scale.yml
-    orchestrators: [kubernetes]
-    orchestrators_note: >-
-      On Compose, raise PHP-FPM worker limits inside the web image rather
-      than running multiple replicas of the same container.
-    parameters:
-      - name: id
-        short: i
-        type: string
-        description: "Canasta instance ID"
-      - name: replicas
-        short: r
-        type: integer
-        required: true
-        description: "Desired replica count (must be ≥ 1)"
-      - name: component
-        short: c
-        type: string
-        default: web
-        description: >-
-          Component to scale. Currently only `web` is supported;
-          other values are rejected.
-
   - name: status
     description: "Show pod/PVC/ingress/cert state for a single instance"
     long_description: |
@@ -4186,66 +3867,6 @@ commands:
         short: i
         type: string
         description: "Canasta instance ID"
-
-  - name: argocd_ui
-    description: "Open Argo CD's web UI via an SSH tunnel"
-    long_description: |
-      Open Argo CD's web UI by tunneling the cluster's
-      `argocd-server` Service to your laptop and printing the
-      localhost URL. Blocks until you press Ctrl-C — keep the
-      session alive while you use the dashboard.
-
-      Pairs naturally with `canasta argocd password` (run that in
-      a separate terminal first to grab the admin credentials).
-    examples:
-      - "canasta argocd ui --host node1"
-      - "canasta argocd ui --host node1 --port 9443"
-    direct_only: true
-    parameters:
-      - name: host
-        short: H
-        type: string
-        description: "Target host (default: localhost)"
-      - name: port
-        type: integer
-        default: 8443
-        description: "Local port to forward to argocd-server:443"
-
-  - name: argocd_password
-    description: "Print Argo CD's initial admin password"
-    long_description: |
-      Print the auto-generated admin password from the
-      `argocd-initial-admin-secret` Secret in the `argocd`
-      namespace.
-
-      The secret only exists until the admin password is changed
-      through the Argo CD UI or CLI; after that, this command
-      reports the secret as missing.
-    examples:
-      - "canasta argocd password --host node1"
-    direct_only: true
-    parameters:
-      - name: host
-        short: H
-        type: string
-        description: "Target host (default: localhost)"
-
-  - name: argocd_apps
-    description: "List Argo CD Applications and their sync/health state"
-    long_description: |
-      Run `kubectl get applications -n argocd` against the target
-      cluster. Each Application shown corresponds to a Canasta
-      instance that's been put under gitops management with
-      `canasta gitops init`. Until an instance is gitops-managed,
-      this list is empty even when Argo CD is itself running.
-    examples:
-      - "canasta argocd apps --host node1"
-    direct_only: true
-    parameters:
-      - name: host
-        short: H
-        type: string
-        description: "Target host (default: localhost)"
 
   - name: sidecar_add
     description: "Add app sidecar(s) to config/sidecars.yaml from a YAML file"
@@ -4337,75 +3958,14 @@ commands:
         default: false
         description: "Show the migration plan without writing any files"
 
-  # ---------------------------------------------------------------------------
-  # In-cluster image registry
-  # ---------------------------------------------------------------------------
-  - name: image_push
-    description: "Build and push a local image to the in-cluster registry"
-    long_description: |
-      Build a Docker image from a local build context and push it to the
-      in-cluster image registry of a Kubernetes host, printing the
-      cluster-pullable reference (`10.43.0.2:5000/<name>:<tag>`).
-
-      Use the printed reference anywhere an instance takes an image:
-      `canasta config set CANASTA_IMAGE=...` for a custom web image,
-      `canasta config set CANASTA_ELASTICSEARCH_IMAGE=...` for a derived
-      Elasticsearch image (e.g. with an analysis plugin), or a sidecar's
-      `image:` in `config/sidecars.yaml`. Run `canasta restart` afterward
-      if the config change did not already trigger one.
-
-      The build runs on the target host, which must be the cluster's
-      control-plane node — the registry's push endpoint is a loopback-only
-      hostPort there (the same assumption as `canasta create
-      --build-from`). The build context path is resolved on that host. The
-      registry is deployed automatically if it is missing.
-
-      Kubernetes only: on Docker Compose, a locally built tag is directly
-      usable with no push.
-    examples:
-      - "canasta image push ./images/elasticsearch --name myapp-elasticsearch"
-      - "canasta image push ~/es-icu --name es-icu -H prod1"
-    playbook: image_push.yml
-    parameters:
-      - name: host
-        short: H
-        type: string
-        description: >-
-          Target host (a saved host name or user@hostname; default:
-          localhost)
-      - name: context
-        type: path
-        path_kind: remote
-        positional: true
-        required: true
-        description: >-
-          Docker build context directory on the target host (with --host,
-          an absolute path or one starting with a quoted '~' (for example '~/x'))
-      - name: image_name
-        long: name
-        type: string
-        required: true
-        validator: image_ref
-        description: >-
-          Image name, optionally name:tag (default tag: local). Repeated
-          pushes to the same tag orphan the previous push's layers; run
-          `canasta image prune` occasionally to reclaim them.
-      - name: build_arg
-        type: string
-        multi: true
-        description: >-
-          Build argument KEY=VALUE forwarded to the docker build
-          (repeatable, e.g. --build-arg BASE_IMAGE=ghcr.io/canastawiki/canasta:latest
-          for a web overlay Dockerfile that derives FROM ${BASE_IMAGE})
-
   - name: image_prune
     description: "Reclaim container image storage on a host"
     unfinished_pull_ok: true
     long_description: |
       Remove container images the host no longer needs, and their orphaned
       layers. Upgrades leave superseded Canasta images behind, and repeated
-      pushes of the same tag (e.g. the `:local` tags used by `--build-from`,
-      `build:` sidecars, and `image push`) orphan the previous push's layers.
+      builds of the same tag (e.g. the `:local` tags used by `--build-from`
+      and `build:` sidecars) orphan the previous build's layers.
       Nothing else ever collects them, so the disk only grows until this runs.
 
       On a Docker or Podman host, removes the Canasta image tags no instance
@@ -4413,25 +3973,15 @@ commands:
       (`canasta:local-<id>`) and the `canasta-base` builds under them
       (`canasta-base:local-<id>`) of instances no longer registered, and
       the shared `canasta-base:local` an older CLI built once no
-      registered instance's `--build-from` image remains and no Kubernetes
-      instance is on the host, then prunes dangling layers. A
-      host carrying both runtimes is reclaimed in each. On a Kubernetes
-      host, prunes containerd images no pod references, then runs the
-      in-cluster registry's garbage collector (with `--delete-untagged`) and
-      restarts the registry so its in-memory blob cache matches the pruned
-      store. A host running both is reclaimed on both paths.
+      registered instance's `--build-from` image remains, then prunes
+      dangling layers. A host carrying both runtimes is reclaimed in each.
 
-      The Docker build cache, and on a Kubernetes host the Docker copies of
-      images built for the in-cluster registry, are kept because they speed
-      up the next build; their size or names are reported with the command
-      that removes them (`docker builder prune`, `docker image rm`).
+      The Docker build cache is kept because it speeds up the next build;
+      its size is reported with the command that removes it
+      (`docker builder prune`).
 
       Volumes are never touched, and an image an instance on the host is
       pinned to is kept whether or not that instance is running.
-
-      Avoid pushing images while the prune runs — a push racing the registry
-      garbage collector can be corrupted (a limitation of the registry
-      itself).
     examples:
       - "canasta image prune"
       - "canasta image prune --dry-run"

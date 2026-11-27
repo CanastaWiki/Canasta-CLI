@@ -47,13 +47,6 @@
     - _build_args_was_running | bool
     - not (instance_is_k8s | bool)
 
-- name: Ensure the in-cluster image registry (Kubernetes)
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_registry.yml
-  when:
-    - _build_args_rebuild | bool
-    - instance_is_k8s | bool
-
 - name: Report rebuilding
   ansible.builtin.debug:
     msg: "Rebuilding the image of '{{ instance_id }}'..."

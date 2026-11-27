@@ -15,7 +15,6 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 INIT_FILES = [
     os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "init_compose.yml"),
-    os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "init_kubernetes.yml"),
 ]
 
 

@@ -53,19 +53,3 @@
     chdir: "{{ instance_path }}"
   changed_when: true
   when: not (instance_is_k8s | bool)
-
-- name: Copy file into pod (Kubernetes)
-  when: instance_is_k8s | bool
-  block:
-    - name: Get pod for copy target
-      ansible.builtin.include_tasks: k8s_get_pod.yml
-      vars:
-        _k8s_namespace: "canasta-{{ instance_id }}"
-        _k8s_component: "{{ copy_service }}"
-
-    - name: Copy file via kubectl cp
-      ansible.builtin.command:
-        cmd: >-
-          kubectl cp {{ copy_src | quote }}
-          canasta-{{ instance_id }}/{{ _k8s_pod_name }}:{{ copy_dest }}
-      changed_when: true

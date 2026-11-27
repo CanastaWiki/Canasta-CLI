@@ -23,8 +23,8 @@ from direct_commands import _helpers  # noqa: E402
 
 from _orchestrator import TEMPLAR_VARS
 
-SCRIPT = os.path.join(REPO_ROOT, "roles", "orchestrator", "files", "helm",
-                      "canasta", "files", "ensure_wiki_db_account.sh")
+SCRIPT = os.path.join(REPO_ROOT, "roles", "orchestrator", "files", "scripts",
+                      "ensure_wiki_db_account.sh")
 TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 COMPOSE = os.path.join(REPO_ROOT, "roles", "orchestrator", "files",
                        "compose", "docker-compose.yml")
