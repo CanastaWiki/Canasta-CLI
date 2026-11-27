@@ -28,20 +28,24 @@
 - name: Read the plain web keys
   ansible.builtin.include_tasks: _read_web_env_keys.yml
 
+# A loop variable of its own: a config set earlier in the same play, as in
+# an upgrade migration, leaves _config_key behind as a fact.
 - name: Validate, unapply, and remove each key
   ansible.builtin.include_tasks: _unset_single.yml
+  vars:
+    _config_key: "{{ _unset_key }}"
   loop: "{{ keys.split() }}"
   loop_control:
-    loop_var: _config_key
+    loop_var: _unset_key
 
 - name: Stop passing the keys to the web container
   ansible.builtin.lineinfile:
     path: "{{ instance_path }}/config/env-keys-web"
-    line: "{{ _config_key }}"
+    line: "{{ _unset_key }}"
     state: absent
   loop: "{{ keys.split() | select('in', _config_web_env_keys) | list }}"
   loop_control:
-    loop_var: _config_key
+    loop_var: _unset_key
 
 # If the instance is gitops-managed, remove the key from the durable source
 # so the next gitops pull doesn't resurrect it (it re-renders .env from
