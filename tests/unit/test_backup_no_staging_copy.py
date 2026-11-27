@@ -1,15 +1,10 @@
-"""A Compose backup should not copy the instance before snapshotting it.
+"""A backup does not copy the instance before snapshotting it.
 
-Every `backup create` used to `rm -rf` a staging volume and `cp -a` the
-whole instance into it — config, extensions, images, skins,
-public_assets — before restic started. On an instance with a 46 GB
-images/ tree that is a 46 GB local copy on every run, scheduled ones
-included, and a second copy of the instance sitting on disk between runs.
-The snapshot itself is incremental and cheap after the first, so the
-staging copy dominated the runtime and got no cheaper over time.
-
-The sources now reach restic as read-only mounts at the paths they would
-have been copied to, which is what the Kubernetes Job already did.
+Copying the whole instance (config, extensions, images, skins,
+public_assets) into a staging volume costs a full local copy of images/ on
+every run, scheduled ones included, while the snapshot itself is incremental
+and cheap after the first. The sources reach restic as read-only mounts at
+the paths a staging copy would use.
 
 Docker Desktop is the exception: restic cannot read a host bind mount
 there at all — every read returns EIO and the snapshot comes back empty —

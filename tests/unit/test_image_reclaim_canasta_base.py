@@ -3,9 +3,8 @@
 A --build-from with a canasta-base source builds canasta-base:local-<id>,
 then the instance's canasta:local-<id> on top of it; both are removed once
 the instance is no longer registered, the base after the image built on
-it. Older CLIs built one canasta-base:local for the host: it is removed
-when no registered instance's built image remains and no Kubernetes
-instance is on the host, whose build copies are reported instead.
+it. A single host-wide canasta-base:local is removed when no registered
+instance's built image remains.
 Published canasta-base release tags no instance is pinned to are removed
 like canasta ones.
 """
@@ -32,15 +31,14 @@ def _render(expr, **variables):
     return templar.template(trust_as_template(expr))
 
 
-def _removable(source, instances=(), k8s=(), pinned=(), published_base=()):
+def _removable(source, instances=(), pinned=(), published_base=()):
     task = _task()
     variables = {
         "_reclaim_images": {"stdout_lines": []},
         "_reclaim_base_images": {"stdout_lines": list(published_base)},
         "_reclaim_source_images": {"stdout_lines": list(source)},
-        "_reclaim_instances": {"instances": dict(
-            {i: {"orchestrator": "compose"} for i in instances},
-            **{i: {"orchestrator": "kubernetes"} for i in k8s})},
+        "_reclaim_instances": {"instances": {
+            i: {"orchestrator": "compose"} for i in instances}},
         "_reclaim_pinned": list(pinned),
     }
     for key, value in task["vars"].items():
@@ -88,7 +86,6 @@ def test_a_per_instance_base_of_a_deleted_instance_is_removed_last():
 def test_a_per_instance_base_is_kept_while_its_instance_is_registered():
     assert _removable(["canasta-base:local-site", "canasta:local-site"],
                       instances=["site"]) == []
-    assert _removable(["canasta-base:local-k"], k8s=["k"]) == []
 
 
 def test_podman_per_instance_base_is_removed_by_its_short_name():

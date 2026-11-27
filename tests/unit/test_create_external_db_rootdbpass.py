@@ -3,9 +3,9 @@ gets its own account there.
 
 instance_template/.env ships MYSQL_PASSWORD= empty, so after the -e file is
 merged the key is always present. Only a non-empty value from the -e file
-may replace --rootdbpass. On Compose, MediaWiki keeps the account and
-password _passwords.yml chose, named for the instance unless --wikidbuser
-names one; on Kubernetes it uses the administrator account. The real
+may replace --rootdbpass. MediaWiki keeps the account and password
+_passwords.yml chose, named for the instance unless --wikidbuser names
+one. The real
 _envfile.yml runs here against a copy of the template.
 """
 
@@ -26,7 +26,7 @@ CLI_PW = "cli-Pw-1234"
 FILE_PW = "file-Pw-5678"
 
 
-def _run(tmp_path, envfile_lines, k8s=False, wikidbuser=""):
+def _run(tmp_path, envfile_lines, wikidbuser=""):
     inst = tmp_path / "inst"
     inst.mkdir()
     shutil.copy(TEMPLATE_ENV, inst / ".env")
@@ -46,7 +46,6 @@ def _run(tmp_path, envfile_lines, k8s=False, wikidbuser=""):
             "_wikidbpass": "wiki-pw",
             "_wiki_db_user": "mediawiki",
             "id": "my-site",
-            "instance_is_k8s": k8s,
             "wikidbuser": wikidbuser,
             "ansible_python_interpreter": sys.executable,
         },

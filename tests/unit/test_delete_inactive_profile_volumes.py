@@ -58,7 +58,6 @@ def _run_destroy(tmp_path, in_use=False):
         "connection": "local",
         "gather_facts": False,
         "vars": {"instance_path": str(inst), "instance_id": "inst",
-                 "instance_is_k8s": False,
                  "inspect_command": str(stub),
                  "compose_command": "%s compose" % stub,
                  "canasta_root": REPO_ROOT,

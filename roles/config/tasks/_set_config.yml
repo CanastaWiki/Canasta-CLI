@@ -83,8 +83,6 @@
     path: "{{ instance_path }}/.gitops-host"
   register: _config_gitops_stat
 
-# The orchestrator owns the compose-vs-K8s decision (K8s gitops uses a
-# different layout, values.template.yaml, not vars.yaml); dispatch.
 - name: Update gitops vars for changed keys
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/config_update_gitops_vars.yml

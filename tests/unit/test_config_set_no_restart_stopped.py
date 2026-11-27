@@ -33,7 +33,6 @@ def _run(tmp_path, **play_vars):
     out = tmp_path / "msg.txt"
     play = tmp_path / "play.yml"
     play_vars.setdefault("instance_id", "mysite")
-    play_vars.setdefault("_config_set_stage_only", False)
     play.write_text(yaml.safe_dump([{
         "hosts": "localhost",
         "connection": "local",
@@ -93,4 +92,4 @@ class TestRunningCheck:
         when = " ".join(task["when"])
         assert "no_restart" in when
         assert "config_restart_by_caller" in when
-        assert "_config_set_stage_only" in when
+        assert "config_set_caller_reports" in when

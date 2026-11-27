@@ -45,7 +45,6 @@
   when:
     - _build_args_rebuild | bool
     - _build_args_was_running | bool
-    - not (instance_is_k8s | bool)
 
 - name: Report rebuilding
   ansible.builtin.debug:

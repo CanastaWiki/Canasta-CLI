@@ -50,12 +50,12 @@ def _run(tmp_path, play):
 
 
 class TestStatusShowsTheAgent:
-    def _msg(self, tmp_path, k8s):
+    def _msg(self, tmp_path):
         heartbeat = datetime.datetime.now(datetime.timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ")
         return _run(tmp_path, _show(
             os.path.join(CROWDSEC, "status.yml"), "Show CrowdSec status", {
-                "instance_id": "demo", "instance_is_k8s": k8s,
+                "instance_id": "demo",
                 "_crowdsec_bouncer_list": [],
                 "_crowdsec_bouncer_lines": "  (none)",
                 "_crowdsec_capi_line": "registered",
@@ -67,19 +67,19 @@ class TestStatusShowsTheAgent:
                 "_crowdsec_pod_starts": {"stdout": ""}}))
 
     def test_compose_has_no_agent_line(self, tmp_path):
-        msg = self._msg(tmp_path, False)
+        msg = self._msg(tmp_path)
         assert "Agent:" not in msg
         assert "\n\nCentral API (community blocklist): registered" in msg
 
 
 class TestMetricsShowTheAgent:
-    def _msg(self, tmp_path, k8s):
+    def _msg(self, tmp_path):
         return _run(tmp_path, _show(
             os.path.join(CROWDSEC, "metrics.yml"), "Show metrics", {
-                "instance_id": "demo", "instance_is_k8s": k8s,
+                "instance_id": "demo",
                 "_crowdsec_metrics": {"stdout": "LAPI METRICS"},
                 "_crowdsec_agent_metrics": {"stdout": "AGENT METRICS"}}))
 
     def test_compose_shows_the_engine(self, tmp_path):
-        assert self._msg(tmp_path, False) == (
+        assert self._msg(tmp_path) == (
             "CrowdSec metrics for instance 'demo'\n\nLAPI METRICS")

@@ -1,20 +1,12 @@
 ---
 # Copy stack files to the instance directory.
-# Dispatches to Compose or Kubernetes based on instance_orchestrator.
 # The managed docker-compose.yml is force-refreshed when stack_files_force
 # is set (upgrade), so compose changes (e.g. a new crowdsec service) reach
 # instances created on an older version. All other files are no-clobber to
 # preserve operator-owned content (override, scripts, logstash configs).
-# Input: instance_path, instance_orchestrator, stack_files_force (bool)
-# Output: _k8s_chart_changed (bool), set on every call so the upgrade loop
-#         never reads the previous instance's value.
-
-- name: Reset the chart change signal
-  ansible.builtin.set_fact:
-    _k8s_chart_changed: false
+# Input: instance_path, stack_files_force (bool)
 
 - name: Write Compose stack files
-  when: not (instance_is_k8s | bool)
   block:
     - name: Report writing stack files
       ansible.builtin.debug:

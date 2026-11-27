@@ -1,8 +1,6 @@
 ---
 # Work out how this run reaches the crontab of the host the instance runs
-# on (Compose: the instance's host; K8s: the control-plane node, to which
-# resolve_instance switched the connection), and which canasta command a
-# job there runs. The same three layouts as backup_schedule_apply.yml:
+# on, and which canasta command a job there runs. The same three layouts as backup_schedule_apply.yml:
 #  - local native: the live crontab, and the path the wrapper recorded in
 #    canasta_cli_bin;
 #  - local containerized (canasta-docker): the host crontab file the

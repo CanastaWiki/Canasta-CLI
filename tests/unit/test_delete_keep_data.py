@@ -1,6 +1,5 @@
 """`canasta delete --keep-data` removes the instance from the registry and
-nothing else, so a Kubernetes instance can be replaced by a Compose one
-under the same ID while its namespace and volumes stay as the way back."""
+nothing else, leaving its containers, volumes and directory in place."""
 
 import os
 
@@ -22,7 +21,7 @@ def test_keep_data_takes_the_deregister_only_path():
     assert "keep_data" in " ".join(str(c) for c in block["when"])
     assert block["block"][-1].get("ansible.builtin.meta") == "end_play"
     # Every teardown step comes after it, so the play ends before them.
-    for step in ("Clean up container-owned files", "Destroy containers and volumes",
+    for step in ("Destroy containers and volumes",
                  "Remove instance directory contents"):
         assert names.index(step) > names.index("Deregister only"), step
 

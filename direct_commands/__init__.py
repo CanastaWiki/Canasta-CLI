@@ -5,8 +5,8 @@ overhead of ansible-playbook startup for simple operations.
 
 Layout:
 
-  _helpers.py       — shared infrastructure (env/compose/k8s/ssh/
-                      registry helpers, public registry decorator)
+  _helpers.py       — shared infrastructure (env/compose/ssh/registry
+                      helpers, public registry decorator)
   info.py           — list, version, status
   config.py         — config get
   lifecycle.py      — start, stop
@@ -46,7 +46,6 @@ from ._helpers import (  # noqa: F401
     _MAINT_PATH_RE,
     _check_dir_exists,
     _check_running_compose,
-    _check_running_k8s,
     _compose_file_args,
     _dump_compose_failure,
     _exec_in_container,
@@ -104,12 +103,10 @@ from .gitops import (  # noqa: F401
     cmd_gitops_status,
     cmd_gitops_diff,
     _git_ssh_env_prefix,
-    _gitops_argocd_status,
     _gitops_diff_script,
     _gitops_status_script,
     _parse_gitops_diff,
     _parse_gitops_status,
-    _parse_gitops_status_k8s,
     _parse_remote_sync,
 )
 from .extension_skin import cmd_extension_list, cmd_skin_list  # noqa: F401

@@ -52,7 +52,7 @@ canasta wrapper → canasta.py (argparse) → ansible-playbook canasta.yml → r
 Roles (`roles/`):
 
 - `common` — shared modules and library (registry, env, wikis.yaml, etc.)
-- `orchestrator` — Compose / Kubernetes dispatch
+- `orchestrator` — Docker Compose and Podman operations
 - `create`, `delete`, `instance_lifecycle` — instance lifecycle
 - `config`, `extensions_skins`, `maintenance`, `mediawiki` — instance contents
 - `backup`, `gitops`, `devmode`, `sitemap`, `upgrade` — operations

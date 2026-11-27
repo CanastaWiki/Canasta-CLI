@@ -1,7 +1,7 @@
 """Sidecars cannot reach outside the instance.
 
 config/sidecars.yaml is rendered on every start, whoever wrote it, and its
-paths become Compose bind mounts, build contexts, and inlined k8s files.
+paths become Compose bind mounts and build contexts.
 Mount paths must be container paths and every host path must resolve inside
 the instance directory.
 """

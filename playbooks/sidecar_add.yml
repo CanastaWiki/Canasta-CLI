@@ -1,6 +1,6 @@
 ---
 # canasta sidecar add - Declare app sidecar(s) in config/sidecars.yaml from a
-# YAML file of full definitions (the orchestrator-agnostic sidecar schema).
+# YAML file of full definitions.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: >-
@@ -19,8 +19,6 @@
     instance_path: "{{ instance_path }}"
     state: import
     definitions: "{{ _sidecar_defs }}"
-    orchestrator: "{{ instance_orchestrator | default('compose') }}"
-    secret_key_regex: "{{ canasta_secret_key_regex }}"
   register: _sidecar_import
 
 - name: Report

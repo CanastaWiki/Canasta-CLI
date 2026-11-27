@@ -21,8 +21,7 @@
 - name: Name the image the rebuild produces
   ansible.builtin.set_fact:
     _set_build_arg_output: >-
-      {{ 'canasta:local' if (instance_is_k8s | bool)
-         else 'canasta:local-' ~ instance_id }}
+      {{ 'canasta:local-' ~ instance_id }}
 
 - name: Refuse a BASE_IMAGE that is the build-from output tag
   ansible.builtin.fail:

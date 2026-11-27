@@ -1,8 +1,8 @@
 """The steps gitops init and join share, run on a local git checkout.
 
-Compose and Kubernetes include the same files for these steps and pass in
-what differs (the git environment, the host noun, file modes, the commit
-identity). Each case runs a step as a playbook on localhost.
+init and join include these steps as separate files and pass in their
+parameters (the git environment, the host noun, file modes, the commit
+message and identity). Each case runs a step as a playbook on localhost.
 """
 
 import os
@@ -75,10 +75,6 @@ def test_every_parameter_of_a_shared_step_is_passed(flow):
     ("host", "Host 'h1' already exists in the gitops repository. Choose a "
              "different name, remove the existing host first, or pass "
              "--reinit to re-attach this host."),
-    ("environment", "Environment 'h1' already exists in the gitops "
-                    "repository. Choose a different name, remove the "
-                    "existing environment first, or pass --reinit to "
-                    "re-attach this environment."),
 ])
 def test_read_hosts_refuses_a_registered_name(tmp_path, noun, message):
     (tmp_path / "clone" / "hosts").mkdir(parents=True)
@@ -178,14 +174,14 @@ def test_commit_push_commits_with_the_message_and_identity(tmp_path):
     _git(inst, "add", "c.txt")
     proc = _run(tmp_path, "_join_commit_push.yml",
                 {"instance_path": str(inst), "host_name": "h1"},
-                {"_join_commit_message": "Add environment {{ host_name }}",
+                {"_join_commit_message": "Add host {{ host_name }}",
                  "_join_commit_identity":
                      "-c user.name={{ 'O Brien' | quote }} "
                      "-c user.email=o@example.com",
                  "_join_git_env": ENV})
     assert proc.returncode == 0, proc.stdout + proc.stderr
     log = _git(remote, "log", "-1", "--format=%s|%an|%ae", "main").strip()
-    assert log == "Add environment h1|O Brien|o@example.com"
+    assert log == "Add host h1|O Brien|o@example.com"
 
 
 def test_init_commit_push_sets_up_the_remote(tmp_path):

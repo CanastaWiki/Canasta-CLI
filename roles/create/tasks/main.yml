@@ -2,7 +2,7 @@
 # Create a new Canasta instance.
 #
 # Input variables (from extra-vars):
-#   id, wiki, path, orchestrator, domain_name, admin, password,
+#   id, wiki, path, domain_name, admin, password,
 #   site_name, yamlfile, rootdbpass, wikidbuser, wikidbpass,
 #   envfile, canasta_image, canasta_base, build_from, database, wiki_settings,
 #   global_settings, composer, override, keep_config
@@ -14,13 +14,6 @@
 # --- Step 1: Validate inputs ---
 - name: Validate inputs and check for stale state
   ansible.builtin.include_tasks: _validate_inputs.yml
-
-# Validation refuses a namespace that already exists, so from here on the
-# namespace is this run's to remove if the create fails.
-- name: Mark the Kubernetes namespace as this create's
-  ansible.builtin.set_fact:
-    _create_owns_namespace: true
-  when: instance_is_k8s | bool
 
 # --- Step 2: Determine base image ---
 - name: Report preparing image
@@ -60,10 +53,9 @@
   ansible.builtin.set_fact:
     instance_path: "{{ _base_path.stdout }}/{{ id }}"
 
-- name: Set orchestrator facts early
+- name: Set instance facts early
   ansible.builtin.set_fact:
     instance_id: "{{ id }}"
-    instance_orchestrator: "{{ orchestrator | default('compose') }}"
     instance_devmode: false
 
 - name: Report replacing an unfinished create
@@ -183,7 +175,7 @@
 - name: Copy optional settings files and set TLS keys
   ansible.builtin.include_tasks: _settings_files.yml
 
-# --- Step 10: Initialize orchestrator config ---
+# --- Step 10: Initialize the instance config ---
 - name: Initialize orchestrator configuration
   ansible.builtin.include_role:
     name: orchestrator
@@ -204,7 +196,7 @@
     path: "{{ instance_path }}/{{ canasta_create_marker }}"
     state: absent
 
-- name: Start containers (Compose) or sync config + Helm deploy (K8s)
+- name: Start containers
   ansible.builtin.include_tasks: _start.yml
 
 # --- Step 12: Database setup ---
@@ -230,27 +222,24 @@
 # --- Step 13b: Enroll CrowdSec bouncer (after registration) ---
 # The first start defers CrowdSec enrollment (the crowdsec preflight
 # resolves the instance from the registry, not written until _register).
-# Enroll here for both orchestrators; the task self-gates on CrowdSec being
-# enabled and is idempotent (skips once the bouncer key is stored, so the
-# Compose step-14 restart's own enroll becomes a no-op).
+# The task self-gates on CrowdSec being enabled and is idempotent (skips
+# once the bouncer key is stored, so the step-14 restart's own enroll
+# becomes a no-op).
 - name: Enroll CrowdSec bouncer
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: crowdsec_autoenroll.yml
 
-# --- Step 14: Restart with full config (Compose only) ---
-# Kubernetes pods are already running with the correct config from PVC.
+# --- Step 14: Restart with full config ---
 - name: Stop containers
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: stop.yml
-  when: not (instance_is_k8s | bool)
 
 - name: Start containers with full config
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: start.yml
-  when: not (instance_is_k8s | bool)
 
 # Rootless Podman maps container writes to a host subuid, so the operator
 # can later be blocked from writing config/ (e.g. `gitops pull`
@@ -259,10 +248,7 @@
 # runtime dirs (and we can exclude them).
 - name: Fix operator directory ownership (rootless Podman)
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/_rootless_operator_chown.yml"
-  when: not (instance_is_k8s | bool)
 
-# Kubernetes does not restart the web pods after installing, so the image's
-# startup step never saw these databases.
 - name: Create the sessions table for each wiki
   ansible.builtin.include_role:
     name: mediawiki
@@ -275,7 +261,7 @@
     (database is defined and database != '')
     or not (skip_install | default(false) | bool)
 
-# After the final start, which on Compose gives MediaWiki's database account
+# After the final start, which gives MediaWiki's database account
 # access to the wiki's extra databases.
 - name: Run update.php for the imported wiki
   ansible.builtin.include_role:

@@ -44,10 +44,6 @@ options:
   path:
     description: Filesystem path of the Canasta instance.
     type: str
-  orchestrator:
-    description: Container orchestrator (compose or kubernetes).
-    type: str
-    default: compose
   dev_mode:
     description: Whether development mode is enabled.
     type: bool
@@ -131,7 +127,6 @@ __all__ = [
 # identify a record rather than describe it, so neither is updatable
 # here; a move is a create.
 UPDATABLE_FIELDS = (
-    ("orchestrator", "orchestrator"),
     ("host", "host"),
     ("devMode", "dev_mode"),
     ("buildFrom", "build_from"),
@@ -272,7 +267,7 @@ def _state_present(module, config_dir, data, instances):
     new_instance = instance_to_dict({
         "id": inst_id,
         "path": os.path.abspath(inst_path),
-        "orchestrator": module.params["orchestrator"] or "compose",
+        "orchestrator": "compose",
         "host": module.params.get("host"),
         "devMode": bool(module.params["dev_mode"]),
         "buildFrom": module.params.get("build_from"),
@@ -407,7 +402,6 @@ def run_module():
         # "not supplied" from "supplied false" by testing for None, and a
         # default makes every field look supplied. state=present applies
         # the same defaults itself, below.
-        orchestrator=dict(type="str", required=False),
         dev_mode=dict(type="bool", required=False),
         build_from=dict(type="str", required=False),
         build_args=dict(type="list", elements="str", required=False),

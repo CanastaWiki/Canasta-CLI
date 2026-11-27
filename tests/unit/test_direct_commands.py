@@ -362,8 +362,8 @@ class TestShellQuote:
 class TestSshRunResolvesCanastaHostName:
     """_ssh_run must translate canasta short names from hosts.yml into
     their actual SSH targets before invoking ssh, so commands like
-    `canasta argocd password --host node1` don't hit `ssh: Could not
-    resolve hostname node1`."""
+    `canasta doctor --host node1` don't hit `ssh: Could not resolve
+    hostname node1`."""
 
     def test_short_name_resolved_via_hosts_yml(self, monkeypatch):
         captured = {}
@@ -728,7 +728,7 @@ class TestCleanup:
 
 class TestGatherInstanceInfo:
     def test_local_instance(self, registry, monkeypatch):
-        monkeypatch.setattr(direct_commands._helpers, "_web_state",
+        monkeypatch.setattr(direct_commands._helpers, "_web_state_compose",
             lambda *a, **kw: "RUNNING",
         )
         _, data = registry
@@ -892,7 +892,7 @@ class TestCmdList:
         assert "No Canasta instances." in capsys.readouterr().out
 
     def test_lists_instances_with_wikis(self, registry, monkeypatch, capsys):
-        monkeypatch.setattr(direct_commands._helpers, "_web_state",
+        monkeypatch.setattr(direct_commands._helpers, "_web_state_compose",
             lambda *a, **kw: "STOPPED",
         )
         args = type("Args", (), {"cleanup": False, "host": None})()
@@ -905,7 +905,7 @@ class TestCmdList:
         assert "STOPPED" in out
 
     def test_running_instance(self, registry, monkeypatch, capsys):
-        monkeypatch.setattr(direct_commands._helpers, "_web_state",
+        monkeypatch.setattr(direct_commands._helpers, "_web_state_compose",
             lambda *a, **kw: "RUNNING",
         )
         args = type("Args", (), {"cleanup": False, "host": None})()
@@ -1219,10 +1219,10 @@ class TestCmdVersionInstanceModes:
             lambda *a, **k: type("R", (), {"returncode": 1, "stdout": ""})(),
         )
         monkeypatch.setattr(
-            direct_commands._helpers, "_check_running",
+            direct_commands._helpers, "_check_running_compose",
             lambda *a, **k: True,
         )
-        image, running = direct_commands.info._read_instance_image("site", inst)
+        image, running = direct_commands.info._read_instance_image(inst)
         assert image == "canasta:3.6.3"
         assert running == "(unavailable)"
 
@@ -1239,10 +1239,10 @@ class TestCmdVersionInstanceModes:
             lambda *a, **k: type("R", (), {"returncode": 1, "stdout": ""})(),
         )
         monkeypatch.setattr(
-            direct_commands._helpers, "_check_running",
+            direct_commands._helpers, "_check_running_compose",
             lambda *a, **k: False,
         )
-        _, running = direct_commands.info._read_instance_image("site", inst)
+        _, running = direct_commands.info._read_instance_image(inst)
         assert running == "(not running)"
 
     def test_unreachable_host_is_not_reported_as_stopped(
@@ -1262,8 +1262,9 @@ class TestCmdVersionInstanceModes:
         def fail(*a, **k):
             raise AssertionError("must not ask the orchestrator over a dead link")
 
-        monkeypatch.setattr(direct_commands._helpers, "_check_running", fail)
-        _, running = direct_commands.info._read_instance_image("site", inst)
+        monkeypatch.setattr(
+            direct_commands._helpers, "_check_running_compose", fail)
+        _, running = direct_commands.info._read_instance_image(inst)
         assert running == "(host unreachable)"
 
     def test_inside_instance_dir_shows_current_full(
@@ -2574,7 +2575,7 @@ class TestParseGitopsStatus:
         assert "No changes." in result
 
     def test_no_template_no_advisory(self):
-        """Non-gitops / K8s gitops has no wikis.yaml.template — never flag."""
+        """A non-gitops instance has no wikis.yaml.template — never flag."""
         out = self._make_output(wikis=self._LIVE, template="")
         result = direct_commands._parse_gitops_status(out, "mysite")
         assert "Uncaptured config/wikis.yaml edits" not in result
@@ -2597,12 +2598,9 @@ class TestCmdGitopsStatus:
         assert direct_commands.is_direct_command("gitops_status")
 
     def test_registered_to_correct_function(self):
-        # Catches a class of bug where the @register decorator drifts
-        # onto an adjacent helper function. (See the gitops_status
-        # regression: the @register decorator attached to the Argo CD
-        # helper instead of cmd_gitops_status, so 'canasta gitops
-        # status' returned the helper's tuple and sys.exit(tuple)
-        # printed the tuple repr with rc=1.)
+        # The @register decorator can drift onto an adjacent helper
+        # function; 'canasta gitops status' then returns the helper's
+        # value and sys.exit prints its repr with rc=1.
         assert direct_commands.DIRECT_COMMANDS["gitops_status"] is (
             direct_commands.cmd_gitops_status
         )
@@ -2613,13 +2611,14 @@ class TestGitopsSshKey:
 
     def test_prefix_without_key_still_sets_host_key_convention(self):
         # Even without an explicit key the prefix must apply the gitops
-        # host-key convention (accept-new) and fall back to a staged
-        # .gitops-deploy-key, so a status fetch authenticates like push.
+        # host-key convention (accept-new) and fall back to the key path
+        # recorded in .gitops-ssh-key, so a status fetch authenticates
+        # like push.
         for prefix in (direct_commands._git_ssh_env_prefix(None),
                        direct_commands._git_ssh_env_prefix("")):
             assert "GIT_SSH_COMMAND" in prefix
             assert "StrictHostKeyChecking=accept-new" in prefix
-            assert ".gitops-deploy-key" in prefix
+            assert ".gitops-ssh-key" in prefix
 
     def test_prefix_sets_git_ssh_command(self):
         prefix = direct_commands._git_ssh_env_prefix("/home/u/.ssh/id_ed25519")
@@ -2634,11 +2633,11 @@ class TestGitopsSshKey:
 
     def test_status_script_sets_ssh_env_without_key(self):
         # Without --ssh-key the fetch still runs under the host-key convention
-        # (accept-new) with a .gitops-deploy-key fallback, so it authenticates
+        # (accept-new) with a .gitops-ssh-key fallback, so it authenticates
         # wherever push does.
         script = direct_commands._gitops_status_script("/srv/mysite")
         assert "GIT_SSH_COMMAND" in script
-        assert ".gitops-deploy-key" in script
+        assert ".gitops-ssh-key" in script
         assert "git fetch" in script
 
     def test_status_script_includes_prefix_with_key(self):
@@ -2832,7 +2831,7 @@ class TestParseGitopsDiff:
         script = direct_commands._gitops_diff_script("/srv/mysite")
         assert "git fetch" in script
         assert "StrictHostKeyChecking=accept-new" in script
-        assert ".gitops-deploy-key" in script
+        assert ".gitops-ssh-key" in script
 
     def test_no_changes(self):
         out = self._make_output()
@@ -3107,11 +3106,6 @@ class TestDoctor:
             "Docker Compose version v2.30.0",
             "OK",
             "user docker www-data",
-            "OK",
-            "v3.15.0",
-            "k3s version v1.30.0",
-            "REACHABLE",
-            "INSTALLED",
             "git version 2.45.0",
             "OK",
             "OK",
@@ -3126,19 +3120,16 @@ class TestDoctor:
         assert "Python 3:        OK" in result
         assert "Docker:          OK" in result
         assert "Docker daemon:   OK (running)" in result
-        assert "kubectl:         OK" in result
         assert "crontab:         OK" in result
         assert "www-data group:  OK (member)" in result
 
     def test_parse_doctor_reports_host_canasta(self):
         d = direct_commands._SENTINEL
-        # 18 base parts (through the rootless socket at index 17); the
-        # canasta probe is appended at index 18.
+        # The fields through the rootless socket; the canasta probe follows.
         base = [
             "Python 3.12.0", "Docker version 27.0.0",
             "Docker Compose version v2.30.0", "OK",
-            "user docker www-data", "OK", "v3.15.0", "k3s version v1.30.0",
-            "REACHABLE", "INSTALLED", "git version 2.45.0", "OK", "OK",
+            "user docker www-data", "git version 2.45.0", "OK", "OK",
             "Linux", "16 GB", "50G", "1024", "",
         ]
         for value, expected in [
@@ -3150,14 +3141,13 @@ class TestDoctor:
             result = direct_commands._parse_doctor(stdout, "myhost")
             assert expected in result
 
-    # 20 parts: through the canasta probe (18) + self-update writability (19).
+    # The fields through the canasta probe and self-update writability.
     @staticmethod
     def _doctor_parts(groups, writable):
         return [
             "Python 3.12.0", "Docker version 27.0.0",
             "Docker Compose version v2.30.0", "OK",
-            groups, "OK", "v3.15.0", "k3s version v1.30.0",
-            "REACHABLE", "INSTALLED", "git version 2.45.0", "OK", "OK",
+            groups, "git version 2.45.0", "OK", "OK",
             "Linux", "16 GB", "50G", "1024", "", "OK", writable,
         ]
 
@@ -3178,27 +3168,11 @@ class TestDoctor:
         assert "usermod -aG canasta" in result
         assert "Self-update:     BLOCKED" in result
 
-    def test_parse_doctor_reports_sops_and_age(self):
-        d = direct_commands._SENTINEL
-        # 20 base parts (through self-update) + sops (20) + age (21).
-        base = self._doctor_parts("user docker www-data", "WRITABLE")
-        for sops, age, want in [
-            ("OK", "OK", ["sops:            OK", "age:             OK"]),
-            ("MISSING", "MISSING",
-             ["sops:            not installed", "age:             not installed"]),
-        ]:
-            stdout = ("\n" + d + "\n").join(base + [sops, age]) + "\n"
-            result = direct_commands._parse_doctor(stdout, "myhost")
-            for w in want:
-                assert w in result
-
     def test_parse_doctor_missing_deps(self):
         d = direct_commands._SENTINEL
         parts = [
             "MISSING", "MISSING", "MISSING", "NOT_RUNNING",
-            "user", "MISSING", "MISSING", "MISSING",
-            "UNREACHABLE", "MISSING", "MISSING", "MISSING",
-            "MISSING", "Linux",
+            "user", "MISSING", "MISSING", "MISSING", "Linux",
             "unknown", "unknown", "unknown",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
@@ -3217,8 +3191,6 @@ class TestDoctor:
             "Docker Compose version v2.30.0",
             "OK",
             "user staff",
-            "OK", "v3.15.0", "k3s version v1.30.0",
-            "REACHABLE", "INSTALLED",
             "git version 2.45.0", "OK",
             "OK",
             "Darwin",
@@ -3237,8 +3209,6 @@ class TestDoctor:
             "Docker Compose version v2.30.0",
             "NOT_RUNNING",
             "user docker www-data",
-            "OK", "v3.15.0", "k3s version v1.30.0",
-            "REACHABLE", "INSTALLED",
             "git version 2.45.0", "OK",
             "OK",
             "Linux",
@@ -3260,8 +3230,6 @@ class TestDoctor:
             "Docker Compose version v2.30.0",
             "OK",
             "user docker www-data",
-            "OK", "v3.15.0", "k3s version v1.30.0",
-            "REACHABLE", "INSTALLED",
             "git version 2.45.0", "OK",
             "OK",
             "Linux",
@@ -3282,8 +3250,6 @@ class TestDoctor:
             "Docker Compose version v2.30.0",
             "OK",
             "user docker www-data",
-            "OK", "v3.15.0", "k3s version v1.30.0",
-            "REACHABLE", "INSTALLED",
             "git version 2.45.0", "OK",
             "OK",
             "Linux",
@@ -3303,8 +3269,6 @@ class TestDoctor:
             "Docker Compose version v2.30.0",
             "OK",
             "user docker www-data",
-            "OK", "v3.15.0", "k3s version v1.30.0",
-            "REACHABLE", "INSTALLED",
             "git version 2.45.0", "OK",
             "OK",
             "Linux",
@@ -3325,8 +3289,6 @@ class TestDoctor:
             "Docker Compose version v2.30.0",
             "OK",
             "user docker www-data",
-            "OK", "v3.15.0", "k3s version v1.30.0",
-            "REACHABLE", "INSTALLED",
             "git version 2.45.0", "OK",
             "OK",
             "Linux",
@@ -3352,8 +3314,6 @@ class TestDoctor:
             "Docker Compose version v2.30.0",
             "NOT_RUNNING",
             "user docker www-data",
-            "OK", "v3.15.0", "k3s version v1.30.0",
-            "REACHABLE", "INSTALLED",
             "git version 2.45.0", "OK",
             "OK",
             "Linux",
@@ -3374,8 +3334,6 @@ class TestDoctor:
             "Docker Compose version v2.30.0",
             "OK",
             "user docker www-data",
-            "OK", "v3.15.0", "k3s version v1.30.0",
-            "REACHABLE", "INSTALLED",
             "git version 2.45.0", "OK",
             "OK",
             "Linux",
@@ -3390,8 +3348,7 @@ class TestDoctor:
 
 class TestCanastaStatus:
     """canasta status --id X — direct_only command that gathers
-    pods/PVCs/ingress/certs (K8s) or `docker compose ps` (Compose)
-    for a single instance."""
+    `docker compose ps` for a single instance."""
 
     def _args(self, **kw):
         from argparse import Namespace

@@ -8,36 +8,12 @@
     meld_caddy_global_blocks filter, leaving any site blocks in place.
   - Caddyfile.site is imported live inside the site block.
 #}
-{% if (_crowdsec_active | default(false)) or (_trusted_proxies_enabled | default(false)) %}
 {
-{% if _trusted_proxies_enabled | default(false) %}
     servers {
-        client_ip_headers {{ _trusted_proxies_headers }}
-{% if _tp_combine | default(false) %}
-        trusted_proxies combine {
-            static {{ _trusted_proxies_cidrs | join(' ') }}
-            cdn_ranges {
-                interval 12h
-{% if _tp_mode == 'cloudflare' %}
-                provider cloudflare
-{% elif _tp_mode == 'imperva' %}
-                provider {
-                    imperva {
-                        ipv4_url https://my.imperva.com/api/integration/v1/ips "ipRanges"
-                        ipv6_url https://my.imperva.com/api/integration/v1/ips "ipv6Ranges"
-                    }
-                }
-{% endif %}
-            }
-        }
-{% else %}
+        client_ip_headers X-Forwarded-For
         trusted_proxies static {{ _trusted_proxies_cidrs | join(' ') }}
-{% if _trusted_proxies_strict | default(false) %}
         trusted_proxies_strict
-{% endif %}
-{% endif %}
     }
-{% endif %}
 {% if _crowdsec_active | default(false) %}
     order crowdsec first
     crowdsec {
@@ -48,7 +24,6 @@
 {% endif %}
 }
 
-{% endif %}
 {{ _caddyfile_global_content | default('') }}
 {{ _site_address }} {
     import /etc/caddy/Caddyfile.site
@@ -87,22 +62,14 @@
     }
 
     handle {
-{% if _trusted_proxies_enabled | default(false) %}
         reverse_proxy {{ _backend }} {
             header_up X-Forwarded-For {client_ip}
         }
-{% else %}
-        reverse_proxy {{ _backend }}
-{% endif %}
     }
 {% else %}
-{% if _trusted_proxies_enabled | default(false) %}
     reverse_proxy {{ _backend }} {
         header_up X-Forwarded-For {client_ip}
     }
-{% else %}
-    reverse_proxy {{ _backend }}
-{% endif %}
 {% endif %}
 
     log {

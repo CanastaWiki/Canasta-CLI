@@ -1,6 +1,6 @@
 """Tests for canasta.py's CLI-layer parameter validation.
 
-These validations (required_unless, orchestrator_only, named regex
+These validations (required_unless, mutual_exclusion, named regex
 validators) run after argparse but before any Ansible work so typos fail
 in milliseconds. They were extracted out of main() into testable helpers;
 this exercises them directly. The playbook re-validates the same
@@ -55,37 +55,6 @@ class TestRequiredUnless:
         assert errs[0][1] == (
             "Error: --global-settings is required unless "
             "--wiki-name is provided")
-
-
-class TestOrchestratorOnly:
-    CMD = {"parameters": [
-        {"name": "registry", "orchestrator_only": "kubernetes"},
-    ]}
-
-    def test_wrong_orchestrator_fails(self):
-        vals = {"orchestrator": "compose", "registry": "localhost:5000"}
-        errs = canasta._validate_orchestrator_only(self.CMD, lambda n: vals.get(n))
-        assert errs == [
-            (1, "Error: --registry can only be used with "
-                "--orchestrator kubernetes")]
-
-    def test_matching_orchestrator_passes(self):
-        vals = {"orchestrator": "kubernetes", "registry": "localhost:5000"}
-        errs = canasta._validate_orchestrator_only(self.CMD, lambda n: vals.get(n))
-        assert errs == []
-
-    def test_no_orchestrator_selected_skips(self):
-        vals = {"orchestrator": None, "registry": "localhost:5000"}
-        errs = canasta._validate_orchestrator_only(self.CMD, lambda n: vals.get(n))
-        assert errs == []
-
-    def test_default_value_skips(self):
-        cmd = {"parameters": [
-            {"name": "registry", "orchestrator_only": "kubernetes",
-             "default": "none"}]}
-        vals = {"orchestrator": "compose", "registry": "none"}
-        errs = canasta._validate_orchestrator_only(cmd, lambda n: vals.get(n))
-        assert errs == []
 
 
 class TestNamedValidators:
@@ -187,8 +156,7 @@ class TestSkipInstallDefinitionParity:
 
     def test_collect_catches_skip_install_with_database(self):
         cmd = self._command("create")
-        args = _args(database="/tmp/dump.sql", skip_install=True,
-                     orchestrator="compose")
+        args = _args(database="/tmp/dump.sql", skip_install=True)
         errs = canasta.collect_cli_param_errors(cmd, args)
         assert (1, "Error: --database cannot be combined with "
                    "--skip-install") in errs
@@ -206,8 +174,7 @@ class TestCollectOrderAndExitCodes:
             {"name": "repo", "required_unless": "envfile"},
             {"name": "envfile"},
         ]}
-        args = _args(domain_name="bad:8443", repo=None, envfile=None,
-                     orchestrator=None)
+        args = _args(domain_name="bad:8443", repo=None, envfile=None)
         errs = canasta.collect_cli_param_errors(cmd, args)
         assert errs[0] == (
             1, "Error: --repo is required unless --envfile is provided")
@@ -216,7 +183,7 @@ class TestCollectOrderAndExitCodes:
 
     def test_all_valid_returns_empty(self):
         cmd = {"parameters": [{"name": "domain_name", "validator": "hostname"}]}
-        args = _args(domain_name="example.com", orchestrator=None)
+        args = _args(domain_name="example.com")
         assert canasta.collect_cli_param_errors(cmd, args) == []
 
 

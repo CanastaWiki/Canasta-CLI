@@ -4,17 +4,15 @@
 # its own account (see check_wiki_db_account.yml for which instances).
 #
 # Runs after upgrade's restart, so the instance is up on the refreshed
-# compose file or chart, which take MediaWiki's credentials from
+# compose file, which takes MediaWiki's credentials from
 # WIKI_DB_USER / WIKI_DB_PASSWORD. Only a running instance that still uses
 # the administrator account and has not opted out
 # (CANASTA_DB_ROOT_ACCOUNT=true) is migrated. Anything that would leave a
 # wiki unable to reach its data stops the migration and leaves the instance
 # on the administrator account; a failure after the switch rolls back to it.
-# Either way the rest of the upgrade is unaffected. A gitops-managed Kubernetes instance is
-# staged for its next push rather than moved (switch_wiki_db_account.yml).
+# Either way the rest of the upgrade is unaffected.
 #
-# Input: instance_id, instance_path, instance_orchestrator, _was_running,
-#        _upgrade_stage_only
+# Input: instance_id, instance_path, _was_running
 # Output: _mig_db_staged, _mig_db_redeployed, _upgrade_db_move_pending
 
 - name: Check whether MediaWiki waits to move to its own database account

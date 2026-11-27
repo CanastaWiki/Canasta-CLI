@@ -50,8 +50,3 @@ def test_the_convention_is_documented_where_operators_will_look():
         assert "lexicographic" in text and "sort" in text, (
             "%s must state the load-order caveat" % path
         )
-        # Kubernetes delivers this directory through the shared repo, so the
-        # convention is Compose-only until that has a design.
-        assert "Compose" in text, (
-            "%s must scope the convention to Docker Compose" % path
-        )

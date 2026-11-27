@@ -3,12 +3,10 @@
 
 """Ansible module: render config/sidecars.yaml to runtime artifacts.
 
-Runs at start, before `docker compose up` / `helm upgrade`. Compose: writes
-a `docker-compose.sidecars.yml` override layer, or removes it when there are
+Runs at start, before `docker compose up`. Writes a
+`docker-compose.sidecars.yml` override layer, or removes it when there are
 no sidecars (so the stat-based `-f` list drops it — mirror semantics, not
-additive). Kubernetes: writes `values-sidecars.yaml` for the chart to range
-over (always present, `sidecars: []` when empty, so `helm upgrade` prunes a
-removed sidecar).
+additive).
 """
 
 from __future__ import absolute_import, division, print_function
@@ -19,18 +17,12 @@ DOCUMENTATION = r"""
 module: canasta_render_sidecars
 short_description: Render config/sidecars.yaml to runtime artifacts
 description:
-  - "Compose -> docker-compose.sidecars.yml (removed when no sidecars)."
-  - "Kubernetes -> values-sidecars.yaml (sidecars: [] when none)."
+  - "Writes docker-compose.sidecars.yml, removed when there are no sidecars."
 options:
   instance_path:
     description: Path to the Canasta instance directory.
     type: str
     required: true
-  orchestrator:
-    description: Target orchestrator.
-    type: str
-    required: true
-    choices: [compose, k8s, kubernetes]
   secret_key_regex:
     description:
       - The secret classifier (canasta_secret_key_regex). A referenced
@@ -55,17 +47,14 @@ import os
 import yaml
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.canasta_config import is_k8s_orchestrator
 from ansible.module_utils.canasta_sidecar_render import (
     bridge_omitted_secrets,
     read_env,
     read_names,
     render_compose,
     render_env_bridge,
-    render_k8s_values,
     secret_classifier,
     validate_host_access,
-    validate_k8s_secret_refs,
     validate_spec,
 )
 
@@ -114,48 +103,33 @@ def run_module():
     module = AnsibleModule(
         argument_spec=dict(
             instance_path=dict(type="str", required=True),
-            orchestrator=dict(type="str", required=True,
-                              choices=["compose", "k8s", "kubernetes"]),
             secret_key_regex=dict(type="str", required=True),
         ),
         supports_check_mode=True,
     )
 
     instance_path = module.params["instance_path"]
-    orchestrator = module.params["orchestrator"]
     sidecars = read_sidecars(instance_path)
     is_secret = secret_classifier(instance_path,
                                   module.params["secret_key_regex"])
 
     error = (validate_spec(sidecars, existing=True)
              or validate_host_access(sidecars, instance_path))
-    if not error and is_k8s_orchestrator(orchestrator):
-        error = validate_k8s_secret_refs(sidecars, is_secret)
     if error:
         module.fail_json(msg="Refusing config/sidecars.yaml: %s." % error)
     env = read_env(instance_path)
 
-    if not is_k8s_orchestrator(orchestrator):
-        override = render_compose(sidecars)
-        dest = os.path.join(instance_path, "docker-compose.sidecars.yml")
-        content = None
-        if override is not None:
-            content = _HEADER + yaml.dump(
-                override, default_flow_style=False, sort_keys=False)
-    else:
-        def file_reader(source):
-            with open(os.path.join(instance_path, source)) as handle:
-                return handle.read()
-
-        values = {"sidecars": render_k8s_values(sidecars, env, file_reader)}
-        dest = os.path.join(instance_path, "values-sidecars.yaml")
+    override = render_compose(sidecars)
+    dest = os.path.join(instance_path, "docker-compose.sidecars.yml")
+    content = None
+    if override is not None:
         content = _HEADER + yaml.dump(
-            values, default_flow_style=False, sort_keys=False)
+            override, default_flow_style=False, sort_keys=False)
 
     changed = write_or_remove(dest, content, module.check_mode)
 
-    # Bridge referenced .env vars into the web tier's getenv() (both
-    # orchestrators sync config/settings/global/*.php to the web container).
+    # Bridge referenced .env vars into the web tier's getenv()
+    # (config/settings/global/*.php reaches the web container).
     bridge = render_env_bridge(sidecars, env, is_secret)
     bridge_dest = os.path.join(
         instance_path, "config", "settings", "global",
@@ -172,8 +146,7 @@ def run_module():
         module.warn(
             "Sidecar env bridge written to "
             "config/settings/global/00-canasta-sidecar-env.php with cleartext "
-            "values; on k8s this is committed to the gitops repo. Use a real "
-            "secret store for highly sensitive values.")
+            "values. Use a real secret store for highly sensitive values.")
 
     web = read_web_secret_names(instance_path)
     omitted = [name for name in bridge_omitted_secrets(sidecars, env, is_secret)

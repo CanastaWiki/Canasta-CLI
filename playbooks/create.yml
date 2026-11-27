@@ -46,7 +46,6 @@
       when:
         - instance_path is defined
         - not (keep_config | default(false) | bool)
-        - not (instance_is_k8s | bool)
         - compose_command | default('docker compose') is search('podman')
       ignore_errors: true  # Best-effort cleanup on failure
 
@@ -68,27 +67,6 @@
       when:
         - instance_path is defined
         - not (keep_config | default(false) | bool)
-        - not (instance_is_k8s | bool)
-      changed_when: true
-      ignore_errors: true  # noqa: ignore-errors
-
-    - name: Clean up on failure (uninstall Helm release)
-      ansible.builtin.command:
-        cmd: "helm uninstall canasta-{{ id }} -n canasta-{{ id }}"
-      when:
-        - not (keep_config | default(false) | bool)
-        - instance_is_k8s | bool
-        - _create_owns_namespace | default(false) | bool
-      changed_when: true
-      ignore_errors: true  # noqa: ignore-errors
-
-    - name: Clean up on failure (delete K8s namespace)
-      ansible.builtin.command:
-        cmd: "kubectl delete namespace canasta-{{ id }} --ignore-not-found"
-      when:
-        - not (keep_config | default(false) | bool)
-        - instance_is_k8s | bool
-        - _create_owns_namespace | default(false) | bool
       changed_when: true
       ignore_errors: true  # noqa: ignore-errors
 
@@ -158,7 +136,6 @@
             - instance_path is defined
             - not (keep_config | default(false) | bool)
             - instance_dir_was_created | default(false) | bool
-            - not (instance_is_k8s | bool)
       rescue:
         - name: Report that the edge could not be updated
           ansible.builtin.debug:
@@ -182,7 +159,6 @@
             - instance_path is defined
             - not (keep_config | default(false) | bool)
             - instance_dir_was_created | default(false) | bool
-            - not (instance_is_k8s | bool)
       rescue:
         - name: Report that OpenSearch could not be updated
           ansible.builtin.debug:

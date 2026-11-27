@@ -7,9 +7,9 @@
 # hash-directory level (0/, 1/, archive/, ...). A single leading images/
 # parent is elided. Files land in images/<wiki-id>/ — the per-wiki
 # $wgUploadDirectory ($MW_HOME/images/<id>, symlinked to the images
-# volume/PVC) — owned by www-data, matching create-storage-dirs.sh.
+# volume) — owned by www-data, matching create-storage-dirs.sh.
 #
-# Input: instance_path, instance_orchestrator, instance_id,
+# Input: instance_path, instance_id,
 #        import_wiki_id, import_images_path
 
 # On a local connection the tarball is already on the target host, so it
@@ -54,8 +54,6 @@
         ansible_remote_tmp: "{{ _import_images_host_tmp.path }}"
       when: not _import_images_local
 
-    # Orchestrator dispatch (docker compose cp vs kubectl cp) into the web
-    # container, which mounts the images volume/PVC.
     - name: Copy images tarball into the web container
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/copy_into_container.yml"
       vars:

@@ -1,24 +1,17 @@
 ---
-# Restore an instance from a restic snapshot. Dispatches Compose vs K8s.
-#
-# Compose: optional safety backup -> restic restore into the backup
-#   volume -> copy files to host -> preserve DB password -> import DB
-#   dumps -> re-render gitops templates.
+# Restore an instance from a restic snapshot: optional safety backup ->
+# restic restore into the backup volume -> copy files to host -> preserve
+# DB password -> import DB dumps -> re-render gitops templates.
 #
 # The DB import replaces the tables present in the dump; tables added
 # since the snapshot (a later extension install, a MediaWiki upgrade)
 # remain. Config files are replaced outright.
-# Kubernetes: optional safety backup -> delegate to k8s_restore_instance.yml
-#   (pod-based restore + DB and Secret handling) -> preserve DB password
-#   in the restored .env.
 #
-# Input: instance_id, instance_path, instance_orchestrator,
+# Input: instance_id, instance_path,
 #        _resolved_snapshot, _restore_dbpass, snapshot, skip_safety_backup,
 #        _restore_incomplete
 
-# --- Compose restore path ---
-- name: Restore (Compose)
-  when: not (instance_is_k8s | bool)
+- name: Restore
   block:
     - name: Take safety backup before restore
       when: not (skip_safety_backup | default(false) | bool)

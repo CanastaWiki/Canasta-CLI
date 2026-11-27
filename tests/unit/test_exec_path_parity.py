@@ -4,21 +4,15 @@
 container-exec logic:
 
   * the Python direct path, `handle_interactive_exec` in canasta.py
-    (os.execvp of docker/kubectl/ssh — used so an interactive command
-    gets a real TTY), and
-  * the Ansible path, roles/orchestrator/tasks/exec.yml +
-    k8s_get_pod.yml (used by everything that runs through the playbook).
+    (os.execvp of docker compose or ssh, so an interactive command gets a
+    real TTY), and
+  * the Ansible path, roles/orchestrator/tasks/exec.yml (used by everything
+    that runs through the playbook).
 
-They are kept as separate implementations on purpose, but
-the *shared, drift-prone invariants* between them have already diverged
-three times. The most recent: the Python path resolved
-a K8s pod with no phase filter while the Ansible path selected only
-Running pods, so interactive exec could target a Pending/Terminating pod.
-
-These tests pin the invariants both paths must agree on, so a future edit
-to one side that forgets the other fails CI instead of shipping. They are
-NOT a claim that the two paths behave identically — the interactive vs
-non-interactive TTY difference is deliberate and is not asserted here.
+These tests pin the invariants both paths must agree on, so an edit to one
+side that forgets the other fails CI. They are not a claim that the two paths
+behave identically: the interactive vs non-interactive TTY difference is
+deliberate and is not asserted here.
 """
 
 import os
@@ -52,7 +46,7 @@ EXEC_YML = _norm(_raw(os.path.join(ORCH_TASKS, "exec.yml")))
 
 class TestStdinFlagParity:
     """Piping a file to stdin must make either path non-interactive so the
-    payload reaches the command: kubectl gets -i, docker gets -T."""
+    payload reaches the command: docker compose exec gets -T."""
 
     def test_compose_stdin_uses_dash_T_on_both(self, monkeypatch):
         captured = {}
@@ -71,16 +65,16 @@ class TestStdinFlagParity:
         assert "{{ compose_command }} {{ _exec_profile_flags | default('') }} exec -T" in EXEC_YML
 
 
-def _python_exec_argv(monkeypatch, service, exec_args, orchestrator="compose"):
-    """Capture the docker/kubectl argv the Python direct path execs."""
+def _python_exec_argv(monkeypatch, service, exec_args):
+    """Capture the argv the Python direct path execs."""
     captured = {}
     monkeypatch.setattr(canasta, "resolve_instance", lambda _id: {
-        "id": "x", "orchestrator": orchestrator,
+        "id": "x", "orchestrator": "compose",
         "host": "localhost", "path": "/tmp/i"})
     monkeypatch.setattr(canasta, "_redirect_stdin_from_file", lambda p: None)
     monkeypatch.setattr(canasta.os, "chdir", lambda p: None)
     monkeypatch.setattr(canasta.subprocess, "run", lambda *a, **k:
-                        types.SimpleNamespace(returncode=0, stdout="pod-1"))
+                        types.SimpleNamespace(returncode=0, stdout=""))
     monkeypatch.setattr(canasta.os, "execvp",
                         lambda f, argv: captured.__setitem__("argv", list(argv)))
     canasta.handle_interactive_exec(Namespace(

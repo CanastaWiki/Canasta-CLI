@@ -3,7 +3,7 @@
 # reports 1191 findings on this repo, 908 of them `no-role-prefix` — a
 # variable-naming convention whose adoption would mean renaming hundreds
 # of variables across every role for no behavioral change, and 128
-# `command-instead-of-module`, where shelling out to docker/kubectl/git is
+# `command-instead-of-module`, where shelling out to docker/git is
 # the deliberate design (that is what exec.yml exists for).
 #
 # What is enabled here is the subset about correctness rather than style.
@@ -15,18 +15,6 @@
 # Everything under playbooks/ is a task file included from canasta.yml,
 # not a play. Without this, ansible-lint parses each as a playbook and
 # reports every task keyword as "not a valid attribute for a Play".
-# Declared so linting does not require the collections installed.
-# requirements.yml pins kubernetes.core for runtime; installing it just to
-# lint would put the Galaxy CDN in the path of this gate, and the jobs that
-# do install it need a four-attempt retry loop for exactly that reason.
-# The rules enabled below do not inspect module options, so a mock is
-# enough to resolve the names.
-mock_modules:
-  - kubernetes.core.helm
-  - kubernetes.core.helm_repository
-  - kubernetes.core.k8s
-  - kubernetes.core.k8s_info
-
 kinds:
   - tasks: "playbooks/*.yml"
 
@@ -55,11 +43,6 @@ enable_list:
   - ignore-errors
 
 skip_list:
-  # Paired with mock_modules above: a mock carries no argspec, so this
-  # rule reports every parameter of a kubernetes.core task as
-  # unsupported — 39 of them. Validating options against a mock is
-  # meaningless, and none of the enabled rules depend on it.
-  - args
   # add_host in canasta.yml is inherently a once-per-run action; the rule
   # only matters under `strategy: free`, which this repo does not use.
   - run-once

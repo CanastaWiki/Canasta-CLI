@@ -20,13 +20,13 @@ SSH_KEY_TASKS = os.path.join(GITOPS, "tasks", "_ssh_key.yml")
 FLOWS = ("init", "join", "push", "pull", "fix_submodules", "diff")
 
 
-def _play(tmp_path, inst, extra_vars=None, k8s=False):
+def _play(tmp_path, inst, extra_vars=None):
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": {"instance_path": str(inst), "instance_is_k8s": k8s,
+        "vars": {"instance_path": str(inst),
                  "ansible_python_interpreter": sys.executable},
         "tasks": [
             {"ansible.builtin.include_tasks": SSH_KEY_TASKS},

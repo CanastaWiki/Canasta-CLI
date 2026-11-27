@@ -9,7 +9,6 @@ import sys
 
 import yaml
 
-from _orchestrator import INSTANCE_IS_K8S_VARS
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
@@ -31,16 +30,15 @@ def _stub_root(tmp_path, running):
         "orchestrator": {
             "exec.yml": [_log(log, "EXEC {{ exec_command }}")],
             "update_config.yml": [_log(log, "UPDATE_CONFIG")],
-            "k8s_sync_config.yml": [_log(log, "SYNC_CONFIG")],
             "check_running.yml": [{"ansible.builtin.set_fact": {
                 "_container_running": running}}],
         },
         "instance_lifecycle": {"restart.yml": [_log(log, "RESTART")]},
         "gitops": {
             "stage_new_wiki.yml": [_log(
-                log, "STAGE report={{ new_wiki_report | default(true) }}")],
+                log, "STAGE")],
             "unstage_removed_wiki.yml": [_log(
-                log, "UNSTAGE report={{ removed_wiki_report | default(true) }}")],
+                log, "UNSTAGE")],
         },
     }
     for role, files in stubs.items():
@@ -57,7 +55,6 @@ def _instance(tmp_path, gitops, wikis):
     (inst / "config" / "wikis.yaml").write_text(yaml.safe_dump({"wikis": [
         {"id": w, "url": "example.com/" + w if w != "main" else "example.com",
          "name": w} for w in wikis]}))
-    (inst / "values.yaml").write_text(yaml.safe_dump({"domains": ["example.com"]}))
     if gitops:
         (inst / ".gitops-host").write_text("host1\n")
     return inst
@@ -70,7 +67,7 @@ def _tail(path, first):
     return tasks[names.index(first):]
 
 
-def _run(tmp_path, tasks, *, k8s=True, gitops=True, running=True, wikis,
+def _run(tmp_path, tasks, *, gitops=True, running=True, wikis,
          **play_vars):
     root, log = _stub_root(tmp_path, running)
     inst = _instance(tmp_path, gitops, wikis)
@@ -79,9 +76,7 @@ def _run(tmp_path, tasks, *, k8s=True, gitops=True, running=True, wikis,
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": dict(INSTANCE_IS_K8S_VARS,
-                     instance_orchestrator="kubernetes" if k8s else "compose",
-                     canasta_root=str(root), instance_path=str(inst),
+        "vars": dict(canasta_root=str(root), instance_path=str(inst),
                      instance_id="inst", wiki="docs",
                      ansible_python_interpreter=sys.executable, **play_vars),
         "tasks": tasks,

@@ -1,17 +1,12 @@
 ---
-# Build the orchestrator-appropriate command prefix for running cscli in the
-# CrowdSec engine, so the subcommand tasks stay orchestrator-agnostic:
-#   Compose -> `docker compose exec` into the crowdsec service, which runs
-#              both the local API and the agent.
-#   K8s     -> `kubectl exec` into the local API pod, or, with
-#              _cscli_target: agent, into the crowdsec-agent container of
-#              the caddy pod, where the access log is parsed.
+# Build the command prefix for running cscli in the CrowdSec engine:
+# `docker compose exec` into the crowdsec service, which runs both the
+# local API and the agent.
 # Every cscli call uses `{{ _cscli_prefix }} cscli …` (cmd string) or
 # `{{ _cscli_argv }} + [...]` (argv list, for calls that pass an unquoted IP,
 # reason, or enrollment key), with `chdir: {{ _cscli_chdir | default(omit) }}`,
 # keeping each call's own failed_when / until / no_log control intact.
-# Input: instance_id, instance_path, instance_orchestrator,
-#        _cscli_target (optional: 'lapi', the default, or 'agent')
+# Input: instance_id, instance_path
 # Output: _cscli_prefix (str), _cscli_argv (list), _cscli_chdir (str or null)
 
 # podman-compose ignores COMPOSE_PROFILES from .env, so we must pass
@@ -24,7 +19,6 @@
   no_log: true  # registers the whole .env, including passwords
   when:
     - compose_command is search('podman')
-    - not (instance_is_k8s | bool)
 
 - name: Build compose profile flags for exec
   ansible.builtin.set_fact:
@@ -39,24 +33,20 @@
          | list }}
   when:
     - compose_command is search('podman')
-    - not (instance_is_k8s | bool)
 
-- name: Build cscli prefix (Compose)
+- name: Build cscli prefix
   ansible.builtin.set_fact:
     _cscli_prefix: "{{ compose_command }} {{ _cscli_profile_flags | default('') }} exec -T crowdsec"
     _cscli_argv: "{{ compose_command.split() }}"
     _cscli_chdir: "{{ instance_path }}"
-  when: not (instance_is_k8s | bool)
 
 - name: Append profile flags to cscli argv
   ansible.builtin.set_fact:
     _cscli_argv: "{{ _cscli_argv + ['--profile', item] }}"
   loop: "{{ _cscli_profile_list | default([]) }}"
   when:
-    - not (instance_is_k8s | bool)
     - _cscli_profile_list | default([]) | length > 0
 
 - name: Append exec args to cscli argv
   ansible.builtin.set_fact:
     _cscli_argv: "{{ _cscli_argv + ['exec', '-T', 'crowdsec'] }}"
-  when: not (instance_is_k8s | bool)

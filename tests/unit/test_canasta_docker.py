@@ -868,10 +868,11 @@ class TestInstallDockerMode:
                                    "-H", "prod1.example.com"]
 
     def test_extra_flags_survive_pass_through(self):
-        argv, _ = run_dry(["install", "k8s-cp", "--public-ip", "203.0.113.10",
+        sock = "unix:///run/user/1000/podman/podman.sock"
+        argv, _ = run_dry(["install", "podman", "--docker-host", sock,
                            "-H", "node2"])
         assert user_args(argv) == [
-            "install", "k8s-cp", "--public-ip", "203.0.113.10", "-H", "node2",
+            "install", "podman", "--docker-host", sock, "-H", "node2",
         ]
 
     def test_double_dash_forms_of_target_are_handled(self):
@@ -895,9 +896,9 @@ class TestInstallDockerMode:
     def test_an_unregistered_instance_passes_through(self):
         config_dir = self._config_dir()
         self._conf(config_dir, {})
-        argv, _ = run_dry(["install", "sops", "-i", "nosuch"],
+        argv, _ = run_dry(["install", "git-crypt", "-i", "nosuch"],
                           env={"CANASTA_CONFIG_DIR": config_dir})
-        assert user_args(argv) == ["install", "sops", "-i", "nosuch"]
+        assert user_args(argv) == ["install", "git-crypt", "-i", "nosuch"]
 
     def test_a_local_instance_passes_through(self):
         # The registry shape `canasta create` actually writes: a locally

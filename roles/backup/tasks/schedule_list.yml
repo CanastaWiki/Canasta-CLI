@@ -3,8 +3,7 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/common/tasks/resolve_instance.yml
 
-# Scheduling is a host crontab entry on the host where the instance runs
-# (the cp node for K8s); the orchestrator task reads it back uniformly.
+# Scheduling is a crontab entry on the host where the instance runs.
 - name: Display backup schedule
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_list.yml

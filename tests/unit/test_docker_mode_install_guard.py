@@ -1,7 +1,7 @@
 """Docker mode cannot run a *local* `canasta install`.
 
-`canasta install` provisions host-level software (k3s as a systemd unit,
-the docker engine package, etc.), which cannot run from inside the
+`canasta install` provisions host-level software (the docker engine
+and podman packages, etc.), which cannot run from inside the
 canasta-ansible container: it has no systemd and no privilege over the
 host package manager. A *remote* install is fine — the playbook runs
 over SSH on the target named by -H/--host, or resolved from -i/--id via
@@ -248,7 +248,7 @@ class TestThroughArgparse:
         local = {"id": "mysite", "path": "/srv/mysite",
                  "orchestrator": "compose"}
         with pytest.raises(SystemExit) as e:
-            self._guard_for(monkeypatch, ["install", "sops", "-imysite"],
+            self._guard_for(monkeypatch, ["install", "git-crypt", "-imysite"],
                             {"mysite": local})
         assert e.value.code == 1
 
@@ -298,13 +298,13 @@ class TestThroughRealMain:
     def test_attached_id_form_resolves_through_the_registry(self):
         local = {"id": "mysite", "path": "/srv/mysite",
                  "orchestrator": "compose"}
-        result = self._run(["install", "sops", "-imysite"],
+        result = self._run(["install", "git-crypt", "-imysite"],
                            instances={"mysite": local})
         assert result.returncode == 1
         assert "not supported in canasta-docker mode" in result.stderr
 
     def test_unknown_id_through_the_registry(self):
-        result = self._run(["install", "sops", "-i", "nosuch"])
+        result = self._run(["install", "git-crypt", "-i", "nosuch"])
         assert result.returncode == 1
         assert "'nosuch' is not registered" in result.stderr
 

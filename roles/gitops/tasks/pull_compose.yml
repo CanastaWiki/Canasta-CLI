@@ -1,9 +1,9 @@
 ---
-# GitOps pull (Compose) — full multi-host flow.
+# GitOps pull — full multi-host flow.
 # Pulls from remote, renders .env and wikis.yaml from templates + host
 # vars, writes admin passwords, detects what changed, and flags whether
 # a restart or maintenance update is needed.
-# Requires: instance_path, instance_id (set by dispatcher)
+# Requires: instance_path, instance_id
 
 # --- Step 0: Fail fast on a locked git-crypt checkout ---
 # Rendering below parses hosts/**/vars.yaml as YAML; if git-crypt was never

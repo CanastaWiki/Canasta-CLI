@@ -50,14 +50,12 @@ def validate_wiki_id(value):
 
 
 # Sidecar names that collide with the stack's own services. A sidecar
-# becomes a Compose service, a k8s object name, and a DNS hostname, so a
-# clash with one of these would override / collide with a core component
-# (catastrophic, not a benign clash). jobrunner is no longer a service,
-# but K8s instances created before it was removed may still carry
-# objects by that name.
+# becomes a Compose service and a DNS hostname, so a clash with one of
+# these would override / collide with a core component (catastrophic, not
+# a benign clash).
 RESERVED_SIDECAR_NAMES = [
     "web", "db", "caddy", "varnish", "crowdsec", "elasticsearch",
-    "jobrunner", "logstash", "opensearch", "opensearch-dashboards",
+    "logstash", "opensearch", "opensearch-dashboards",
     "observable-init", "mediawiki", "registry", "redis",
 ]
 

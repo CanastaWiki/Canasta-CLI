@@ -5,15 +5,14 @@
 # completion is polled with short connections. A mid-operation SSH reset on
 # the controller cannot kill the work — it runs detached on the target — and
 # each poll is a brief connection, so transient drops during the wait are
-# retried instead of aborting the whole operation. This is the same
-# launch-then-poll shape the K8s backup Job already uses, generalized so any
-# held command (helm --wait, the k3s/docker installers, `docker compose
-# pull`, a long mariadb import) survives a flaky controller-to-target link.
+# retried instead of aborting the whole operation, so any held command (the
+# docker installer, `docker compose pull`, a long mariadb import) survives a
+# flaky controller-to-target link.
 #
 # The launched command MUST be idempotent: a reset between launch and the
 # first successful poll leaves no way to tell whether it ran, so callers
-# re-run safely (helm upgrade --install, docker compose up -d, restic, the
-# installers all qualify).
+# re-run safely (docker compose up -d, restic, the installers all
+# qualify).
 #
 # Input:
 #   rx_cmd      - shell command to run (string; pipes/redirects allowed)
@@ -44,8 +43,7 @@
 # Fold the command onto ONE shell line. rx_cmd often comes from a `>-`
 # folded scalar whose more-indented Jinja continuation lines leave embedded
 # newlines, and under `ansible.builtin.shell` (/bin/sh -c) a bare newline is
-# a command separator (it split `helm upgrade ... --reset-values` into two
-# commands). Collapse only newline runs — NOT all whitespace — so intra-line
+# a command separator, splitting one command into two. Collapse only newline runs — NOT all whitespace — so intra-line
 # spacing is preserved: a secret containing a tab or double space on the
 # exec_long path must not be silently mangled.
 - name: "Launch (async): {{ rx_name }}"
@@ -88,7 +86,7 @@
 
     # A job still running when the polls run out, or killed by async_wrapper
     # at the time limit, has no rc. The kill reaches only the client on the
-    # target (docker compose exec, kubectl exec), not necessarily the work
+    # target (docker compose exec), not necessarily the work
     # it started in the container.
     - name: "Check whether the wait ran out: {{ rx_name }}"
       ansible.builtin.set_fact:

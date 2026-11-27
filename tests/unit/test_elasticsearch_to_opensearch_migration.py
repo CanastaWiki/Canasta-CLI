@@ -70,7 +70,7 @@ def _stubbed_migration(tmp_path):
     return path
 
 
-def _run(tmp_path, inst, k8s=False, extra_env=None):
+def _run(tmp_path, inst, extra_env=None):
     runtime = tmp_path / "fake-docker"
     runtime.write_text(FAKE_RUNTIME)
     runtime.chmod(0o755)
@@ -81,7 +81,6 @@ def _run(tmp_path, inst, k8s=False, extra_env=None):
         "connection": "local",
         "gather_facts": False,
         "vars": {"instance_path": str(inst),
-                 "instance_is_k8s": k8s,
                  "inspect_command": str(runtime),
                  "_mig": _probe(inst),
                  "_test_calls": [],
@@ -202,15 +201,6 @@ class TestMigration:
         out, _, _ = _run(tmp_path, inst)
         assert (inst / "config/settings/global/Search.php").read_text() == mixed
         assert "config/settings/global/Search.php sets" in out
-
-    def test_kubernetes_keeps_its_elasticsearch(self, tmp_path):
-        inst = _instance(tmp_path, ES_ON,
-                         {"config/settings/global/Search.php": SEARCH_PHP})
-        _, calls, ran = _run(tmp_path, inst, k8s=True)
-        assert calls == []
-        assert ran == []
-        assert _env(inst)["CANASTA_ENABLE_ELASTICSEARCH"] == "true"
-        assert (inst / "config/settings/global/Search.php").exists()
 
 
 def test_the_migration_runs_on_upgrade():

@@ -9,8 +9,7 @@
 # is captured into the template; edits to both that disagree stop the run
 # rather than drop one. url is per-host and is not compared.
 #
-# A no-op unless both files exist, so it is safe on K8s gitops and
-# non-gitops instances.
+# A no-op unless both files exist, so it is safe on non-gitops instances.
 #
 # Input: instance_path.
 

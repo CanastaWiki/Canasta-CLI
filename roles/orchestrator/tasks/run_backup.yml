@@ -1,17 +1,15 @@
 ---
-# Run a restic command. Dispatches to Docker or Kubernetes.
+# Run a restic command in a restic container.
 #
 # Input:
 #   instance_path - path to the Canasta instance
 #   backup_args - list of restic arguments
 #   backup_volumes - dict of host_path: container_path, mounted read-only
-#     into the restic container (optional, only for backup create on
-#     Compose)
+#     into the restic container (optional, only for backup create)
 # Output:
 #   _restic_result - command result
 
-- name: Run backup (Compose)
-  when: not (instance_is_k8s | bool)
+- name: Run backup
   block:
     - name: Set backup volume name
       ansible.builtin.set_fact:
@@ -19,8 +17,7 @@
 
     # A snapshot's sources are mounted read-only straight into the restic
     # container, each at the /currentsnapshot/<name> it would have been
-    # copied to — the way the Kubernetes Job already does it. The snapshot
-    # paths are therefore unchanged, so existing snapshots, parent
+    # copied to. The snapshot paths are therefore unchanged, so existing snapshots, parent
     # detection and retention grouping are unaffected.
     #
     # Restoring still goes through the volume: restic restores into it and
@@ -136,8 +133,7 @@
       no_log: true
 
     # Fail fast with a clear message instead of letting restic emit an
-    # opaque error. Mirrors the Kubernetes path (k8s_run_backup.yml), so
-    # both orchestrators behave the same way. backup has no -r override —
+    # opaque error. backup has no -r override —
     # the repo always comes from .env — so requiring both here is safe.
     - name: Fail if restic repository or password is not configured
       ansible.builtin.fail:
@@ -266,7 +262,7 @@
 
         # `always`, not a following task: restic failing aborts the block,
         # and a repo left root-owned after a failed run is exactly when the
-        # operator needs to inspect it. Mirrors the K8s path.
+        # operator needs to inspect it.
         - name: Reclaim local-path repo ownership
           ansible.builtin.command:
             argv:

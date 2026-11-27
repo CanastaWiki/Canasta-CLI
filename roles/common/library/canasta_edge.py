@@ -101,7 +101,7 @@ options:
   instances:
     description: >-
       With state=plan, the host's instances as dicts of id, path,
-      orchestrator, compose_command and docker_host (the daemon socket the
+      compose_command and docker_host (the daemon socket the
       instance uses, empty for the default).
     type: list
     elements: dict
@@ -150,7 +150,7 @@ import time
 import yaml
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.canasta_config import get_config_dir, is_k8s_orchestrator
+from ansible.module_utils.canasta_config import get_config_dir
 from ansible.module_utils.canasta_env_keys import modernize_values
 from ansible.module_utils.canasta_edge_render import (
     ACME_IMAGE, ALLOW_CIDR_FILE, ALLOW_UA_FILE, CERT_DIR, CONFIG_DIR, DENY_CIDR_FILE,
@@ -1823,16 +1823,13 @@ def plan_conversion(instances, rootless=lambda inst: False, podman_ready=lambda:
     """Decide how a host's Compose instances move behind the edge, which is
     every Compose instance's front door.
 
-    instances: [{id, path, orchestrator, compose_command}]; Kubernetes
-    instances are left out. Every instance not yet behind the edge moves.
+    instances: [{id, path, compose_command}]. Every instance not yet behind the edge moves.
     If any of them cannot, the host is refused as a whole and none of its
     instances is upgraded, since none could come back without a front door.
     Returns {convert: [ids], rootless: [ids moving on rootless Docker],
     rated: [those of them that set the per-client rates], refuse: reason or
     None, held: [Compose instance ids a refusal holds back]}."""
-    compose = [i for i in instances
-               if not is_k8s_orchestrator(i.get("orchestrator") or "compose")
-               and os.path.isdir(i["path"])]
+    compose = [i for i in instances if os.path.isdir(i["path"])]
     names = ", ".join("'%s'" % i["id"] for i in compose)
 
     def refuse(reason):

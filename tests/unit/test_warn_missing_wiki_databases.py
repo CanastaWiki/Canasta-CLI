@@ -145,10 +145,10 @@ def test_pull_runs_the_check_after_rendering():
     assert "when" not in check
 
 
-def test_reconcile_runs_the_check_on_compose_after_converging():
+def test_reconcile_runs_the_check_after_converging():
     with open(RECONCILE) as f:
         tasks = yaml.safe_load(f)
     names = [t.get("name") for t in tasks]
     [check] = _includes(RECONCILE)
     assert names.index(check["name"]) > names.index("Converge containers (sync profiles + up -d)")
-    assert check["when"] == "not (instance_is_k8s | bool)"
+    assert "when" not in check

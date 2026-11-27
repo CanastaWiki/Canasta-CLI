@@ -4,14 +4,13 @@
 # its redis profile, so it stops starting while CANASTA_ENABLE_REDIS is off.
 # Turn the flag on for such an instance; the user's image, command and
 # volumes still win the merge. config set also records the flag in a gitops
-# instance's vars. Kubernetes has no profiles, so its sidecar keeps running.
+# instance's vars.
 
 - name: Note whether the instance runs its own redis service
   ansible.builtin.set_fact:
     _mig_own_redis: >-
-      {{ not (instance_is_k8s | bool)
-         and ('redis' in (_mig.override_services | default([]))
-              or 'redis' in (_mig.sidecar_names | default([])))
+      {{ ('redis' in (_mig.override_services | default([]))
+          or 'redis' in (_mig.sidecar_names | default([])))
          and not (_mig.env_present.CANASTA_ENABLE_REDIS | default(false)
                   | bool) }}
 

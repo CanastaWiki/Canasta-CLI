@@ -9,9 +9,7 @@
 - name: List running services
   when: (exec_args | default('')) == ''
   block:
-    # The orchestrator owns how running services are listed (compose
-    # service names vs k8s pod component labels); dispatch.
-    - name: Get running services for this orchestrator
+    - name: Get running services
       ansible.builtin.include_tasks: >-
         {{ canasta_root }}/roles/orchestrator/tasks/list_running_services.yml
 

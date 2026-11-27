@@ -2,15 +2,14 @@
 # canasta backup schedule set.
 #
 # The schedule is durable instance state: it is persisted to
-# config/backup-schedule.yml (which the backup captures, on both
-# orchestrators) and then materialized as a crontab entry. restore and
+# config/backup-schedule.yml (which the backup captures) and then materialized as a crontab entry. restore and
 # gitops pull re-materialize the crontab from that file.
 #
 # The retention policy has to round-trip through this file, or a gitops
 # pull or a restore re-materializes the crontab with the purge silently
 # dropped.
 #
-# Input: instance_id, instance_path, instance_orchestrator,
+# Input: instance_id, instance_path,
 #        cron_expression, _retention_policy (dict of restic forget flags)
 
 # Before the persist: a refused schedule must not be left in the file that

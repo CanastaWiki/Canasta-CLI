@@ -1,6 +1,6 @@
 """Before the CLI moves to 5.x (MediaWiki 1.47), each instance is checked
 for what would stop it: extensions the 1.47 image lacks or that exclude
-1.47, PHP 8.2 in the operator's files, and Kubernetes."""
+1.47, and PHP 8.2 in the operator's files."""
 
 import importlib.util
 import json
@@ -175,8 +175,6 @@ def _run_preflight(tmp_path, instances, dry_run=False, skip_backup=True):
                  "dry_run": dry_run,
                  "skip_backup": skip_backup,
                  "inspect_command": "docker",
-                 "instance_is_k8s": "{{ (instance_orchestrator | default('compose')) "
-                                    "in ['kubernetes', 'k8s'] }}",
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_tasks": PREFLIGHT}],
     }]))
@@ -195,17 +193,20 @@ def _run_preflight(tmp_path, instances, dry_run=False, skip_backup=True):
 
 def test_blockers_across_instances_stop_the_move(tmp_path, inst):
     _settings(inst, ["Interwiki"])
+    other = tmp_path / "other"
+    _write(other, ".env", "")
+    _settings(other, ["Interwiki"])
     clean = tmp_path / "clean"
     _write(clean, ".env", "")
     proc = _run_preflight(tmp_path, {
-        "withiw": {"path": str(inst), "orchestrator": "compose"},
-        "clean": {"path": str(clean), "orchestrator": "compose"},
-        "kube": {"path": str(tmp_path / "k"), "orchestrator": "kubernetes"},
+        "withiw": {"path": str(inst)},
+        "clean": {"path": str(clean)},
+        "other": {"path": str(other)},
     })
     out = proc.stdout + proc.stderr
     assert proc.returncode != 0, out
     assert "Stops the move to 5.x: 'withiw': Interwiki is enabled" in out
-    assert "Stops the move to 5.x: 'kube': It runs on Kubernetes" in out
+    assert "Stops the move to 5.x: 'other': Interwiki is enabled" in out
     assert "'clean'" not in out
     assert "2 instance(s) have something that stops the move to 5.x." in out
 

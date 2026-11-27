@@ -104,7 +104,7 @@ GROUPS = [
 
 class TestComposeDump:
     def _command(self):
-        task = _by_name(STAGE, "Dump each wiki's database group (Compose)")
+        task = _by_name(STAGE, "Dump each wiki's database group")
         return task["vars"]["dump_command"]
 
     def _run(self, tmp_path, env, group):
@@ -123,7 +123,7 @@ class TestComposeDump:
             "create.yml reads _backup_dump_failures on both orchestrators")
 
     def test_each_group_records_its_failure(self):
-        task = _by_name(STAGE, "Dump each wiki's database group (Compose)")
+        task = _by_name(STAGE, "Dump each wiki's database group")
         assert task["ansible.builtin.include_tasks"] == \
             "backup_dump_db_group.yml"
         record = _by_name(DUMP_GROUP, "Record the group's dump failure")
