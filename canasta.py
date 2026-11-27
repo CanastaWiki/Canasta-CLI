@@ -130,14 +130,10 @@ SUBCOMMAND_GROUPS = {
         "status", "diff", "fix-submodules", "sync", "set-role",
         "remove-host",
     ],
-    "storage": ["setup", "list"],
     "host": ["add", "remove", "list"],
-    "argocd": ["ui", "password", "apps"],
     "sidecar": ["add", "list", "remove", "migrate"],
     "schedule": ["add", "list", "remove", "run"],
-    "image": [
-        "push", "prune", "build-args", "set-build-arg", "unset-build-arg",
-    ],
+    "image": ["prune", "build-args", "set-build-arg", "unset-build-arg"],
 }
 
 # Nested subcommand groups (backup schedule set|list|remove)
@@ -145,9 +141,6 @@ NESTED_SUBCOMMAND_GROUPS = {
     "backup": {
         "schedule": ["set", "list", "remove"],
         "databases": ["add", "remove", "list"],
-    },
-    "storage": {
-        "setup": ["nfs", "efs"],
     },
 }
 
@@ -1346,8 +1339,6 @@ KUBERNETES_REFUSAL = (
     "instances, or move them to Docker Compose with a backup and a restore."
 )
 
-KUBERNETES_PACKAGES = {"k8s-cp", "k8s-worker"}
-KUBERNETES_COMMAND_GROUPS = {"argocd", "storage"}
 # Commands that act on every registered instance.
 ACROSS_INSTANCES_COMMANDS = {"upgrade"}
 
@@ -1357,11 +1348,6 @@ def uses_kubernetes(command_name, cmd_def, args):
     if command_name == "create":
         return canasta_config.is_k8s_orchestrator(
             getattr(args, "orchestrator", None))
-    if KUBERNETES_PACKAGES & set(getattr(args, "packages", None) or []):
-        return True
-    if (cmd_def.get("orchestrators") == ["kubernetes"]
-            or command_name.partition("_")[0] in KUBERNETES_COMMAND_GROUPS):
-        return True
     if any(p.get("name") == "id" for p in cmd_def.get("parameters", [])):
         inst = resolve_instance(getattr(args, "id", None), required=False)
         return bool(inst) and _is_k8s(inst)
@@ -2036,7 +2022,7 @@ def print_subcommand_help(group, data):
 
 def nested_group_for(command_name):
     """If command_name names a bare nested group (e.g. 'backup_schedule' or
-    'storage_setup'), return (group, nested_group); otherwise None.
+    'backup_databases'), return (group, nested_group); otherwise None.
 
     Lets the dispatcher treat a nested group invoked without a leaf
     subcommand the same way it treats a bare top-level group — by listing
@@ -2677,8 +2663,8 @@ def resolve_command_or_exit(parser, args, data):
         if command_name in SUBCOMMAND_GROUPS:
             print_subcommand_help(command_name, data)
             sys.exit(2)
-        # Same for a bare nested group (e.g. 'canasta backup schedule',
-        # 'canasta storage setup'): list its leaf subcommands.
+        # Same for a bare nested group (e.g. 'canasta backup schedule'):
+        # list its leaf subcommands.
         nested = nested_group_for(command_name)
         if nested:
             print_nested_subcommand_help(nested[0], nested[1], data)

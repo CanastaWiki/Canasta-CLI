@@ -96,10 +96,10 @@ def _all_group_names():
     """Return every subcommand-group internal name, including nested.
 
     SUBCOMMAND_GROUPS keys are the top-level groups ('host', 'gitops',
-    'storage'). NESTED_SUBCOMMAND_GROUPS adds another layer ('storage'
-    contains 'setup', 'backup' contains 'schedule'). The internal name
-    for nested groups joins parent and child with an underscore, matching
-    the leaf-command convention ('storage_setup', 'backup_schedule').
+    'backup'). NESTED_SUBCOMMAND_GROUPS adds another layer ('backup'
+    contains 'schedule' and 'databases'). The internal name for nested
+    groups joins parent and child with an underscore, matching the
+    leaf-command convention ('backup_schedule', 'backup_databases').
     """
     out = list(SUBCOMMAND_GROUPS.keys())
     for parent, nested in NESTED_SUBCOMMAND_GROUPS.items():
@@ -121,14 +121,14 @@ def _group_subcommands(group_name):
 
 
 CMD_GROUPS = [
-    ("System", ["install", "doctor", "host", "storage", "argocd", "uninstall"]),
+    ("System", ["install", "doctor", "host"]),
     ("Instance management", [
         "create", "delete", "list", "status", "wiki_check", "upgrade",
         "version", "config",
     ]),
     ("Wiki management", ["add", "remove", "import", "export"]),
     ("Container lifecycle", [
-        "start", "stop", "restart", "reconcile", "rebuild", "image", "scale",
+        "start", "stop", "restart", "reconcile", "rebuild", "image",
     ]),
     ("Extensions & skins", ["extension", "skin"]),
     ("App sidecars", ["sidecar"]),
@@ -583,7 +583,7 @@ def gen_group_wikitext(group_name, group_def, cmd_index, global_flags=None):
     set. Per-subcommand descriptions come from the leaf entries in
     command_definitions.yml's `commands:` list.
 
-    group_name: internal name like 'host', 'storage_setup', 'backup_schedule'
+    group_name: internal name like 'host', 'backup_databases', 'backup_schedule'
     group_def:  matching entry in command_definitions.yml's
                 `command_groups:` list (may be empty/missing — the page
                 still renders with default text)
@@ -671,7 +671,7 @@ def _ancestors(internal_name):
       'config_get'             -> ['config']
       'gitops_fix_submodules'  -> ['gitops']
       'backup_schedule_set'    -> ['backup', 'backup_schedule']
-      'storage_setup_nfs'      -> ['storage', 'storage_setup']
+      'backup_databases_add'   -> ['backup', 'backup_databases']
     """
     parts = internal_name.split("_")
     if len(parts) < 2:
@@ -736,7 +736,7 @@ def generate_all_pages(data):
         ))
 
     # Subcommand-group landing pages (canasta host, canasta gitops,
-    # canasta storage setup, etc.). These are derived from SUBCOMMAND_GROUPS
+    # canasta backup schedule, etc.). These are derived from SUBCOMMAND_GROUPS
     # / NESTED_SUBCOMMAND_GROUPS so they can't drift from the actual
     # command set. Description and synopsis come from `command_groups:`
     # in command_definitions.yml; missing entries fall back to a generic

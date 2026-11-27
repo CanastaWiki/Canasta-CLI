@@ -103,21 +103,17 @@ def test_signal_is_reset_per_instance():
     assert reset["ansible.builtin.set_fact"]["_upgrade_caddy_image_changed"] is False
 
 
-def test_signal_feeds_the_restart_and_the_gitops_stage():
+def test_signal_feeds_the_restart():
     tasks = _load(MAIN)
     names = [t.get("name") for t in tasks]
     check = names.index("Check whether the managed Caddy image changes")
     assert tasks[check]["ansible.builtin.include_tasks"] == "check_caddy_image.yml"
-    # After the chart refresh that may rewrite values.yaml, and before the
-    # decision it feeds.
+    # After the image tag update, and before the decision it feeds.
     assert names.index("Update configured image tag") < check < names.index(
         "Decide whether a restart is needed")
     restart = tasks[names.index("Decide whether a restart is needed")][
         "ansible.builtin.set_fact"]["_restart_needed"]
     assert "_upgrade_caddy_image_changed" in restart
-    pending = _named(tasks, "Decide whether the instance awaits a gitops push")[
-        "ansible.builtin.set_fact"]["_upgrade_gitops_pending"]
-    assert "_upgrade_caddy_image_changed" in pending
 
 
 def test_compose_image_is_read_before_the_stack_files_are_written():

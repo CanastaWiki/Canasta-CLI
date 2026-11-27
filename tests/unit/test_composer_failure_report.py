@@ -193,9 +193,3 @@ class TestWiring:
         names = [t.get("name") for t in restart["block"]]
         assert names.index("Report a failed startup composer update") \
             > names.index("Start containers")
-        staged = next(t for t in tasks if t.get("name")
-                      == "Leave the deploy of a gitops-managed instance to "
-                         "Argo CD")
-        rebuilt = next(t for t in staged["block"] if t.get("name")
-                       == "Restart the web pods onto a rebuilt image")
-        assert _includes_report(rebuilt["block"])

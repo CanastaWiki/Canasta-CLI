@@ -14,7 +14,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 EXPLAINER = os.path.join(TASKS, "_explain_pull_failure.yml")
 CLASSIFY = os.path.join(TASKS, "_classify_conflicts.yml")
-PULLS = ("pull_compose.yml", "pull_kubernetes.yml")
+PULLS = ("pull_compose.yml",)
 
 
 def _tasks(path):

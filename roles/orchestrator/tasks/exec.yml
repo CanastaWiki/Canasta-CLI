@@ -81,28 +81,6 @@
   when: not (instance_is_k8s | bool)
   no_log: "{{ exec_no_log | default(false) }}"
 
-- name: Resolve K8s pod and build exec command
-  when: instance_is_k8s | bool
-  block:
-    - name: Set K8s namespace
-      ansible.builtin.set_fact:
-        _k8s_namespace: "canasta-{{ instance_id }}"
-
-    - name: Get running pod
-      ansible.builtin.include_tasks: k8s_get_pod.yml
-      vars:
-        _k8s_component: "{{ exec_service | default('web') }}"
-
-    - name: Build K8s exec command
-      ansible.builtin.set_fact:
-        _exec_full_cmd: >-
-          kubectl exec {{ '-i ' if (exec_stdin | default('')) | length > 0 else '' }}{{ _k8s_pod_name }}
-          -n {{ _k8s_namespace }} -c {{ exec_service | default('web') }} --
-          {{ ('runuser -u ' ~ (exec_user | quote) ~ ' --') if (exec_user | default('')) | length > 0 else '' }}
-          {{ _exec_shell }} {{ exec_command | quote }}
-        _exec_chdir: null
-      no_log: "{{ exec_no_log | default(false) }}"
-
 - name: Hold a lock for the exec
   ansible.builtin.set_fact:
     _exec_full_cmd: >-

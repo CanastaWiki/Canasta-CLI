@@ -334,6 +334,3 @@ class TestWiring:
             names = [t.get("name") for t in yaml.safe_load(f)]
         assert names.index("Tidy composer.local.json") > names.index(
             "Restart containers")
-        # Before the stage-only report, which counts what is staged.
-        assert names.index("Tidy composer.local.json") < names.index(
-            "Leave the deploy of a gitops-managed instance to Argo CD")
