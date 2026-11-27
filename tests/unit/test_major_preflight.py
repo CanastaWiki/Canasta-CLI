@@ -55,15 +55,18 @@ def test_a_plain_instance_has_nothing_to_report(inst):
 
 def test_dropped_extensions_block_wherever_they_are_enabled(inst):
     _settings(inst, ["Cite", "Interwiki"])
-    _settings(inst, ["Lingo"], wiki="docs")
-    _write(inst, "config/settings/wikis/docs/Watch.php",
-           "<?php\nwfLoadExtensions( [ 'SemanticWatchlist' ] );\n")
+    _write(inst, "config/settings/wikis/docs/Glossary.php",
+           "<?php\nwfLoadExtensions( [ 'Lingo', 'SemanticWatchlist' ] );\n")
     blockers = probe.check(str(inst))["blockers"]
-    assert len(blockers) == 3
+    assert len(blockers) == 2
     assert any(b.startswith("Interwiki is enabled for all wikis") for b in blockers)
-    assert any(b.startswith("Lingo is enabled for wiki 'docs'") for b in blockers)
-    assert any("SemanticWatchlist is enabled for config/settings/wikis/docs/Watch.php"
+    assert any("Lingo is enabled for config/settings/wikis/docs/Glossary.php"
                in b for b in blockers)
+
+
+def test_an_extension_the_1_47_image_ships_does_not_block(inst):
+    _settings(inst, ["SemanticWatchlist"], wiki="docs")
+    assert probe.check(str(inst))["blockers"] == []
 
 
 def test_a_commented_out_load_does_not_count(inst):
