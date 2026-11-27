@@ -40,6 +40,9 @@
       vars:
         edge_defer_errors: true
 
+    - name: Bring the instance's place in the host's OpenSearch in line
+      ansible.builtin.include_tasks: opensearch_sync.yml
+
     - name: Build compose file arguments
       ansible.builtin.include_tasks: compose_file_args.yml
 

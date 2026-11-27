@@ -53,7 +53,9 @@ def _load(path):
 def _env():
     env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_")}
     env.update(ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
-               ANSIBLE_LIBRARY=os.path.join(COMMON, "library"),
+               ANSIBLE_LIBRARY=os.pathsep.join([
+                   os.path.join(COMMON, "library"),
+                   os.path.join(REPO_ROOT, "roles", "extensions_skins", "library")]),
                ANSIBLE_MODULE_UTILS=os.path.join(COMMON, "module_utils"),
                ANSIBLE_FILTER_PLUGINS=os.path.join(REPO_ROOT, "filter_plugins"))
     return env

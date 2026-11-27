@@ -32,6 +32,7 @@ _module_utils_dir = os.path.join(ROLES_DIR, "common", "module_utils")
 sys.path.insert(0, _module_utils_dir)
 for _name in ("canasta_validate", "canasta_sitemap", "canasta_config",
               "canasta_sidecar_render", "canasta_edge_render", "canasta_edge_writable",
+              "canasta_opensearch_render",
               "canasta_caddyfile",
               "canasta_override_migrate", "canasta_env_keys",
               "canasta_env_quote", "canasta_atomic_write", "canasta_php_fpm",

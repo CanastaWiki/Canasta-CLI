@@ -1,9 +1,7 @@
 """Tests for overriding the Elasticsearch image via CANASTA_ELASTICSEARCH_IMAGE.
 
-This mirrors the existing CANASTA_IMAGE mechanism: on Compose the image is
-read from .env (`${CANASTA_ELASTICSEARCH_IMAGE:-<default>}`); on Kubernetes
-`config set` deep-merges `elasticsearch.image` into values.yaml via
-_side_effects.yml.
+Kubernetes only: `config set` deep-merges `elasticsearch.image` into
+values.yaml via _side_effects.yml.
 
 The key property is composition with the enable/disable profile: setting the
 image must not disturb `elasticsearch.enabled` (CANASTA_ENABLE_ELASTICSEARCH),
@@ -44,27 +42,20 @@ class TestConfigKeyRegistration:
         assert keys["CANASTA_ELASTICSEARCH_IMAGE"]["group"] == "Docker Image"
 
 
-class TestComposeWiring:
+class TestKubernetesPin:
 
-    def test_image_is_env_overridable_with_default_preserved(self):
-        compose = _read("roles", "orchestrator", "files", "compose", "docker-compose.yml")
-        assert "${CANASTA_ELASTICSEARCH_IMAGE:-" in compose
-        # Default kept, so an unset var leaves stock Elasticsearch — the
-        # IDENTICAL full image reference the Kubernetes chart pins (parity
-        # guard: the two orchestrators must not drift apart again, in
-        # version or in registry — Docker Hub never published a 7.10.2
-        # tag, so a bare `elasticsearch:` repo is unpullable).
+    def test_default_image_is_a_supported_fully_qualified_ref(self):
+        # Docker Hub never published a 7.10.2 tag, so a bare
+        # `elasticsearch:` repo is unpullable.
         values = yaml.safe_load(_read("roles", "orchestrator", "files",
                                       "helm", "canasta", "values.yaml"))
         ref = values["elasticsearch"]["image"]
         assert "/" in ref.split(":")[0], (
             "k8s elasticsearch image must be a fully qualified registry ref"
         )
-        assert f"${{CANASTA_ELASTICSEARCH_IMAGE:-{ref}}}" in compose
-        # And the pinned line must be the one CirrusSearch supports — its
-        # README (REL1_43) says "Only Elasticsearch v7.10 is supported".
-        # Update this alongside a CirrusSearch upgrade that widens
-        # support, not before.
+        # CirrusSearch REL1_43's README says "Only Elasticsearch v7.10 is
+        # supported". Update this alongside a CirrusSearch upgrade that
+        # widens support, not before.
         assert ref.rsplit(":", 1)[1].startswith("7.10."), (
             "stock Elasticsearch moved off the 7.10.x line CirrusSearch "
             "supports"

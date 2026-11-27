@@ -6,6 +6,12 @@ config/settings/global/00-canasta-sidecar-env.php
 # Rendered on each start, joining the HAProxy edge (Compose only)
 docker-compose.edge.yml
 
+# Rendered on each start, joining the host's OpenSearch, with the CirrusSearch
+# settings for it (Compose only)
+docker-compose.opensearch.yml
+config/settings/global/00-canasta-opensearch.php
+config/settings/wikis/*/00-canasta-opensearch.php
+
 # Rendered on each host from config/sidecars.yaml (Compose only; Kubernetes
 # ignores values-sidecars.yaml)
 docker-compose.sidecars.yml

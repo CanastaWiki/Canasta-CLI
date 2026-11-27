@@ -126,30 +126,6 @@ services:
       - ./public_assets:/mediawiki/public_assets
       - mediawiki-logs:/var/log/mediawiki
 
-  elasticsearch:
-    image: ${CANASTA_ELASTICSEARCH_IMAGE:-docker.elastic.co/elasticsearch/elasticsearch:7.10.2}
-    profiles:
-      - elasticsearch
-    restart: unless-stopped
-    <<: *default-network
-    logging: *default-logging
-    environment:
-      - discovery.type=single-node
-      - bootstrap.memory_lock=true
-      - "ES_JAVA_OPTS=-Xms${CANASTA_ELASTICSEARCH_HEAP:-512m} -Xmx${CANASTA_ELASTICSEARCH_HEAP:-512m}"
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 30s
-    volumes:
-      - elasticsearch:/usr/share/elasticsearch/data
-
   # A main object cache the web server and maintenance scripts share, so a
   # purge from either reaches the other. Reached only on the instance's own
   # network; its contents are a cache, so nothing is kept across restarts.
@@ -460,7 +436,6 @@ networks:
 
 volumes:
   mysql-data-volume:
-  elasticsearch:
   caddy-data:
   opensearch-data:
   mediawiki-logs:

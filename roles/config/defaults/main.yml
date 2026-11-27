@@ -162,7 +162,16 @@ canasta_known_keys:
     default: "false"
   - name: CANASTA_ENABLE_ELASTICSEARCH
     group: Features
-    description: Enable Elasticsearch
+    description: >-
+      Kubernetes only. Enable Elasticsearch; Docker Compose instances use
+      CANASTA_ENABLE_OPENSEARCH
+    default: "false"
+  - name: CANASTA_ENABLE_OPENSEARCH
+    group: Features
+    description: >-
+      Docker Compose only. Use the host's OpenSearch for search: enables
+      Elastica and CirrusSearch for every wiki, and makes CirrusSearch a
+      wiki's search engine once its index is built
     default: "false"
   - name: CANASTA_ENABLE_REDIS
     group: Features
@@ -197,11 +206,29 @@ canasta_known_keys:
   - name: CANASTA_ELASTICSEARCH_HEAP
     group: Elasticsearch
     description: >-
-      Elasticsearch heap size, a whole number of megabytes or gigabytes
+      Kubernetes only. Elasticsearch heap size, a whole number of megabytes or gigabytes
       (e.g. 768m or 4g), used for both its minimum and maximum heap. On
       Kubernetes the Elasticsearch container requests twice this much
-      memory and is limited to four times it. Defaults to 512m on Docker
-      Compose and 256m on Kubernetes
+      memory and is limited to four times it. Defaults to 256m
+
+  - name: CANASTA_OPENSEARCH_HEAP
+    group: OpenSearch
+    description: >-
+      Docker Compose only. OpenSearch heap size this instance needs, a
+      whole number of megabytes or gigabytes (e.g. 768m or 4g). The host's
+      OpenSearch, which all its instances share, runs with the largest
+      value among them, and 1g when none sets one; a change restarts it
+  - name: CANASTA_OPENSEARCH_TOKEN
+    group: OpenSearch
+    description: >-
+      Docker Compose only. Names this instance's OpenSearch user and the
+      prefix of its indexes. Generated when OpenSearch is on; changing it
+      renames the indexes, which then need building again
+  - name: CANASTA_OPENSEARCH_PASSWORD
+    group: OpenSearch
+    description: >-
+      Docker Compose only. Password of this instance's OpenSearch user.
+      Generated when OpenSearch is on
 
   - name: MW_SITE_SERVER
     group: MediaWiki site
@@ -322,7 +349,7 @@ canasta_known_keys:
   - name: CANASTA_ELASTICSEARCH_IMAGE
     group: Docker Image
     description: >-
-      Override the Elasticsearch image (e.g. a build with an extra
+      Kubernetes only. Override the Elasticsearch image (e.g. a build with an extra
       analysis plugin). Takes effect only while Elasticsearch is enabled
       (CANASTA_ENABLE_ELASTICSEARCH=true). On Kubernetes the image must be
       pullable by the cluster (push it to a reachable registry first).
