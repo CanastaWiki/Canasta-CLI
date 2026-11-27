@@ -1,7 +1,7 @@
 """Tests for `canasta doctor`'s per-instance config<->runtime consistency
 checks — the detection half of the drift class from the upgrade incident
 (profiles out of sync with flags, containers running unmanaged, CirrusSearch
-configured while Elasticsearch is disabled)."""
+configured while OpenSearch is disabled)."""
 
 import os
 import sys
@@ -18,31 +18,32 @@ def _w(env, profiles, running, cirrus):
 class TestConsistencyWarnings:
     def test_clean_instance_has_no_warnings(self):
         env = {
-            "CANASTA_ENABLE_ELASTICSEARCH": "true",
+            "CANASTA_ENABLE_OPENSEARCH": "true",
             "CANASTA_ENABLE_CROWDSEC": "true",
             "TRUSTED_PROXIES": "cloudflare",
-            "COMPOSE_PROFILES": "internal-db,varnish,crowdsec,elasticsearch",
+            "COMPOSE_PROFILES": "internal-db,varnish,crowdsec",
         }
-        profiles = ["internal-db", "varnish", "crowdsec", "elasticsearch"]
-        running = ["web", "caddy", "varnish", "crowdsec", "db", "elasticsearch"]
+        profiles = ["internal-db", "varnish", "crowdsec"]
+        running = ["web", "caddy", "varnish", "crowdsec", "db"]
         assert _w(env, profiles, running, True) == []
 
     def test_todays_incident_flags_every_drift(self):
-        # ES flag false + COMPOSE_PROFILES missing internal-db/elasticsearch,
-        # but db + elasticsearch are running and CirrusSearch is configured.
+        # Redis flag false + COMPOSE_PROFILES missing internal-db/redis, but
+        # db + redis are running, and CirrusSearch is configured with
+        # OpenSearch off.
         env = {
-            "CANASTA_ENABLE_ELASTICSEARCH": "false",
+            "CANASTA_ENABLE_OPENSEARCH": "false",
             "CANASTA_ENABLE_CROWDSEC": "true",
             "TRUSTED_PROXIES": "cloudflare",
             "COMPOSE_PROFILES": "varnish,crowdsec",
         }
         profiles = ["varnish", "crowdsec"]
-        running = ["web", "caddy", "varnish", "crowdsec", "db", "elasticsearch"]
+        running = ["web", "caddy", "varnish", "crowdsec", "db", "redis"]
         out = _w(env, profiles, running, True)
         joined = " ".join(out)
         assert "should add internal-db" in joined         # profile drift
         assert any("'db'" in o for o in out)              # db unmanaged
-        assert any("'elasticsearch'" in o for o in out)   # ES unmanaged
+        assert any("'redis'" in o for o in out)           # redis unmanaged
         assert any("CirrusSearch" in o for o in out)      # search backend
         assert len(out) == 4
 
@@ -62,10 +63,10 @@ class TestConsistencyWarnings:
         out = _w(env, ["varnish", "crowdsec"], ["web", "varnish", "crowdsec"], False)
         assert out == []
 
-    def test_cirrus_without_elasticsearch_warns(self):
+    def test_cirrus_without_opensearch_warns(self):
         env = {"COMPOSE_PROFILES": "internal-db,varnish"}
         # internal-db + varnish are the full derived set here, so no drift;
-        # only the CirrusSearch<->ES mismatch should fire.
+        # only the CirrusSearch<->OpenSearch mismatch should fire.
         out = _w(env, ["internal-db", "varnish"], ["web", "varnish", "db"], True)
         assert len(out) == 1
         assert "CirrusSearch" in out[0]
@@ -149,7 +150,7 @@ class TestConsistencyWarnings:
 class TestServiceProfileMap:
     def test_managed_services_map_to_profiles(self):
         assert doctor._SERVICE_PROFILE["db"] == "internal-db"
-        assert doctor._SERVICE_PROFILE["elasticsearch"] == "elasticsearch"
+        assert doctor._SERVICE_PROFILE["redis"] == "redis"
         assert doctor._SERVICE_PROFILE["varnish"] == "varnish"
         assert doctor._SERVICE_PROFILE["crowdsec"] == "crowdsec"
 

@@ -167,6 +167,30 @@
               ({{ ansible_failed_result.msg | default('') }}); the next start
               of any instance on this host brings it in line.
 
+    # Likewise the host's OpenSearch, which stops if no other instance
+    # uses it. The instance's .env is gone, so its user is found by the
+    # attribute Canasta marks its users with.
+    - name: Take the instance out of the host's OpenSearch on failure
+      block:
+        - name: Take the instance out of the host's OpenSearch
+          ansible.builtin.include_role:
+            name: orchestrator
+            tasks_from: opensearch_sync.yml
+          vars:
+            opensearch_member: absent
+          when:
+            - instance_path is defined
+            - not (keep_config | default(false) | bool)
+            - instance_dir_was_created | default(false) | bool
+            - not (instance_is_k8s | bool)
+      rescue:
+        - name: Report that OpenSearch could not be updated
+          ansible.builtin.debug:
+            msg: >-
+              The host's OpenSearch could not be updated after the failed
+              create ({{ ansible_failed_result.msg | default('') }}); the next
+              start of any instance on this host brings it in line.
+
     - name: Deregister instance on failure
       canasta_registry:
         id: "{{ id }}"

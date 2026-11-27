@@ -618,9 +618,14 @@ commands:
       * `CANASTA_ENABLE_VARNISH` (default `true`) — Varnish cache
       * `CANASTA_ENABLE_OBSERVABILITY` (default `false`) — OpenSearch,
         Logstash and OpenSearch Dashboards log stack
-      * `CANASTA_ENABLE_ELASTICSEARCH` (default `false`) — Elasticsearch
       * `CANASTA_ENABLE_REDIS` (default `false`) — Redis, a main
         object cache the web server and maintenance scripts share
+
+      With `CANASTA_ENABLE_OPENSEARCH=true`, the instance also joins the
+      host's OpenSearch, which every instance on the host with it on
+      shares: start runs the cluster, gives the instance its own user and
+      indexes, and makes CirrusSearch each wiki's search engine once that
+      wiki's index is built.
 
       If the instance has development mode enabled, Xdebug starts
       automatically. Use `canasta devmode enable` or `canasta devmode
