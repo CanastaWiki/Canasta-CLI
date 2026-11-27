@@ -1,6 +1,6 @@
-"""canasta.py main() for Kubernetes instances: refusal of commands declared
-for one orchestrator on an instance of the other, and the refusal of every
-run that sets up or acts on Kubernetes."""
+"""canasta.py main() for Kubernetes instances: refusal of Compose-only
+commands on a Kubernetes instance, and the refusal of every run that sets
+up or acts on Kubernetes."""
 
 import pytest
 
@@ -18,16 +18,6 @@ class TestCommandOrchestrators:
             "mysite": {"path": str(tmp_path / "mysite"), "host": "localhost",
                        "orchestrator": orchestrator},
         }}))
-
-    def test_direct_command_refused_on_compose(
-            self, harness, monkeypatch, tmp_path, capsys):
-        self._register(tmp_path, "compose")
-        assert _run(monkeypatch, ["scale", "-i", "mysite", "-r", "2"]) == 1
-        err = capsys.readouterr().err
-        assert ("'canasta scale' is only supported on Kubernetes instances"
-                in err)
-        assert "PHP-FPM" in err
-        assert harness.direct_calls == []
 
     @pytest.mark.parametrize("argv,label", [
         (["extension", "add", "X", "-i", "mysite"], "extension add"),
@@ -89,12 +79,6 @@ class TestKubernetesRefused:
         rc = _run(monkeypatch, ["restart", "-i", "mysite"])
         assert self._refused(harness, capsys, rc)
 
-    def test_direct_command_on_kubernetes(
-            self, harness, monkeypatch, tmp_path, capsys):
-        self._register(tmp_path, "kubernetes")
-        rc = _run(monkeypatch, ["scale", "-i", "mysite", "-r", "2"])
-        assert self._refused(harness, capsys, rc)
-
     def test_instance_command_on_compose(
             self, harness, monkeypatch, tmp_path, capsys):
         self._register(tmp_path, "compose")
@@ -116,12 +100,6 @@ class TestKubernetesRefused:
                                 "-n", "example.com", "-o", orchestrator])
         assert self._refused(harness, capsys, rc) is refused
 
-    @pytest.mark.parametrize("package,refused", [
-        ("k8s-cp", True), ("k8s-worker", True), ("docker", False)])
-    def test_install(self, harness, monkeypatch, capsys, package, refused):
-        rc = _run(monkeypatch, ["install", package, "-H", "node1"])
-        assert self._refused(harness, capsys, rc) is refused
-
     @pytest.mark.parametrize("orchestrator,refused", [
         ("kubernetes", True), ("compose", False)])
     def test_upgrade_across_instances(
@@ -137,7 +115,3 @@ class TestKubernetesRefused:
         self._register(tmp_path, "kubernetes")
         rc = _run(monkeypatch, ["list"])
         assert not self._refused(harness, capsys, rc)
-
-    def test_kubernetes_only_command(self, harness, monkeypatch, capsys):
-        rc = _run(monkeypatch, ["storage", "list"])
-        assert self._refused(harness, capsys, rc)

@@ -43,8 +43,8 @@ class TestDisplayName:
             == "backup schedule set"
         )
         assert (
-            wp.cmd_display_name("storage_setup_nfs")
-            == "storage setup nfs"
+            wp.cmd_display_name("backup_databases_add")
+            == "backup databases add"
         )
 
 
@@ -74,8 +74,8 @@ class TestAncestors:
         assert wp._ancestors("backup_schedule_set") == [
             "backup", "backup_schedule",
         ]
-        assert wp._ancestors("storage_setup_nfs") == [
-            "storage", "storage_setup",
+        assert wp._ancestors("backup_databases_add") == [
+            "backup", "backup_databases",
         ]
 
 
@@ -120,7 +120,7 @@ class TestMenuCoverage:
     """The MediaWiki:Menu-cli-reference page must link to every command,
     including 3-level nested leaves. The earlier bug was that the menu
     generator stopped at 2-level subcommands, so entries like
-    'backup schedule set' and 'storage setup nfs' never appeared."""
+    'backup schedule set' and 'backup databases add' never appeared."""
 
     def _menu_content(self):
         data = wp.load_definitions()
@@ -401,7 +401,7 @@ class TestOrchestratorColumn:
 
 class TestSubcommandGroupPages:
     """Subcommand-group landing pages (CLI:canasta host, CLI:canasta
-    gitops, CLI:canasta storage setup, ...) are auto-generated from
+    gitops, CLI:canasta backup schedule, ...) are auto-generated from
     SUBCOMMAND_GROUPS / NESTED_SUBCOMMAND_GROUPS so they can't drift
     from the actual command set."""
 
@@ -411,16 +411,16 @@ class TestSubcommandGroupPages:
 
     def test_top_level_groups_have_landing_pages(self):
         pages = self._pages()
-        for group in ("host", "storage", "gitops", "config", "backup"):
+        for group in ("host", "sidecar", "gitops", "config", "backup"):
             title = wp.PAGE_PREFIX + "canasta " + group
             assert title in pages, "missing landing page for %r" % group
 
     def test_nested_groups_have_landing_pages(self):
         pages = self._pages()
-        # storage_setup and backup_schedule are NESTED_SUBCOMMAND_GROUPS
-        # entries — children of storage and backup respectively.
-        assert wp.PAGE_PREFIX + "canasta storage setup" in pages
+        # backup_schedule and backup_databases are NESTED_SUBCOMMAND_GROUPS
+        # entries, children of backup.
         assert wp.PAGE_PREFIX + "canasta backup schedule" in pages
+        assert wp.PAGE_PREFIX + "canasta backup databases" in pages
 
     def test_group_subcommand_list_matches_runtime(self):
         """The Subcommands section should list exactly the children
@@ -441,10 +441,10 @@ class TestSubcommandGroupPages:
         host = pages[wp.PAGE_PREFIX + "canasta host"]
         assert host.startswith("[[CLI:canasta|canasta]] > host\n")
         # Nested group: parent chain includes the outer group.
-        ss = pages[wp.PAGE_PREFIX + "canasta storage setup"]
-        assert ss.startswith(
+        bs = pages[wp.PAGE_PREFIX + "canasta backup schedule"]
+        assert bs.startswith(
             "[[CLI:canasta|canasta]] > "
-            "[[CLI:canasta storage|storage]] > setup\n"
+            "[[CLI:canasta backup|backup]] > schedule\n"
         )
 
     def test_group_page_uses_global_flags_section(self):
@@ -850,7 +850,7 @@ class TestEveryCommandLinkedFromIndex:
     CMD_GROUPS, which drives both the root CLI:canasta index page and the
     MediaWiki:Menu-cli-reference menu. A command omitted here generates a
     page that nothing links to — an orphan (Special:LonelyPages). This is
-    how CLI:Canasta rebuild (plus scale, status, crowdsec, argocd) ended
+    how CLI:Canasta rebuild (plus status and crowdsec) ended
     up orphaned."""
 
     def _must_be_linked(self):
@@ -859,7 +859,7 @@ class TestEveryCommandLinkedFromIndex:
         groups = set(wp.SUBCOMMAND_GROUPS.keys())
         # Leaf top-level commands have no underscore and aren't groups;
         # group pages are the SUBCOMMAND_GROUPS keys. Nested groups
-        # (backup_schedule, storage_setup) are linked under their parent
+        # (backup_schedule, backup_databases) are linked under their parent
         # by the menu walk, so they don't need a direct CMD_GROUPS entry.
         leaves = {n for n in names if "_" not in n and n not in groups}
         return leaves | groups
@@ -893,17 +893,17 @@ class TestEveryCommandLinkedFromIndex:
             assert ("canasta " + name) in menu, "menu missing %s" % name
 
     def test_previously_orphaned_commands_now_linked(self):
-        # Regression: these five were omitted from CMD_GROUPS, leaving
+        # Regression: these were omitted from CMD_GROUPS, leaving
         # CLI:Canasta rebuild orphaned (the others were saved only by the
         # hand-maintained Help:CLI overview linking them).
         data = wp.load_definitions()
         pages = dict(wp.generate_all_pages(data))
         root = pages["CLI:canasta"]
         menu = pages["MediaWiki:Menu-cli-reference"]
-        for cmd in ("rebuild", "scale", "status"):  # leaves -> root + menu
+        for cmd in ("rebuild", "status"):  # leaves -> root + menu
             assert ("canasta " + cmd) in root
             assert ("canasta " + cmd) in menu
-        for cmd in ("crowdsec", "argocd"):  # groups -> menu
+        for cmd in ("crowdsec",):  # groups -> menu
             assert ("canasta " + cmd) in menu
 
 

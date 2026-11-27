@@ -122,13 +122,6 @@
     - name: End play for unreachable host
       ansible.builtin.meta: end_play
 
-# Probe K8s API reachability up front and record _k8s_api_reachable so
-# downstream cluster-side cleanup can be skipped cleanly when the cluster
-# is gone. No-op on Compose.
-- name: Probe orchestrator API reachability
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/delete_probe_k8s_api.yml
-
 - name: Discover unregistered instance
   when: _delete_query is failed
   block:
@@ -288,10 +281,6 @@
 - name: Clean up container-owned files
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/delete_cleanup_files.yml
-
-- name: Remove Argo CD Application if present
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/delete_remove_argocd_app.yml
 
 - name: Destroy containers and volumes
   ansible.builtin.include_role:

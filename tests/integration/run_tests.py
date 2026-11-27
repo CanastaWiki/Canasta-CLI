@@ -36,10 +36,6 @@ REPO_ROOT = os.environ.get(
 )
 CANASTA_BIN = os.path.join(REPO_ROOT, "canasta-native")
 
-# k8s_tests imports the harness from this module by name, which a script
-# run as __main__ does not otherwise have.
-sys.modules.setdefault("run_tests", sys.modules[__name__])
-
 
 class SkipTest(Exception):
     """Raised when a test's prerequisites are not met."""
@@ -4418,11 +4414,7 @@ def test_sidecar_migrate(inst):
 
 # --- Test runner ---
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from k8s_tests import K8S_TESTS  # noqa: E402
-
 ALL_TESTS = {
-    **K8S_TESTS,
     "lifecycle": test_lifecycle,
     "podman-socket-runtime": test_podman_socket_runtime,
     "import": test_import_export,

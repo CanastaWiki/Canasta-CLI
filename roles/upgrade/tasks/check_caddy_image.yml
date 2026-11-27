@@ -68,18 +68,3 @@
                  | select('match', '^' ~ (_upgrade_caddy_managed_prefix | regex_escape))
                  | reject('equalto', canasta_caddy_plugin_image)
                  | list | length > 0) }}
-
-# The reconcile a start runs before it deploys, run here so a values.yaml
-# still on an older managed tag counts as a change: a running instance is
-# redeployed onto it, and a gitops-managed one has it staged for the push.
-- name: Check the Caddy image (Kubernetes)
-  when: instance_is_k8s | bool
-  block:
-    - name: Reconcile the caddy image in values.yaml
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: k8s_reconcile_caddy.yml
-
-    - name: Note whether the Caddy image changes (Kubernetes)
-      ansible.builtin.set_fact:
-        _upgrade_caddy_image_changed: "{{ _reconcile_caddy_written is changed }}"

@@ -182,7 +182,7 @@ def _render_call_sites():
 
 def test_every_render_passes_the_classifier():
     sites = _render_call_sites()
-    assert len(sites) >= 5
+    assert len(sites) >= 3
     for path, task in sites:
         assert task["canasta_render_sidecars"].get("secret_key_regex") == (
             "{{ canasta_secret_key_regex }}"), path

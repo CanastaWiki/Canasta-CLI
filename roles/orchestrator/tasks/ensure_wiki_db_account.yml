@@ -41,33 +41,6 @@
          and (_ensure_env.variables.WIKI_DB_USER | default('root', true))
              not in ['root', _ensure_env.variables.MYSQL_USER | default('root', true)] }}
 
-# On Kubernetes the web pod's ensure-db-account init container does this at
-# every pod start, from the wikis.yaml the pod was deployed with, so a change
-# to the database set reaches the account with the next deploy.
-- name: Report when the account follows a database set change (Kubernetes)
-  when: instance_is_k8s | bool
-  block:
-    - name: Read MediaWiki's database account
-      ansible.builtin.include_tasks: k8s_wiki_db_user.yml
-
-    - name: Check whether the instance is gitops-managed
-      ansible.builtin.stat:
-        path: "{{ instance_path }}/.gitops-host"
-      register: _ensure_k8s_gitops
-
-    - name: Report when MediaWiki's account gets the new database set
-      ansible.builtin.debug:
-        msg: >-
-          MediaWiki's database account '{{ _k8s_wiki_db_user }}' gets the
-          new database set when
-          {%- if _ensure_k8s_gitops.stat.exists %}
-          this change is pushed and synced ('canasta gitops push -i
-          {{ instance_id }}', then 'canasta gitops sync -i {{ instance_id }}').
-          {%- else %}
-          the instance next restarts ('canasta restart -i {{ instance_id }}').
-          {%- endif %}
-      when: _k8s_wiki_db_user != 'root'
-
 - name: Ensure the wiki database account
   when: _ensure_needed | bool
   block:
@@ -132,7 +105,7 @@
         chdir: "{{ instance_path }}"
         stdin: >-
           {{ lookup('ansible.builtin.file', canasta_root
-                    ~ '/roles/orchestrator/files/helm/canasta/files/ensure_wiki_db_account.sh') }}
+                    ~ '/roles/orchestrator/files/scripts/ensure_wiki_db_account.sh') }}
       register: _ensure_result
       changed_when: "'ENSURED ' in _ensure_result.stdout"
 

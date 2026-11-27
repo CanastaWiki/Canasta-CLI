@@ -11,7 +11,6 @@ import os
 
 import yaml
 
-from _k8s_restore_copy import resolve_copy_task
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 CREATE = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "create.yml")
@@ -37,7 +36,7 @@ def _tasks(path):
 def _task(path, name):
     task = next((t for t in _tasks(path) if t.get("name") == name), None)
     assert task is not None, "missing task: %s" % name
-    return resolve_copy_task(task)
+    return task
 
 
 def _when(task):

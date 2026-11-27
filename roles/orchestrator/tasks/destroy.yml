@@ -220,13 +220,3 @@
       ansible.builtin.include_tasks: opensearch_sync.yml
       vars:
         opensearch_member: absent
-
-- name: Destroy (Kubernetes)
-  when: instance_is_k8s | bool
-  block:
-    - name: Set K8s namespace
-      ansible.builtin.set_fact:
-        _k8s_namespace: "canasta-{{ instance_id }}"
-
-    - name: Uninstall Helm release and clean up
-      ansible.builtin.include_tasks: helm_uninstall.yml
