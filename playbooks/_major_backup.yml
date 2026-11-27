@@ -1,0 +1,37 @@
+---
+# Before the CLI moves to a new major release, back up every instance.
+# canasta.py runs this after the preflight passes, unless --skip-backup is
+# given, and moves the CLI only if every backup succeeds. The preflight has
+# already refused an instance with no backup repository.
+# Input: upgrade_backup_major
+
+- name: Get all instances for the backup
+  canasta_registry:
+    state: query_all
+    filter_host: "{{ target_host | default(omit) }}"
+  delegate_to: canasta_controller
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  register: _major_backup_instances
+
+- name: Remember the default container runtime for the backup
+  ansible.builtin.set_fact:
+    _major_backup_compose_command: "{{ compose_command }}"
+    _major_backup_inspect_command: "{{ inspect_command }}"
+
+- name: Back up each instance
+  ansible.builtin.include_role:
+    name: backup
+    tasks_from: create.yml
+  loop: "{{ _major_backup_instances.instances | dict2items }}"
+  loop_control:
+    loop_var: _inst
+    label: "{{ _inst.key }}"
+  vars:
+    id: "{{ _inst.key }}"
+    tag: "before-{{ upgrade_backup_major }}.x"
+    compose_command: >-
+      {{ _inst.value.composeCommand | default(_major_backup_compose_command) }}
+    inspect_command: >-
+      {{ _inst.value.inspectCommand | default(_major_backup_inspect_command) }}

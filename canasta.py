@@ -736,8 +736,13 @@ def _self_update_refresh_deps(repo, umask=-1):
     return pip_ok and galaxy_ok
 
 
-def _self_update_reexec():
-    """Restart this command in a fresh process on the new code."""
+def _self_update_reexec(marker="CANASTA_SELF_UPDATED"):
+    """Restart this command in a fresh process on the new code.
+
+    The re-exec'd process normally skips the update (CANASTA_SELF_UPDATED).
+    After the step to the latest release of the current major it runs the
+    update again instead (CANASTA_MAJOR_STEP), to go on to the new major.
+    """
     # The pull just rewrote this process's own ansible roles, modules,
     # and module_utils on disk. Continuing to ansible-playbook in the
     # very process that did the pulling intermittently fails to resolve
@@ -745,7 +750,7 @@ def _self_update_reexec():
     # command runs in a clean process against fully-settled code;
     # the CANASTA_SELF_UPDATED guard at the top of self_update_cli stops
     # the re-exec'd process from looping back through the update.
-    os.environ["CANASTA_SELF_UPDATED"] = "1"
+    os.environ[marker] = "1"
     sys.stdout.flush()
     sys.stderr.flush()
     os.execv(
@@ -754,7 +759,8 @@ def _self_update_reexec():
     )
 
 
-def self_update_cli(dev=False, allow_major=False, dry_run=False):
+def self_update_cli(dev=False, allow_major=False, dry_run=False,
+                    before_major=None):
     """Update the CLI code before invoking ansible-playbook.
 
     By default the CLI moves to the latest released version that does not
@@ -767,6 +773,14 @@ def self_update_cli(dev=False, allow_major=False, dry_run=False):
     effect with ``dev``. With ``dry_run=True`` the checkout is not moved:
     it reports the version it would move to, and the command runs on the
     installed code.
+
+    A move to a higher major goes through the latest release of the
+    current major first: the CLI moves there and runs again, so the
+    checks before the major move are always the newest ones. Then
+    ``before_major(target_major)`` runs (it upgrades the instances on
+    that release and checks them for the new major), and the move goes
+    ahead only if it returns True. A dry run moves nothing, and runs
+    ``before_major`` only for its report.
     Release tags are used rather than the GitHub Releases API because the
     Releases API deliberately keeps v3.7.0 as 'latest' for legacy clients
     (see .github/workflows/docker.yml).
@@ -880,6 +894,27 @@ def self_update_cli(dev=False, allow_major=False, dry_run=False):
     if target is None:
         return
     target_ref, major_hint = target
+    marker = "CANASTA_SELF_UPDATED"
+
+    current_major = _version_major(current_version)
+    target_major = _version_major(target_ref)
+    if (not dev and current_major is not None and target_major is not None
+            and target_major > current_major):
+        step_ref = _major_step_ref(_git, current_major)
+        if step_ref and not dry_run and not os.environ.get("CANASTA_MAJOR_STEP"):
+            print("Moving to %s, the latest %d.x release, before %s."
+                  % (step_ref, current_major, target_ref))
+            target_ref, major_hint, marker = step_ref, "", "CANASTA_MAJOR_STEP"
+        else:
+            if step_ref and dry_run:
+                print("The checks below are this version's (%s); the upgrade "
+                      "runs those of %s, the latest %d.x release."
+                      % (current_version, step_ref, current_major))
+            ok = before_major is None or before_major(target_major)
+            if not ok and not dry_run:
+                print("Canasta CLI stays on %s, and no instance moved to %d.x."
+                      % (current_version, target_major), file=sys.stderr)
+                sys.exit(1)
 
     move_stderr = _self_update_move(_git, repo, dev, target_ref,
                                     current_commit, current_version,
@@ -920,7 +955,20 @@ def self_update_cli(dev=False, allow_major=False, dry_run=False):
         )
         sys.exit(1)
 
-    _self_update_reexec()
+    _self_update_reexec(marker)
+
+
+def _major_step_ref(git, current_major):
+    """The latest release of `current_major` when the checkout is behind
+    it, else None."""
+    tags = git(["tag", "-l", "v*"], timeout=10).stdout.split()
+    step_ref = _pick_latest_release_tag(tags, max_major=current_major)
+    if step_ref is None:
+        return None
+    contained = git(
+        ["merge-base", "--is-ancestor", step_ref, "HEAD"], timeout=5,
+    ).returncode == 0
+    return None if contained else step_ref
 
 
 def internal_name(display_name):
@@ -2423,11 +2471,13 @@ def _export_connection_env():
     os.environ.setdefault("CANASTA_CONFIG_DIR", get_config_dir())
 
 
-def build_ansible_args(ansible_playbook, command_name, args, data):
+def build_ansible_args(ansible_playbook, command_name, args, data,
+                       extra=None):
     """Build the ansible-playbook command line.
 
     Extra vars are passed via a temp JSON file (-e @file) to avoid
-    Jinja2 injection and shell quoting issues.
+    Jinja2 injection and shell quoting issues. `extra` adds vars the
+    command's parameters do not carry.
     """
     _cleanup_stale_vars_files()
 
@@ -2477,6 +2527,7 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
         extra_vars["canasta_unfinished_pull_ok"] = "true"
 
     _add_runtime_extra_vars(args, host_value, extra_vars)
+    extra_vars.update(extra or {})
 
     # Write vars to temp file (bypasses Jinja2 interpolation).
     # delete=False because ansible-playbook needs to read it after
@@ -2504,6 +2555,43 @@ def build_ansible_args(ansible_playbook, command_name, args, data):
     _export_connection_env()
 
     return ansible_args
+
+
+def before_major_upgrade(ansible_playbook, command_name, args, data, major):
+    """Upgrade every instance on this release, check them for `major`,
+    then back each one up unless --skip-backup is given.
+
+    True when the move to `major` can go ahead. A dry run upgrades and
+    backs up nothing and only reports the checks.
+    """
+    dry_run = getattr(args, "dry_run", False)
+    if not dry_run:
+        print("Upgrading the instances on this release before moving to %d.x..."
+              % major)
+        sys.stdout.flush()
+        rc = subprocess.call(build_ansible_args(
+            ansible_playbook, command_name, args, data))
+        if rc != 0:
+            print("The upgrade on this release failed, so the CLI did not "
+                  "move to %d.x." % major, file=sys.stderr)
+            return False
+    print("Checking the instances for %d.x..." % major)
+    sys.stdout.flush()
+    rc = subprocess.call(build_ansible_args(
+        ansible_playbook, command_name, args, data,
+        extra={"upgrade_preflight_major": major}))
+    if rc != 0 or dry_run or getattr(args, "skip_backup", False):
+        return rc == 0
+    print("Backing up the instances before moving to %d.x..." % major)
+    sys.stdout.flush()
+    rc = subprocess.call(build_ansible_args(
+        ansible_playbook, command_name, args, data,
+        extra={"upgrade_backup_major": major}))
+    if rc != 0:
+        print("A backup failed, so the CLI did not move to %d.x." % major,
+              file=sys.stderr)
+        return False
+    return True
 
 
 def should_prompt_confirmation(cmd_def, yes_passed):
@@ -2865,6 +2953,8 @@ def main():
             dev=getattr(args, "dev", False),
             allow_major=getattr(args, "allow_major", False),
             dry_run=getattr(args, "dry_run", False),
+            before_major=lambda major: before_major_upgrade(
+                ansible_playbook, command_name, args, data, major),
         )
 
     sys.stdout.flush()

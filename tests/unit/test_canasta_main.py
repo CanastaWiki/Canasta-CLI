@@ -297,4 +297,31 @@ class TestUpgradeSelfUpdate:
         seen = []
         monkeypatch.setattr(canasta, "self_update_cli", lambda **kw: seen.append(kw))
         assert _run(monkeypatch, argv) == "exec"
+        before_major = seen[0].pop("before_major")
         assert seen == [{"dev": False, "allow_major": False, "dry_run": dry_run}]
+        assert callable(before_major)
+
+    @pytest.mark.parametrize("dry_run,skip_backup,rcs,ok,extras", [
+        # Upgrade on this release, check, back up, then move.
+        (False, False, [0, 0, 0], True,
+         [None, {"upgrade_preflight_major": 5}, {"upgrade_backup_major": 5}]),
+        (False, False, [0, 0, 2], False,
+         [None, {"upgrade_preflight_major": 5}, {"upgrade_backup_major": 5}]),
+        (False, False, [0, 2], False, [None, {"upgrade_preflight_major": 5}]),
+        (False, False, [2], False, [None]),
+        (False, True, [0, 0], True, [None, {"upgrade_preflight_major": 5}]),
+        # A dry run only checks.
+        (True, False, [0], True, [{"upgrade_preflight_major": 5}]),
+        (True, False, [2], False, [{"upgrade_preflight_major": 5}]),
+    ])
+    def test_before_major_upgrades_checks_then_backs_up(
+            self, monkeypatch, capsys, dry_run, skip_backup, rcs, ok, extras):
+        built = []
+        monkeypatch.setattr(
+            canasta, "build_ansible_args",
+            lambda pb, name, args, data, extra=None: built.append(extra) or [name])
+        rcs = iter(rcs)
+        monkeypatch.setattr(canasta.subprocess, "call", lambda argv: next(rcs))
+        args = type("A", (), {"dry_run": dry_run, "skip_backup": skip_backup})()
+        assert canasta.before_major_upgrade("ap", "upgrade", args, {}, 5) is ok
+        assert built == extras

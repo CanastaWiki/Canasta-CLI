@@ -1,0 +1,57 @@
+---
+# Before the CLI moves to a new major release, check every instance for
+# what would stop it from moving. canasta.py runs this, after upgrading the
+# instances on the latest release of the current major, and moves the CLI
+# only if it succeeds. A dry run reports and always succeeds.
+# Input: upgrade_preflight_major, dry_run, skip_backup
+
+- name: Get all instances for the preflight
+  canasta_registry:
+    state: query_all
+    filter_host: "{{ target_host | default(omit) }}"
+  delegate_to: canasta_controller
+  vars:
+    ansible_connection: local
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  register: _preflight_instances
+
+- name: Start the preflight's findings
+  ansible.builtin.set_fact:
+    _preflight_blockers: []
+    _preflight_warnings: []
+    _preflight_blocked: []
+    _upgrade_default_inspect_command: "{{ inspect_command }}"
+
+# The checks are those of the move to 5.x, which runs MediaWiki 1.47.
+- name: Check each instance
+  ansible.builtin.include_tasks: _major_preflight_instance.yml
+  loop: "{{ _preflight_instances.instances | dict2items }}"
+  loop_control:
+    loop_var: _inst
+    label: "{{ _inst.key }}"
+  when: upgrade_preflight_major | int == 5
+
+- name: Report what stops the move
+  ansible.builtin.debug:
+    msg: "Stops the move to {{ upgrade_preflight_major }}.x: {{ item }}"
+  loop: "{{ _preflight_blockers }}"
+
+- name: Report what to look at before the move
+  ansible.builtin.debug:
+    msg: "Check before the move to {{ upgrade_preflight_major }}.x: {{ item }}"
+  loop: "{{ _preflight_warnings }}"
+
+- name: Report that nothing stops the move
+  ansible.builtin.debug:
+    msg: "Nothing stops the move to {{ upgrade_preflight_major }}.x."
+  when: _preflight_blockers | length == 0
+
+- name: Refuse the move
+  ansible.builtin.fail:
+    msg: >-
+      {{ _preflight_blocked | unique | list | length }}
+      instance(s) have something that stops the move to
+      {{ upgrade_preflight_major }}.x.
+  when:
+    - _preflight_blockers | length > 0
+    - not (dry_run | default(false) | bool)
