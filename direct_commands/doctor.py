@@ -814,7 +814,7 @@ def _consistency_warnings(env, current_profiles, running_services, uses_cirrus,
     - A container running under a profile that isn't active (unmanaged — a
       stop/start won't restore it).
     - CrowdSec enabled with no TRUSTED_PROXIES.
-    - CirrusSearch configured in settings while Elasticsearch is disabled.
+    - CirrusSearch configured in settings while OpenSearch is off.
     - any env.template literal that differs from .env (the durable gitops
       source and the live config have diverged; a pull would reset .env to it).
       A CANASTA_IMAGE that is a CLI's own pin is not compared: the render
