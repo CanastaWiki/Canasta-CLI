@@ -217,3 +217,12 @@ def test_the_migration_runs_on_upgrade():
     loop = next(t for t in yaml.safe_load(open(UPGRADE_MAIN))
                 if t.get("name") == "Run migrations")["loop"]
     assert "elasticsearch_to_opensearch.yml" in loop
+
+
+def test_config_unset_loops_with_a_variable_config_set_does_not_leave():
+    # config set leaves _config_key as a fact, so the migration's unset
+    # after it would collide with a loop over _config_key.
+    path = os.path.join(REPO_ROOT, "roles", "config", "tasks", "_unset_config.yml")
+    loops = [t["loop_control"]["loop_var"] for t in yaml.safe_load(open(path))
+             if "loop_control" in t]
+    assert loops and "_config_key" not in loops
