@@ -67,6 +67,11 @@ class TestEnvParsing:
             "USE_EXTERNAL_DB": False,
             "CANASTA_ENABLE_EDGE": False,
             "CANASTA_ENABLE_REDIS": False,
+            "CANASTA_ENABLE_ELASTICSEARCH": False,
+            "CANASTA_ELASTICSEARCH_HEAP": False,
+            "CANASTA_ELASTICSEARCH_IMAGE": False,
+            "CANASTA_ENABLE_OPENSEARCH": False,
+            "CANASTA_OPENSEARCH_HEAP": False,
         }
         assert result["env"]["MW_SECRET_KEY"] == ""
 
