@@ -1,0 +1,168 @@
+---
+# Migration: Docker Compose instances search with the host's OpenSearch
+# instead of their own Elasticsearch. OpenSearch 3 can't read the indexes
+# Elasticsearch 7.10 wrote, so the old ones are dropped and the wikis are
+# indexed again; until then they search the database. Kubernetes keeps its
+# Elasticsearch.
+#
+# Runs before the stack files are rewritten, while the old elasticsearch
+# service is still defined.
+
+# Facts persist across the upgrade loop's instances, so each is set here
+# whatever the instance.
+- name: Note the instance's Elasticsearch settings
+  ansible.builtin.set_fact:
+    _mig_es_compose: "{{ not (instance_is_k8s | bool) }}"
+    _mig_es_on: >-
+      {{ (_mig.env.CANASTA_ENABLE_ELASTICSEARCH | default('') | lower) == 'true' }}
+    _mig_es_keys: >-
+      {{ ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ELASTICSEARCH_HEAP',
+          'CANASTA_ELASTICSEARCH_IMAGE']
+         | select('in', (_mig.env_present | default({})) | dict2items
+                        | selectattr('value') | map(attribute='key') | list)
+         | list }}
+    _mig_es_project: "{{ instance_path | basename | lower }}"
+
+- name: Move the instance's search from Elasticsearch to OpenSearch
+  when: _mig_es_compose | bool
+  block:
+    - name: Report moving search to OpenSearch
+      ansible.builtin.debug:
+        msg: "Moving search from the instance's Elasticsearch to the host's OpenSearch..."
+      when: _mig_es_on | bool
+
+    # Through config set, so CirrusSearch and Elastica are enabled for every
+    # wiki and a gitops instance's vars record the change. The heap carries
+    # over only when the operator set one.
+    - name: Turn on OpenSearch
+      ansible.builtin.include_role:
+        name: config
+        tasks_from: set.yml
+      vars:
+        config_settings_override: >-
+          CANASTA_ENABLE_OPENSEARCH=true{{
+          (' CANASTA_OPENSEARCH_HEAP=' ~ _mig.env.CANASTA_ELASTICSEARCH_HEAP)
+          if (_mig.env.CANASTA_ELASTICSEARCH_HEAP | default('') | length > 0
+              and not (_mig.env_present.CANASTA_OPENSEARCH_HEAP | default(false) | bool))
+          else '' }}
+        no_restart: true
+        config_restart_by_caller: true
+        config_set_caller_reports: true
+      when:
+        - _mig_es_on | bool
+        - (_mig.env.CANASTA_ENABLE_OPENSEARCH | default('') | lower) != 'true'
+
+    - name: Remove the Elasticsearch settings
+      ansible.builtin.include_role:
+        name: config
+        tasks_from: _unset_config.yml
+      vars:
+        keys: "{{ _mig_es_keys | join(' ') }}"
+      when: _mig_es_keys | length > 0
+
+    - name: Report the Elasticsearch image setting removed
+      ansible.builtin.debug:
+        msg: >-
+          CANASTA_ELASTICSEARCH_IMAGE was removed, since its plugins were
+          built for Elasticsearch. Plugins for the host's OpenSearch go in an
+          image built from opensearch/docker-compose.override.yml in the
+          host's Canasta config directory.
+      when: (_mig.env.CANASTA_ELASTICSEARCH_IMAGE | default('')) | length > 0
+
+    - name: Read COMPOSE_PROFILES for the Elasticsearch profile
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: read
+        key: COMPOSE_PROFILES
+      register: _mig_es_profiles
+
+    - name: Remove the Elasticsearch profile
+      canasta_env:
+        path: "{{ instance_path }}/.env"
+        state: set
+        key: COMPOSE_PROFILES
+        value: >-
+          {{ _mig_es_profile_list | reject('equalto', 'elasticsearch') | join(',') }}
+      vars:
+        _mig_es_profile_list: >-
+          {{ (_mig_es_profiles.value | default('')) | split(',') | map('trim')
+             | reject('equalto', '') | list }}
+      when: "'elasticsearch' in _mig_es_profile_list"
+
+    - name: Find the Elasticsearch container
+      ansible.builtin.command:
+        argv:
+          - "{{ inspect_command | default('docker') }}"
+          - ps
+          - -aq
+          - --filter
+          - "label=com.docker.compose.project={{ _mig_es_project }}"
+          - --filter
+          - label=com.docker.compose.service=elasticsearch
+      register: _mig_es_containers
+      changed_when: false
+
+    - name: Remove the Elasticsearch container
+      ansible.builtin.command:
+        argv: "{{ [inspect_command | default('docker'), 'rm', '-f'] + _mig_es_containers.stdout_lines }}"
+      changed_when: true
+      when: _mig_es_containers.stdout_lines | length > 0
+
+    # Docker Compose and podman-compose both name it <project>_elasticsearch.
+    - name: Check for the Elasticsearch volume
+      ansible.builtin.command:
+        argv:
+          - "{{ inspect_command | default('docker') }}"
+          - volume
+          - inspect
+          - "{{ _mig_es_project }}_elasticsearch"
+      register: _mig_es_volume
+      changed_when: false
+      failed_when: false
+
+    - name: Remove the Elasticsearch volume
+      ansible.builtin.command:
+        argv:
+          - "{{ inspect_command | default('docker') }}"
+          - volume
+          - rm
+          - "{{ _mig_es_project }}_elasticsearch"
+      changed_when: true
+      when: _mig_es_volume.rc == 0
+
+    # They would load the extensions a second time, and make CirrusSearch the
+    # search engine before the wiki's OpenSearch index is built.
+    - name: Remove the hand-written search settings
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ _mig.search_settings.only | default([]) }}"
+
+    - name: Report the hand-written search settings removed
+      ansible.builtin.debug:
+        msg: >-
+          Removed {{ _mig.search_settings.only | map('relpath', instance_path)
+          | join(', ') }}: Canasta writes CirrusSearch's settings for
+          OpenSearch itself.
+      when: _mig.search_settings.only | default([]) | length > 0
+
+    - name: Report hand-written search settings left in place
+      ansible.builtin.debug:
+        msg: >-
+          {{ _mig.search_settings.mixed | map('relpath', instance_path)
+          | join(', ') }} {{ 'sets' if _mig.search_settings.mixed | length == 1
+          else 'set' }} $wgCirrusSearchServers, $wgSearchType or loads
+          CirrusSearch or Elastica, alongside other settings, so
+          {{ 'it was' if _mig.search_settings.mixed | length == 1
+          else 'they were' }} left in place. Canasta writes CirrusSearch's
+          settings for OpenSearch and enables both extensions itself, so
+          those lines need removing.
+      when: _mig.search_settings.mixed | default([]) | length > 0
+
+    - name: Report that the wikis need indexing again
+      ansible.builtin.debug:
+        msg: >-
+          The Elasticsearch indexes were removed, since OpenSearch can't read
+          them. The wikis search the database until their OpenSearch indexes
+          are built.
+      when: _mig_es_on | bool or _mig_es_volume.rc == 0

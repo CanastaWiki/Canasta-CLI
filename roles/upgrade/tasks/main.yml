@@ -76,6 +76,7 @@
     - rename_tls_keys.yml
     - convert_backup_schedule_retention.yml
     - adopt_own_redis.yml
+    - elasticsearch_to_opensearch.yml
   loop_control:
     loop_var: _migration
 
