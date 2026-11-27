@@ -438,7 +438,7 @@
           or '443' in [_preflight_http_port, _preflight_https_port]
 
     # The host memory floor is profile-aware (~2 GiB base, ~4 GiB with
-    # Elasticsearch or observability, ~8 GiB with both), so it can't be checked
+    # OpenSearch or observability, ~8 GiB with both), so it can't be checked
     # here: preflight runs before the -e envfile is merged, so the intended
     # feature flags aren't known yet. create enforces it in _env_update.yml
     # once .env is finalized, via roles/orchestrator/tasks/check_host_memory.yml.

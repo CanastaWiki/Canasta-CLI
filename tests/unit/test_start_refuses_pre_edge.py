@@ -202,7 +202,9 @@ def _config_set(tmp_path, compose, no_restart):
                ANSIBLE_CALLBACK_PLUGINS=os.path.join(REPO_ROOT, "callback_plugins"),
                ANSIBLE_ROLES_PATH=os.path.join(REPO_ROOT, "roles"),
                ANSIBLE_FILTER_PLUGINS=os.path.join(REPO_ROOT, "filter_plugins"),
-               ANSIBLE_LIBRARY=os.path.join(common, "library"),
+               ANSIBLE_LIBRARY=os.pathsep.join([
+                   os.path.join(common, "library"),
+                   os.path.join(REPO_ROOT, "roles", "extensions_skins", "library")]),
                ANSIBLE_MODULE_UTILS=os.path.join(common, "module_utils"))
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
     proc = subprocess.run([playbook, "-i", "localhost,", str(play)],

@@ -216,6 +216,11 @@
       vars:
         edge_member: absent
 
+    - name: Take the instance out of the host's OpenSearch
+      ansible.builtin.include_tasks: opensearch_sync.yml
+      vars:
+        opensearch_member: absent
+
 - name: Destroy (Kubernetes)
   when: instance_is_k8s | bool
   block:

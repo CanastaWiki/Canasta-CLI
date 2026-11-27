@@ -354,7 +354,8 @@ def _compose_file_args(path, host, devmode=False, include_sidecars=False):
 
     docker-compose.web-env.yml is layered whenever present: every change
     to its key list re-renders or removes it, and so is
-    docker-compose.edge.yml, which the edge sync writes or removes.
+    docker-compose.edge.yml, which the edge sync writes or removes, and
+    docker-compose.opensearch.yml, which the OpenSearch sync does.
     """
     def _exists(name):
         full = os.path.join(path, name)
@@ -370,6 +371,8 @@ def _compose_file_args(path, host, devmode=False, include_sidecars=False):
         files.append("docker-compose.web-env.yml")
     if _exists("docker-compose.edge.yml"):
         files.append("docker-compose.edge.yml")
+    if _exists("docker-compose.opensearch.yml"):
+        files.append("docker-compose.opensearch.yml")
     if _exists("docker-compose.override.yml"):
         files.append("docker-compose.override.yml")
     if devmode:
