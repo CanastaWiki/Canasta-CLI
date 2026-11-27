@@ -251,13 +251,6 @@
     - not (reclaim_dry_run | default(false) | bool)
     - _reclaim_crictl_candidates.rc | default(1) != 0
 
-- name: Garbage-collect the in-cluster registry
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/registry_gc.yml
-  when:
-    - _reclaim_k8s.rc == 0
-    - not (reclaim_dry_run | default(false) | bool)
-
 - name: Report when the host has nothing to reclaim
   ansible.builtin.debug:
     msg: >-

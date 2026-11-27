@@ -85,26 +85,6 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/upgrade_db_migration.yml
 
-# Self-heal the cluster: deploy the in-cluster registry + per-node trust if a
-# cluster installed before this support lacks them. Idempotent (a no-op once
-# present), no k3s restart. Runs for every k8s instance so the registry is
-# guaranteed present after upgrading — both for build_from below and going
-# forward — without a separate `canasta install k8s-cp` step.
-- name: Ensure the in-cluster image registry (Kubernetes)
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/k8s_ensure_registry.yml
-  when: instance_is_k8s | bool
-
-- name: Limit Canasta NFS exports to the cluster's nodes (Kubernetes)
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/k8s_nfs_exports_upgrade.yml
-  when: instance_is_k8s | bool
-
-- name: Restrict the k3s kubeconfig (Kubernetes)
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/k8s_kubeconfig_mode_upgrade.yml
-  when: instance_is_k8s | bool
-
 # --- Rebuild custom image if instance was built from source ---
 - name: Check for BuildFrom in registry
   canasta_registry:
@@ -245,12 +225,6 @@
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/refresh_gitignore.yml
 
-# Argo CD renders a Kubernetes gitops repo's own copy of the chart, which
-# 'gitops init' wrote once. No-ops on other instances.
-- name: Refresh the gitops repo's Helm chart
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/gitops/tasks/refresh_chart.yml
-
 # Create wikis.yaml.template for a gitops instance that lacks it (e.g. a
 # Go-CLI-era repo predating the template). Without it the wikis.yaml
 # reconcile/advisory machinery is inert. No-ops on non-gitops instances
@@ -299,11 +273,6 @@
   ansible.builtin.set_fact:
     _upgrade_stage_only: >-
       {{ (instance_is_k8s | bool) and _upgrade_gitops_marker.stat.exists }}
-
-- name: Move the Argo CD Application into the instance's own project
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/gitops/tasks/migrate_argo_project.yml
-  when: _upgrade_stage_only | bool
 
 # --- Bump configured image tag (orchestrator-specific) ---
 # K8s updates values.yaml image.tag and CANASTA_IMAGE in .env; Compose
@@ -498,106 +467,6 @@
     - not (_mig_db_redeployed | default(false) | bool)
     - (_upgrade_build_failed_services | default([]) | length) == 0
     - not (_upgrade_stage_only | bool)
-
-- name: Leave the deploy of a gitops-managed instance to Argo CD
-  when: _upgrade_stage_only | bool
-  block:
-    - name: Check for changes staged in the gitops repo
-      ansible.builtin.command:
-        cmd: "git diff --cached --quiet --no-textconv"
-        chdir: "{{ instance_path }}"
-      register: _upgrade_gitops_diff
-      changed_when: false
-      failed_when: _upgrade_gitops_diff.rc > 1
-
-    - name: Decide whether the instance awaits a gitops push
-      ansible.builtin.set_fact:
-        _upgrade_gitops_pending: >-
-          {{ _upgrade_gitops_diff.rc == 1 or (_images_updated | bool)
-             or (_upgrade_caddy_image_changed | default(false) | bool) }}
-
-    # A rebuilt image is pushed under the same reference, so the pushed
-    # values do not change and Argo CD would not roll the pods onto it.
-    - name: Restart the web pods onto a rebuilt image
-      when:
-        - _upgrade_rebuilt_image_changed | bool
-        - _was_running | bool
-      block:
-        - name: Restart the web pods
-          ansible.builtin.command:
-            cmd: >-
-              kubectl rollout restart deployment/canasta-{{ instance_id }}-web
-              -n canasta-{{ instance_id }}
-          changed_when: true
-
-        - name: Wait for the web pods to run the rebuilt image
-          block:
-            - name: Wait for the web deployment to roll out
-              ansible.builtin.command:
-                cmd: >-
-                  kubectl rollout status deployment/canasta-{{ instance_id }}-web
-                  -n canasta-{{ instance_id }} --timeout=300s
-              changed_when: false
-          rescue:
-            - name: Report why the rollout did not finish
-              ansible.builtin.include_role:
-                name: orchestrator
-                tasks_from: k8s_capture_rollout_failure.yml
-              vars:
-                _k8s_namespace: "canasta-{{ instance_id }}"
-
-            - name: Fail with the original rollout error
-              ansible.builtin.fail:
-                msg: >-
-                  The web pods of '{{ instance_id }}' did not roll out onto
-                  the rebuilt image. The output above explains why.
-                  {{ ansible_failed_result.msg | default('') }}
-
-        - name: Report the web pods restarted
-          ansible.builtin.debug:
-            msg: >-
-              Restarted the web pods of '{{ instance_id }}' onto the rebuilt
-              image.
-
-        - name: Report a failed startup composer update
-          ansible.builtin.include_tasks: "{{ canasta_root }}/roles/mediawiki/tasks/report_composer_failure.yml"
-      rescue:
-        - name: Record the failed restart
-          ansible.builtin.include_tasks: record_restart_failure.yml
-
-    - name: Report the upgrade staged for a gitops push
-      ansible.builtin.debug:
-        msg: >-
-          {% if _was_running | bool -%}
-          Upgrade of '{{ instance_id }}' is staged in its gitops repo but not
-          deployed. Run 'canasta gitops push -i {{ instance_id }}', then
-          'canasta gitops sync -i {{ instance_id }}', to deploy it.
-          {%- else -%}
-          Upgrade of '{{ instance_id }}' is staged in its gitops repo but not
-          deployed. The instance was stopped, so it was left stopped. Run
-          'canasta gitops push -i {{ instance_id }}'; the changes deploy the
-          next time it starts.
-          {%- endif %}
-          {%- if _mig_db_staged | default(false) | bool %}
-          The deploy also moves MediaWiki to its own 'mediawiki' database
-          account.
-          {%- endif %}
-      when: _upgrade_gitops_pending | bool
-
-    - name: Record the instance awaiting a gitops push
-      ansible.builtin.set_fact:
-        _upgrade_gitops_staged: "{{ (_upgrade_gitops_staged | default([])) + [instance_id] }}"
-      when:
-        - _upgrade_gitops_pending | bool
-        - not (_upgrade_restart_failed | bool)
-
-    - name: Report nothing staged
-      ansible.builtin.debug:
-        msg: >-
-          {{ 'Nothing staged for a gitops push.'
-             if (_upgrade_rebuilt_image_changed | bool and _was_running | bool)
-             else 'Already up to date — nothing staged for a gitops push.' }}
-      when: not (_upgrade_gitops_pending | bool)
 
 # Recorded rather than failed here so the remaining instances still upgrade;
 # the playbook fails once the loop is done.

@@ -1,12 +1,12 @@
 """An unavailable Central API (CAPI) must not take CrowdSec's local API down.
 
 The engine will not start while CAPI refuses its credentials, or cannot be
-reached and the engine has no cached CAPI token. The start wrapper the
-crowdsec container (Compose) and sidecar (K8s) both run keeps those
-credentials aside, runs the engine with the local API only, and puts them
-back once CAPI accepts them. The wrapper is run here under /bin/sh with
-stub `crowdsec` entrypoint and `cscli` executables, and ensure_capi.yml is
-run against a stub cscli.
+reached and the engine has no cached CAPI token. The crowdsec container's
+start wrapper keeps those credentials aside, runs the engine with the local
+API only, and puts them back once CAPI accepts them. The wrapper, the
+crowdsec service's entrypoint in docker-compose.yml, is run here under
+/bin/sh with stub `crowdsec` entrypoint and `cscli` executables, and
+ensure_capi.yml is run against a stub cscli.
 """
 
 import os
@@ -18,8 +18,6 @@ import yaml
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ROLES = os.path.join(REPO_ROOT, "roles")
-CHART = os.path.join(ROLES, "orchestrator", "files", "helm", "canasta")
-WRAPPER = os.path.join(CHART, "files", "crowdsec-start.sh")
 COMPOSE = os.path.join(ROLES, "orchestrator", "files", "compose",
                        "docker-compose.yml")
 CREDS = "/etc/crowdsec/online_api_credentials.yaml"
@@ -62,8 +60,10 @@ exit 1
 
 
 def _wrapper():
-    with open(WRAPPER) as f:
-        return f.read()
+    with open(COMPOSE) as f:
+        entrypoint = yaml.safe_load(f)["services"]["crowdsec"]["entrypoint"]
+    assert entrypoint[:2] == ["/bin/sh", "-c"]
+    return entrypoint[2].replace("$$", "$")
 
 
 def _run_wrapper(tmp_path, creds=None, refused=None):
@@ -198,17 +198,6 @@ class TestStartWrapper:
         assert creds == ""
         assert kept is None
         assert "could not register with the Central API" in proc.stderr
-
-
-class TestWrapperIsShared:
-    def test_compose_runs_the_chart_wrapper(self):
-        with open(COMPOSE) as f:
-            svc = yaml.safe_load(f)["services"]["crowdsec"]
-        assert svc["entrypoint"][:2] == ["/bin/sh", "-c"]
-        assert svc["entrypoint"][2].replace("$$", "$") == _wrapper()
-
-    def test_chart_wrapper_has_no_compose_escaping(self):
-        assert "$$" not in _wrapper()
 
 
 # --- ensure_capi.yml ---------------------------------------------------------

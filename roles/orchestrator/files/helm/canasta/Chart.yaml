@@ -1,6 +1,0 @@
-apiVersion: v2
-name: canasta
-description: Canasta MediaWiki stack
-type: application
-version: 1.0.0
-appVersion: "3.5.2"

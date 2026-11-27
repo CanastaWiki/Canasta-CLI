@@ -1044,22 +1044,22 @@ class TestDidYouMean:
         return capsys.readouterr().err
 
     def test_typo_in_subcommand_group_suggests(self, parser, capsys):
-        err = self._run(parser, ["argocd", "up"], capsys)
-        assert "invalid choice: 'up'" in err
-        assert "Did you mean 'ui'?" in err
+        err = self._run(parser, ["host", "lst"], capsys)
+        assert "invalid choice: 'lst'" in err
+        assert "Did you mean 'list'?" in err
 
     def test_typo_in_subcommand_group_misspelling_suggests(self, parser, capsys):
-        err = self._run(parser, ["argocd", "pasword"], capsys)
-        assert "Did you mean 'password'?" in err
+        err = self._run(parser, ["host", "remvoe"], capsys)
+        assert "Did you mean 'remove'?" in err
 
     def test_top_level_typo_suggests(self, parser, capsys):
-        err = self._run(parser, ["storrage"], capsys)
-        assert "Did you mean 'storage'?" in err
+        err = self._run(parser, ["sidecr"], capsys)
+        assert "Did you mean 'sidecar'?" in err
 
     def test_far_off_typo_no_suggestion(self, parser, capsys):
         """Suggestion suppressed when nothing is close enough — better
         no hint than a misleading one."""
-        err = self._run(parser, ["argocd", "totallybogus"], capsys)
+        err = self._run(parser, ["host", "totallybogus"], capsys)
         assert "Did you mean" not in err
         assert "invalid choice: 'totallybogus'" in err
 
@@ -1129,8 +1129,8 @@ class TestInstallCommand:
         with pytest.raises(SystemExit):
             parser.parse_args(["install"])
         err = capsys.readouterr().err
-        for pkg in ("docker", "k8s-cp", "k8s-worker",
-                    "git-crypt", "sops", "canasta", "uv"):
+        for pkg in ("docker", "git-crypt", "sops", "podman",
+                    "docker-rootless", "canasta", "uv"):
             assert pkg in err, (
                 "usage must list %s; an opaque PACKAGES metavar leaves the "
                 "valid values undiscoverable" % pkg
@@ -1825,9 +1825,9 @@ class TestNestedGroupHelp:
             "backup", "schedule"
         )
 
-    def test_nested_group_for_storage_setup(self):
-        assert canasta_cli.nested_group_for("storage_setup") == (
-            "storage", "setup"
+    def test_nested_group_for_backup_databases(self):
+        assert canasta_cli.nested_group_for("backup_databases") == (
+            "backup", "databases"
         )
 
     def test_nested_group_for_leaf_command_is_none(self):

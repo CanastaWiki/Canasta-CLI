@@ -15,7 +15,9 @@
 name: Wiki Examples
 
 on:
+  # canasta.wiki documents the released CLI, which comes from main.
   pull_request:
+    branches: [main]
     paths:
       - 'meta/command_definitions.yml'
       - 'scripts/validate_wiki_examples.py'
