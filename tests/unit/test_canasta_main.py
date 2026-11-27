@@ -297,4 +297,31 @@ class TestUpgradeSelfUpdate:
         seen = []
         monkeypatch.setattr(canasta, "self_update_cli", lambda **kw: seen.append(kw))
         assert _run(monkeypatch, argv) == "exec"
+        before_major = seen[0].pop("before_major")
         assert seen == [{"dev": False, "allow_major": False, "dry_run": dry_run}]
+        assert callable(before_major)
+
+    @pytest.mark.parametrize("dry_run,upgrade_rc,check_rc,ok,runs", [
+        (False, 0, 0, True, 2),
+        (False, 0, 2, False, 2),
+        (False, 2, 0, False, 1),
+        (True, 0, 2, False, 1),
+    ])
+    def test_before_major_upgrades_then_checks(
+            self, monkeypatch, capsys, dry_run, upgrade_rc, check_rc, ok, runs):
+        # The instances are upgraded on this release first (skipped in a dry
+        # run), then checked with upgrade_preflight_major.
+        built, called = [], []
+        monkeypatch.setattr(
+            canasta, "build_ansible_args",
+            lambda pb, name, args, data, extra=None: built.append(extra) or [name])
+        rcs = iter([check_rc] if dry_run else [upgrade_rc, check_rc])
+        monkeypatch.setattr(canasta.subprocess, "call",
+                            lambda argv: called.append(argv) or next(rcs))
+        args = type("A", (), {"dry_run": dry_run})()
+        assert canasta.before_major_upgrade("ap", "upgrade", args, {}, 5) is ok
+        assert len(called) == runs
+        if not dry_run:
+            assert built[0] is None
+        if runs == 2 or dry_run:
+            assert built[-1] == {"upgrade_preflight_major": 5}

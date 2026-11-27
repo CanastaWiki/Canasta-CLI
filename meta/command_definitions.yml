@@ -1207,6 +1207,23 @@ commands:
       including a new major version (which may include breaking changes).
       Pass --dev to track the development branch (head of main) instead.
 
+      A move to a new major version goes in steps. The CLI first updates to
+      the latest release of its current major and upgrades every instance
+      there, as `canasta upgrade` does. It then checks every instance for
+      what would stop it from moving, and moves to the new major only if
+      nothing does; otherwise it names each problem and stays where it is,
+      with no instance moved. For the move to 5.x, which runs MediaWiki
+      1.47 on Docker Compose only, these stop it: a Kubernetes instance; the
+      Interwiki, Lingo or SemanticWatchlist extension enabled or loaded, which
+      the 1.47 image does not ship; an enabled extension in `user-extensions`
+      whose `requires.MediaWiki` excludes 1.47; and `php8.2` packages or
+      `/etc/php/8.2` in `docker-compose.override.yml`, `config/sidecars.yaml`,
+      a `Dockerfile` in the instance directory or an image build argument.
+      Settings that MediaWiki 1.44 removed, `CANASTA_ELASTICSEARCH_IMAGE`, and
+      an image built from source are named for a look before the move.
+      `--dry-run --allow-major` runs the checks of the installed version and
+      changes nothing.
+
       Pass --purge to reclaim disk after the upgrade: each upgraded host has
       the Canasta images the upgrade superseded removed (never one an instance
       on that host is pinned to, running or stopped), dangling sidecar-rebuild

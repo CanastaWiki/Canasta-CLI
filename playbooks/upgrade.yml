@@ -5,6 +5,15 @@
 # That keeps the running ansible-playbook process from holding a
 # stale ansible.cfg / module_utils path in memory across a pull.
 
+# Run by canasta.py before the CLI moves to a new major release.
+- name: Check the instances for the new major release
+  ansible.builtin.include_tasks: _major_preflight.yml
+  when: upgrade_preflight_major is defined
+
+- name: End after the check for the new major release
+  ansible.builtin.meta: end_play
+  when: upgrade_preflight_major is defined
+
 # --- Upgrade instances ---
 - name: Get all instances
   canasta_registry:

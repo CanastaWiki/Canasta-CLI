@@ -1557,17 +1557,126 @@ class TestSelfUpdateCli:
         assert "newer major release (v5.0.0)" in out
         assert "--allow-major" in out
 
-    def test_allow_major_crosses_to_latest_overall(
-        self, monkeypatch, tmp_path, capsys,
+    @pytest.fixture
+    def _isolate_major_step_flag(self, monkeypatch):
+        monkeypatch.delenv("CANASTA_MAJOR_STEP", raising=False)
+        yield
+        os.environ.pop("CANASTA_MAJOR_STEP", None)
+
+    def test_allow_major_first_moves_to_the_latest_release_of_its_major(
+        self, monkeypatch, tmp_path, capsys, _isolate_major_step_flag,
     ):
-        # With --allow-major the cap is lifted: from 4.2.1 it jumps straight
-        # to the latest overall (v5.0.0), and prints no major hint.
+        # From 4.2.1 with v4.3.1 out, the move to v5.0.0 goes through v4.3.1,
+        # and runs again from there instead of crossing at once.
         self._patch_repo(monkeypatch, tmp_path, version="4.2.1")
         monkeypatch.setattr(canasta_cli.os, "execv", lambda *a: None)
         runner, calls = self._make_runner([
             {"stdout": "old1234\n"},                      # rev-parse HEAD
             {"stdout": ""},                                # fetch --tags
             {"stdout": "v4.2.1\nv4.3.1\nv5.0.0\n"},        # tag -l v*
+            {"stdout": "v4.2.1\nv4.3.1\nv5.0.0\n"},        # tag -l (step)
+            {"returncode": 1},                             # merge-base v4.3.1
+            {"stdout": "new4310\n"},                       # rev-parse v4.3.1
+            {"returncode": 1},                             # merge-base → move
+            {"stdout": ""},                                # checkout v4.3.1
+            {"stdout": "new4310\n"},                       # rev-parse new HEAD
+            {"stdout": "2026-05-05 10:00:00\n"},           # log -1 date
+            {"stdout": ""},                                # pip install
+            {"stdout": ""},                                # ansible-galaxy
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+        checked = []
+        canasta_cli.self_update_cli(allow_major=True,
+                                    before_major=lambda m: checked.append(m))
+        out = capsys.readouterr().out
+        assert "Moving to v4.3.1, the latest 4.x release, before v5.0.0." in out
+        assert ["checkout", "v4.3.1"] == calls[7][1:]
+        assert not any("v5.0.0" in c for c in calls if c[1] == "checkout")
+        assert checked == []
+        assert os.environ.get("CANASTA_MAJOR_STEP") == "1"
+        assert os.environ.get("CANASTA_SELF_UPDATED") is None
+
+    @pytest.mark.parametrize("passes", [True, False])
+    def test_allow_major_checks_before_crossing(
+        self, monkeypatch, tmp_path, capsys, _isolate_major_step_flag, passes,
+    ):
+        # On the latest 4.x, the instances are upgraded and checked first,
+        # and the CLI crosses to v5.0.0 only if that succeeds.
+        self._patch_repo(monkeypatch, tmp_path, version="4.3.1")
+        monkeypatch.setattr(canasta_cli.os, "execv", lambda *a: None)
+        effects = [
+            {"stdout": "cur4310\n"},                      # rev-parse HEAD
+            {"stdout": ""},                                # fetch --tags
+            {"stdout": "v4.3.1\nv5.0.0\n"},                # tag -l v*
+            {"stdout": "v4.3.1\nv5.0.0\n"},                # tag -l (step)
+            {"returncode": 0},                             # merge-base v4.3.1
+        ]
+        if passes:
+            effects += [
+                {"stdout": "new5000\n"},                   # rev-parse v5.0.0
+                {"returncode": 1},                         # merge-base → move
+                {"stdout": ""},                            # checkout v5.0.0
+                {"stdout": "new5000\n"},                   # rev-parse new HEAD
+                {"stdout": "2026-05-05 10:00:00\n"},       # log -1 date
+                {"stdout": ""},                            # pip install
+                {"stdout": ""},                            # ansible-galaxy
+            ]
+        runner, calls = self._make_runner(effects)
+        monkeypatch.setattr(_subprocess, "run", runner)
+        checked = []
+
+        def before(major):
+            checked.append(major)
+            return passes
+
+        if passes:
+            canasta_cli.self_update_cli(allow_major=True, before_major=before)
+            assert ["checkout", "v5.0.0"] == calls[7][1:]
+            assert os.environ.get("CANASTA_SELF_UPDATED") == "1"
+        else:
+            with pytest.raises(SystemExit):
+                canasta_cli.self_update_cli(allow_major=True, before_major=before)
+            assert "stays on 4.3.1, and no instance moved to 5.x" in capsys.readouterr().err
+            assert not any(c[1] == "checkout" for c in calls)
+        assert checked == [5]
+
+    def test_allow_major_dry_run_only_reports_the_checks(
+        self, monkeypatch, tmp_path, capsys, _isolate_major_step_flag,
+    ):
+        # A dry run moves nothing, not even to the latest 4.x, and a
+        # failing check does not end it.
+        self._patch_repo(monkeypatch, tmp_path, version="4.2.1")
+        runner, calls = self._make_runner([
+            {"stdout": "old1234\n"},                      # rev-parse HEAD
+            {"stdout": ""},                                # fetch --tags
+            {"stdout": "v4.2.1\nv4.3.1\nv5.0.0\n"},        # tag -l v*
+            {"stdout": "v4.2.1\nv4.3.1\nv5.0.0\n"},        # tag -l (step)
+            {"returncode": 1},                             # merge-base v4.3.1
+            {"stdout": "new5000\n"},                       # rev-parse v5.0.0
+            {"returncode": 1},                             # merge-base
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+        checked = []
+        canasta_cli.self_update_cli(allow_major=True, dry_run=True,
+                                    before_major=lambda m: checked.append(m))
+        out = capsys.readouterr().out
+        assert checked == [5]
+        assert "runs those of v4.3.1, the latest 4.x release" in out
+        assert not any(c[1] == "checkout" for c in calls)
+
+    def test_allow_major_crosses_to_latest_overall(
+        self, monkeypatch, tmp_path, capsys, _isolate_major_step_flag,
+    ):
+        # With --allow-major the cap is lifted: from the latest 4.x it moves
+        # to the latest overall (v5.0.0), and prints no major hint.
+        self._patch_repo(monkeypatch, tmp_path, version="4.3.1")
+        monkeypatch.setattr(canasta_cli.os, "execv", lambda *a: None)
+        runner, calls = self._make_runner([
+            {"stdout": "old1234\n"},                      # rev-parse HEAD
+            {"stdout": ""},                                # fetch --tags
+            {"stdout": "v4.2.1\nv4.3.1\nv5.0.0\n"},        # tag -l v*
+            {"stdout": "v4.2.1\nv4.3.1\nv5.0.0\n"},        # tag -l (step)
+            {"returncode": 0},                             # merge-base v4.3.1
             {"stdout": "new5000\n"},                       # rev-parse v5.0.0
             {"returncode": 1},                             # merge-base → move
             {"stdout": ""},                                # checkout v5.0.0

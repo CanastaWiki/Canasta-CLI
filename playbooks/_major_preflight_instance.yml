@@ -1,0 +1,62 @@
+---
+# Check one instance for what would stop it from moving to Canasta CLI 5.x.
+# Input: _inst (dict with key=id, value=instance details)
+# Output: appends "'<id>': <finding>" to _preflight_blockers and
+#         _preflight_warnings, and the id to _preflight_blocked
+
+- name: Set instance facts for the preflight
+  ansible.builtin.set_fact:
+    instance_id: "{{ _inst.key }}"
+    instance_path: "{{ _inst.value.path }}"
+    instance_orchestrator: "{{ _inst.value.orchestrator | default('compose') }}"
+    inspect_command: >-
+      {{ _inst.value.inspectCommand
+         | default(_upgrade_default_inspect_command) }}
+    instance_docker_host: "{{ _inst.value.dockerHost | default('') }}"
+    _instance_host: "{{ _inst.value.host | default('localhost') }}"
+
+# 5.x has no Kubernetes support.
+- name: Note a Kubernetes instance
+  ansible.builtin.set_fact:
+    _preflight_blockers: >-
+      {{ _preflight_blockers + ["'" ~ instance_id ~ "': It runs on Kubernetes, "
+         ~ "which Canasta CLI 5.x does not support. Move it to Docker Compose "
+         ~ "with a backup and a restore first."] }}
+    _preflight_blocked: "{{ _preflight_blocked + [instance_id] }}"
+  when: instance_is_k8s | bool
+
+- name: Check a Docker Compose instance
+  when: not (instance_is_k8s | bool)
+  block:
+    - name: Switch connection to instance host
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/switch_connection.yml"
+
+    - name: Probe the instance for the new major
+      ansible.builtin.script:
+        cmd: >-
+          {{ canasta_root }}/roles/upgrade/files/probe_major_preflight.py
+          {{ instance_path | quote }}
+          {{ (_inst.value.buildArgs | default([])) | to_json | quote }}
+      register: _preflight_probe
+      changed_when: false
+
+    - name: Note what the probe found
+      ansible.builtin.set_fact:
+        _preflight_blockers: >-
+          {{ _preflight_blockers + (_found.blockers | map('regex_replace', '^', _prefix) | list) }}
+        _preflight_warnings: >-
+          {{ _preflight_warnings + (_found.warnings | map('regex_replace', '^', _prefix) | list) }}
+        _preflight_blocked: >-
+          {{ _preflight_blocked + ([instance_id] if _found.blockers | length > 0 else []) }}
+      vars:
+        _found: "{{ _preflight_probe.stdout | from_json }}"
+        _prefix: "'{{ instance_id }}': "
+
+# The 5.x upgrade rebuilds the image from the recorded source.
+- name: Note an image built from source
+  ansible.builtin.set_fact:
+    _preflight_warnings: >-
+      {{ _preflight_warnings + ["'" ~ instance_id ~ "': Its image is built from "
+         ~ "source at " ~ _inst.value.buildFrom ~ ", which the 5.x upgrade "
+         ~ "rebuilds from, so that checkout needs Canasta code for MediaWiki 1.47."] }}
+  when: (_inst.value.buildFrom | default('')) | length > 0
