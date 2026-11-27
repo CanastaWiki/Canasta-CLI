@@ -2558,10 +2558,11 @@ def build_ansible_args(ansible_playbook, command_name, args, data,
 
 
 def before_major_upgrade(ansible_playbook, command_name, args, data, major):
-    """Upgrade every instance on this release, then check them for `major`.
+    """Upgrade every instance on this release, check them for `major`,
+    then back each one up unless --skip-backup is given.
 
-    True when the move to `major` can go ahead. A dry run upgrades
-    nothing and only reports the checks.
+    True when the move to `major` can go ahead. A dry run upgrades and
+    backs up nothing and only reports the checks.
     """
     dry_run = getattr(args, "dry_run", False)
     if not dry_run:
@@ -2579,7 +2580,18 @@ def before_major_upgrade(ansible_playbook, command_name, args, data, major):
     rc = subprocess.call(build_ansible_args(
         ansible_playbook, command_name, args, data,
         extra={"upgrade_preflight_major": major}))
-    return rc == 0
+    if rc != 0 or dry_run or getattr(args, "skip_backup", False):
+        return rc == 0
+    print("Backing up the instances before moving to %d.x..." % major)
+    sys.stdout.flush()
+    rc = subprocess.call(build_ansible_args(
+        ansible_playbook, command_name, args, data,
+        extra={"upgrade_backup_major": major}))
+    if rc != 0:
+        print("A backup failed, so the CLI did not move to %d.x." % major,
+              file=sys.stderr)
+        return False
+    return True
 
 
 def should_prompt_confirmation(cmd_def, yes_passed):

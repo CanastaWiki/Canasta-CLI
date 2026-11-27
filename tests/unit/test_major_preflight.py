@@ -141,6 +141,14 @@ def test_an_elasticsearch_image_warns(inst):
     assert found["warnings"][0].startswith("CANASTA_ELASTICSEARCH_IMAGE is set")
 
 
+def test_no_backup_repository_blocks_unless_the_backup_is_skipped(inst):
+    assert probe.check(str(inst))["blockers"] == []
+    blockers = probe.check(str(inst), need_backup=True)["blockers"]
+    assert len(blockers) == 1 and blockers[0].startswith("It has no backup repository")
+    _write(inst, ".env", "RESTIC_REPOSITORY=/srv/restic\n")
+    assert probe.check(str(inst), need_backup=True)["blockers"] == []
+
+
 def test_the_probe_runs_as_a_script(inst):
     _settings(inst, ["Interwiki"])
     out = subprocess.run([sys.executable, "-I", PROBE, str(inst), "[]"],
@@ -150,7 +158,7 @@ def test_the_probe_runs_as_a_script(inst):
 
 # --- The playbook, across the registry's instances ---
 
-def _run_preflight(tmp_path, instances, dry_run=False):
+def _run_preflight(tmp_path, instances, dry_run=False, skip_backup=True):
     conf = tmp_path / "conf"
     conf.mkdir()
     (conf / "conf.json").write_text(json.dumps({"Instances": instances}))
@@ -162,6 +170,7 @@ def _run_preflight(tmp_path, instances, dry_run=False):
         "vars": {"canasta_root": REPO_ROOT,
                  "upgrade_preflight_major": 5,
                  "dry_run": dry_run,
+                 "skip_backup": skip_backup,
                  "inspect_command": "docker",
                  "instance_is_k8s": "{{ (instance_orchestrator | default('compose')) "
                                     "in ['kubernetes', 'k8s'] }}",
@@ -211,9 +220,20 @@ def test_nothing_found_lets_the_move_go_ahead(tmp_path, inst):
     assert "Nothing stops the move to 5.x." in proc.stdout
 
 
-def test_the_upgrade_playbook_only_checks_when_asked():
+def test_an_instance_with_no_backup_repository_stops_the_move(tmp_path, inst):
+    proc = _run_preflight(tmp_path, {"norepo": {"path": str(inst)}},
+                          skip_backup=False)
+    out = proc.stdout + proc.stderr
+    assert proc.returncode != 0, out
+    assert "Stops the move to 5.x: 'norepo': It has no backup repository" in out
+
+
+def test_the_upgrade_playbook_only_checks_or_backs_up_when_asked():
     tasks = yaml.safe_load(open(UPGRADE))
     assert tasks[0]["ansible.builtin.include_tasks"] == "_major_preflight.yml"
     assert tasks[0]["when"] == "upgrade_preflight_major is defined"
-    assert tasks[1]["ansible.builtin.meta"] == "end_play"
-    assert tasks[1]["when"] == "upgrade_preflight_major is defined"
+    assert tasks[1]["ansible.builtin.include_tasks"] == "_major_backup.yml"
+    assert tasks[1]["when"] == "upgrade_backup_major is defined"
+    assert tasks[2]["ansible.builtin.meta"] == "end_play"
+    assert tasks[2]["when"] == ("upgrade_preflight_major is defined "
+                                "or upgrade_backup_major is defined")

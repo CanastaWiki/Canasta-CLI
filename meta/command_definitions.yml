@@ -1224,6 +1224,12 @@ commands:
       `--dry-run --allow-major` runs the checks of the installed version and
       changes nothing.
 
+      Once nothing stops the move, every instance is backed up with
+      `canasta backup create`, tagged `before-<major>.x`, and the CLI moves
+      only if every backup succeeds. An instance with no backup repository
+      (`RESTIC_REPOSITORY`) therefore stops the move too. Pass
+      --skip-backup when the instances are backed up already.
+
       Pass --purge to reclaim disk after the upgrade: each upgraded host has
       the Canasta images the upgrade superseded removed (never one an instance
       on that host is pinned to, running or stopped), dangling sidecar-rebuild
@@ -1254,6 +1260,10 @@ commands:
         type: bool
         default: false
         description: "After upgrading, reclaim disk by removing images the upgrade superseded (never removes in-use images or volumes)"
+      - name: skip_backup
+        type: bool
+        default: false
+        description: "With --allow-major, move to a new major release without first backing up every instance"
 
   # ---------------------------------------------------------------------------
   # Wiki management

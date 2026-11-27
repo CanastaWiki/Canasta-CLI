@@ -37,6 +37,7 @@
           {{ canasta_root }}/roles/upgrade/files/probe_major_preflight.py
           {{ instance_path | quote }}
           {{ (_inst.value.buildArgs | default([])) | to_json | quote }}
+          {{ '' if (skip_backup | default(false) | bool) else 'need-backup' }}
       register: _preflight_probe
       changed_when: false
 

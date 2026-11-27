@@ -3,7 +3,7 @@
 # what would stop it from moving. canasta.py runs this, after upgrading the
 # instances on the latest release of the current major, and moves the CLI
 # only if it succeeds. A dry run reports and always succeeds.
-# Input: upgrade_preflight_major, dry_run
+# Input: upgrade_preflight_major, dry_run, skip_backup
 
 - name: Get all instances for the preflight
   canasta_registry:

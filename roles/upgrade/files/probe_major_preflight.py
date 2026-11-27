@@ -234,8 +234,13 @@ def env_value(base, key):
     return ""
 
 
-def check(base, build_args=()):
+def check(base, build_args=(), need_backup=False):
     blockers, warnings = [], []
+    if need_backup and not env_value(base, "RESTIC_REPOSITORY"):
+        blockers.append("It has no backup repository, and every instance is "
+                        "backed up before the move. Set RESTIC_REPOSITORY and "
+                        "RESTIC_PASSWORD with `canasta config set` and run "
+                        "`canasta backup init`, or pass --skip-backup.")
     enabled, removed = enabled_extensions(base)
     own = set(os.listdir(os.path.join(base, "user-extensions"))) \
         if os.path.isdir(os.path.join(base, "user-extensions")) else set()
@@ -260,10 +265,12 @@ def check(base, build_args=()):
 
 def main():
     if len(sys.argv) < 2:
-        print(json.dumps({"error": "usage: probe_major_preflight.py <instance_path> [build args JSON]"}))
+        print(json.dumps({"error": "usage: probe_major_preflight.py <instance_path> "
+                                   "[build args JSON] [need-backup]"}))
         sys.exit(1)
     build_args = json.loads(sys.argv[2]) if len(sys.argv) > 2 else []
-    print(json.dumps(check(sys.argv[1], build_args)))
+    need_backup = len(sys.argv) > 3 and sys.argv[3] == "need-backup"
+    print(json.dumps(check(sys.argv[1], build_args, need_backup)))
 
 
 if __name__ == "__main__":

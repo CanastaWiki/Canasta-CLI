@@ -10,9 +10,13 @@
   ansible.builtin.include_tasks: _major_preflight.yml
   when: upgrade_preflight_major is defined
 
-- name: End after the check for the new major release
+- name: Back up the instances before the new major release
+  ansible.builtin.include_tasks: _major_backup.yml
+  when: upgrade_backup_major is defined
+
+- name: End after the check or backup for the new major release
   ansible.builtin.meta: end_play
-  when: upgrade_preflight_major is defined
+  when: upgrade_preflight_major is defined or upgrade_backup_major is defined
 
 # --- Upgrade instances ---
 - name: Get all instances
