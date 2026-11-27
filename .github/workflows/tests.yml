@@ -3,9 +3,9 @@ name: Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, mw-1.47]
   pull_request:
-    branches: [main]
+    branches: [main, mw-1.47]
   workflow_dispatch:
 
 # All jobs in this workflow only read the checkout to run tests and

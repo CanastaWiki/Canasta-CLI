@@ -5,7 +5,6 @@
 # direct_commands/_helpers.py.
 canasta_managed_profiles:
   - {profile: observable, flag: CANASTA_ENABLE_OBSERVABILITY, default: "false"}
-  - {profile: elasticsearch, flag: CANASTA_ENABLE_ELASTICSEARCH, default: "false"}
   - {profile: varnish, flag: CANASTA_ENABLE_VARNISH, default: "true"}
   - {profile: crowdsec, flag: CANASTA_ENABLE_CROWDSEC, default: "false"}
   - {profile: redis, flag: CANASTA_ENABLE_REDIS, default: "false"}
@@ -16,7 +15,6 @@ canasta_managed_profiles:
 # roles/orchestrator/files/compose/docker-compose.yml.
 canasta_managed_profile_services:
   observable: [opensearch, logstash, opensearch-dashboards, observable-init]
-  elasticsearch: [elasticsearch]
   varnish: [varnish]
   crowdsec: [crowdsec]
   redis: [redis]

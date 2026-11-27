@@ -59,7 +59,8 @@ from ansible.module_utils.canasta_env_keys import modernize_values
 # Layer order matches the compose file arguments of
 # roles/orchestrator/tasks/start.yml.
 LAYERS = ("docker-compose.sidecars.yml", "docker-compose.web-env.yml",
-          "docker-compose.edge.yml", "docker-compose.override.yml")
+          "docker-compose.edge.yml", "docker-compose.opensearch.yml",
+          "docker-compose.override.yml")
 DEV_LAYER = "docker-compose.dev.yml"
 EDGE_UNIT = "canasta-edge.service"
 
