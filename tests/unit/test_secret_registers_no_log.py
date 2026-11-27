@@ -31,10 +31,6 @@ _SECRETISH = re.compile(
 # Each entry needs a reason: an unexplained exemption is how a real leak
 # gets waved through.
 _EXEMPT = {
-    "_gitops_key_exists": "stat result — a boolean, not the key",
-    "_app_secrets_stat": "stat result for config/secrets.env",
-    "_app_secrets_web_stat": "stat result for config/secrets-web",
-    "_app_secrets_web_raw": "config/secrets-web holds key NAMES, not values",
     "_exported_key_stat": "stat result — existence and size, not the key",
     "_restore_dbpass_stash_stat": "stat result — the parked file's existence, "
                                   "not the password in it",
@@ -166,10 +162,7 @@ class TestGeneratedSecretKeysAreNoLog:
 
 # Template expressions in a command line that trip _SECRETISH but expand to
 # no secret. Each entry needs a reason, as in _EXEMPT.
-_CMD_EXEMPT = {
-    "_ssh_key_path": "path of the deploy key file, not its contents",
-    "_k3s_agent_token_file": "path of the join token file, not its contents",
-}
+_CMD_EXEMPT = {}
 
 _TEMPLATE_EXPR = re.compile(r"\{\{(.*?)\}\}", re.S)
 
@@ -236,8 +229,7 @@ class TestSecretCommandLinesAreNoLog:
             for command, protected in _command_lines(task)
             if protected and _secret_exprs(command)
         ]
-        assert len(found) >= 3, found
-        assert os.path.join("roles", "gitops", "tasks", "_init_sops.yml") \
+        assert os.path.join("roles", "crowdsec", "tasks", "bouncer_enroll.yml") \
             in found
 
     def test_command_exemptions_still_exist(self):

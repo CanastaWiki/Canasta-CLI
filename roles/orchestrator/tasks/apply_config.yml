@@ -4,7 +4,3 @@
 # Kubernetes: pods copy their config in at startup, so it takes a rollout
 # (k8s_apply_config.yml).
 # Input: instance_id, instance_path, instance_orchestrator
-
-- name: Apply the config to the running pods (Kubernetes)
-  ansible.builtin.include_tasks: k8s_apply_config.yml
-  when: instance_is_k8s | bool

@@ -9,7 +9,6 @@ import os
 
 import yaml
 
-from _k8s_restore_copy import resolve_copy_task
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 COMPOSE = os.path.join(
@@ -34,7 +33,7 @@ def _flatten(tasks):
 def _task(path, name):
     with open(path) as f:
         tasks = list(_flatten(yaml.safe_load(f)))
-    return resolve_copy_task(next(t for t in tasks if t.get("name") == name))
+    return next(t for t in tasks if t.get("name") == name)
 
 
 def _container_script(cmd):

@@ -51,8 +51,3 @@
   when: instance_is_k8s | bool
   ansible.builtin.debug:
     msg: "Kubernetes configuration managed via Helm values.yaml"
-
-# Earlier releases wrote haproxy-backend.cfg into Kubernetes instances too.
-- name: Remove an unused haproxy-backend.cfg from a Kubernetes instance
-  ansible.builtin.include_tasks: remove_k8s_haproxy_backend_cfg.yml
-  when: instance_is_k8s | bool

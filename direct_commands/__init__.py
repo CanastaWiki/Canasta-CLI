@@ -9,14 +9,13 @@ Layout:
                       registry helpers, public registry decorator)
   info.py           — list, version, status
   config.py         — config get
-  lifecycle.py      — start, stop, scale
+  lifecycle.py      — start, stop
   maintenance.py    — maintenance script/extension/update
   host.py           — host list/add/remove
   gitops.py         — gitops status/diff
   extension_skin.py — extension/skin list
   backup.py         — backup list
   doctor.py         — doctor
-  argocd.py         — argocd password/apps/ui
   rebuild.py        — rebuild
   image.py          — image build-args
   wiki_check.py     — wiki-check
@@ -81,7 +80,6 @@ from . import gitops      # noqa: F401
 from . import extension_skin  # noqa: F401
 from . import backup      # noqa: F401
 from . import doctor      # noqa: F401
-from . import argocd      # noqa: F401
 from . import rebuild     # noqa: F401
 from . import image       # noqa: F401
 from . import wiki_check  # noqa: F401
@@ -95,7 +93,7 @@ from .info import (  # noqa: F401
     _gather_all_instances,
 )
 from .config import cmd_config_get  # noqa: F401
-from .lifecycle import cmd_start, cmd_stop, cmd_scale  # noqa: F401
+from .lifecycle import cmd_start, cmd_stop  # noqa: F401
 from .maintenance import (  # noqa: F401
     cmd_maintenance_script,
     cmd_maintenance_extension,
@@ -117,11 +115,6 @@ from .gitops import (  # noqa: F401
 from .extension_skin import cmd_extension_list, cmd_skin_list  # noqa: F401
 from .backup import cmd_backup_list  # noqa: F401
 from .doctor import cmd_doctor, _parse_doctor  # noqa: F401
-from .argocd import (  # noqa: F401
-    cmd_argocd_password,
-    cmd_argocd_apps,
-    cmd_argocd_ui,
-)
 from .rebuild import cmd_rebuild, _list_buildable_services  # noqa: F401
 from .image import cmd_image_build_args  # noqa: F401
 from .wiki_check import cmd_wiki_check  # noqa: F401

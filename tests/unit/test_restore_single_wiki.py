@@ -13,7 +13,6 @@ import os
 
 import yaml
 
-from _k8s_restore_copy import resolve_copy_task
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 RESTORE = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "restore.yml")
@@ -37,7 +36,7 @@ def _tasks(path):
 
 def _by_name(path, name):
     task = next((t for t in _tasks(path) if t.get("name") == name), None)
-    return task and resolve_copy_task(task)
+    return task
 
 
 def _when(task):

@@ -318,17 +318,14 @@ services:
     profiles:
       - crowdsec
     restart: unless-stopped
-    # Runs the image's entrypoint through the wrapper the Helm chart ships as
-    # files/crowdsec-start.sh (kept identical, with $ doubled for Compose):
-    # it falls back to the local API only when the Central API refuses or
-    # does not answer the engine, and holds other failed starts before the
-    # container exits.
+    # Runs the image's entrypoint through a wrapper that falls back to the
+    # local API only when the Central API refuses or does not answer the
+    # engine, and holds other failed starts before the container exits.
     entrypoint:
       - /bin/sh
       - -c
       - |
-        # Wraps the CrowdSec image's entrypoint. The Helm chart's crowdsec local API
-        # pod runs this file; the Compose crowdsec service carries an identical copy.
+        # Wraps the CrowdSec image's entrypoint.
         #
         # The engine does not start while the Central API (CAPI) refuses its
         # credentials, or cannot be reached and the engine has no cached CAPI token,
