@@ -1388,16 +1388,16 @@ def warn_root_on_shared_install():
     )
 
 
-KUBERNETES_DEPRECATION_WARNING = (
-    "Warning: Kubernetes support in the Canasta CLI is deprecated. Canasta "
-    "for MediaWiki 1.47 will not include it, and it ends with the last "
-    "Canasta release for MediaWiki 1.43. If you run Canasta on Kubernetes, "
-    "please let us know at "
-    "https://github.com/CanastaWiki/Canasta-CLI/issues/2510"
+KUBERNETES_REFUSAL = (
+    "Error: Canasta CLI 5.x runs MediaWiki 1.47 on Docker Compose only, so "
+    "it does not set up or manage Kubernetes. Use the 4.x CLI for Kubernetes "
+    "instances, or move them to Docker Compose with a backup and a restore."
 )
 
 KUBERNETES_PACKAGES = {"k8s-cp", "k8s-worker"}
 KUBERNETES_COMMAND_GROUPS = {"argocd", "storage"}
+# Commands that act on every registered instance.
+ACROSS_INSTANCES_COMMANDS = {"upgrade"}
 
 
 def uses_kubernetes(command_name, cmd_def, args):
@@ -1413,7 +1413,8 @@ def uses_kubernetes(command_name, cmd_def, args):
     if any(p.get("name") == "id" for p in cmd_def.get("parameters", [])):
         inst = resolve_instance(getattr(args, "id", None), required=False)
         return bool(inst) and _is_k8s(inst)
-    # Commands across every registered instance, such as list and upgrade.
+    if command_name not in ACROSS_INSTANCES_COMMANDS:
+        return False
     if not os.path.isfile(get_config_file_path()):
         return False
     instances = canasta_config.read_config(get_config_dir()).get(
@@ -1421,12 +1422,10 @@ def uses_kubernetes(command_name, cmd_def, args):
     return any(_is_k8s(i) for i in instances.values())
 
 
-def warn_kubernetes_deprecated(command_name, cmd_def, args):
-    # The re-exec after a self-update has already warned.
-    if os.environ.get("CANASTA_SELF_UPDATED"):
-        return
+def refuse_kubernetes(command_name, cmd_def, args):
     if uses_kubernetes(command_name, cmd_def, args):
-        print(KUBERNETES_DEPRECATION_WARNING, file=sys.stderr)
+        print(KUBERNETES_REFUSAL, file=sys.stderr)
+        sys.exit(1)
 
 
 def acquire_instance_lock(command_name, args):
@@ -2929,7 +2928,7 @@ def main():
 
     check_command_orchestrator(cmd_def, command_name, args)
     run_preflight_checks(command_name, args)
-    warn_kubernetes_deprecated(command_name, cmd_def, args)
+    refuse_kubernetes(command_name, cmd_def, args)
 
     lock_fd = acquire_instance_lock(command_name, args)
 
