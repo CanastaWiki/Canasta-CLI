@@ -16,7 +16,7 @@ REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 CHECK = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "check_caddy_image.yml")
 MAIN = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "main.yml")
 
-PLUGIN = "ghcr.io/canastawiki/canasta-caddy:2.11.9"
+PLUGIN = "ghcr.io/canastawiki/canasta-caddy:2.11.9-1"
 PREFIX = "ghcr.io/canastawiki/canasta-caddy:"
 
 

@@ -1,7 +1,6 @@
 ---
-# Build and push Canasta's Caddy image (upstream Caddy + the plugins
-# Canasta's optional features need: the CrowdSec bouncer and
-# caddy-cdn-ranges).
+# Build and push Canasta's Caddy image (upstream Caddy + the CrowdSec
+# bouncer).
 #
 # The caddy service runs this image when CrowdSec is enabled. It
 # is versioned by the bundled Caddy release, not the Canasta-CLI VERSION
@@ -9,9 +8,12 @@
 # dispatch — independent of the canasta-ansible image pipeline in
 # docker.yml.
 #
-# Tags: the Caddy base version (e.g. 2.10.2) plus 'latest' on main. Keep
-# the version tag in lockstep with canasta_caddy_plugin_image in
-# vars/images.yml.
+# Tags: the Caddy base version, with a -<n> revision when the plugin set
+# changes on the same Caddy version (e.g. 2.11.9-1), plus 'latest' on
+# main. Change the tag in the same commit as the Dockerfile, and keep it in
+# lockstep with canasta_caddy_plugin_image in vars/images.yml: a manual
+# dispatch from any branch publishes that branch's Dockerfile under this
+# tag, replacing whatever was published under it before.
 
 name: Caddy Image
 
@@ -48,7 +50,7 @@ jobs:
         with:
           images: ghcr.io/canastawiki/canasta-caddy
           tags: |
-            type=raw,value=2.11.9
+            type=raw,value=2.11.9-1
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Set up QEMU for multi-platform builds
