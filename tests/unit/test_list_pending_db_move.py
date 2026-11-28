@@ -105,7 +105,7 @@ class TestLocalList:
             _helpers, "_web_state_compose", lambda inst: "STOPPED")
         inst = _instance(tmp_path, "WIKI_DB_USER=root\n")
         _helpers._print_table([_helpers._gather_instance_info("mysite", inst)])
-        assert "  COMPOSE       STOPPED  %s\n" % FLAG in capsys.readouterr().out
+        assert "  Docker        STOPPED  %s\n" % FLAG in capsys.readouterr().out
 
 
 class TestRemoteList:

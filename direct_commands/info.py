@@ -34,7 +34,7 @@ def _gather_all_instances(instances):
                     iid,
                     inst.get("host") or "localhost",
                     inst.get("path", ""),
-                    inst.get("orchestrator", "compose"),
+                    _helpers._runtime_label(inst),
                     "ERROR",
                     [],
                 )
@@ -451,14 +451,13 @@ def cmd_status(args):
             )
         return 1
 
-    orchestrator = inst.get("orchestrator", "compose")
     host = inst.get("host", "localhost")
     path = inst.get("path", "")
 
     # Header
     print("Instance:     %s" % inst_id)
     print("Host:         %s" % host)
-    print("Orchestrator: %s" % orchestrator.upper())
+    print("Runtime:      %s" % _helpers._runtime_label(inst))
 
     compose_cmd = _helpers._resolve_compose_cmd(inst)
     running = _helpers._check_running_compose(

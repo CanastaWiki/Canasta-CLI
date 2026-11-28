@@ -1179,6 +1179,13 @@ def _resolve_compose_cmd(inst):
     return ["docker", "compose"]
 
 
+def _runtime_label(inst):
+    """Docker or Podman: the container runtime the instance runs on."""
+    if "podman" in os.path.basename(_resolve_inspect_cmd(inst)):
+        return "Podman"
+    return "Docker"
+
+
 def _resolve_inspect_cmd(inst):
     """Resolve the inspect (docker/podman) command for an instance.
 
@@ -1820,7 +1827,7 @@ def _gather_instance_info(inst_id, inst):
     """
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
-    orchestrator = inst.get("orchestrator", "compose")
+    runtime = _runtime_label(inst)
     # Per-instance socket: many instances are gathered concurrently, so target
     # this one's rootless socket via a per-command DOCKER_HOST rather than the
     # process-global env another thread might read.
@@ -1860,10 +1867,10 @@ def _gather_instance_info(inst_id, inst):
 
     rc, stdout = _ssh_run(host, script)
     if rc == _SSH_CONN_FAILURE_RC:
-        return _make_detail(inst_id, host, path, orchestrator, "UNREACHABLE",
+        return _make_detail(inst_id, host, path, runtime, "UNREACHABLE",
                             [])
     if rc != 0 and not stdout.strip():
-        return _make_detail(inst_id, host, path, orchestrator, "NOT FOUND", [])
+        return _make_detail(inst_id, host, path, runtime, "NOT FOUND", [])
 
     parts = stdout.split(_SENTINEL + "\n")
     dir_ok = parts[0].strip() == "DIR_OK" if len(parts) > 0 else False
@@ -1886,7 +1893,7 @@ def _gather_instance_info(inst_id, inst):
     status = (_compose_web_state(running_raw, restart_counts.get)
               if dir_ok else "NOT FOUND")
 
-    return _make_detail(inst_id, host, path, orchestrator, status, wikis,
+    return _make_detail(inst_id, host, path, runtime, status, wikis,
                        interrupted, pull_unfinished,
                        dir_ok and _wiki_db_move_pending(db_env))
 
@@ -1894,21 +1901,21 @@ def _gather_instance_info(inst_id, inst):
 def _gather_local(inst_id, inst):
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
-    orchestrator = inst.get("orchestrator", "compose")
+    runtime = _runtime_label(inst)
     dir_exists = os.path.isdir(path)
     wikis = _read_wikis(path, host) if dir_exists else []
     status = _web_state_compose(inst) if dir_exists else "NOT FOUND"
 
     interrupted = dir_exists and os.path.exists(
         os.path.join(path, RESTORE_MARKER))
-    return _make_detail(inst_id, host, path, orchestrator, status, wikis,
+    return _make_detail(inst_id, host, path, runtime, status, wikis,
                        interrupted,
                        dir_exists and _unfinished_pull(path, host) is not None,
                        dir_exists and _wiki_db_move_pending(
                            _read_env_file(path, host)))
 
 
-def _make_detail(inst_id, host, path, orchestrator, status, wikis,
+def _make_detail(inst_id, host, path, runtime, status, wikis,
                  interrupted_restore=False, unfinished_pull=False,
                  db_move_pending=False):
     # An interrupted restore or an unfinished gitops pull leaves the instance
@@ -1924,7 +1931,7 @@ def _make_detail(inst_id, host, path, orchestrator, status, wikis,
         "id": inst_id,
         "host": host,
         "path": path,
-        "orchestrator": orchestrator.upper(),
+        "runtime": runtime,
         "status": status,
         "wikis": wikis,
     }
@@ -1942,7 +1949,7 @@ def _print_table(details):
     hw = max(host_lengths) + 2
 
     print("%-16s%-*s%s" % ("Canasta ID", hw, "Host", "Instance Path"))
-    print("  %-14s%s" % ("Orchestrator", "Status"))
+    print("  %-14s%s" % ("Runtime", "Status"))
     print("  %-14s%s" % ("Wiki ID", "Wiki URL"))
     print("\u2500" * (16 + hw + 20))
 
@@ -1950,7 +1957,7 @@ def _print_table(details):
         print(
             "%-16s%-*s%s" % (d["id"], hw, d["host"], d["path"])
         )
-        print("  %-14s%s" % (d["orchestrator"], d["status"]))
+        print("  %-14s%s" % (d["runtime"], d["status"]))
         if d["wikis"]:
             for w in d["wikis"]:
                 url = w.get("url") or ""
