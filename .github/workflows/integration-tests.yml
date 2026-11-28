@@ -128,7 +128,7 @@ jobs:
   # to fail here instead of quietly reaching a live daemon.
   #
   # A matrix tests three podman versions (4.9.5, 5.3.2, 5.8.4) and two
-  # podman-compose versions (1.3.0, 1.6.0), each split into the same three
+  # podman-compose versions (1.3.0, 1.6.0), each split into the same two
   # test legs. The weekly schedule adds a backup leg on the newest pair. A
   # push to main tests only 5.3.2 with 1.3.0, and so does a manual run unless
   # its podman_full_matrix input is set. The
@@ -151,7 +151,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           FULL_MATRIX: ${{ inputs.podman_full_matrix }}
         run: |
-          legs='"leg":["lifecycle & upgrade","rebuild-buildable","rebuild & socket"]'
+          legs='"leg":["lifecycle & socket","rebuilds"]'
           if [ "$EVENT" = "push" ] ||
              { [ "$EVENT" = "workflow_dispatch" ] && [ "$FULL_MATRIX" != "true" ]; }; then
             # On push-to-main, and on a manual run unless it asks for the
@@ -160,7 +160,7 @@ jobs:
             matrix='{"podman_version":["5.3.2"],"podman_compose_version":["1.3.0"],'"$legs"'}'
           else
             compose16='{"podman_version":"5.8.4","podman_compose_version":"1.6.0","leg":'
-            include="[${compose16}\"lifecycle & upgrade\"},${compose16}\"rebuild-buildable\"},${compose16}\"rebuild & socket\"}]"
+            include="[${compose16}\"lifecycle & socket\"},${compose16}\"rebuilds\"}]"
             if [ "$EVENT" = "schedule" ]; then
               include="${include%]},${compose16}\"backup\"}]"
             fi
@@ -175,8 +175,7 @@ jobs:
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      # Two runners take the three push legs in about as long as the
-      # longest Docker leg.
+      # Two runners take both push legs at once.
       max-parallel: 2
       matrix: ${{ fromJSON(needs.integration-podman-matrix.outputs.matrix) }}
     steps:
@@ -420,10 +419,9 @@ jobs:
           LEG: ${{ matrix.leg }}
         run: |
           case "$LEG" in
-            "lifecycle & upgrade") tests=(lifecycle upgrade doctor) ;;
-            "rebuild-buildable")   tests=(upgrade-rebuilds-buildable) ;;
-            "rebuild & socket")    tests=(rebuild podman-socket-runtime) ;;
-            "backup")              tests=(backup-advanced) ;;
+            "lifecycle & socket") tests=(lifecycle upgrade doctor podman-socket-runtime) ;;
+            "rebuilds")           tests=(rebuild upgrade-rebuilds-buildable) ;;
+            "backup")             tests=(backup-advanced) ;;
             *) echo "unknown podman leg: $LEG" >&2; exit 1 ;;
           esac
           .venv/bin/python tests/integration/run_tests.py --no-skip "${tests[@]}"

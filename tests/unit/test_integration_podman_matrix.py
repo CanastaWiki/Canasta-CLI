@@ -70,10 +70,10 @@ def _leg_count(matrix):
 
 
 @pytest.mark.parametrize("event, full_matrix, legs", [
-    ("push", "", 3),
-    ("workflow_dispatch", "false", 3),
-    ("workflow_dispatch", "true", 12),
-    ("schedule", "", 13),
+    ("push", "", 2),
+    ("workflow_dispatch", "false", 2),
+    ("workflow_dispatch", "true", 8),
+    ("schedule", "", 9),
 ])
 def test_a_manual_run_tests_every_version_only_when_asked(
         event, full_matrix, legs, tmp_path):
