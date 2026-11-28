@@ -2580,18 +2580,38 @@ def before_major_upgrade(ansible_playbook, command_name, args, data, major):
     rc = subprocess.call(build_ansible_args(
         ansible_playbook, command_name, args, data,
         extra={"upgrade_preflight_major": major}))
-    if rc != 0 or dry_run or getattr(args, "skip_backup", False):
+    if rc != 0 or dry_run:
         return rc == 0
-    print("Backing up the instances before moving to %d.x..." % major)
-    sys.stdout.flush()
-    rc = subprocess.call(build_ansible_args(
-        ansible_playbook, command_name, args, data,
-        extra={"upgrade_backup_major": major}))
-    if rc != 0:
-        print("A backup failed, so the CLI did not move to %d.x." % major,
-              file=sys.stderr)
-        return False
+    if not getattr(args, "skip_backup", False):
+        print("Backing up the instances before moving to %d.x..." % major)
+        sys.stdout.flush()
+        rc = subprocess.call(build_ansible_args(
+            ansible_playbook, command_name, args, data,
+            extra={"upgrade_backup_major": major}))
+        if rc != 0:
+            print("A backup failed, so the CLI did not move to %d.x." % major,
+                  file=sys.stderr)
+            return False
+    record_major_move(major)
     return True
+
+
+MAJOR_MOVE_FILE = "major_move"
+
+
+def record_major_move(major):
+    """Record in the config dir that every instance passed the checks for
+    `major`. The CLI of that major upgrades an instance from an earlier
+    line only when this says so, so a move that skipped the checks stops
+    there."""
+    path = os.path.join(get_config_dir(), MAJOR_MOVE_FILE)
+    try:
+        with open(path, "w") as f:
+            f.write("%d\n" % major)
+    except OSError as e:
+        print("Warning: could not record the checks for %d.x in %s (%s); "
+              "the %d.x CLI will refuse to upgrade the instances until it "
+              "can." % (major, path, e, major), file=sys.stderr)
 
 
 def should_prompt_confirmation(cmd_def, yes_passed):
@@ -2949,6 +2969,14 @@ def main():
     # but running it inside the playbook means ansible-playbook's
     # in-memory config goes stale on cfg changes.
     if command_name == "upgrade":
+        # Set by the canasta-docker wrapper for 'upgrade --allow-major' to
+        # a higher major: this run only upgrades, checks and backs up the
+        # instances, and the wrapper moves the CLI if it succeeds.
+        step_major = os.environ.get("CANASTA_MAJOR_STEP")
+        if step_major:
+            sys.exit(0 if before_major_upgrade(
+                ansible_playbook, command_name, args, data,
+                int(step_major)) else 1)
         self_update_cli(
             dev=getattr(args, "dev", False),
             allow_major=getattr(args, "allow_major", False),
