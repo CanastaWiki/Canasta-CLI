@@ -18,7 +18,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 sys.path.insert(0, REPO_ROOT)
 
-from direct_commands import _helpers  # noqa: E402
+from direct_commands import _helpers
 
 
 PODMAN = {"composeCommand": "podman-compose", "inspectCommand": "podman"}

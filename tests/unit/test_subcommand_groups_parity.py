@@ -13,7 +13,7 @@ import sys
 import yaml
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-import canasta  # noqa: E402
+import canasta
 
 _ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 _DEFINITIONS = os.path.join(_ROOT, "meta", "command_definitions.yml")

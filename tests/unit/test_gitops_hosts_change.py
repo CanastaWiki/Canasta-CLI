@@ -16,7 +16,7 @@ import yaml
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
-from canasta_gitops import canasta_gitops_hosts_after as after  # noqa: E402
+from canasta_gitops import canasta_gitops_hosts_after as after
 
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 CHANGE = os.path.join(TASKS, "_hosts_change.yml")

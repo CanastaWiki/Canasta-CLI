@@ -20,8 +20,8 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
 
-import direct_commands  # noqa: E402
-from direct_commands import backup as backup_cmd  # noqa: E402
+import direct_commands
+from direct_commands import backup as backup_cmd
 
 TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 BACKUP_TASKS = os.path.join(REPO_ROOT, "roles", "backup", "tasks")

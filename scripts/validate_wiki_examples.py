@@ -33,11 +33,11 @@ import urllib.request
 import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import wiki_http  # noqa: E402
+import wiki_http
 
 # The tokenizer is shared with validate_definitions.py, which holds the
 # `examples:` in command_definitions.yml to the same CLI.
-from cli_examples import (  # noqa: E402
+from cli_examples import (
     PASSTHROUGH_POSITIONALS, build_command_table, canasta_segment,
     resolve_command, tokenize,
 )

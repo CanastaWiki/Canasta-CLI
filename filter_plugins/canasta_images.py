@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "..", "roles", "common", "module_utils"))
 
-from canasta_image_pin import (  # noqa: E402
+from canasta_image_pin import (
     base_image_for,
     predates_release_major,
     release_image,

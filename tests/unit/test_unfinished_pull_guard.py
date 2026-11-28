@@ -13,7 +13,7 @@ import yaml
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO_ROOT)
 
-from direct_commands import _helpers, info, maintenance, rebuild  # noqa: E402
+from direct_commands import _helpers, info, maintenance, rebuild
 
 CHECK = os.path.join(REPO_ROOT, "roles", "common", "tasks", "check_unfinished_pull.yml")
 RESOLVE = os.path.join(REPO_ROOT, "roles", "common", "tasks", "resolve_instance.yml")

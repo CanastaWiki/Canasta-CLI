@@ -11,7 +11,7 @@ from _classifier import classifier as _load
 from _classifier import secret_key_regex as _secret_regex
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from direct_commands._helpers import _is_secret_key  # noqa: E402
+from direct_commands._helpers import _is_secret_key
 
 
 # Genuine secrets — must ALL classify as secret (kept out of ConfigMaps/gitops).

@@ -34,7 +34,7 @@ import yaml
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
-import wiki_http  # noqa: E402
+import wiki_http
 REPO_ROOT = os.path.dirname(SCRIPT_DIR)
 DEFINITIONS_PATH = os.path.join(REPO_ROOT, "meta", "command_definitions.yml")
 
@@ -86,7 +86,7 @@ def load_definitions():
 # lockstep with the CLI itself — drifted local copies are how the
 # 'gitops fix-submodules' page-name bug crept in.
 sys.path.insert(0, REPO_ROOT)
-import canasta as _canasta  # noqa: E402
+import canasta as _canasta
 
 SUBCOMMAND_GROUPS = _canasta.SUBCOMMAND_GROUPS
 NESTED_SUBCOMMAND_GROUPS = _canasta.NESTED_SUBCOMMAND_GROUPS

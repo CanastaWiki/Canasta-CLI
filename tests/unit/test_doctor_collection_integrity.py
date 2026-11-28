@@ -22,7 +22,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))))
 
-from direct_commands import doctor  # noqa: E402
+from direct_commands import doctor
 
 MOCK_BODY = """DOCUMENTATION = '''
 description: Mocked

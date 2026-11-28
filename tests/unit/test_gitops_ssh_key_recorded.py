@@ -13,7 +13,7 @@ import yaml
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO_ROOT)
 
-import direct_commands  # noqa: E402
+import direct_commands
 
 GITOPS = os.path.join(REPO_ROOT, "roles", "gitops")
 SSH_KEY_TASKS = os.path.join(GITOPS, "tasks", "_ssh_key.yml")

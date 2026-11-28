@@ -23,7 +23,7 @@ import yaml
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO_ROOT, "roles", "common", "module_utils"))
-from canasta_image_pin import retarget_release_image  # noqa: E402
+from canasta_image_pin import retarget_release_image
 
 TASKS = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "upgrade_image_tag.yml")

@@ -7,9 +7,9 @@ import sys
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
-from canasta_gitops import canasta_wikis_template_ids  # noqa: E402
+from canasta_gitops import canasta_wikis_template_ids
 
-from _gitops_flow import flow_tasks  # noqa: E402
+from _gitops_flow import flow_tasks
 
 
 TEMPLATE = """wikis:

@@ -18,8 +18,8 @@ import yaml
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
-from direct_commands import _helpers  # noqa: E402
-import canasta_compose_profiles  # noqa: E402
+from direct_commands import _helpers
+import canasta_compose_profiles
 
 SYNC = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "sync_compose_profiles.yml")

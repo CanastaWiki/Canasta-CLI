@@ -19,7 +19,7 @@ from mock_ansible import run_module_with_params
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
 
-import direct_commands  # noqa: E402
+import direct_commands
 
 COMPOSE_TEMPLATE = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "files", "compose", "docker-compose.yml")

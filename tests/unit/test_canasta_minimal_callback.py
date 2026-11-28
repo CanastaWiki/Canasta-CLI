@@ -9,7 +9,7 @@ REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, os.path.join(REPO_ROOT, "callback_plugins"))
 
-import canasta_minimal  # noqa: E402
+import canasta_minimal
 
 
 def _make_callback():

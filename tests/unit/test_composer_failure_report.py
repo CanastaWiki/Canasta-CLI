@@ -16,7 +16,7 @@ import yaml
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
-from direct_commands import _helpers, doctor  # noqa: E402
+from direct_commands import _helpers, doctor
 
 REPORT = os.path.join(REPO_ROOT, "roles", "mediawiki", "tasks",
                       "report_composer_failure.yml")

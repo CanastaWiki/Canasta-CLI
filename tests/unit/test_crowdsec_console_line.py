@@ -12,7 +12,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from test_crowdsec_agent_status import CROWDSEC, _run, _show  # noqa: E402
+from test_crowdsec_agent_status import CROWDSEC, _run, _show
 
 
 def _console_line(tmp_path, creds_rc, refused_rc):

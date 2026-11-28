@@ -14,7 +14,7 @@ import yaml
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, ROOT)
 
-from direct_commands import _helpers, lifecycle  # noqa: E402
+from direct_commands import _helpers, lifecycle
 
 TASKS = os.path.join(ROOT, "roles", "orchestrator", "tasks")
 

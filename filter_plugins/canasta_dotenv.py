@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "..", "roles", "common", "module_utils"))
 
-from canasta_env_quote import (  # noqa: E402
+from canasta_env_quote import (
     decode_sed_command,
     quote_value,
     unquote_value,

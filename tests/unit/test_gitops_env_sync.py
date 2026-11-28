@@ -14,7 +14,7 @@ import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
-from canasta_gitops import (  # noqa: E402
+from canasta_gitops import (
     canasta_env_render as render,
     canasta_env_sync_plan as plan,
     canasta_wiki_url_sync_plan as url_plan,

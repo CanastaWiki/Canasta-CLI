@@ -16,8 +16,8 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-import canasta as canasta_cli  # noqa: E402
-from direct_commands import _helpers, doctor  # noqa: E402
+import canasta as canasta_cli
+from direct_commands import _helpers, doctor
 
 
 _DEPS_UMASKS = []

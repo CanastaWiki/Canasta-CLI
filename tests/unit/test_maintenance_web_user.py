@@ -18,11 +18,11 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
 
-import direct_commands  # noqa: E402
-from direct_commands import _helpers, maintenance  # noqa: E402
+import direct_commands
+from direct_commands import _helpers, maintenance
 
 sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
-import canasta_dotenv  # noqa: E402
+import canasta_dotenv
 
 EXEC_YML = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
                         "exec.yml")

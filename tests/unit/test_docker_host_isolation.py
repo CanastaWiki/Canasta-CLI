@@ -8,8 +8,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from conftest import preserve_docker_host  # noqa: E402
-from direct_commands import _helpers  # noqa: E402
+from conftest import preserve_docker_host
+from direct_commands import _helpers
 
 
 def _resolve_with_docker_host(monkeypatch, docker_host):

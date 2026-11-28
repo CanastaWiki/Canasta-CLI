@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "..", "roles", "common", "module_utils"))
 
-from canasta_caddyfile import (  # noqa: E402
+from canasta_caddyfile import (
     _parse_top_level, http_site_addresses, site_hostnames,
 )
 

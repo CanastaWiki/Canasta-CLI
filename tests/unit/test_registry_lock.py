@@ -13,10 +13,10 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-import canasta_config  # noqa: E402
-import canasta_registry  # noqa: E402
-from direct_commands import _helpers, info  # noqa: E402
-from mock_ansible import run_module_with_params  # noqa: E402
+import canasta_config
+import canasta_registry
+from direct_commands import _helpers, info
+from mock_ansible import run_module_with_params
 
 
 def test_an_empty_registry_reads_as_no_instances(tmp_path):

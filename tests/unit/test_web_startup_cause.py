@@ -17,7 +17,7 @@ import yaml
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
-import canasta_web_cause  # noqa: E402
+import canasta_web_cause
 
 ORCH_TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 

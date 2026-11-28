@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
 
-from direct_commands import _helpers, doctor  # noqa: E402
+from direct_commands import _helpers, doctor
 
 OUT = """@@wiki main
 cirrusSearchLinksUpdate: 68453 queued; 0 claimed (0 active, 0 abandoned); 0 delayed

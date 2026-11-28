@@ -9,7 +9,7 @@ import sys
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
-import validate_ci_test_coverage as coverage  # noqa: E402
+import validate_ci_test_coverage as coverage
 
 
 def _named(tmp_path, monkeypatch, workflow):

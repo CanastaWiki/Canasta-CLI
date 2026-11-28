@@ -15,7 +15,7 @@ import yaml
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..",
                                 "filter_plugins"))
-from canasta_gitops import (  # noqa: E402
+from canasta_gitops import (
     canasta_git_remote_failure,
     canasta_git_remote_known_hosts_name,
 )

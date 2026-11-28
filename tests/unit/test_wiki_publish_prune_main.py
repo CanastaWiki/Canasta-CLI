@@ -8,7 +8,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..",
                                 "scripts"))
-import wiki_publish as wp  # noqa: E402
+import wiki_publish as wp
 
 
 PAGES = [("CLI:canasta create", "body"), ("CLI:canasta start", "body")]

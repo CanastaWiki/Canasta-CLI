@@ -6,9 +6,7 @@ format: tty
 no-color: true
 
 ignored:
-  # Pin versions in apt-get install. The only Dockerfiles here that
-  # install packages are throwaway integration-test images built from
-  # ubuntu:24.04 on demand; pinned versions would rot out of the archive
-  # within weeks and break CI for no safety gained. The shipped images
-  # (images/caddy) pin by digest-bearing base tag instead.
+  # Pin versions in apt-get install. Debian and Ubuntu archives drop old
+  # package versions within weeks, so a pin breaks the next build for no
+  # safety gained; the base image tag is what fixes the package set.
   - DL3008

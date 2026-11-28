@@ -30,17 +30,17 @@ import pytest
 import yaml
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-import canasta as canasta_cli  # noqa: E402 (the canasta.py module)
+import canasta as canasta_cli
 
 sys.path.insert(
     0, os.path.join(os.path.dirname(__file__), "..", "..", "filter_plugins")
 )
-from canasta_crowdsec import (  # noqa: E402
+from canasta_crowdsec import (
     canasta_crowdsec_status_bouncers,
     canasta_crowdsec_blocklist_breakdown,
     canasta_crowdsec_capi_line,
 )
-from canasta_caddy import meld_caddy_global_blocks  # noqa: E402
+from canasta_caddy import meld_caddy_global_blocks
 
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
