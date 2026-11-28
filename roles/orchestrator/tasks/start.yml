@@ -77,11 +77,11 @@
     - name: Build compose profile flags
       ansible.builtin.set_fact:
         _compose_profile_flags: >-
-          {{ (_env_profiles_start.variables.COMPOSE_PROFILES | default(''))
+          {{ (((_env_profiles_start.variables.COMPOSE_PROFILES | default(''))
              | split(',') | map('trim') | reject('equalto', '')
              | map('regex_replace', '^', '--profile ')
-             | join(' ') }}
-      when: compose_command is search('podman')
+             | join(' '))
+             if compose_command is search('podman') else '') }}
 
     # Before anything starts: db exits immediately when MYSQL_PASSWORD is
     # absent from .env, and the message it prints names MariaDB variables

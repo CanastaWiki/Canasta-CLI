@@ -43,11 +43,11 @@
     - name: Build compose profile flags
       ansible.builtin.set_fact:
         _upgrade_profile_flags: >-
-          {{ (_env_profiles_upgrade.variables.COMPOSE_PROFILES | default(''))
+          {{ (((_env_profiles_upgrade.variables.COMPOSE_PROFILES | default(''))
              | split(',') | map('trim') | reject('equalto', '')
              | map('regex_replace', '^', '--profile ')
-             | join(' ') }}
-      when: compose_command is search('podman')
+             | join(' '))
+             if compose_command is search('podman') else '') }}
 
     # podman-compose has no --format option and exits 2 on it; its default
     # output is YAML. Ask Docker for JSON as before and parse both with

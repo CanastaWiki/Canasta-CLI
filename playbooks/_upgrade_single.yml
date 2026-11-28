@@ -27,6 +27,12 @@
     # would leak the last instance's socket into the next one.
     instance_docker_host: "{{ _inst.value.dockerHost | default('') }}"
     _instance_host: "{{ _inst.value.host | default('localhost') }}"
+    # The upgrade role sets these, and the steps after it read them. An
+    # instance it skips or ends early for would otherwise be reported with
+    # the previous instance's outcome.
+    _was_running: false
+    _upgrade_restart_failed: false
+    _composer_update_failure: ""
 
 - name: Switch connection to instance host
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/switch_connection.yml"
