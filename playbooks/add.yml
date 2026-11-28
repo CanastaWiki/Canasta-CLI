@@ -115,6 +115,18 @@
     msg: "Wiki ID '{{ wiki }}' already exists."
   when: _add_check.exists | default(false)
 
+# Before anything is created: the wikis.yaml write after the install would
+# refuse the URL too, but by then the wiki's database exists, outside the
+# rescue that drops it.
+- name: Fail if another wiki already has the URL
+  ansible.builtin.fail:
+    msg: "Wiki URL '{{ _add_url }}' already exists."
+  vars:
+    _add_url: >-
+      {{ (_add_domain | trim | regex_replace('/+$', '')) ~ '/' ~ (_add_path | trim | regex_replace('^/+', ''))
+         if _add_path | trim else _add_domain | trim }}
+  when: _add_url in (_add_sitemap_wikis.wikis | map(attribute='url', default='') | list)
+
 - name: Read .env for DB password
   canasta_env:
     path: "{{ instance_path }}/.env"

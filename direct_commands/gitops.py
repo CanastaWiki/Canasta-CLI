@@ -314,9 +314,11 @@ def _parse_gitops_status(stdout, instance_id):
     if hosts_yaml_raw and hosts_yaml_raw != "MISSING":
         try:
             parsed = yaml.safe_load(hosts_yaml_raw)
-            if parsed and "hosts" in parsed and parsed["hosts"]:
-                role = parsed["hosts"][0].get("role", "unknown")
-                pull_requests = parsed["hosts"][0].get("pull_requests", False)
+            hosts = (parsed or {}).get("hosts") or []
+            entry = next((h for h in hosts if isinstance(h, dict)
+                          and h.get("name") == hostname), {})
+            role = entry.get("role", "unknown")
+            pull_requests = entry.get("pull_requests", False)
         except yaml.YAMLError:
             pass
 
