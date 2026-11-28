@@ -4433,15 +4433,21 @@ def _page(http_port, host, path):
 
 
 def _assert_serves(http_port, host, wiki_id):
-    """The edge sends host to the wiki wiki_id, served under host."""
+    """The edge sends host to the wiki wiki_id, served under host. Read from
+    ResourceLoader's mediawiki.base module, which carries the wiki's
+    identity and is served even by a private wiki."""
     status, body = _page(http_port, host,
-                         "/w/index.php?title=Special:UserLogin")
+                         "/w/load.php?modules=mediawiki.base&only=scripts")
     assert status == 200, (
         "%s did not answer (HTTP %s):\n%s" % (host, status, body[:500]))
-    server = '"wgServer":"http://%s:%s"' % (host, http_port)
-    assert server in body, "%s is not served as %s" % (host, server)
-    assert '"wgWikiID":"%s' % wiki_id in body, (
-        "%s is not served by wiki %s" % (host, wiki_id))
+    body = body.replace("\\/", "/")
+    server = re.search(r'"wgServer":"([^"]*)"', body)
+    wiki = re.search(r'"wgWikiID":"([^"]*)"', body)
+    assert server and wiki, "no wgServer or wgWikiID in mediawiki.base"
+    assert server.group(1).endswith("//%s:%s" % (host, http_port)), (
+        "%s is served as %s" % (host, server.group(1)))
+    assert wiki.group(1).startswith(wiki_id), (
+        "%s is served by wiki %s, not %s" % (host, wiki.group(1), wiki_id))
 
 
 _OPENSEARCH = "canasta-opensearch"
