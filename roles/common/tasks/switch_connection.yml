@@ -33,6 +33,7 @@
   ansible.builtin.set_fact:
     ansible_host: "{{ _ssh_host }}"
     ansible_connection: "ssh"
+    ansible_user: ""
     ansible_python_interpreter: /usr/bin/python3
   when: _instance_host != 'localhost' and _ssh_user | default('') == ''
 
