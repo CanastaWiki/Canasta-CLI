@@ -62,6 +62,7 @@ jobs:
             --cov=scripts \
             --cov=direct_commands \
             --cov=canasta \
+            --cov=canasta_docker_mode \
             --cov=canasta_self_update \
             --cov-report=
 
