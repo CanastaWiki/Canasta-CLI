@@ -19,8 +19,6 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 sys.path.insert(0, REPO_ROOT)
 
-from direct_commands import _helpers  # noqa: E402
-
 
 SCRIPT = os.path.join(REPO_ROOT, "roles", "orchestrator", "files", "scripts",
                       "ensure_wiki_db_account.sh")
@@ -232,17 +230,3 @@ class TestWiring:
         templar = Templar(loader=DataLoader(), variables={
             "wikidbuser": given, "orchestrator": orch})
         assert templar.template(trust_as_template(_wiki_db_user_expr())) == expected
-
-
-class TestFastPath:
-    @pytest.mark.parametrize("env, uses", [
-        ({"WIKI_DB_USER": "mediawiki"}, True),
-        ({"WIKI_DB_USER": "root"}, False),
-        ({}, False),
-        ({"WIKI_DB_USER": "op", "MYSQL_USER": "op",
-          "USE_EXTERNAL_DB": "true"}, False),
-        ({"WIKI_DB_USER": "mediawiki_site", "MYSQL_USER": "op",
-          "USE_EXTERNAL_DB": "true"}, True),
-    ])
-    def test_start_hands_an_own_account_to_ansible(self, env, uses):
-        assert _helpers._uses_wiki_db_account(env) is uses

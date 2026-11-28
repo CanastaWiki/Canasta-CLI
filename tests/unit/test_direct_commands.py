@@ -1573,8 +1573,10 @@ class TestComposeFileArgs:
 # ---------------------------------------------------------------------------
 
 class TestLifecycleCommands:
-    def test_start_registered(self):
-        assert direct_commands.is_direct_command("start")
+    def test_start_goes_to_ansible(self):
+        # Ansible starts every instance: its place behind the HAProxy edge,
+        # its OpenSearch user and its sidecars are rendered there.
+        assert not direct_commands.is_direct_command("start")
 
     def test_stop_registered(self):
         assert direct_commands.is_direct_command("stop")
@@ -1604,16 +1606,15 @@ class TestLifecycleCommands:
 
     def test_lifecycle_falls_back_when_sidecars_declared(
             self, tmp_path, monkeypatch):
-        # A compose instance with sidecars must defer start/stop to
-        # Ansible, which renders the sidecar override layer; the fast direct
-        # path doesn't render it.
+        # A compose instance with sidecars must defer stop to Ansible, which
+        # renders the sidecar override layer; the fast direct path doesn't
+        # render it.
         path = self._compose_inst(
             tmp_path, "sidecars:\n  - name: cache\n    image: redis:7\n")
         monkeypatch.setattr(
             direct_commands._helpers, "_resolve_instance",
             lambda args: ("scsite", {"path": path, "orchestrator": "compose"}))
         args = type("Args", (), {"id": "scsite"})()
-        assert direct_commands.cmd_start(args) is direct_commands.FALLBACK
         assert direct_commands.cmd_stop(args) is direct_commands.FALLBACK
 
     def test_podman_stop_falls_back(self, monkeypatch):
@@ -2144,36 +2145,6 @@ class TestSyncComposeProfiles:
         direct_commands._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
         assert "CANASTA_CADDY_IMAGE" not in content
-
-
-class TestDumpComposeFailure:
-    def test_prints_ps_and_logs_to_stderr(self, monkeypatch, capsys):
-        # Return deterministic output for both ps and logs commands.
-        def fake_run(cmd, **kw):
-            if "ps" in cmd:
-                return type("R", (), {
-                    "returncode": 0,
-                    "stdout": "NAME STATUS\nweb-1 Restarting",
-                    "stderr": "",
-                })()
-            return type("R", (), {
-                "returncode": 0,
-                "stdout": "web-1 | exec format error",
-                "stderr": "",
-            })()
-
-        monkeypatch.setattr(subprocess, "run", fake_run)
-        monkeypatch.setattr(direct_commands._helpers, "_compose_file_args",
-            lambda *a, **kw: ["-f", "docker-compose.yml"],
-        )
-        direct_commands._dump_compose_failure({
-            "path": "/srv/test", "host": "localhost",
-        })
-        err = capsys.readouterr().err
-        assert "docker compose ps -a" in err
-        assert "docker compose logs" in err
-        assert "Restarting" in err
-        assert "exec format error" in err
 
 
 # ---------------------------------------------------------------------------

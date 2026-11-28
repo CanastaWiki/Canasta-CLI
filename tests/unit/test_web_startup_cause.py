@@ -12,14 +12,12 @@ import stat
 import subprocess
 import sys
 
-import pytest
 import yaml
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
 import canasta_web_cause  # noqa: E402
-from direct_commands import _helpers  # noqa: E402
 
 ORCH_TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 
@@ -122,83 +120,6 @@ class TestWebStartupCause:
 
 
 DOCKER = {"path": "/srv/test", "orchestrator": "compose"}
-
-
-class TestFastPathHealthGate:
-    @pytest.fixture
-    def unhealthy(self, monkeypatch):
-        monkeypatch.setattr(_helpers.time, "sleep", lambda s: None)
-        responses = [(0, "abc123\n"), (0, "unhealthy\n")]
-        monkeypatch.setattr(
-            _helpers, "_runtime_capture",
-            lambda inst, argv, timeout=30:
-                responses.pop(0) if len(responses) > 1 else responses[0])
-        monkeypatch.setattr(_helpers, "_read_instance_file",
-                            lambda path, host, relpath: "")
-        db_dumps = []
-        monkeypatch.setattr(_helpers, "_dump_db_error_log",
-                            lambda inst: db_dumps.append(inst))
-        return db_dumps
-
-    def test_leads_with_the_missing_extension(self, monkeypatch, unhealthy,
-                                              capsys):
-        monkeypatch.setattr(_helpers, "_web_logs",
-                            lambda inst, tail: MISSING_EXTENSION_LOG)
-        assert _helpers._wait_web_ready("mysite", dict(DOCKER)) == 1
-        err = capsys.readouterr().err
-        first = err.splitlines()[0]
-        assert first == (
-            "Error: MediaWiki can't load extension 'GoogleAnalyticsMetrics': "
-            "its files aren't in the image or the instance's extensions/ "
-            "directory.")
-        assert "canasta extension disable GoogleAnalyticsMetrics -i mysite" in err
-        assert "did not report healthy" in err
-        assert "composer is still running" not in err
-        assert "--- web logs (last 20) ---" in err
-        assert "Unsupported database type" in err
-        assert unhealthy == []
-
-    def test_reads_the_composer_record_from_the_host(self, monkeypatch,
-                                                     unhealthy, capsys):
-        monkeypatch.setattr(_helpers, "_web_logs",
-                            lambda inst, tail: HEALTHY_LOOKING_LOG)
-        read = []
-
-        def fake_read(path, host, relpath):
-            read.append((path, relpath))
-            return "Your requirements could not be resolved.\nmore\n"
-
-        monkeypatch.setattr(_helpers, "_read_instance_file", fake_read)
-        assert _helpers._wait_web_ready("mysite", dict(DOCKER)) == 1
-        err = capsys.readouterr().err
-        assert err.startswith(
-            "Error: The web container's startup composer update failed: Your "
-            "requirements could not be resolved.\n")
-        assert read == [("/srv/test", "config/persistent/composer-update.failed")]
-
-    def test_keeps_the_generic_hint_and_database_log_without_a_cause(
-            self, monkeypatch, unhealthy, capsys):
-        monkeypatch.setattr(_helpers, "_web_logs",
-                            lambda inst, tail: HEALTHY_LOOKING_LOG)
-        assert _helpers._wait_web_ready("mysite", dict(DOCKER)) == 1
-        err = capsys.readouterr().err
-        assert err.startswith(
-            "Error: the 'web' container for instance 'mysite' did not report "
-            "healthy within 10 minutes; its last status was 'unhealthy'.")
-        assert "composer is still running or failed" in err
-        assert "--- web logs (last 60) ---" in err
-        assert "AH00558" in err
-        assert len(unhealthy) == 1
-
-    def test_shows_only_the_tail_of_a_long_log(self, monkeypatch, unhealthy,
-                                               capsys):
-        noise = "".join("web-1  | line %d\n" % i for i in range(150))
-        monkeypatch.setattr(_helpers, "_web_logs",
-                            lambda inst, tail: MISSING_EXTENSION_LOG + noise)
-        _helpers._wait_web_ready("mysite", dict(DOCKER))
-        err = capsys.readouterr().err
-        assert "line 149" in err
-        assert "line 129" not in err
 
 
 def _executable(path, body):
