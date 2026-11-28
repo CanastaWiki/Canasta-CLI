@@ -25,6 +25,8 @@ from __future__ import absolute_import, division, print_function
 
 __metaclass__ = type
 
+import contextlib
+import fcntl
 import json
 import os
 import platform
@@ -33,6 +35,7 @@ import tempfile
 
 
 CONFIG_FILENAME = "conf.json"
+LOCK_FILENAME = "conf.json.lock"
 
 # `k8s` is accepted as an alias for `kubernetes`, on the command line and
 # in registry entries written before the CLI normalized it.
@@ -94,7 +97,11 @@ def read_config(config_dir):
     A missing or empty file yields {"Instances": {}}. The legacy
     "Installations" key is migrated to "Instances".
     """
-    path = config_path(config_dir)
+    return read_config_file(config_path(config_dir))
+
+
+def read_config_file(path):
+    """read_config for a registry file named by its path."""
     if not os.path.exists(path):
         return {"Instances": {}}
     with open(path, "r") as f:
@@ -133,6 +140,26 @@ def write_config(config_dir, data):
         except OSError:
             pass
         raise
+
+
+@contextlib.contextmanager
+def locked(config_dir):
+    """Hold the registry's lock across a read, change and write of it, so
+    two commands registering at once cannot drop each other's change.
+    Where the lock file cannot be opened, the write that follows fails on
+    its own, so this goes on without it."""
+    try:
+        os.makedirs(config_dir, mode=0o755, exist_ok=True)
+        fd = os.open(os.path.join(config_dir, LOCK_FILENAME),
+                     os.O_RDONLY | os.O_CREAT, 0o644)
+    except OSError:
+        yield
+        return
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
 
 
 def find_by_path(instances, search_path):

@@ -11,13 +11,23 @@
   ansible.builtin.include_tasks: _validate_trusted_proxies.yml
   when: _config_key == 'TRUSTED_PROXIES'
 
-- name: Validate the Elasticsearch and OpenSearch heap sizes
+# Search runs on the host's OpenSearch.
+- name: Refuse an Elasticsearch setting
+  ansible.builtin.fail:
+    msg: >-
+      {{ _config_key }} is not supported. Canasta searches with OpenSearch
+      (CANASTA_ENABLE_OPENSEARCH).
+  when:
+    - _config_value is defined
+    - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ELASTICSEARCH_HEAP', 'CANASTA_ELASTICSEARCH_IMAGE']
+
+- name: Validate the OpenSearch heap size
   ansible.builtin.fail:
     msg: >-
       {{ _config_key }} must be a whole number of megabytes or
       gigabytes, such as 768m or 4g. Got '{{ _config_value }}'.
   when:
-    - _config_key in ['CANASTA_ELASTICSEARCH_HEAP', 'CANASTA_OPENSEARCH_HEAP']
+    - _config_key == 'CANASTA_OPENSEARCH_HEAP'
     - _config_value is defined
     - _config_value is not match('^[1-9][0-9]*[mMgG]$')
 

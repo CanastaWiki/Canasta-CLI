@@ -1245,6 +1245,29 @@ class TestCmdVersionInstanceModes:
         _, running = direct_commands.info._read_instance_image(inst)
         assert running == "(not running)"
 
+    def test_podman_instance_is_asked_with_podman(
+        self, tmp_path, monkeypatch
+    ):
+        inst = {"path": str(tmp_path), "host": "localhost",
+                "composeCommand": "podman-compose"}
+        monkeypatch.setattr(
+            direct_commands._helpers, "_read_env_file",
+            lambda path, host: {"CANASTA_IMAGE": "canasta:3.6.3"},
+        )
+        monkeypatch.setattr(
+            direct_commands.info.subprocess, "run",
+            lambda *a, **k: type("R", (), {"returncode": 1, "stdout": ""})(),
+        )
+        seen = []
+        monkeypatch.setattr(
+            direct_commands._helpers, "_check_running_compose",
+            lambda *a, **k: seen.append(k.get("compose_cmd")) or True,
+        )
+        _, running = direct_commands.info._read_instance_image(inst)
+        assert running == "(unavailable)"
+        assert seen == [direct_commands._helpers._resolve_compose_cmd(inst)]
+        assert "podman" in seen[0][0]
+
     def test_unreachable_host_is_not_reported_as_stopped(
         self, tmp_path, monkeypatch
     ):
