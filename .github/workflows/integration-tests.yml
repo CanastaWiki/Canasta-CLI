@@ -86,7 +86,7 @@ jobs:
         run: |
           case "$LEG" in
             "config-side-effects")
-              tests="config-side-effects upgrade-rebuilds-buildable reconcile gitops-add-wikis-yaml maintenance" ;;
+              tests="config-side-effects upgrade-rebuilds-buildable reconcile gitops-add-wikis-yaml" ;;
             "sidecar-lifecycle")
               tests="sidecar-lifecycle config-set-gitops-port canasta-base" ;;
             "upgrade-backfills-mycnf-template")
@@ -98,7 +98,7 @@ jobs:
             "backup-advanced")
               tests="backup-advanced gitops-pull-diff upgrade-backfill-hosts-yaml" ;;
             "multi-instance")
-              tests="multi-instance gitops-pull-reapplies" ;;
+              tests="multi-instance gitops-pull-reapplies maintenance" ;;
             "add-extra-database")
               tests="add-extra-database gitops upgrade" ;;
             "backup-restore-safety")

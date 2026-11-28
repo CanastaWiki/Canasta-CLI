@@ -4521,10 +4521,9 @@ def test_multi_instance(inst):
         print("Verifying each hostname reaches its own instance...")
         _assert_serves(port, host_a, "alpha")
         _assert_serves(port, host_b, "beta")
-        output = inst.run_quiet("list")
         for i in (inst, inst_b):
-            line = [ln for ln in output.splitlines() if i.id in ln]
-            assert line and "RUNNING" in line[0], (
+            output = inst.run_quiet("status", "-i", i.id)
+            assert "Status:       RUNNING" in output, (
                 "%s is not RUNNING:\n%s" % (i.id, output))
 
         print("Verifying each OpenSearch user is confined to its prefix...")
