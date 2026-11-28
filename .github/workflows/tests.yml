@@ -43,6 +43,10 @@ jobs:
           .venv/bin/pip install -r requirements.txt
           .venv/bin/pip install pytest-cov
 
+      # The gitops tests that lock and unlock a repository skip without it.
+      - name: Install git-crypt
+        run: sudo apt-get update && sudo apt-get install -y git-crypt
+
       # Coverage reports and the threshold are computed once, over all
       # shards, in the Unit Tests job below.
       - name: Run unit tests with coverage
@@ -213,12 +217,12 @@ jobs:
         run: make lint
 
       - name: Shell lint
-        uses: docker://koalaman/shellcheck:stable
+        uses: docker://koalaman/shellcheck:v0.11.0
         with:
           args: --severity=info canasta-docker canasta-native get-canasta.sh
 
       - name: Workflow lint
-        uses: docker://rhysd/actionlint:latest
+        uses: docker://rhysd/actionlint:1.7.12
         with:
           args: -color=false
 
