@@ -2234,8 +2234,8 @@ def test_wiki_farm(inst):
     print("Verifying main wiki still accessible after add...")
     wait_for_wiki(inst.http_port, timeout=120)
 
-    print("Checking both wikis with wiki check...")
-    output = inst.run_quiet("wiki", "check", "-i", inst.id)
+    print("Checking both wikis with wiki-check...")
+    output = inst.run_quiet("wiki-check", "-i", inst.id)
     for wiki_id in ("main", "docs"):
         assert "Wiki '%s' is reachable" % wiki_id in output, output
 

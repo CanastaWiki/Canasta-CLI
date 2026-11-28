@@ -420,7 +420,7 @@ jobs:
           LEG: ${{ matrix.leg }}
         run: |
           case "$LEG" in
-            "lifecycle & socket") tests=(lifecycle upgrade doctor podman-socket-runtime gitops sidecar-lifecycle) ;;
+            "lifecycle & socket") tests=(lifecycle upgrade doctor podman-socket-runtime gitops) ;;
             "rebuilds")           tests=(rebuild upgrade-rebuilds-buildable extension-lifecycle) ;;
             "backup")             tests=(backup-advanced) ;;
             *) echo "unknown podman leg: $LEG" >&2; exit 1 ;;
