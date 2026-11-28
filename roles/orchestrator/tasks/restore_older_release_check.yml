@@ -1,0 +1,94 @@
+---
+# A snapshot an older major release took ran an older MediaWiki. Check it for
+# what this release's MediaWiki cannot run while it is still only in the
+# staging volume, so a refusal leaves the instance as it was.
+# Input: instance_path, inspect_command, _resolved_snapshot,
+#        _restore_wiki_account, wiki (single-wiki restore only)
+# Output: _restore_snapshot_image, _restore_older_release
+
+- name: Read the image the snapshot ran
+  ansible.builtin.shell:
+    cmd: >-
+      {{ inspect_command }} run --rm
+      -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro"
+      docker.io/library/alpine
+      sh -c 'sed -n "s/^CANASTA_IMAGE=//p" /currentsnapshot/.env 2>/dev/null'
+  register: _restore_snapshot_image_read
+  changed_when: false
+  failed_when: false
+
+- name: Note the image the snapshot ran
+  ansible.builtin.set_fact:
+    _restore_snapshot_image: >-
+      {{ _restore_snapshot_image_read.stdout | default('', true) | trim
+         | replace('"', '') | replace("'", '') }}
+
+- name: Note whether an older major release took the snapshot
+  ansible.builtin.set_fact:
+    _restore_older_release: >-
+      {{ _restore_snapshot_image | canasta_predates_release_major(canasta_default_image) }}
+
+# The instance's own image has the Python the probe needs, and is already on
+# this host.
+- name: Check the snapshot against this release's MediaWiki
+  when: _restore_older_release | bool
+  block:
+    - name: Probe the snapshot for what this release cannot run
+      ansible.builtin.command:
+        cmd: >-
+          {{ inspect_command }} run --rm -i --entrypoint python3
+          -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro"
+          {{ _restore_wiki_account.variables.CANASTA_IMAGE
+             | default(canasta_default_image, true) | quote }}
+          - /currentsnapshot '[]'
+        stdin: "{{ lookup('file', canasta_root ~ '/roles/upgrade/files/probe_major_preflight.py') }}"
+      register: _restore_older_probe
+      changed_when: false
+
+    # A single-wiki restore brings back only that wiki's settings, so only
+    # findings about that wiki apply to it.
+    - name: Note what the probe found
+      ansible.builtin.set_fact:
+        _restore_older_blockers: >-
+          {{ _found.blockers if wiki is not defined
+             else _found.blockers | select('search', _wiki_pattern) | list }}
+        _restore_older_warnings: >-
+          {{ _found.warnings if wiki is not defined
+             else _found.warnings | select('search', _wiki_pattern) | list }}
+      vars:
+        _found: "{{ _restore_older_probe.stdout | from_json }}"
+        _wiki_pattern: >-
+          {{ "wiki '" ~ (wiki | default('') | regex_escape) ~ "'|config/settings/wikis/"
+             ~ (wiki | default('') | regex_escape) ~ "/" }}
+
+    - name: Report what to review after the restore
+      ansible.builtin.debug:
+        msg: "WARNING: {{ item }}"
+      loop: "{{ _restore_older_warnings }}"
+
+    - name: Refuse a snapshot this release's MediaWiki cannot run
+      ansible.builtin.fail:
+        msg: |-
+          Snapshot {{ _resolved_snapshot }} was taken on {{ _restore_snapshot_image }}, an older major release,
+          and this release cannot run it as it is:
+
+          {% for b in _restore_older_blockers %}
+            - {{ b }}
+          {% endfor %}
+
+          Restore it with the release that took it, make these changes there,
+          and then upgrade that instance or back it up again.
+      when: _restore_older_blockers | length > 0
+
+# A single-wiki restore keeps this instance's .env.
+- name: Warn that the restored wiki's schema needs updating by hand
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: MW_AUTOUPDATE is false for this instance, so the restart does
+      not update wiki '{{ wiki }}' to this release's MediaWiki. Run
+      'canasta maintenance update -i {{ instance_id }} -w {{ wiki }}' once the
+      instance is up.
+  when:
+    - wiki is defined
+    - _restore_older_release | bool
+    - (_restore_wiki_account.variables.MW_AUTOUPDATE | default('') | lower) == 'false'

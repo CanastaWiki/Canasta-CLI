@@ -13,7 +13,7 @@ import yaml
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 MIGRATION = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "migrations",
                          "elasticsearch_to_opensearch.yml")
-UPGRADE_MAIN = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "main.yml")
+UPGRADE_MIGRATIONS = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "run_migrations.yml")
 PROBE = os.path.join(REPO_ROOT, "roles", "upgrade", "files",
                      "probe_migration_state.py")
 LIBRARY = os.path.join(REPO_ROOT, "roles", "common", "library")
@@ -204,7 +204,7 @@ class TestMigration:
 
 
 def test_the_migration_runs_on_upgrade():
-    loop = next(t for t in yaml.safe_load(open(UPGRADE_MAIN))
+    loop = next(t for t in yaml.safe_load(open(UPGRADE_MIGRATIONS))
                 if t.get("name") == "Run migrations")["loop"]
     assert "elasticsearch_to_opensearch.yml" in loop
 
