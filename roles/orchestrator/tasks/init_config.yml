@@ -31,16 +31,14 @@
 - name: Generate Caddyfile
   ansible.builtin.include_tasks: rewrite_caddy.yml
 
-- name: Compose-specific init
-  block:
-    - name: Sync compose profiles
-      ansible.builtin.include_tasks: sync_compose_profiles.yml
+- name: Sync compose profiles
+  ansible.builtin.include_tasks: sync_compose_profiles.yml
 
-    # The HAProxy edge reads it. Comments only until the user adds directives; no-clobber because this runs on
-    # upgrade too.
-    - name: Create haproxy-backend.cfg from template (no-clobber)
-      ansible.builtin.copy:
-        src: "{{ canasta_root }}/instance_template/config/haproxy-backend.cfg"
-        dest: "{{ instance_path }}/config/haproxy-backend.cfg"
-        force: false
-        mode: "0644"
+# The HAProxy edge reads it. Comments only until the user adds directives; no-clobber because this runs on
+# upgrade too.
+- name: Create haproxy-backend.cfg from template (no-clobber)
+  ansible.builtin.copy:
+    src: "{{ canasta_root }}/instance_template/config/haproxy-backend.cfg"
+    dest: "{{ instance_path }}/config/haproxy-backend.cfg"
+    force: false
+    mode: "0644"

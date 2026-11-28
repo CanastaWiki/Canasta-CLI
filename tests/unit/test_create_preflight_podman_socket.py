@@ -28,21 +28,20 @@ PREFLIGHT = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "create_preflight.yml")
 
 
-def _block_tasks():
+def _preflight_tasks():
     with open(PREFLIGHT) as f:
-        doc = yaml.safe_load(f)
-    return doc[0]["block"]
+        return yaml.safe_load(f)
 
 
 def _index_of(name):
-    for i, t in enumerate(_block_tasks()):
+    for i, t in enumerate(_preflight_tasks()):
         if t.get("name") == name:
             return i
     raise AssertionError("task not found: %s" % name)
 
 
 def _named(name):
-    return _block_tasks()[_index_of(name)]
+    return _preflight_tasks()[_index_of(name)]
 
 
 class TestTheSocketDecidesTheRuntime:
@@ -124,7 +123,7 @@ class TestTheProbesDoNotClobberEachOther:
                 for key in ("block", "rescue", "always"):
                     walk(t.get(key))
 
-        walk(_block_tasks())
+        walk(_preflight_tasks())
         return found
 
     def test_no_register_name_is_used_twice(self):

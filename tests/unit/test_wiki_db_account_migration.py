@@ -134,7 +134,7 @@ class TestRefusals:
 
 class TestSwitchAndRollback:
     def _switch(self):
-        return _named(_load(SWITCH), "Switch (Docker Compose)")
+        return _named(_load(SWITCH), "Switch to the wiki account, rolling back on failure")
 
     def test_keys_are_recorded_through_config_set(self):
         names = [t["name"] for t in self._switch()["block"]]
@@ -212,7 +212,7 @@ class TestRestoreKeepsThisHostsAccount:
 class TestComposeRestartIsRecorded:
     def test_every_compose_restart_is_followed_by_the_record(self):
         compose = next(t for t in _load(SWITCH)
-                       if t.get("name") == "Switch (Docker Compose)")
+                       if t.get("name") == "Switch to the wiki account, rolling back on failure")
         for tasks, restart in ((compose["block"], "Restart onto the new account"),
                                (compose["rescue"], "Restart on the administrator account")):
             names = [t.get("name") for t in tasks]

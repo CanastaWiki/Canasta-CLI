@@ -6,39 +6,37 @@
 # preserve operator-owned content (override, scripts, logstash configs).
 # Input: instance_path, stack_files_force (bool)
 
-- name: Write Compose stack files
-  block:
-    - name: Report writing stack files
-      ansible.builtin.debug:
-        msg: "Writing Compose stack files..."
+- name: Report writing stack files
+  ansible.builtin.debug:
+    msg: "Writing Compose stack files..."
 
-    - name: Copy docker-compose.yml
-      ansible.builtin.copy:
-        src: "{{ role_path }}/files/compose/docker-compose.yml"
-        dest: "{{ instance_path }}/docker-compose.yml"
-        force: "{{ stack_files_force | default(false) | bool }}"
-        mode: "0644"
-      register: _compose_stack_copy
+- name: Copy docker-compose.yml
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/compose/docker-compose.yml"
+    dest: "{{ instance_path }}/docker-compose.yml"
+    force: "{{ stack_files_force | default(false) | bool }}"
+    mode: "0644"
+  register: _compose_stack_copy
 
-    - name: Copy docker-compose.override.yml.example
-      ansible.builtin.copy:
-        src: "{{ role_path }}/files/compose/docker-compose.override.yml.example"
-        dest: "{{ instance_path }}/docker-compose.override.yml.example"
-        force: false
-        mode: "0644"
+- name: Copy docker-compose.override.yml.example
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/compose/docker-compose.override.yml.example"
+    dest: "{{ instance_path }}/docker-compose.override.yml.example"
+    force: false
+    mode: "0644"
 
-    - name: Copy logstash pipeline configs
-      ansible.builtin.copy:
-        src: "{{ role_path }}/files/compose/config/logstash/"
-        dest: "{{ instance_path }}/config/logstash/"
-        force: false
-        mode: "0644"
-        directory_mode: "0755"
+- name: Copy logstash pipeline configs
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/compose/config/logstash/"
+    dest: "{{ instance_path }}/config/logstash/"
+    force: false
+    mode: "0644"
+    directory_mode: "0755"
 
-    - name: Copy observable-init script
-      ansible.builtin.copy:
-        src: "{{ role_path }}/files/compose/scripts/"
-        dest: "{{ instance_path }}/scripts/"
-        force: false
-        mode: "0755"
-        directory_mode: "0755"
+- name: Copy observable-init script
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/compose/scripts/"
+    dest: "{{ instance_path }}/scripts/"
+    force: false
+    mode: "0755"
+    directory_mode: "0755"

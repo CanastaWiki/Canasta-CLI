@@ -2568,7 +2568,7 @@ def test_gitops_pull_diff(inst):
 
 
 def test_version(inst):
-    """`canasta version` reports a version string and orchestrator info."""
+    """`canasta version` reports a version string."""
     output = inst.run_quiet("version")
     # The output format is governed by playbooks/version.yml; we just
     # need to confirm the command runs and emits something. The exact

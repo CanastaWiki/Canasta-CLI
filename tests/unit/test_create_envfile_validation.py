@@ -131,6 +131,16 @@ def test_an_unknown_key_is_warned_about_once(tmp_path):
     assert SECRET not in out, out
 
 
+def test_the_instance_template_env_passes(tmp_path):
+    # A new instance's .env starts as this file, and an operator may reuse
+    # an instance's .env as a later create's -e file.
+    with open(os.path.join(REPO_ROOT, "instance_template", ".env")) as f:
+        lines = f.read().splitlines()
+    code, out = _create(tmp_path, lines)
+    assert code == 0, out
+    assert "Warning:" not in out, out
+
+
 def test_host_gateway_passes_without_a_warning(tmp_path):
     code, out = _create(tmp_path, ["HOST_GATEWAY=10.88.0.1"])
     assert code == 0, out
