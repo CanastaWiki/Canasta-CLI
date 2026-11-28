@@ -374,37 +374,9 @@
 # on. On failure we revert the registration and warn instead of aborting.
 - name: "Install composer requirements (--no-dev)"
   when: _composer_paths | length > 0
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/_composer_update.yml"
   vars:
-    exec_service: web
-    # The merge plugin silently skips an include that is not there yet, so
-    # wait briefly for the monitor to link each new item. An image with
-    # /update-composer-deps.sh keeps the bundled include list itself and
-    # treats config/composer.local.json as the operator's additions only; the
-    # script merges the two and records a failure in composer-update.failed.
-    exec_command: >-
-      cd /var/www/mediawiki/w &&
-      for f in {{ _composer_paths | map('quote') | join(' ') }}; do
-      i=0; while [ ! -e "$f" ] && [ $i -lt 30 ]; do sleep 1; i=$((i+1)); done;
-      [ -e "$f" ] || { echo "$f is not visible in the container" >&2; exit 1; };
-      done &&
-      if [ -x /update-composer-deps.sh ]; then
-      /update-composer-deps.sh; rc=$?;
-      if [ -f /mediawiki/config/persistent/composer-update.failed ]; then
-      echo "composer-update.failed: $(head -n 1 /mediawiki/config/persistent/composer-update.failed)" >&2;
-      [ $rc -ne 0 ] || rc=1;
-      fi;
-      exit $rc;
-      else
-      cp /mediawiki/config/composer.local.json /var/www/mediawiki/w/composer.local.json &&
-      composer update --no-dev --no-interaction;
-      fi
-    exec_long: true
-    # Best-effort: a composer dependency conflict must not abort the whole
-    # command. rx_fail only applies while exec_long is true (the command then
-    # runs through resilient_exec.yml, which honors it and still records
-    # exec_result so the caller can revert + warn).
-    rx_fail: false
+    composer_update_wait: "{{ _composer_paths }}"
 
 # The checks below overwrite exec_result, and a block's when is
 # re-evaluated for every task in it.
@@ -479,27 +451,9 @@
         state: absent
 
     # Rebuild vendor/ from the restored list, which also clears
-    # composer-update.failed on success. On images without the script only a
-    # successful install changed vendor/.
+    # composer-update.failed on success.
     - name: "Rebuild composer state from the restored list"
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-      vars:
-        exec_service: web
-        exec_command: >-
-          if [ -x /update-composer-deps.sh ]; then
-          /update-composer-deps.sh; rc=$?;
-          if [ -f /mediawiki/config/persistent/composer-update.failed ]; then
-          echo "composer-update.failed: $(head -n 1 /mediawiki/config/persistent/composer-update.failed)" >&2;
-          [ $rc -ne 0 ] || rc=1;
-          fi;
-          exit $rc;
-          {% if _autoload_missing | length > 0 %}else
-          cp /mediawiki/config/composer.local.json /var/www/mediawiki/w/composer.local.json &&
-          cd /var/www/mediawiki/w &&
-          composer update --no-dev --no-interaction;
-          {% endif %}fi
-        exec_long: true
-        rx_fail: false
+      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/_composer_update.yml"
 
     - name: "Warn that the composer install failed"
       when: _composer_install_result.rc | default(1) != 0

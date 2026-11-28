@@ -1,0 +1,41 @@
+---
+# Rebuild vendor/ in the web container with the image's
+# /update-composer-deps.sh, which merges the bundled include list with the
+# operator's config/composer.local.json and records a failure in
+# composer-update.failed. That file's first line is passed on to stderr, and
+# its presence counts as a failure even when the script exits 0.
+#
+# Best effort: a dependency conflict must not abort the whole command, so the
+# outcome is left in exec_result for the caller to revert and warn.
+#
+# Input: composer_update_wait (optional) - composer.json paths, relative to
+#   w/, to wait for first. The merge plugin silently skips an include that is
+#   not there yet, and the container's directory monitor links a new item in
+#   only shortly after it appears.
+
+- name: Run update-composer-deps.sh in the web container
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
+  vars:
+    exec_service: web
+    exec_command: >-
+      {% if composer_update_wait | default([]) | length > 0 %}
+      cd /var/www/mediawiki/w || exit 1;
+      for f in {{ composer_update_wait | map('quote') | join(' ') }}; do
+      i=0; while [ ! -e "$f" ] && [ $i -lt 30 ]; do sleep 1; i=$((i+1)); done;
+      [ -e "$f" ] || { echo "$f is not visible in the container" >&2; exit 1; };
+      done;
+      {% endif %}
+      if [ ! -x /update-composer-deps.sh ]; then
+      echo "The web image has no /update-composer-deps.sh; upgrade the instance to a current Canasta image." >&2;
+      exit 1; fi;
+      /update-composer-deps.sh; rc=$?;
+      if [ -f /mediawiki/config/persistent/composer-update.failed ]; then
+      echo "composer-update.failed: $(head -n 1 /mediawiki/config/persistent/composer-update.failed)" >&2;
+      [ $rc -ne 0 ] || rc=1;
+      fi;
+      exit $rc
+    exec_long: true
+    # rx_fail only applies while exec_long is true: the command then runs
+    # through resilient_exec.yml, which honors it and still records
+    # exec_result.
+    rx_fail: false

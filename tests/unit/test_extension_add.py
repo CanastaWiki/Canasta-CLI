@@ -259,10 +259,10 @@ class TestComposerRequirements:
         assert "_item_dir ~ '/\\1/composer.json'" in text
 
     def test_install_waits_for_the_monitor_link(self):
-        install = [(t.get("vars") or {}).get("exec_command", "")
+        install = [(t.get("vars") or {}).get("composer_update_wait")
                    for t in _walk(_load(ADD))
                    if t.get("name") == "Install composer requirements (--no-dev)"]
-        assert install and all('[ ! -e "$f" ]' in c for c in install)
+        assert install == ["{{ _composer_paths }}"]
 
     def test_failed_install_reverts_only_what_this_run_added(self):
         reverts = [t for t in _walk(_load(ADD))
@@ -273,13 +273,11 @@ class TestComposerRequirements:
             assert t["canasta_composer_local"]["include"] == (
                 "{{ _composer_local.added }}")
 
-    def test_runs_composer_update_no_dev(self):
-        exec_cmds = [(t.get("vars") or {}).get("exec_command", "")
-                     for t in _walk(_load(ADD))
-                     if (t.get("vars") or {}).get("exec_command")]
-        assert any("composer update --no-dev" in c for c in exec_cmds), (
-            "non-dev composer requirements must be installed explicitly "
-            "(the image's boot-time update tolerates failure silently)")
+    def test_installs_composer_requirements_explicitly(self):
+        # The image's boot-time update tolerates failure silently.
+        includes = [t.get("ansible.builtin.include_tasks", "")
+                    for t in _walk(_load(ADD))]
+        assert any(i.endswith("/_composer_update.yml") for i in includes)
 
     def test_gitops_commit_is_scoped_to_the_file(self):
         cmds = [_cmd(t) for t in _walk(_load(ADD)) if _cmd(t)]
