@@ -4727,6 +4727,94 @@ def test_devmode(inst):
     wait_for_wiki(inst.http_port)
 
 
+def test_gitops_resolve(inst):
+    """A pull that conflicts with a local edit stops for gitops resolve.
+
+    Another host's change arrives through a plain clone of the repo. The
+    first conflict is resolved by keeping the remote's version and
+    finishing the pull; the second is abandoned with --abort, which must
+    put the local edit back.
+    """
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir, "-e", inst.env_file,
+    )
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(["git", "init", "--bare", bare_repo],
+                   capture_output=True, check=True)
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "testhost",
+        "--repo", bare_repo, "--key", key_file,
+    )
+
+    rel = os.path.join("config", "settings", "global", "ResolveTest.php")
+    local_file = os.path.join(inst.instance_path(), rel)
+
+    def write(path, value):
+        with open(path, "w") as f:
+            f.write("<?php\n$wgResolveTest = '%s';\n" % value)
+
+    def read(path):
+        with open(path) as f:
+            return f.read()
+
+    os.makedirs(os.path.dirname(local_file), exist_ok=True)
+    write(local_file, "base")
+    inst.run_ok("gitops", "add", "-i", inst.id, rel)
+    inst.run_ok("gitops", "push", "-i", inst.id)
+
+    other = os.path.join(inst.work_dir, "other-host")
+    rc, _ = _git(inst.work_dir, "clone", "-q", "-b", "main", bare_repo, other)
+    assert rc == 0, "could not clone the gitops repo"
+
+    def change_remotely(value):
+        _git(other, "pull", "-q", "--rebase")
+        write(os.path.join(other, rel), value)
+        for args in (("commit", "-q", "-am", "Set %s" % value),
+                     ("push", "-q", "origin", "main")):
+            rc, _ = _git(other, *args)
+            assert rc == 0, "git %s failed in the other clone" % args[0]
+
+    def rebasing():
+        git_dir = os.path.join(inst.instance_path(), ".git")
+        return any(os.path.isdir(os.path.join(git_dir, d))
+                   for d in ("rebase-merge", "rebase-apply"))
+
+    print("Conflicting a local edit with another host's change...")
+    change_remotely("remote")
+    write(local_file, "local")
+    output, _ = inst.run("gitops", "resolve", "-i", inst.id)
+    assert rebasing(), "resolve did not stop at the conflict:\n%s" % output
+    assert "ResolveTest.php" in output, (
+        "resolve did not name the conflicting file:\n%s" % output)
+
+    print("Finishing is refused while conflict markers remain...")
+    _, rc = inst.run("gitops", "resolve", "-i", inst.id, "--continue")
+    assert rc != 0, "--continue finished with conflict markers in place"
+    assert rebasing(), "a refused --continue left the resolution"
+
+    print("Keeping the remote's version and finishing the pull...")
+    inst.run_ok("gitops", "resolve", "-i", inst.id, "--keep", "remote", rel)
+    inst.run_ok("gitops", "resolve", "-i", inst.id, "--continue")
+    assert not rebasing(), "the pull is still being resolved"
+    assert "'remote'" in read(local_file), read(local_file)
+
+    print("Abandoning a second conflict with --abort...")
+    change_remotely("remote2")
+    write(local_file, "local2")
+    inst.run("gitops", "resolve", "-i", inst.id)
+    assert rebasing(), "resolve did not stop at the second conflict"
+    inst.run_ok("gitops", "resolve", "-i", inst.id, "--abort")
+    assert not rebasing(), "--abort left the pull being resolved"
+    assert "'local2'" in read(local_file), (
+        "--abort did not put the local edit back:\n%s" % read(local_file))
+
+
 ALL_TESTS = {
     "lifecycle": test_lifecycle,
     "podman-socket-runtime": test_podman_socket_runtime,
@@ -4784,6 +4872,7 @@ ALL_TESTS = {
     "sidecar-migrate": test_sidecar_migrate,
     "multi-instance": test_multi_instance,
     "devmode": test_devmode,
+    "gitops-resolve": test_gitops_resolve,
 }
 
 

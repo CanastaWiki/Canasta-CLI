@@ -100,7 +100,7 @@ jobs:
             "multi-instance")
               tests="multi-instance gitops-pull-reapplies maintenance" ;;
             "add-extra-database")
-              tests="add-extra-database gitops upgrade" ;;
+              tests="add-extra-database gitops upgrade gitops-resolve" ;;
             "backup-restore-safety")
               tests="backup-restore-safety sitemap schedule" ;;
             "backup-extra-database")
