@@ -1,4 +1,4 @@
-"""start, stop — lifecycle commands."""
+"""stop — lifecycle command."""
 
 import os
 import sys
@@ -8,14 +8,6 @@ import canasta_edge_writable
 
 from . import _helpers
 from ._helpers import register
-
-
-@register("start")
-def cmd_start(args):
-    # Ansible starts every instance: its place behind the HAProxy edge is
-    # rendered there.
-    _helpers._resolve_instance(args)
-    return _helpers.FALLBACK
 
 
 @register("stop")

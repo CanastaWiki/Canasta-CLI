@@ -64,17 +64,6 @@ def test_python_compose_args_layer_the_edge_file(tmp_path):
     ]
 
 
-def test_fast_path_start_hands_edge_instances_to_ansible(monkeypatch):
-    inst = {"id": "one", "path": "/srv/one", "host": "localhost"}
-    monkeypatch.setattr(_helpers, "_resolve_instance", lambda args: ("one", inst))
-    monkeypatch.setattr(_helpers, "_is_k8s", lambda inst: False)
-    monkeypatch.setattr(_helpers, "_instance_has_sidecars", lambda inst: False)
-    monkeypatch.setattr(_helpers, "_sync_compose_profiles",
-                        lambda inst: {})
-    monkeypatch.setattr(_helpers, "_run_compose", lambda *a, **k: 1 / 0)
-    assert lifecycle.cmd_start(None) is _helpers.FALLBACK
-
-
 def test_edge_reloads_signal_haproxy_through_exec():
     # `docker kill` marks the container manually stopped, so the daemon would
     # not restart it.

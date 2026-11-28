@@ -12,7 +12,6 @@ import shlex
 import ssl
 import subprocess
 import sys
-import time
 import urllib.parse
 import urllib.request
 
@@ -444,68 +443,6 @@ def _run_compose(inst_id, inst, action_args, include_sidecars=False,
     return _retry_on_ssh_reset(_attempt)
 
 
-def _missing_db_password(inst, env=None):
-    """True when .env has no usable MYSQL_PASSWORD.
-
-    Healing needs to know whether a database volume already exists before
-    deciding whether generating a replacement is safe. That check lives
-    in the Ansible path (orchestrator/tasks/heal_mysql_password.yml)
-    rather than being duplicated here, so this only has to detect the
-    condition.
-
-    Pass ``env`` when the caller has already read .env, to avoid a second
-    read; omit it to read here.
-    """
-    if env is None:
-        env = _read_env_file(
-            inst.get("path", ""), inst.get("host") or "localhost")
-    if not env:
-        # Unreadable or absent .env is a different problem, and treating
-        # it as this one would swallow the compose failure the caller is
-        # about to report. A real instance's .env has many keys.
-        return False
-    return not (env.get("MYSQL_PASSWORD") or "").strip()
-
-
-_BUNDLED_DB_DEFAULTS = tuple(
-    (d["key"], d["value"])
-    for d in _load_vars("mysql_defaults.yml")["canasta_bundled_db_defaults"]
-)
-
-
-def _wiki_db_account_updates(env):
-    """The WIKI_DB_USER / WIKI_DB_PASSWORD settings .env needs.
-
-    MediaWiki's account defaults to the administrator account (MYSQL_USER,
-    root on the bundled database). While it is that account, its password
-    is MYSQL_PASSWORD, copied every time so a rotated root password or a
-    restored .env never leaves MediaWiki a stale copy.
-    CANASTA_DB_ROOT_ACCOUNT=true keeps (or puts) MediaWiki on the
-    administrator account.
-    """
-    admin = (env.get("MYSQL_USER") or "").strip() or "root"
-    wiki_user = (env.get("WIKI_DB_USER") or "").strip()
-    keep_admin = (env.get("CANASTA_DB_ROOT_ACCOUNT") or "").strip().lower() == "true"
-    updates = []
-    if not wiki_user or (keep_admin and wiki_user != admin):
-        wiki_user = admin
-        updates.append(("WIKI_DB_USER", admin))
-    admin_password = env.get("MYSQL_PASSWORD") or ""
-    if (wiki_user == admin and admin_password
-            and env.get("WIKI_DB_PASSWORD") != admin_password):
-        updates.append(("WIKI_DB_PASSWORD", admin_password))
-    return updates
-
-
-def _uses_wiki_db_account(env):
-    """True when MediaWiki has its own database account, not the
-    administrator's (root, or MYSQL_USER on an external database)."""
-    if not env:
-        return False
-    admin = (env.get("MYSQL_USER") or "").strip() or "root"
-    return (env.get("WIKI_DB_USER") or "").strip() not in ("", "root", admin)
-
-
 # The .env keys that decide whether MediaWiki still waits to move off the
 # database administrator account.
 _DB_ACCOUNT_KEYS = ("USE_EXTERNAL_DB", "MYSQL_USER", "WIKI_DB_USER",
@@ -535,34 +472,6 @@ def _wiki_db_move_pending(env):
         return False
     admin = ((env.get("MYSQL_USER") or "").strip() or "root") if external else "root"
     return ((env.get("WIKI_DB_USER") or "").strip() or admin) == admin
-
-
-def _backfill_db_defaults(inst):
-    """Add the bundled-DB MYSQL_* defaults missing from .env, and the
-    WIKI_DB_ account keys every instance needs.
-
-    podman-compose passes ${MYSQL_HOST:-db} through literally instead of
-    expanding it, so an instance whose .env predates create pinning these
-    keys hangs waiting for a host named "${MYSQL_HOST:-db}". Only absent or
-    empty MYSQL_* keys are set, and an external-DB instance keeps its own.
-    """
-    host = inst.get("host") or "localhost"
-    path = inst.get("path", "")
-    content = _read_env_content(path, host)
-    if not content:
-        return
-    env = {k: v for k, v, c in _parse_env_entries(content) if not c and k}
-    missing = []
-    if (env.get("USE_EXTERNAL_DB") or "").strip().lower() != "true":
-        missing = [(k, v) for k, v in _BUNDLED_DB_DEFAULTS
-                   if not (env.get(k) or "").strip()]
-    missing += _wiki_db_account_updates(env)
-    if not missing:
-        return
-    lines = content.rstrip("\n").split("\n")
-    for key, value in missing:
-        lines = _set_env_lines(lines, key, value)
-    _write_env_content(path, host, "\n".join(lines) + "\n")
 
 
 _COMPOSE_PROFILES_VARS = _load_vars("compose_profiles.yml")
@@ -727,33 +636,6 @@ def _sync_compose_profiles(inst):
     return env
 
 
-_CROWDSEC_BIND_FILES = ("acquis.yaml", "whitelists.yaml")
-
-
-def _crowdsec_setup_pending(inst, env):
-    """True when CrowdSec is enabled and the Ansible start still has
-    CrowdSec setup to do: no bouncer key is stored, or a file the crowdsec
-    container bind-mounts is not a regular file yet (Docker would create a
-    directory in its place). Mirrors the conditions under which
-    ensure_crowdsec_config.yml and crowdsec_autoenroll.yml change anything.
-    """
-    if not env:
-        return False
-    if (env.get("CANASTA_ENABLE_CROWDSEC") or "false").strip().lower() != "true":
-        return False
-    if not (env.get("CROWDSEC_BOUNCER_API_KEY") or "").strip():
-        return True
-    path = inst.get("path", "")
-    host = inst.get("host") or "localhost"
-    files = [os.path.join(path, "config", "crowdsec", f)
-             for f in _CROWDSEC_BIND_FILES]
-    if _is_localhost(host):
-        return not all(os.path.isfile(f) for f in files)
-    rc, _ = _ssh_run(
-        host, " && ".join("test -f %s" % _shell_quote(f) for f in files))
-    return rc != 0
-
-
 def _remove_podman_service_containers(inst, services):
     """Stop and remove the instance's containers for `services`.
 
@@ -774,52 +656,6 @@ def _remove_podman_service_containers(inst, services):
             ids += [i for i in out.split() if i not in ids]
     if ids:
         _runtime_capture(inst, [runtime, "rm", "-f"] + ids, timeout=120)
-
-
-def _dump_compose_failure(inst, include_sidecars=False):
-    """Print compose ps + logs to stderr after a failed 'up'.
-
-    Matches the diagnostic block in roles/orchestrator/tasks/start.yml:
-    the caller usually rolls back (compose down) on failure, which wipes
-    the containers — so capturing ps/logs here, right after the failed
-    'up' and before the rollback, is the only reliable way to see why a
-    container was unhealthy.
-    """
-    host = inst.get("host") or "localhost"
-    path = inst.get("path", "")
-    devmode = inst.get("devMode", False)
-    file_args = _compose_file_args(path, host, devmode, include_sidecars)
-    compose_cmd = _resolve_compose_cmd(inst)
-    compose_label = " ".join(compose_cmd)
-
-    steps = [
-        (["ps", "-a"], "%s ps -a" % compose_label),
-        (["logs", "--tail=200", "--no-color"], "%s logs (last 200)" % compose_label),
-    ]
-    for action, label in steps:
-        if _is_localhost(host):
-            try:
-                result = subprocess.run(
-                    compose_cmd + file_args + action,
-                    cwd=path, capture_output=True, text=True, timeout=30,
-                )
-                output = result.stdout or result.stderr
-            except (subprocess.TimeoutExpired, OSError) as e:
-                output = "(failed to capture: %s)" % e
-        else:
-            action_str = " ".join(action)
-            file_str = " ".join(file_args)
-            compose_str = " ".join(compose_cmd)
-            _rc, output = _ssh_run(
-                host,
-                "cd %s && %s %s %s" % (
-                    _shell_quote(path), compose_str, file_str, action_str,
-                ),
-            )
-        print("--- %s ---" % label, file=sys.stderr)
-        print(output.strip() if output else "(empty)", file=sys.stderr)
-
-    _dump_db_error_log(inst)
 
 
 def _web_logs(inst, tail):
@@ -845,61 +681,8 @@ def _web_logs(inst, tail):
     return output
 
 
-def _dump_web_logs(inst, tail=60, output=None):
-    """Print the last `tail` lines of web's own logs, fetching them unless
-    `output` already holds them. Composer failing is the other common cause."""
-    if output is None:
-        if not inst.get("path", ""):
-            return
-        output = _web_logs(inst, tail)
-    lines = (output or "").strip().splitlines()[-tail:]
-    print("--- web logs (last %d) ---" % tail, file=sys.stderr)
-    print("\n".join(lines) if lines else "(empty)", file=sys.stderr)
-
-
-def _dump_db_error_log(inst):
-    """Print the tail of MariaDB's error log after a failed start.
-
-    Mirrors roles/orchestrator/tasks/_capture_db_error_log.yml. The db service
-    tees its log to stdout, but a container restarting every couple of seconds
-    may hold nothing useful there by the time this runs, and an instance
-    started before that change has none there at all. The volume-backed copy
-    outlives both.
-    """
-    path = inst.get("path", "")
-    if not path:
-        return
-    runtime = _resolve_inspect_cmd(inst)
-    volume = "%s_mysql-logs" % _compose_project(path)
-
-    # `run -v` auto-creates a missing named volume, so an external-database
-    # instance would collect a stray empty one on every failed start.
-    rc, _out = _runtime_capture(inst, [runtime, "volume", "inspect", volume])
-    if rc != 0:
-        return
-
-    rc, output = _runtime_capture(inst, [
-        runtime, "run", "--rm", "-v", "%s:/l:ro" % volume,
-        "docker.io/library/mariadb:11.4", "tail", "-n", "100", "/l/error.log",
-    ], timeout=60)
-    if rc != 0 or not (output or "").strip():
-        return
-    print("--- database error log (last 100) ---", file=sys.stderr)
-    print(output.strip(), file=sys.stderr)
-
-
-# Readiness gate after `up -d`. Mirrors roles/orchestrator/tasks/start.yml:
-# 60 x 10s = 10 min, comfortably above the canasta-base healthcheck's 5 min
-# --start-period plus a slow first-time composer install. The Podman fallback
-# probe's 30 x 10s matches the --start-period alone.
-_WEB_HEALTH_RETRIES = 60
-_WEB_HEALTH_DELAY = 10
-_WEB_PROBE_RETRIES = 30
-_WEB_PROBE_DELAY = 10
-# How much of web's log to search for a startup error, and how much of it to
-# show once one is found.
+# How much of web's log to search for a startup error.
 _WEB_CAUSE_SCAN_LINES = 200
-_WEB_CAUSE_DUMP_LINES = 20
 
 
 def _runtime_capture(inst, argv, timeout=30):
@@ -955,22 +738,6 @@ def _web_container_id(inst):
     return out.strip().split("\n")[0].strip()
 
 
-def _web_health_status(inst, cid):
-    """The web container's health status, or "" when it reports none.
-
-    Runtimes disagree on what "no health data" looks like: Podman 4.9.3
-    reports a non-nil .State.Health whose Status is empty, older Podman omits
-    .State.Health entirely, and Docker reports a real status. So the probe
-    renders the status itself rather than testing the struct for presence —
-    an empty render means "nothing to wait on" on every runtime.
-    """
-    rc, out = _runtime_capture(inst, [
-        _resolve_inspect_cmd(inst), "inspect", "-f",
-        "{{if .State.Health}}{{.State.Health.Status}}{{end}}", cid,
-    ])
-    return out.strip() if rc == 0 else ""
-
-
 def _compose_web_startup_cause(inst_id, inst):
     """(web_startup_cause result, web log text) for a Compose instance."""
     path = inst.get("path", "")
@@ -983,151 +750,6 @@ def _compose_web_startup_cause(inst_id, inst):
     cause = canasta_web_cause.web_startup_cause(
         logs, inst_id, composer[0] if composer else "")
     return cause, logs
-
-
-def _report_web_unhealthy(inst_id, inst, status):
-    """Explain a web container that never reported healthy.
-
-    Leads with the startup error web logged when there is one; otherwise
-    falls back to the usual suspects, composer and the database.
-    """
-    timeout = (
-        "did not report healthy within %d minutes; its last status was '%s'."
-        % (_WEB_HEALTH_RETRIES * _WEB_HEALTH_DELAY // 60, status or "(none)"))
-    cause, logs = _compose_web_startup_cause(inst_id, inst)
-    if cause:
-        print("Error: %s\n%s\nThe 'web' container for instance '%s' %s"
-              % (cause["cause"], cause["hint"], inst_id, timeout),
-              file=sys.stderr)
-        _dump_web_logs(inst, tail=_WEB_CAUSE_DUMP_LINES, output=logs)
-        return
-    print(
-        "Error: the 'web' container for instance '%s' %s The image's "
-        "healthcheck probes /server-status, which answers only once "
-        "composer and apache have both finished — so this usually means "
-        "composer is still running or failed, or the database web waits "
-        "on never came up." % (inst_id, timeout),
-        file=sys.stderr,
-    )
-    # `up` returning 0 while the database crash-loops is the commoner
-    # failure, and the one no diagnostic covered: compose reports every
-    # container started, so nothing before this point failed.
-    _dump_web_logs(inst, output=logs)
-    _dump_db_error_log(inst)
-
-
-def _wait_web_ready(inst_id, inst):
-    """Block until the instance's web container is ready. Returns an exit code.
-
-    /run-all.sh in the canasta image runs `composer update` synchronously
-    before starting apache, so a `canasta maintenance` (or any other
-    `compose exec web php …`) issued the moment `up -d` returns races composer
-    and crashes on a half-written vendor/. The image's HEALTHCHECK probes
-    /server-status, which answers only once composer AND apache have finished
-    — so "healthy" is the right gate. An image that declares no healthcheck
-    defines its own readiness contract and is not waited on.
-    """
-    cid = _web_container_id(inst)
-    if not cid:
-        print(
-            "Error: started the containers, but no running 'web' container is "
-            "present for instance '%s'. The instance is not up — check "
-            "'canasta list' and the container logs on the host. On rootless "
-            "Podman this is usually lingering: without 'sudo loginctl "
-            "enable-linger <user>', systemd stops the containers as soon as "
-            "the session that started them ends." % inst_id,
-            file=sys.stderr,
-        )
-        return 1
-
-    status = _web_health_status(inst, cid)
-    if status:
-        for attempt in range(_WEB_HEALTH_RETRIES):
-            if status == "healthy":
-                return 0
-            if attempt == 0:
-                print("Waiting for web to become ready...")
-            time.sleep(_WEB_HEALTH_DELAY)
-            status = _web_health_status(inst, cid)
-        _report_web_unhealthy(inst_id, inst, status)
-        return 1
-
-    runtime = _resolve_inspect_cmd(inst)
-    if "podman" not in runtime:
-        return 0
-
-    # Podman renders an empty status for the stock image — the published
-    # image is OCI-format and podman ignores Healthcheck in an OCI config,
-    # and podman runs healthchecks from systemd transient timers that compose
-    # never creates. So ask the container the question the healthcheck would
-    # ask, which depends on nothing but `exec`. 127.0.0.1, not localhost:
-    # localhost resolves to ::1 first under rootless podman, and CanastaBase
-    # before 1.3.19 served /server-status only to 127.0.0.1.
-    #
-    # Best-effort on purpose: a custom image that never serves /server-status
-    # must not turn a missing signal into a failed start.
-    print("Waiting for web to become ready...")
-    for attempt in range(_WEB_PROBE_RETRIES):
-        rc, _out = _runtime_capture(inst, [
-            runtime, "exec", cid,
-            "wget", "-q", "--method=HEAD", "127.0.0.1/server-status",
-        ])
-        if rc == 0:
-            return 0
-        if attempt < _WEB_PROBE_RETRIES - 1:
-            time.sleep(_WEB_PROBE_DELAY)
-    print(
-        "web did not answer /server-status within %d minutes, so the "
-        "readiness gate is being skipped. A custom image that does not serve "
-        "/server-status is expected here. On the stock image this means web "
-        "is still starting, and a command that runs php in the container may "
-        "race composer."
-        % (_WEB_PROBE_RETRIES * _WEB_PROBE_DELAY // 60),
-        file=sys.stderr,
-    )
-    return 0
-
-
-# (path relative to the instance, recurse)
-_ROOTLESS_OPERATOR_DIRS = tuple(
-    (d["path"], d["recurse"]) for d in
-    _load_vars("rootless_operator_dirs.yml")["canasta_rootless_operator_dirs"]
-)
-
-
-def _rootless_operator_chown(inst):
-    """Hand the operator-managed directories back to the operator on
-    rootless Podman.
-
-    The web container's startup rsync re-owns config/, extensions/ and
-    skins/ to www-data, which rootless Podman maps to a host subuid, so
-    every start locks the operator out of them again. Inside
-    `podman unshare` namespace root is the operator. Directories the
-    containers write into (images/, config/persistent, ...) are left alone.
-    """
-    if "podman" not in _resolve_inspect_cmd(inst):
-        return
-    rc, out = _runtime_capture(inst, [
-        "podman", "info", "--format", "{{.Host.Security.Rootless}}",
-    ])
-    if rc != 0 or out.strip() != "true":
-        return
-    path = inst.get("path", "")
-    script = " ".join(
-        "[ ! -d %s ] || chown %s0:0 %s;" % (q, "-R " if recurse else "", q)
-        for q, recurse in (
-            (_shell_quote(os.path.join(path, rel)), recurse)
-            for rel, recurse in _ROOTLESS_OPERATOR_DIRS
-        )
-    )
-    rc, _ = _runtime_capture(inst, ["podman", "unshare", "sh", "-c", script])
-    if rc != 0:
-        print(
-            "Warning: could not return %s/{config,extensions,skins,...} to "
-            "the operator; they may stay owned by the container's subuid."
-            % path,
-            file=sys.stderr,
-        )
 
 
 # The web container's Apache, PHP-FPM, and job runner user. Maintenance

@@ -140,25 +140,5 @@ def cmd_rebuild(args):
         return 0
 
     print("Restarting containers to pick up the rebuilt image...")
-    env = _helpers._sync_compose_profiles(inst)
-    _helpers._backfill_db_defaults(inst)
-    # The same steps cmd_start leaves to Ansible: the restart playbook runs
-    # them, so it does the restart.
-    if (_helpers._uses_wiki_db_account(env)
-            or _helpers._crowdsec_setup_pending(inst, env)
-            or _helpers._missing_db_password(inst, env)):
-        args.id = inst_id
-        return _helpers.AnsibleHandoff("restart")
-    rc = _helpers._run_compose(
-        inst_id, inst, ["down"], include_sidecars=has_sidecars)
-    if rc != 0:
-        return rc
-    rc = _helpers._run_compose(
-        inst_id, inst, ["up", "-d"], include_sidecars=has_sidecars)
-    if rc != 0:
-        _helpers._dump_compose_failure(inst, include_sidecars=has_sidecars)
-        return rc
-    rc = _helpers._wait_web_ready(inst_id, inst)
-    if rc == 0:
-        _helpers._rootless_operator_chown(inst)
-    return rc
+    args.id = inst_id
+    return _helpers.AnsibleHandoff("restart")
