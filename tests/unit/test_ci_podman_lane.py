@@ -89,7 +89,7 @@ class TestBuildableRebuildIsAsserted:
 
     def test_rebuild_assertion_runs_on_both_runtimes(self):
         jobs = _jobs()
-        for job in ("integration-core", "integration-podman"):
+        for job in ("integration-docker", "integration-podman"):
             runs = " ".join(_run_steps(jobs[job]))
             assert "upgrade-rebuilds-buildable" in runs, (
                 "%s must run the buildable-rebuild assertion" % job
