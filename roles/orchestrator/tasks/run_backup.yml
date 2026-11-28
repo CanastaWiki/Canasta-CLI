@@ -9,292 +9,290 @@
 # Output:
 #   _restic_result - command result
 
-- name: Run backup
+- name: Set backup volume name
+  ansible.builtin.set_fact:
+    _bvol: "canasta-backup-{{ instance_path | basename }}"
+
+# A snapshot's sources are mounted read-only straight into the restic
+# container, each at the /currentsnapshot/<name> it would have been
+# copied to. The snapshot paths are therefore unchanged, so existing snapshots, parent
+# detection and retention grouping are unaffected.
+#
+# Restoring still goes through the volume: restic restores into it and
+# a second step copies onto the host, so a half-finished restore never
+# touches the live instance.
+#
+# Except on Docker Desktop, whose file sharing restic cannot read: every
+# read of a host bind mount returns EIO, so the snapshot comes back
+# empty and the backup fails. It is not a restic version or a :ro
+# problem — 0.16.4, 0.17.3 and 0.19.0 all fail, read-write too, while a
+# plain `cat` of the same mount succeeds and the same bytes in a Docker
+# volume back up fine. There the sources keep going through the staging
+# copy, which is cheap on the small instances Docker Desktop hosts.
+- name: Identify the container runtime
+  ansible.builtin.command:
+    cmd: "{{ inspect_command }} info --format {% raw %}{{.OperatingSystem}}{% endraw %}"
+  register: _backup_runtime_os
+  changed_when: false
+  failed_when: false
+
+- name: Decide how the sources reach restic
+  ansible.builtin.set_fact:
+    _backup_mount_sources: >-
+      {{ 'Docker Desktop'
+         not in (_backup_runtime_os.stdout | default('')) }}
+
+- name: Split the sources between mounting and staging
+  ansible.builtin.set_fact:
+    _backup_sources: >-
+      {{ (backup_volumes | default({}, true))
+         if _backup_mount_sources | bool else {} }}
+    _backup_staged: >-
+      {{ {} if _backup_mount_sources | bool
+         else (backup_volumes | default({}, true)) }}
+
+# `docker volume create` is idempotent; `podman volume create` exits
+# 125 when the volume is already there. Tolerate only that, so a real
+# failure — bad name, no space — still stops the backup rather than
+# letting it run against a volume that was never created.
+- name: Ensure backup volume exists
+  ansible.builtin.command:
+    cmd: "{{ inspect_command }} volume create {{ _bvol }}"
+  register: _bvol_create
+  changed_when: _bvol_create.rc == 0
+  failed_when:
+    - _bvol_create.rc != 0
+    - "'already exists' not in (_bvol_create.stderr | default(''))"
+  when: not _backup_sources
+
+- name: Stage files into backup volume
+  when: _backup_staged | length > 0
   block:
-    - name: Set backup volume name
-      ansible.builtin.set_fact:
-        _bvol: "canasta-backup-{{ instance_path | basename }}"
+    - name: Report the staging phase
+      ansible.builtin.debug:
+        msg: "Staging the instance's files into the backup volume..."
 
-    # A snapshot's sources are mounted read-only straight into the restic
-    # container, each at the /currentsnapshot/<name> it would have been
-    # copied to. The snapshot paths are therefore unchanged, so existing snapshots, parent
-    # detection and retention grouping are unaffected.
-    #
-    # Restoring still goes through the volume: restic restores into it and
-    # a second step copies onto the host, so a half-finished restore never
-    # touches the live instance.
-    #
-    # Except on Docker Desktop, whose file sharing restic cannot read: every
-    # read of a host bind mount returns EIO, so the snapshot comes back
-    # empty and the backup fails. It is not a restic version or a :ro
-    # problem — 0.16.4, 0.17.3 and 0.19.0 all fail, read-write too, while a
-    # plain `cat` of the same mount succeeds and the same bytes in a Docker
-    # volume back up fine. There the sources keep going through the staging
-    # copy, which is cheap on the small instances Docker Desktop hosts.
-    - name: Identify the container runtime
-      ansible.builtin.command:
-        cmd: "{{ inspect_command }} info --format {% raw %}{{.OperatingSystem}}{% endraw %}"
-      register: _backup_runtime_os
-      changed_when: false
-      failed_when: false
+    - name: Build and run staging container
+      ansible.builtin.shell:
+        cmd: |
+          {{ inspect_command }} run --rm \
+            -v {{ _bvol }}:/currentsnapshot \
+          {% for src, dst in _backup_staged.items() %}
+            -v {{ src }}:/src{{ loop.index0 }}:ro \
+          {% endfor %}
+            docker.io/library/alpine sh -c \
+            "rm -rf /currentsnapshot/* && \
+          {% for src, dst in _backup_staged.items() %}
+            cp -a /src{{ loop.index0 }} {{ dst }}{{ ' && ' if not loop.last else '' }} \
+          {% endfor %}
+            "
+      changed_when: true
 
-    - name: Decide how the sources reach restic
-      ansible.builtin.set_fact:
-        _backup_mount_sources: >-
-          {{ 'Docker Desktop'
-             not in (_backup_runtime_os.stdout | default('')) }}
+- name: Read RESTIC_REPOSITORY from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: RESTIC_REPOSITORY
+  register: _backup_repo_env
 
-    - name: Split the sources between mounting and staging
-      ansible.builtin.set_fact:
-        _backup_sources: >-
-          {{ (backup_volumes | default({}, true))
-             if _backup_mount_sources | bool else {} }}
-        _backup_staged: >-
-          {{ {} if _backup_mount_sources | bool
-             else (backup_volumes | default({}, true)) }}
+- name: Detect local repo (from .env or -r flag)
+  ansible.builtin.set_fact:
+    _backup_local_repo: >-
+      {{ (_backup_repo_env.value | default('')
+          is match('^/'))
+         | ternary(_backup_repo_env.value, '') }}
 
-    # `docker volume create` is idempotent; `podman volume create` exits
-    # 125 when the volume is already there. Tolerate only that, so a real
-    # failure — bad name, no space — still stops the backup rather than
-    # letting it run against a volume that was never created.
-    - name: Ensure backup volume exists
-      ansible.builtin.command:
-        cmd: "{{ inspect_command }} volume create {{ _bvol }}"
-      register: _bvol_create
-      changed_when: _bvol_create.rc == 0
-      failed_when:
-        - _bvol_create.rc != 0
-        - "'already exists' not in (_bvol_create.stderr | default(''))"
-      when: not _backup_sources
+# Docker creates a missing bind-mount source directory; podman fails
+# with "statfs ...: no such file or directory". Create it rather than
+# depending on a runtime side effect, as the connecting user — which
+# also makes the ownership reclaim below a no-op in the common case.
+- name: Ensure the local repo directory exists
+  ansible.builtin.file:
+    path: "{{ _backup_local_repo }}"
+    state: directory
+    mode: "0755"
+  when: _backup_local_repo | length > 0
 
-    - name: Stage files into backup volume
-      when: _backup_staged | length > 0
-      block:
-        - name: Report the staging phase
-          ansible.builtin.debug:
-            msg: "Staging the instance's files into the backup volume..."
+# restic runs as root in the container, so a local-path repo ends up
+# root-owned and the operator cannot prune or remove their own
+# backups. Record the parent directory's owner to hand it back.
+- name: Stat the local repo's parent directory
+  ansible.builtin.stat:
+    path: "{{ _backup_local_repo | dirname }}"
+  register: _backup_repo_parent
+  when: _backup_local_repo | length > 0
 
-        - name: Build and run staging container
-          ansible.builtin.shell:
-            cmd: |
-              {{ inspect_command }} run --rm \
-                -v {{ _bvol }}:/currentsnapshot \
-              {% for src, dst in _backup_staged.items() %}
-                -v {{ src }}:/src{{ loop.index0 }}:ro \
-              {% endfor %}
-                docker.io/library/alpine sh -c \
-                "rm -rf /currentsnapshot/* && \
-              {% for src, dst in _backup_staged.items() %}
-                cp -a /src{{ loop.index0 }} {{ dst }}{{ ' && ' if not loop.last else '' }} \
-              {% endfor %}
-                "
-          changed_when: true
+- name: Read RESTIC_PASSWORD from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: RESTIC_PASSWORD
+  register: _backup_pw_env
+  no_log: true
 
-    - name: Read RESTIC_REPOSITORY from .env
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: read
-        key: RESTIC_REPOSITORY
-      register: _backup_repo_env
+# Fail fast with a clear message instead of letting restic emit an
+# opaque error. backup has no -r override —
+# the repo always comes from .env — so requiring both here is safe.
+- name: Fail if restic repository or password is not configured
+  ansible.builtin.fail:
+    msg: "RESTIC_REPOSITORY and RESTIC_PASSWORD must be set in .env."
+  when: >-
+    (_backup_repo_env.value | default('')) == ''
+    or (_backup_pw_env.value | default('')) == ''
 
-    - name: Detect local repo (from .env or -r flag)
-      ansible.builtin.set_fact:
-        _backup_local_repo: >-
-          {{ (_backup_repo_env.value | default('')
-              is match('^/'))
-             | ternary(_backup_repo_env.value, '') }}
+# CRLF endings are stripped by canasta_env on read (so `canasta config
+# get` looks fine) but pass through Docker's --env-file literally, a
+# common cause of restic "wrong password". Surface it as an advisory
+# rather than failing.
+- name: Check .env for CRLF line endings
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: lint
+  register: _backup_env_lint
 
-    # Docker creates a missing bind-mount source directory; podman fails
-    # with "statfs ...: no such file or directory". Create it rather than
-    # depending on a runtime side effect, as the connecting user — which
-    # also makes the ownership reclaim below a no-op in the common case.
-    - name: Ensure the local repo directory exists
-      ansible.builtin.file:
-        path: "{{ _backup_local_repo }}"
-        state: directory
-        mode: "0755"
-      when: _backup_local_repo | length > 0
+- name: Warn about CRLF .env line endings
+  ansible.builtin.debug:
+    msg: >-
+      Warning: {{ instance_path }}/.env has CRLF line endings.
+      Docker --env-file passes the CR to restic literally (unlike
+      'canasta config get', which strips it) — a common cause of restic
+      'wrong password' or backend auth failures. Use LF line endings.
+  when: _backup_env_lint.has_crlf
 
-    # restic runs as root in the container, so a local-path repo ends up
-    # root-owned and the operator cannot prune or remove their own
-    # backups. Record the parent directory's owner to hand it back.
-    - name: Stat the local repo's parent directory
-      ansible.builtin.stat:
-        path: "{{ _backup_local_repo | dirname }}"
-      register: _backup_repo_parent
-      when: _backup_local_repo | length > 0
+# restic prints its progress line only to a terminal unless
+# RESTIC_PROGRESS_FPS is set, and the container has none here. A low
+# rate keeps a multi-hour run's log small; one line per 20 seconds is
+# enough to tell a working backup from a stalled one.
+#
+# Only backup and restore get a log: they are the long ones, and a
+# snapshot listing in backup.log buries what the file is read for.
+- name: Decide where this restic run is logged
+  ansible.builtin.set_fact:
+    _backup_tee: >-
+      {{ ('| tee -a ' + instance_path + '/backup.log')
+         if (backup_args | intersect(['backup', 'restore'])) else '' }}
 
-    - name: Read RESTIC_PASSWORD from .env
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: read
-        key: RESTIC_PASSWORD
-      register: _backup_pw_env
-      no_log: true
-
-    # Fail fast with a clear message instead of letting restic emit an
-    # opaque error. backup has no -r override —
-    # the repo always comes from .env — so requiring both here is safe.
-    - name: Fail if restic repository or password is not configured
-      ansible.builtin.fail:
-        msg: "RESTIC_REPOSITORY and RESTIC_PASSWORD must be set in .env."
-      when: >-
-        (_backup_repo_env.value | default('')) == ''
-        or (_backup_pw_env.value | default('')) == ''
-
-    # CRLF endings are stripped by canasta_env on read (so `canasta config
-    # get` looks fine) but pass through Docker's --env-file literally, a
-    # common cause of restic "wrong password". Surface it as an advisory
-    # rather than failing.
-    - name: Check .env for CRLF line endings
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: lint
-      register: _backup_env_lint
-
-    - name: Warn about CRLF .env line endings
+- name: Run restic and hand the repo back to its owner
+  block:
+    # The minimal stdout callback lets debug messages through and
+    # almost nothing else, and this is where a large instance spends
+    # its time with nothing on screen.
+    - name: Report the restic phase
       ansible.builtin.debug:
         msg: >-
-          Warning: {{ instance_path }}/.env has CRLF line endings.
-          Docker --env-file passes the CR to restic literally (unlike
-          'canasta config get', which strips it) — a common cause of restic
-          'wrong password' or backend auth failures. Use LF line endings.
-      when: _backup_env_lint.has_crlf
+          Running restic; progress is appended to
+          {{ instance_path }}/backup.log
+      when: _backup_tee != ''
 
-    # restic prints its progress line only to a terminal unless
-    # RESTIC_PROGRESS_FPS is set, and the container has none here. A low
-    # rate keeps a multi-hour run's log small; one line per 20 seconds is
-    # enough to tell a working backup from a stalled one.
-    #
-    # Only backup and restore get a log: they are the long ones, and a
-    # snapshot listing in backup.log buries what the file is read for.
-    - name: Decide where this restic run is logged
+    # pipefail, or the task's rc comes from tee and a failed restic
+    # reads as a successful backup.
+    - name: Run restic container
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          {{ inspect_command }} run --rm -i \
+            --env-file {{ (instance_path ~ '/.env') | canasta_dotenv_decoded }} \
+            -e RESTIC_PROGRESS_FPS={{ backup_progress_fps | default('0.05') }} \
+          {% if _backup_sources %}
+          {% for src, dst in _backup_sources.items() %}
+            -v {{ src }}:{{ dst }}:ro \
+          {% endfor %}
+          {% else %}
+            -v {{ _bvol }}:/currentsnapshot \
+          {% endif %}
+          {% if _backup_local_repo %}
+            -v {{ _backup_local_repo }}:{{ _backup_local_repo }} \
+          {% endif %}
+            {{ restic_image }} \
+            --cache-dir /tmp/restic-cache \
+            {{ backup_args | map('quote') | join(' ') }} {{ _backup_tee }}
+        chdir: "{{ instance_path }}"
+      args:
+        executable: /bin/bash
+      register: _compose_restic_result
+      changed_when: true
+      failed_when: false
+
+    - name: Fail when restic fails
+      ansible.builtin.fail:
+        msg: "restic {{ _restic_command }} failed (exit {{ _compose_restic_result.rc }}).{{ _restic_error }}"
+      vars:
+        _restic_commands: [backup, restore, snapshots, init, forget, prune,
+                           check, diff, ls, unlock, dump, stats, tag, find]
+        _restic_command: "{{ backup_args | select('in', _restic_commands) | first | default('') }}"
+        _restic_error: >-
+          {{ (' restic output: ' ~ (_compose_restic_result.stderr | trim))
+             if (_compose_restic_result.stderr | default('') | trim) else '' }}
+      when: _compose_restic_result.rc != 0
+
+    - name: Set restic result from Compose
       ansible.builtin.set_fact:
-        _backup_tee: >-
-          {{ ('| tee -a ' + instance_path + '/backup.log')
-             if (backup_args | intersect(['backup', 'restore'])) else '' }}
+        _restic_result:
+          stdout: "{{ _compose_restic_result.stdout }}"
+          rc: "{{ _compose_restic_result.rc }}"
+  always:
+    # The chown below runs inside the container, so its uid is read
+    # through the runtime's user namespace. Rootless Podman maps
+    # container uid 0 to the operator and container uid N to
+    # subuid_base + N - 1 — so passing the host uid straight through
+    # hands the repo to a subuid nobody can use. Docker has no such
+    # mapping and wants the host uid.
+    - name: Detect rootless Podman for the ownership handback
+      ansible.builtin.command:
+        cmd: podman info --format {% raw %}{{.Host.Security.Rootless}}{% endraw %}
+      register: _backup_podman_rootless
+      changed_when: false
+      failed_when: false
+      when:
+        - _backup_local_repo | length > 0
+        - inspect_command | default('docker') is search('podman')
 
-    - name: Run restic and hand the repo back to its owner
-      block:
-        # The minimal stdout callback lets debug messages through and
-        # almost nothing else, and this is where a large instance spends
-        # its time with nothing on screen.
-        - name: Report the restic phase
-          ansible.builtin.debug:
-            msg: >-
-              Running restic; progress is appended to
-              {{ instance_path }}/backup.log
-          when: _backup_tee != ''
+    - name: Choose the in-container ownership target
+      ansible.builtin.set_fact:
+        _backup_chown_target: >-
+          {{ '0:0'
+             if (_backup_podman_rootless.stdout | default('') | trim) == 'true'
+             else (_backup_repo_parent.stat.uid | string) + ':'
+                  + (_backup_repo_parent.stat.gid | string) }}
+      when:
+        - _backup_local_repo | length > 0
+        - _backup_repo_parent.stat.exists | default(false)
 
-        # pipefail, or the task's rc comes from tee and a failed restic
-        # reads as a successful backup.
-        - name: Run restic container
-          ansible.builtin.shell:
-            cmd: |
-              set -o pipefail
-              {{ inspect_command }} run --rm -i \
-                --env-file {{ (instance_path ~ '/.env') | canasta_dotenv_decoded }} \
-                -e RESTIC_PROGRESS_FPS={{ backup_progress_fps | default('0.05') }} \
-              {% if _backup_sources %}
-              {% for src, dst in _backup_sources.items() %}
-                -v {{ src }}:{{ dst }}:ro \
-              {% endfor %}
-              {% else %}
-                -v {{ _bvol }}:/currentsnapshot \
-              {% endif %}
-              {% if _backup_local_repo %}
-                -v {{ _backup_local_repo }}:{{ _backup_local_repo }} \
-              {% endif %}
-                {{ restic_image }} \
-                --cache-dir /tmp/restic-cache \
-                {{ backup_args | map('quote') | join(' ') }} {{ _backup_tee }}
-            chdir: "{{ instance_path }}"
-          args:
-            executable: /bin/bash
-          register: _compose_restic_result
-          changed_when: true
-          failed_when: false
+    # `always`, not a following task: restic failing aborts the block,
+    # and a repo left root-owned after a failed run is exactly when the
+    # operator needs to inspect it.
+    - name: Reclaim local-path repo ownership
+      ansible.builtin.command:
+        argv:
+          - "{{ inspect_command }}"
+          - run
+          - --rm
+          - -v
+          - "{{ _backup_local_repo }}:{{ _backup_local_repo }}"
+          - docker.io/library/alpine
+          - chown
+          - -R
+          - "{{ _backup_chown_target }}"
+          - "{{ _backup_local_repo }}"
+      register: _backup_reclaim
+      changed_when: true
+      failed_when: false
+      when:
+        - _backup_local_repo | length > 0
+        - _backup_repo_parent.stat.exists | default(false)
 
-        - name: Fail when restic fails
-          ansible.builtin.fail:
-            msg: "restic {{ _restic_command }} failed (exit {{ _compose_restic_result.rc }}).{{ _restic_error }}"
-          vars:
-            _restic_commands: [backup, restore, snapshots, init, forget, prune,
-                               check, diff, ls, unlock, dump, stats, tag, find]
-            _restic_command: "{{ backup_args | select('in', _restic_commands) | first | default('') }}"
-            _restic_error: >-
-              {{ (' restic output: ' ~ (_compose_restic_result.stderr | trim))
-                 if (_compose_restic_result.stderr | default('') | trim) else '' }}
-          when: _compose_restic_result.rc != 0
-
-        - name: Set restic result from Compose
-          ansible.builtin.set_fact:
-            _restic_result:
-              stdout: "{{ _compose_restic_result.stdout }}"
-              rc: "{{ _compose_restic_result.rc }}"
-      always:
-        # The chown below runs inside the container, so its uid is read
-        # through the runtime's user namespace. Rootless Podman maps
-        # container uid 0 to the operator and container uid N to
-        # subuid_base + N - 1 — so passing the host uid straight through
-        # hands the repo to a subuid nobody can use. Docker has no such
-        # mapping and wants the host uid.
-        - name: Detect rootless Podman for the ownership handback
-          ansible.builtin.command:
-            cmd: podman info --format {% raw %}{{.Host.Security.Rootless}}{% endraw %}
-          register: _backup_podman_rootless
-          changed_when: false
-          failed_when: false
-          when:
-            - _backup_local_repo | length > 0
-            - inspect_command | default('docker') is search('podman')
-
-        - name: Choose the in-container ownership target
-          ansible.builtin.set_fact:
-            _backup_chown_target: >-
-              {{ '0:0'
-                 if (_backup_podman_rootless.stdout | default('') | trim) == 'true'
-                 else (_backup_repo_parent.stat.uid | string) + ':'
-                      + (_backup_repo_parent.stat.gid | string) }}
-          when:
-            - _backup_local_repo | length > 0
-            - _backup_repo_parent.stat.exists | default(false)
-
-        # `always`, not a following task: restic failing aborts the block,
-        # and a repo left root-owned after a failed run is exactly when the
-        # operator needs to inspect it.
-        - name: Reclaim local-path repo ownership
-          ansible.builtin.command:
-            argv:
-              - "{{ inspect_command }}"
-              - run
-              - --rm
-              - -v
-              - "{{ _backup_local_repo }}:{{ _backup_local_repo }}"
-              - docker.io/library/alpine
-              - chown
-              - -R
-              - "{{ _backup_chown_target }}"
-              - "{{ _backup_local_repo }}"
-          register: _backup_reclaim
-          changed_when: true
-          failed_when: false
-          when:
-            - _backup_local_repo | length > 0
-            - _backup_repo_parent.stat.exists | default(false)
-
-        # The reclaim is best-effort by design — it must not turn a good
-        # backup into a failure — but a silent one leaves the operator
-        # locked out of their own repo with nothing to go on.
-        - name: Warn when repo ownership was not restored
-          ansible.builtin.debug:
-            msg: >-
-              WARNING: could not restore ownership of {{ _backup_local_repo }}.
-              The backup itself is unaffected, but pruning or removing it may
-              need elevated access
-              {{ "(on rootless Podman: 'podman unshare rm -rf " ~ _backup_local_repo ~ "')"
-                 if (_backup_podman_rootless.stdout | default('') | trim) == 'true'
-                 else "(try sudo)" }}.
-          when:
-            - _backup_reclaim is defined
-            - _backup_reclaim.rc | default(0) != 0
+    # The reclaim is best-effort by design — it must not turn a good
+    # backup into a failure — but a silent one leaves the operator
+    # locked out of their own repo with nothing to go on.
+    - name: Warn when repo ownership was not restored
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: could not restore ownership of {{ _backup_local_repo }}.
+          The backup itself is unaffected, but pruning or removing it may
+          need elevated access
+          {{ "(on rootless Podman: 'podman unshare rm -rf " ~ _backup_local_repo ~ "')"
+             if (_backup_podman_rootless.stdout | default('') | trim) == 'true'
+             else "(try sudo)" }}.
+      when:
+        - _backup_reclaim is defined
+        - _backup_reclaim.rc | default(0) != 0

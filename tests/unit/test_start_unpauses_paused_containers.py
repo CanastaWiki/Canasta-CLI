@@ -102,9 +102,7 @@ class TestUnpause:
 class TestStartUnpausesFirst:
     def _names(self):
         with open(START) as f:
-            play = next(p for p in yaml.safe_load(f)
-                        if "Docker Compose" in str(p.get("name", "")))
-        return [t.get("name") for t in play["block"]]
+            return [t.get("name") for t in yaml.safe_load(f)]
 
     def test_it_runs_before_start_decides_what_is_running(self):
         names = self._names()

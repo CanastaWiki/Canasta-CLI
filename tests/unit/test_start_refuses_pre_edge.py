@@ -128,8 +128,7 @@ def _unconditional(task):
 
 
 def test_start_refuses_before_it_syncs_the_edge():
-    block = next(t for t in _tasks("roles", "orchestrator", "tasks", "start.yml")
-                 if t.get("name") == "Start (Docker Compose)")["block"]
+    block = _tasks("roles", "orchestrator", "tasks", "start.yml")
     names = _names(block)
     assert _guard(block[0], "check")
     assert names.index("Bring the instance's place behind the edge in line") > 0

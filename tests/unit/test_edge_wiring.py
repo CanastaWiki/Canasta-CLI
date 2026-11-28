@@ -25,7 +25,7 @@ def _tasks(name):
 
 
 def _compose_block(name):
-    return next(t for t in _tasks(name) if "Docker Compose" in t.get("name", ""))["block"]
+    return _tasks(name)
 
 
 def _index(tasks, predicate):
