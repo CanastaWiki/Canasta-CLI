@@ -9,7 +9,7 @@
 # them), and the data is already in place. Any other phase is a restore that
 # never got its files and databases in, which only another restore can finish.
 #
-# Input: instance_id, instance_path, instance_orchestrator
+# Input: instance_id, instance_path
 
 - name: Read the restore marker
   ansible.builtin.slurp:

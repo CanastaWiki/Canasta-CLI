@@ -513,9 +513,6 @@ post_install_summary() {
     if ! command -v git-crypt >/dev/null 2>&1; then
         _optional="${_optional}\n  canasta install git-crypt    (needed for gitops)"
     fi
-    if ! command -v kubectl >/dev/null 2>&1; then
-        _optional="${_optional}\n  canasta install k8s          (needed for Kubernetes)"
-    fi
     if [[ -n "$_optional" ]]; then
         info ""
         info "Optional:"

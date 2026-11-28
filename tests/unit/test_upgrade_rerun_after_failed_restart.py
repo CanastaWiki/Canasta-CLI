@@ -79,7 +79,6 @@ def _harness(tmp_path):
             "canasta_root": str(root),
             "instance_path": str(inst),
             "instance_id": "first",
-            "instance_is_k8s": False,
         },
         "tasks": [{
             "name": "Upgrade the instance",
@@ -88,7 +87,6 @@ def _harness(tmp_path):
                 "_images_updated": "{{ lookup('env', 'IMAGES_UPDATED') == '1' }}",
                 "_upgrade_rebuilt_image_changed": False,
                 "_was_running": True,
-                "_upgrade_stage_only": False,
                 "_upgrade_build_failed_services": [],
             }}],
     }])

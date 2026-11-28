@@ -1,6 +1,6 @@
 """Behind the HAProxy edge, Caddy serves plain HTTP and trusts the edge.
 
-The edge terminates TLS and forwards HTTP, as the ingress does on Kubernetes.
+The edge terminates TLS and forwards HTTP.
 A Caddy that still redirected to HTTPS would loop, and one that did not trust
 the edge's address would attribute every request to the edge. The real
 rewrite_caddy.yml runs here against a temp instance.
@@ -13,7 +13,6 @@ import sys
 import pytest
 import yaml
 
-from _orchestrator import INSTANCE_IS_K8S_VARS
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
@@ -33,8 +32,8 @@ def _caddyfile(tmp_path, env_lines, expect_fail=False, global_text=None):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": dict(INSTANCE_IS_K8S_VARS, instance_path=str(inst),
-                     instance_orchestrator="compose", canasta_root=REPO_ROOT,
+        "vars": dict(instance_path=str(inst),
+                     canasta_root=REPO_ROOT,
                      ansible_python_interpreter=sys.executable),
         "tasks": [{"ansible.builtin.include_tasks": REWRITE}],
     }]))

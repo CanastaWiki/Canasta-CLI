@@ -1,10 +1,8 @@
-"""Secret-bearing gitops and restore files stay private and are not left behind.
+"""Secret-bearing gitops files stay private.
 
 hosts/<host>/vars.yaml and hosts/_shared/vars.yaml hold decrypted passwords in
-the Compose working tree, so every write of them is 0600, and hosts/ is
-restricted after git writes it (join checkout, pull, unlock, PR-mode push).
-A K8s full restore does not copy the database dumps and Secrets manifest onto
-the host.
+the working tree, so every write of them is 0600, and hosts/ is restricted
+after git writes it (join checkout, pull, unlock, PR-mode push).
 """
 
 import os

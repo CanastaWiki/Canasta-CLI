@@ -25,7 +25,6 @@ import canasta_sidecars_yaml
 from _classifier import secret_key_regex
 from mock_ansible import run_module_with_params
 
-from _orchestrator import INSTANCE_IS_K8S_VARS
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ORCH_TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
@@ -51,10 +50,10 @@ def _instance(tmp_path, sidecars, env, files=None):
     return inst
 
 
-def _render(inst, orchestrator, check_mode=False):
+def _render(inst, check_mode=False):
     return run_module_with_params(canasta_render_sidecars, {
-        "instance_path": str(inst), "orchestrator": orchestrator,
-        "secret_key_regex": SECRET_RE, "_check_mode": check_mode})
+        "instance_path": str(inst), "secret_key_regex": SECRET_RE,
+        "_check_mode": check_mode})
 
 
 def _bridge(inst):
@@ -70,7 +69,7 @@ class TestComposeBridge:
     def test_secrets_left_out_non_secrets_kept(self, tmp_path):
         inst = _instance(tmp_path, [LINKER], ENV,
                          {"config/secret-keys": "LINKER_API\n"})
-        result, failed, msg = _render(inst, "compose")
+        result, failed, msg = _render(inst)
         assert not failed, msg
         php = _bridge(inst)
         assert "putenv('LINKER_HOST=linker.internal');" in php
@@ -80,7 +79,7 @@ class TestComposeBridge:
 
     def test_sidecar_still_gets_secret_refs(self, tmp_path):
         inst = _instance(tmp_path, [LINKER], ENV)
-        _, failed, msg = _render(inst, "compose")
+        _, failed, msg = _render(inst)
         assert not failed, msg
         rendered = yaml.safe_load(
             (inst / "docker-compose.sidecars.yml").read_text())
@@ -91,19 +90,19 @@ class TestComposeBridge:
         sidecar = {"name": "x", "image": "x:1",
                    "command": ["run", "--token", "${MYSQL_PASSWORD}"]}
         inst = _instance(tmp_path, [sidecar], ENV)
-        _, failed, msg = _render(inst, "compose")
+        _, failed, msg = _render(inst)
         assert not failed, msg
 
     def test_web_secrets_not_reported(self, tmp_path):
         inst = _instance(tmp_path, [LINKER], ENV,
                          {"config/secret-keys": "LINKER_API\n",
                           "config/secret-keys-web": "LINKER_API\n"})
-        result, _, _ = _render(inst, "compose")
+        result, _, _ = _render(inst)
         assert result["bridge_omitted"] == ["MYSQL_PASSWORD"]
 
     def test_absent_secret_not_reported(self, tmp_path):
         inst = _instance(tmp_path, [LINKER], {"LINKER_HOST": "h"})
-        result, _, _ = _render(inst, "compose")
+        result, _, _ = _render(inst)
         assert result["bridge_omitted"] == []
 
     def test_only_secrets_removes_bridge(self, tmp_path):
@@ -112,43 +111,41 @@ class TestComposeBridge:
         inst = _instance(tmp_path, [sidecar], ENV)
         (inst / BRIDGE).parent.mkdir(parents=True)
         (inst / BRIDGE).write_text("<?php putenv('MYSQL_PASSWORD=dbpw');\n")
-        _render(inst, "compose")
+        _render(inst)
         assert not (inst / BRIDGE).exists()
 
 
-def _add(inst, sidecars, orchestrator):
+def _add(inst, sidecars):
     return run_module_with_params(canasta_sidecars_yaml, {
         "instance_path": str(inst), "state": "import",
-        "definitions": yaml.safe_dump(sidecars),
-        "orchestrator": orchestrator, "secret_key_regex": SECRET_RE})
+        "definitions": yaml.safe_dump(sidecars)})
 
 
-def _migrate(inst, services, orchestrator, dry_run=False):
+def _migrate(inst, services, dry_run=False):
     (inst / "docker-compose.override.yml").write_text(
         yaml.safe_dump({"services": services}))
     return run_module_with_params(canasta_sidecar_migrate, {
-        "instance_path": str(inst), "dry_run": dry_run,
-        "orchestrator": orchestrator, "secret_key_regex": SECRET_RE})
+        "instance_path": str(inst), "dry_run": dry_run})
 
 
-TOKEN = {"name": "x", "image": "x:1", "env": {"TOKEN": "${K8S_TOKEN}"}}
+TOKEN = {"name": "x", "image": "x:1", "env": {"TOKEN": "${LINKER_TOKEN}"}}
 
 
-class TestAddRefusal:
-    def test_compose_accepts(self, tmp_path):
+class TestAddAcceptsSecretRefs:
+    def test_add_accepts(self, tmp_path):
         inst = _instance(tmp_path, [], ENV,
-                         {"config/secret-keys": "K8S_TOKEN\n"})
-        _, failed, msg = _add(inst, [TOKEN, LINKER], "compose")
+                         {"config/secret-keys": "LINKER_TOKEN\n"})
+        _, failed, msg = _add(inst, [TOKEN, LINKER])
         assert not failed, msg
 
 
-class TestMigrateRefusal:
+class TestMigrateAcceptsSecretRefs:
     SERVICES = {"linker": {"image": "example/linker:1.0",
                            "environment": {"DB_PASS": "${MYSQL_PASSWORD}"}}}
 
-    def test_compose_migrates(self, tmp_path):
+    def test_migrates(self, tmp_path):
         inst = _instance(tmp_path, [], ENV)
-        result, failed, msg = _migrate(inst, self.SERVICES, "compose")
+        result, failed, msg = _migrate(inst, self.SERVICES)
         assert not failed, msg
         assert result["migrated"] == ["linker"]
 
@@ -188,18 +185,6 @@ def test_every_render_passes_the_classifier():
             "{{ canasta_secret_key_regex }}"), path
 
 
-@pytest.mark.parametrize("playbook,module", [
-    ("sidecar_add.yml", "canasta_sidecars_yaml"),
-    ("sidecar_migrate.yml", "canasta_sidecar_migrate")])
-def test_sidecar_writers_pass_orchestrator_and_classifier(playbook, module):
-    tasks = _yaml(os.path.join(REPO_ROOT, "playbooks", playbook))
-    args = [t[module] for t in tasks if module in t]
-    assert len(args) == 1
-    assert args[0]["orchestrator"] == (
-        "{{ instance_orchestrator | default('compose') }}")
-    assert args[0]["secret_key_regex"] == "{{ canasta_secret_key_regex }}"
-
-
 def test_start_reports_omitted_secrets_after_each_render():
     tasks = list(_walk(_yaml(os.path.join(ORCH_TASKS, "start.yml"))))
     for i, task in enumerate(tasks):
@@ -219,14 +204,13 @@ def test_restart_reports_through_start():
 
 # --- Playbook runs --------------------------------------------------------- #
 
-def _play(tmp_path, inst, tasks, orchestrator="compose"):
+def _play(tmp_path, inst, tasks):
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
         "vars": {"instance_path": str(inst), "canasta_root": REPO_ROOT,
-                 "instance_orchestrator": orchestrator, **INSTANCE_IS_K8S_VARS,
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_vars": {"file": CLASSIFICATION}}]
         + tasks,
@@ -244,7 +228,7 @@ def test_report_prints_omitted_secrets(tmp_path):
                      {"config/secret-keys": "LINKER_API\n"})
     proc = _play(tmp_path, inst, [
         {"canasta_render_sidecars": {
-            "instance_path": "{{ instance_path }}", "orchestrator": "compose",
+            "instance_path": "{{ instance_path }}",
             "secret_key_regex": "{{ canasta_secret_key_regex }}"},
          "register": "_sidecar_render"},
         {"ansible.builtin.include_tasks":
@@ -333,14 +317,14 @@ def _gitops_repo(tmp_path):
     return inst
 
 
-def _refresh(tmp_path, inst, orchestrator):
+def _refresh(tmp_path, inst):
     return _play(tmp_path, inst, [{"ansible.builtin.include_tasks": os.path.join(
-        GITOPS, "tasks", "refresh_gitignore.yml")}], orchestrator)
+        GITOPS, "tasks", "refresh_gitignore.yml")}])
 
 
 def test_refresh_untracks_bridge_on_compose(tmp_path):
     inst = _gitops_repo(tmp_path)
-    proc = _refresh(tmp_path, inst, "compose")
+    proc = _refresh(tmp_path, inst)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "canasta gitops push" in proc.stdout
     assert (inst / BRIDGE).exists()
@@ -356,7 +340,7 @@ def test_refresh_untracks_bridge_on_compose(tmp_path):
     assert _git(inst, "status", "--porcelain") == ""
     assert _git(inst, "ls-files", BRIDGE) == ""
     # Idempotent.
-    proc = _refresh(tmp_path, inst, "compose")
+    proc = _refresh(tmp_path, inst)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert _git(inst, "status", "--porcelain") == ""
 
@@ -383,7 +367,7 @@ def test_refresh_untracks_sidecars_layer_on_compose(tmp_path):
     _git(inst, "add", "docker-compose.sidecars.yml")
     _git(inst, "-c", "user.name=t", "-c", "user.email=t@example.com",
          "-c", "commit.gpgsign=false", "commit", "-q", "-m", "capture")
-    proc = _refresh(tmp_path, inst, "compose")
+    proc = _refresh(tmp_path, inst)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "docker-compose.sidecars.yml" in proc.stdout
     assert (inst / "docker-compose.sidecars.yml").exists()

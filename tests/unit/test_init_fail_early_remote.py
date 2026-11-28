@@ -5,7 +5,7 @@ The Step 4 `git ls-remote` must not swallow access failures — a permission /
 network failure (non-zero rc) must be distinguishable from a reachable empty
 remote, and a fail task keyed on that rc must stop init before it converts
 submodules / inits the repo / commits (which would leave a committed .git that
-forces a --reinit). Applies to both the Compose and Kubernetes init paths.
+forces a --reinit).
 """
 
 import os

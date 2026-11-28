@@ -10,8 +10,6 @@
   canasta_sidecar_migrate:
     instance_path: "{{ instance_path }}"
     dry_run: "{{ dry_run | default(false) }}"
-    orchestrator: "{{ instance_orchestrator | default('compose') }}"
-    secret_key_regex: "{{ canasta_secret_key_regex }}"
   register: _migrate
 
 - name: Report migrated sidecars
@@ -21,11 +19,6 @@
       sidecar(s): {{ _migrate.migrated | join(', ') }}.
       {{ _migrate.dry_run | ternary('', "Run 'canasta restart' to deploy them.") }}
   when: _migrate.migrated | length > 0
-
-- name: Report assumptions made during migration
-  ansible.builtin.debug:
-    msg: "{{ _migrate.assumptions }}"
-  when: _migrate.assumptions | length > 0
 
 - name: Report services left in the override
   ansible.builtin.debug:

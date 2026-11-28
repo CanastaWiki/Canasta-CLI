@@ -39,8 +39,7 @@
     _upgrade_default_inspect_command: "{{ inspect_command }}"
 
 # On each host, the instances that move behind the HAProxy edge move
-# together, before any of them upgrades. The plan leaves Kubernetes
-# instances out.
+# together, before any of them upgrades.
 - name: Group the instances by host
   ansible.builtin.set_fact:
     _edge_hosts: >-
@@ -119,19 +118,12 @@
         msg: >-
           Upgraded
           {{ _upgrade_done }}
-          instance(s).{% if _upgrade_gitops_staged | default([]) | length > 0 %}
-          {{ _upgrade_gitops_staged | length }} of them
-          ({{ _upgrade_gitops_staged | join(', ') }}) {{ _upgrade_staged_phrase }}
-          only after 'canasta gitops push'.{% endif %}
+          instance(s).
       vars:
         # A refused host is one failure but skips each of its instances.
         _upgrade_done: >-
           {{ _upgrade_instances.instances | length - (_edge_refused | default([]) | length)
              - (_upgrade_failures | default([]) | length) + (_edge_refusals | default(0) | int) }}
-        _upgrade_staged_phrase: >-
-          {{ 'is staged in its gitops repo and deploys'
-             if (_upgrade_gitops_staged | default([]) | length) == 1
-             else 'are staged in their gitops repos and deploy' }}
 
     - name: Report the database account moves left for stopped instances
       ansible.builtin.debug:

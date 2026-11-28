@@ -3,11 +3,6 @@
 # Cleans images inside container, removes backup schedule,
 # then destroys containers/volumes and removes directory.
 # Input: id, yes (bool - skip confirmation)
-#
-# If the instance is not in the registry, we attempt to clean up Kubernetes
-# resources by convention (namespace canasta-{id}, Helm release canasta-{id}).
-# Compose instances require a path, so they cannot be cleaned up without a
-# registry entry.
 
 - name: Resolve instance by current directory if no ID given
   when: id is not defined or id == ''
@@ -51,8 +46,6 @@
   ansible.builtin.set_fact:
     instance_id: "{{ _delete_query.instance.id }}"
     instance_path: "{{ _delete_query.instance.path }}"
-    instance_orchestrator: >-
-      {{ _delete_query.instance.orchestrator | default('compose') }}
     instance_devmode: >-
       {{ _delete_query.instance.devMode | default(false) }}
     # Without these, destroy.yml tears the instance down with the wrong
@@ -122,66 +115,17 @@
     - name: End play for unreachable host
       ansible.builtin.meta: end_play
 
-- name: Discover unregistered instance
+- name: Fail if the instance is not in the registry
+  ansible.builtin.fail:
+    msg: "Instance '{{ id }}' not found in the registry."
   when: _delete_query is failed
-  block:
-    # These three are allowed to miss: the id may name a Compose instance,
-    # or a host with kubectl installed but no cluster reachable. Hence
-    # failed_when over ignore_errors — the latter prints a full failure
-    # block for each probe before carrying on to the right answer.
-    - name: Check if kubectl is available
-      ansible.builtin.command:
-        cmd: "kubectl version --client"
-      register: _kubectl_check
-      changed_when: false
-      failed_when: false
-
-    - name: Fail if no kubectl (Compose instance not in registry)
-      ansible.builtin.fail:
-        msg: "Instance '{{ id }}' not found in the registry."
-      when: _kubectl_check.rc | default(1) != 0
-
-    - name: Check for Helm release
-      ansible.builtin.command:
-        cmd: "helm status canasta-{{ id }} -n canasta-{{ id }}"
-      register: _helm_status
-      changed_when: false
-      failed_when: false
-
-    - name: Check for Kubernetes namespace
-      kubernetes.core.k8s_info:
-        api_version: v1
-        kind: Namespace
-        name: "canasta-{{ id }}"
-      register: _ns_check
-      failed_when: false
-
-    - name: Set Kubernetes facts for unregistered instance
-      ansible.builtin.set_fact:
-        instance_id: "{{ id }}"
-        instance_path: ""
-        instance_orchestrator: "kubernetes"
-        instance_devmode: false
-        _instance_registered: false
-      when: >-
-        (_helm_status.rc | default(1) == 0) or
-        (_ns_check.resources | default([]) | length > 0)
-
-    - name: Fail if no K8s resources found
-      ansible.builtin.fail:
-        msg: "Instance '{{ id }}' not found in the registry or Kubernetes."
-      when: >-
-        (_helm_status.rc | default(1) != 0) and
-        (_ns_check.resources | default([]) | length == 0)
 
 - name: Require confirmation for delete
   ansible.builtin.fail:
     msg: >-
       {{ "Removing instance '" ~ instance_id ~ "' from the registry, leaving its data in place."
       if keep_data | default(false) | bool
-      else 'Deleting instance ''' ~ instance_id ~ ''' at ' ~ instance_path ~ '.'
-      if _instance_registered | default(false) | bool
-      else 'Deleting unregistered instance ''' ~ instance_id ~ ''' (Kubernetes resources only).' }}
+      else 'Deleting instance ''' ~ instance_id ~ ''' at ' ~ instance_path ~ '.' }}
       Use --yes to confirm.
   when: not (yes | default(false) | bool)
 
@@ -276,20 +220,10 @@
   failed_when: false
   when: _delete_external_db | bool
 
-# Kubernetes removes instance content files from inside the web pod while
-# it still runs; Compose does it in destroy.yml once teardown succeeded.
-- name: Clean up container-owned files
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/delete_cleanup_files.yml
-
 - name: Destroy containers and volumes
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: destroy.yml
-  # Compose never sets _k8s_api_reachable, so default(true) runs destroy;
-  # K8s skips only when the cluster API was probed unreachable. destroy.yml
-  # itself dispatches Compose vs K8s.
-  when: _k8s_api_reachable | default(true)
 
 # Only after teardown, so a failed delete keeps its backup schedule. A local
 # containerized run edits the host crontab file the wrapper mounted; native

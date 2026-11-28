@@ -1,10 +1,10 @@
 ---
 # Remove an instance's backup-schedule crontab entry on the host where the
-# instance runs (Compose: the instance's host; K8s: the control-plane node).
+# instance runs.
 #
 # Reused by: schedule remove, and the rematerialize step after restore /
 # gitops pull when no schedule is persisted.
-# Input: instance_id, instance_orchestrator
+# Input: instance_id
 
 # A local containerized run edits the host crontab file the wrapper
 # mounted (CANASTA_HOST_CRONTAB); native and remote edit the live crontab

@@ -4,8 +4,7 @@ non-fast-forward rejection into canasta-native guidance, not leak the raw
 
 Each push path must: register the push result and not abort on it
 (failed_when: false), then, on a 'non-fast-forward'/'rejected' stderr, fail
-with guidance that points at `canasta gitops pull` (never raw git). Applies to
-both the Compose and Kubernetes push paths.
+with guidance that points at `canasta gitops pull` (never raw git).
 """
 
 import os

@@ -1,29 +1,9 @@
 ---
-# Propagate config-unset removals into gitops vars for this orchestrator.
-# Compose: remove the key from vars.yaml and env.template (the compose-gitops
-# source of truth) so the next gitops pull doesn't resurrect it. Kubernetes:
-# config unset writes the local values.yaml, but the committed gitops source
-# (values.template.yaml -> hosts/<name>/rendered-values.yaml) that Argo CD
-# deploys is left untouched, so warn the operator to push (a stage-only
-# config unset reports that itself). A silent write-through isn't possible
-# here: making the removal durable requires committing and pushing to the
-# repo Argo CD watches, which is exactly what 'canasta gitops push' does.
-# Input: instance_path, instance_orchestrator, keys, _config_gitops_stat
+# Propagate config-unset removals into gitops vars: remove the key from
+# vars.yaml and env.template (the gitops source of truth) so the next
+# gitops pull doesn't resurrect it.
+# Input: instance_path, keys, _config_gitops_stat
 
-- name: Remove gitops vars for unset keys (Compose)
+- name: Remove gitops vars for unset keys
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/config/tasks/_remove_gitops_vars.yml
-  when: not (instance_is_k8s | bool)
-
-- name: Warn that a K8s gitops config change needs a push to be durable
-  ansible.builtin.debug:
-    msg: >-
-      This is a gitops-managed Kubernetes instance. 'canasta config unset'
-      updated the local values.yaml, but the committed gitops source
-      (values.template.yaml / rendered-values.yaml) that Argo CD deploys is
-      unchanged. Run 'canasta gitops push' to commit and deploy the change —
-      otherwise Argo CD may revert it on the next sync, and it won't reach
-      other hosts.
-  when:
-    - instance_is_k8s | bool
-    - not (_config_unset_stage_only | default(false) | bool)

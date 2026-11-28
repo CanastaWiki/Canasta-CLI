@@ -12,7 +12,6 @@
     inspect_command: "{{ inspect_command | default('docker') }}"
   register: _edge_learn
   failed_when: false
-  when: not (instance_is_k8s | bool)
 
 - name: Report why the edge did not take the wikis' Special namespace names
   ansible.builtin.debug:

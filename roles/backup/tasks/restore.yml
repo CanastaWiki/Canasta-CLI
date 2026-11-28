@@ -1,7 +1,7 @@
 ---
 # Full restore flow:
-# 1. Restic restore into backup volume / K8s temporary pod
-# 2. Copy files from volume to host (Compose) or extract + sync (K8s)
+# 1. Restic restore into the backup volume
+# 2. Copy files from the volume to the host
 # 3. Preserve DB passwords in restored .env
 # 4. Import each wiki's database dump
 
@@ -15,7 +15,6 @@
     state: current
     instance_id: "{{ instance_id }}"
     instance_path: "{{ instance_path }}"
-  when: not (instance_is_k8s | bool)
 
 # A marker left behind means a previous restore never finished. Say what it
 # reached before starting another one over the top of it.
@@ -283,9 +282,6 @@
     - wiki is not defined
     - (_restore_dbpass.value | default('', true)) != ''
 
-# The orchestrator owns the restore mechanics (Compose volume restore +
-# file copy + DB import, or the K8s pod-based restore); dispatch
-# unconditionally.
 # A restore that fails while still in its "starting" phase has changed
 # nothing, so it must not leave a marker that reads as an interrupted one.
 - name: Restore from snapshot

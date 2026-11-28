@@ -1,5 +1,5 @@
 ---
-# GitOps pull — dispatches to Compose or Kubernetes variant.
+# GitOps pull.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
@@ -7,5 +7,5 @@
 - name: Remember or recall the gitops SSH key
   ansible.builtin.include_tasks: _ssh_key.yml
 
-- name: Dispatch gitops pull
-  ansible.builtin.include_tasks: "pull_{{ instance_orchestrator | default('compose') }}.yml"
+- name: Run gitops pull
+  ansible.builtin.include_tasks: "pull_compose.yml"

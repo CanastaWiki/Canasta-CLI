@@ -42,7 +42,7 @@ def _build(tmp_path, runtime, env_extra=None, build_arg=None):
         "gather_facts": False,
         "vars": {"inspect_command": runtime, "build_from": str(src),
                  "build_arg": build_arg or [],
-                 "instance_is_k8s": False, "id": "site",
+                 "id": "site",
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_tasks": BUILD_FROM}],
     }]))

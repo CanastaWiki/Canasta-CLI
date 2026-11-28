@@ -163,13 +163,13 @@ canasta_known_keys:
   - name: CANASTA_ENABLE_ELASTICSEARCH
     group: Features
     description: >-
-      Kubernetes only. Enable Elasticsearch; Docker Compose instances use
-      CANASTA_ENABLE_OPENSEARCH
+      Not supported: search uses OpenSearch (CANASTA_ENABLE_OPENSEARCH),
+      and an upgrade moves an instance that has it on to OpenSearch
     default: "false"
   - name: CANASTA_ENABLE_OPENSEARCH
     group: Features
     description: >-
-      Docker Compose only. Use the host's OpenSearch for search: enables
+      Use the host's OpenSearch for search: enables
       Elastica and CirrusSearch for every wiki, and makes CirrusSearch a
       wiki's search engine once its index is built
     default: "false"
@@ -206,28 +206,25 @@ canasta_known_keys:
   - name: CANASTA_ELASTICSEARCH_HEAP
     group: Elasticsearch
     description: >-
-      Kubernetes only. Elasticsearch heap size, a whole number of megabytes or gigabytes
-      (e.g. 768m or 4g), used for both its minimum and maximum heap. On
-      Kubernetes the Elasticsearch container requests twice this much
-      memory and is limited to four times it. Defaults to 256m
+      Not supported: search uses OpenSearch, sized by
+      CANASTA_OPENSEARCH_HEAP, which an upgrade sets from this value
 
   - name: CANASTA_OPENSEARCH_HEAP
     group: OpenSearch
     description: >-
-      Docker Compose only. OpenSearch heap size this instance needs, a
-      whole number of megabytes or gigabytes (e.g. 768m or 4g). The host's
+      OpenSearch heap size this instance needs, a whole number of megabytes or gigabytes (e.g. 768m or 4g). The host's
       OpenSearch, which all its instances share, runs with the largest
       value among them, and 1g when none sets one; a change restarts it
   - name: CANASTA_OPENSEARCH_TOKEN
     group: OpenSearch
     description: >-
-      Docker Compose only. Names this instance's OpenSearch user and the
+      Names this instance's OpenSearch user and the
       prefix of its indexes. Generated when OpenSearch is on; changing it
       renames the indexes, which then need building again
   - name: CANASTA_OPENSEARCH_PASSWORD
     group: OpenSearch
     description: >-
-      Docker Compose only. Password of this instance's OpenSearch user.
+      Password of this instance's OpenSearch user.
       Generated when OpenSearch is on
 
   - name: MW_SITE_SERVER
@@ -284,7 +281,7 @@ canasta_known_keys:
       proxies whose X-Forwarded-For to trust. For a CDN behind your own
       proxies, "cloudflare@" or "imperva@" followed by the proxies' CIDR
       list (e.g. imperva@203.0.113.10/32,203.0.113.11/32) trusts the CDN's
-      header from those proxies only (Docker Compose only). Unset = nothing
+      header from those proxies only. Unset = nothing
       in front (default).
   - name: ACME_DNS_PROVIDER
     group: TLS
@@ -336,11 +333,10 @@ canasta_known_keys:
   - name: CADDY_TRUSTED_PROXY_CIDRS
     group: Caddy
     description: >-
-      Kubernetes only. Comma-separated CIDRs of the in-cluster ingress to
-      trust so Caddy reads the real client IP. Defaults to the standard
-      private ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16); override
-      only for a non-default pod/service CIDR. On Compose, applies behind
-      the HAProxy edge.
+      Comma-separated CIDRs of the proxies Caddy trusts to report the real
+      client IP. Defaults to the private ranges (10.0.0.0/8, 172.16.0.0/12,
+      192.168.0.0/16, fc00::/7), which cover the HAProxy edge; override
+      only when the edge network uses other addresses.
 
   - name: CANASTA_IMAGE
     group: Docker Image
@@ -349,10 +345,8 @@ canasta_known_keys:
   - name: CANASTA_ELASTICSEARCH_IMAGE
     group: Docker Image
     description: >-
-      Kubernetes only. Override the Elasticsearch image (e.g. a build with an extra
-      analysis plugin). Takes effect only while Elasticsearch is enabled
-      (CANASTA_ENABLE_ELASTICSEARCH=true). On Kubernetes the image must be
-      pullable by the cluster (push it to a reachable registry first).
+      Not supported: search uses the host's OpenSearch, and an upgrade
+      removes this setting
 
   - name: CROWDSEC_BOUNCER_API_KEY
     group: Security (CrowdSec)
@@ -368,13 +362,6 @@ canasta_known_keys:
       instance with CrowdSec is behind the edge; until it is set, the edge
       does not check this instance's clients with CrowdSec.
 
-  - name: CROWDSEC_AGENT_PASSWORD
-    group: Security (CrowdSec)
-    description: >-
-      Kubernetes only. Password the CrowdSec agent in the caddy pod logs in
-      to the local API with. Generated when CrowdSec is enabled; changing
-      it restarts both pods on the next deploy.
-
   - name: RESTIC_REPOSITORY
     group: Backup (Restic)
     description: Restic repo URL or local path
@@ -384,14 +371,15 @@ canasta_known_keys:
   - name: CANASTA_BACKUP_TIMEOUT
     group: Backup (Restic)
     description: >-
-      Docker Compose only. Minutes one wiki's database dump (backup create)
+      Minutes one wiki's database dump (backup create)
       or import (backup restore) may run before it is stopped
     default: "240"
 
 # Secret classification (canasta_secret_key_pattern, canasta_secret_prefixes,
 # canasta_secret_key_regex, canasta_backup_backend_prefixes, ...) lives
-# play-global in vars/secret_classification.yml so config, gitops, and the K8s
-# sync share one definition. Config validation + no_log reference it from there.
+# play-global in vars/secret_classification.yml so config, gitops and the
+# orchestrator share one definition. Config validation + no_log reference it
+# from there.
 
 # The database connection every wiki of an instance shares. Only create sets
 # these (from its -e env file); config set refuses them.

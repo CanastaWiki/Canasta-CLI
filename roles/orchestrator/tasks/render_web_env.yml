@@ -1,6 +1,6 @@
 ---
 # Render config/secret-keys-web and config/env-keys-web to
-# docker-compose.web-env.yml (Compose), and say which listed keys this host
+# docker-compose.web-env.yml, and say which listed keys this host
 # has no value for, since they are left out.
 #
 # Input: instance_path

@@ -40,7 +40,7 @@ def _instance(tmp_path, env_lines):
     return inst, fake
 
 
-def _play(tmp_path, inst, fake, tasks, k8s=False):
+def _play(tmp_path, inst, fake, tasks):
     out = tmp_path / "out.json"
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
@@ -52,7 +52,6 @@ def _play(tmp_path, inst, fake, tasks, k8s=False):
             "instance_id": "site",
             "canasta_root": REPO_ROOT,
             "compose_command": str(fake),
-            "instance_is_k8s": k8s,
             "ansible_python_interpreter": sys.executable,
         },
         "tasks": tasks + [{"ansible.builtin.copy": {

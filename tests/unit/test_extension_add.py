@@ -1,7 +1,6 @@
-"""Guards for `canasta extension|skin add` task structure: Kubernetes
-instances must be refused, the gitops commit must be split from staging,
-the version probe must not scan the filesystem, and a failed detection
-must fail loudly.
+"""Guards for `canasta extension|skin add` task structure: the gitops commit
+must be split from staging, the version probe must not scan the filesystem,
+and a failed detection must fail loudly.
 """
 
 import os

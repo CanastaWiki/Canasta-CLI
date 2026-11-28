@@ -248,12 +248,12 @@ class TestTheStuckHost:
 
 class TestWiring:
     @pytest.mark.parametrize("flow", ["set_role.yml", "remove_host.yml"])
-    def test_commands_dispatch_by_orchestrator(self, flow):
+    def test_commands_dispatch_to_the_compose_flow(self, flow):
         task = _load(os.path.join(TASKS, flow))[0]
         assert task["ansible.builtin.include_tasks"] == "_hosts_change_dispatch.yml"
         dispatch = _load(os.path.join(TASKS, "_hosts_change_dispatch.yml"))
         assert dispatch[-1]["ansible.builtin.include_tasks"] == (
-            "hosts_change_{{ instance_orchestrator | default('compose') }}.yml")
+            "hosts_change_compose.yml")
 
     def test_compose_refuses_a_locked_checkout_first(self):
         tasks = _load(COMPOSE)

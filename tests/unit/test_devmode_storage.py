@@ -23,8 +23,7 @@ def _load(path):
 class TestDevmodeGuards:
     """devmode is Compose-and-localhost only: it extracts code and builds an
     xdebug image on the local machine. Both enable and disable must refuse a
-    remote instance and check the dev-mode state before doing any work; the
-    Kubernetes refusal comes from the command's `orchestrators:` key."""
+    remote instance and check the dev-mode state before doing any work."""
 
     def _fail_conditions(self, tasks):
         # Map each ansible.builtin.fail task's name -> its `when` (as a string).

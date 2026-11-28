@@ -18,25 +18,25 @@ FLAG = "[DB ACCOUNT MOVE PENDING]"
 
 
 class TestWikiDbMovePending:
-    @pytest.mark.parametrize("env,k8s,pending", [
-        ({}, False, False),
-        ({"MYSQL_PASSWORD": "x"}, False, True),
-        ({"WIKI_DB_USER": "root"}, False, True),
-        ({"WIKI_DB_USER": ""}, False, True),
-        ({"WIKI_DB_USER": "mediawiki"}, False, False),
-        ({"WIKI_DB_USER": "mysite"}, False, False),
-        ({"WIKI_DB_USER": "root", "CANASTA_DB_ROOT_ACCOUNT": "true"}, False, False),
-        ({"WIKI_DB_USER": "root", "CANASTA_DB_ROOT_ACCOUNT": "false"}, False, True),
+    @pytest.mark.parametrize("env,pending", [
+        ({}, False),
+        ({"MYSQL_PASSWORD": "x"}, True),
+        ({"WIKI_DB_USER": "root"}, True),
+        ({"WIKI_DB_USER": ""}, True),
+        ({"WIKI_DB_USER": "mediawiki"}, False),
+        ({"WIKI_DB_USER": "mysite"}, False),
+        ({"WIKI_DB_USER": "root", "CANASTA_DB_ROOT_ACCOUNT": "true"}, False),
+        ({"WIKI_DB_USER": "root", "CANASTA_DB_ROOT_ACCOUNT": "false"}, True),
         # External database: the administrator is MYSQL_USER.
         ({"USE_EXTERNAL_DB": "true", "MYSQL_USER": "admin",
-          "WIKI_DB_USER": "admin"}, False, True),
-        ({"USE_EXTERNAL_DB": "true", "MYSQL_USER": "admin"}, False, True),
+          "WIKI_DB_USER": "admin"}, True),
+        ({"USE_EXTERNAL_DB": "true", "MYSQL_USER": "admin"}, True),
         ({"USE_EXTERNAL_DB": "true", "MYSQL_USER": "admin",
-          "WIKI_DB_USER": "root"}, False, False),
-        ({"USE_EXTERNAL_DB": "true", "WIKI_DB_USER": "root"}, False, True),
+          "WIKI_DB_USER": "root"}, False),
+        ({"USE_EXTERNAL_DB": "true", "WIKI_DB_USER": "root"}, True),
     ])
-    def test_matches_the_upgrade_condition(self, env, k8s, pending):
-        assert _helpers._wiki_db_move_pending(env, k8s) is pending
+    def test_matches_the_upgrade_condition(self, env, pending):
+        assert _helpers._wiki_db_move_pending(env) is pending
 
     def test_matches_the_ansible_check(self):
         # The Ansible side reads the same four keys.
@@ -82,13 +82,14 @@ def _instance(tmp_path, env, orchestrator="compose"):
 class TestLocalList:
     @pytest.mark.parametrize("state", ["RUNNING", "STOPPED"])
     def test_flags_an_instance_on_root(self, tmp_path, monkeypatch, state):
-        monkeypatch.setattr(_helpers, "_web_state", lambda i, inst: state)
+        monkeypatch.setattr(_helpers, "_web_state_compose", lambda inst: state)
         inst = _instance(tmp_path, "WIKI_DB_USER=root\n")
         detail = _helpers._gather_instance_info("mysite", inst)
         assert detail["status"] == "%s  %s" % (state, FLAG)
 
     def test_no_flag_once_moved(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(_helpers, "_web_state", lambda i, inst: "STOPPED")
+        monkeypatch.setattr(
+            _helpers, "_web_state_compose", lambda inst: "STOPPED")
         inst = _instance(tmp_path, "WIKI_DB_USER=mediawiki\n")
         assert _helpers._gather_instance_info(
             "mysite", inst)["status"] == "STOPPED"
@@ -100,7 +101,8 @@ class TestLocalList:
             "mysite", inst)["status"] == "NOT FOUND"
 
     def test_printed_on_the_status_line(self, tmp_path, monkeypatch, capsys):
-        monkeypatch.setattr(_helpers, "_web_state", lambda i, inst: "STOPPED")
+        monkeypatch.setattr(
+            _helpers, "_web_state_compose", lambda inst: "STOPPED")
         inst = _instance(tmp_path, "WIKI_DB_USER=root\n")
         _helpers._print_table([_helpers._gather_instance_info("mysite", inst)])
         assert "  COMPOSE       STOPPED  %s\n" % FLAG in capsys.readouterr().out

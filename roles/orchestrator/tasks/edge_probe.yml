@@ -10,7 +10,6 @@
     instance_id: "{{ instance_id }}"
     instance_path: "{{ instance_path }}"
   register: _edge_probe
-  when: not (instance_is_k8s | bool)
 
 - name: Report the wikis that do not answer through the edge
   ansible.builtin.debug:

@@ -1,17 +1,13 @@
-"""`canasta upgrade` backfills wikis.yaml.template on Compose only.
+"""`canasta upgrade` backfills wikis.yaml.template on every instance.
 
-Only Compose gitops tracks wikis.yaml.template. Creating it on a Kubernetes
-gitops instance leaves an untracked file that no push ever commits.
+gitops tracks wikis.yaml.template, so a repo that predates it gains the
+template on upgrade; the backfill itself no-ops on a non-gitops instance.
 """
 
 import os
 
-import pytest
 import yaml
-from ansible.parsing.dataloader import DataLoader
-from ansible.template import Templar, trust_as_template
 
-from _orchestrator import TEMPLAR_VARS
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 MAIN = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "main.yml")
@@ -32,18 +28,11 @@ def test_the_include_is_not_wrapped_in_a_block():
     assert "block" not in _backfill_task()
 
 
-@pytest.mark.parametrize("variables, runs", [
-    ({"instance_orchestrator": "compose"}, True),
-    ({}, True),
-])
-def test_runs_only_on_compose(variables, runs):
-    when = _backfill_task()["when"]
-    templar = Templar(loader=DataLoader(), variables=dict(TEMPLAR_VARS, **variables))
-    result = templar.template(trust_as_template("{{ " + when + " }}"))
-    assert str(result).strip() == str(runs)
+def test_runs_unconditionally():
+    assert "when" not in _backfill_task()
 
 
-def test_compose_tracks_the_template():
+def test_gitops_tracks_the_template():
     with open(GITOPS_VARS) as f:
         gitops_vars = yaml.safe_load(f)
     assert "wikis.yaml.template" in gitops_vars["gitops_compose_tracked_paths"]

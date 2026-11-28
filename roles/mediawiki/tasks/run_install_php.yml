@@ -7,7 +7,7 @@
 # Without --installdbuser, install.php installs as the --dbuser account.
 #
 # Input:
-#   instance_path, instance_orchestrator, instance_id
+#   instance_path, instance_id
 #   install_php_db_password (str)
 #   install_php_admin_password (str)
 #   install_php_args (str) - the remaining install.php options and

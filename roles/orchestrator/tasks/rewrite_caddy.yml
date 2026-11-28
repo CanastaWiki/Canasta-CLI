@@ -22,17 +22,6 @@
     _os_user: "{{ _env_caddy.variables.OS_USER | default('admin') }}"
     # .env stores the hash Compose-escaped ($$); Caddy needs the bcrypt text.
     _os_password_hash: "{{ _env_caddy.variables.OS_PASSWORD_HASH | default('') | replace('$$', '$') }}"
-    _is_k8s: "{{ instance_is_k8s | bool }}"
-    # The K8s ingress or the Compose HAProxy edge terminates TLS and forwards
-    # plain HTTP, so Caddy serves HTTP only, with no redirect (it would loop),
-    # and its peer is always that proxy, never the client.
-    _behind_edge: "{{ not (instance_is_k8s | bool) }}"
-    # CrowdSec enabled (engine runs) vs. active (bouncer enforces). The
-    # engine parses the access log as soon as it's enabled, so the K8s
-    # real-client-IP trusted-proxy handling keys off _crowdsec_enabled —
-    # the engine must see the true attacker IP even before a bouncer key
-    # exists. Enforcement (the crowdsec directive) still waits for the key.
-    _crowdsec_enabled: "{{ _env_caddy.variables.CANASTA_ENABLE_CROWDSEC | default('false', true) | lower == 'true' }}"
     # CrowdSec is only "active" (directive rendered) when the feature is
     # enabled AND a bouncer API key is present. Enabling the flag without
     # a key leaves Caddy in a clean degraded state — the bouncer image
@@ -69,85 +58,26 @@
     msg: "{{ _sitemap_url_path | sitemap_url_path_error }}"
   when: (_sitemap_url_path | sitemap_url_path_error) | length > 0
 
-# On Compose the edge render, which every start runs, reports these.
-- name: Report sitemap paths left to the wikis that own them
-  ansible.builtin.debug:
-    msg: "Warning: {{ item }}"
-  loop: "{{ _wikis_caddy.wikis | sitemap_farm_collision_warnings(_sitemap_url_path) }}"
-  when: instance_is_k8s | bool
-
 # The image serves each wiki's sitemap files at
 # <wiki path>/public_assets/sitemap; another URL path is rewritten onto it.
 - name: Determine the sitemap rewrites
   ansible.builtin.set_fact:
     _sitemap_rewrites: "{{ _wikis_caddy.wikis | sitemap_rewrites(_sitemap_url_path) }}"
 
-# Trusted-proxy handling: Caddy's peer is always a proxy (the Compose edge
-# or the K8s ingress), whose addresses it trusts to recover the real client
-# IP. On K8s, 'cloudflare'/'imperva' combine the ingress's addresses with
-# the provider's published ranges, kept current in-process by the
-# caddy-cdn-ranges plugin, and read the provider's client-IP header;
-# anything else is an explicit comma-separated CIDR list using Caddy's
-# built-in static source + X-Forwarded-For (strict, right-to-left).
-- name: Determine trusted-proxy mode
+# Caddy's peer is always the HAProxy edge. The edge has already recovered
+# the client address (from a CDN's header or a trusted proxy's
+# X-Forwarded-For, per TRUSTED_PROXIES) and appended it to
+# X-Forwarded-For, so Caddy trusts only the edge's addresses and reads that
+# header right to left, and a client-supplied CDN header is never believed.
+# The standard private ranges are a safe default because Caddy is reachable
+# only on the edge network and a loopback port; CADDY_TRUSTED_PROXY_CIDRS
+# overrides them.
+- name: Determine the trusted proxies
   ansible.builtin.set_fact:
-    _tp_raw: "{{ _env_caddy.variables.TRUSTED_PROXIES | default('') | trim }}"
-    # Behind a proxy Caddy must trust the proxy's addresses to recover the
-    # real client IP from X-Forwarded-For. Default to the standard private
-    # ranges — safe because Caddy is reachable only on the cluster or edge
-    # network (and, behind the edge, a loopback port); operator override via
-    # CADDY_TRUSTED_PROXY_CIDRS.
-    _proxy_trusted_cidrs: >-
-      {{ ((_env_caddy.variables.CADDY_TRUSTED_PROXY_CIDRS
-           | default('10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7'))
-          | split(',') | map('trim') | reject('equalto', '') | list)
-         }}
-
-- name: Refuse the CDN-behind-proxy TRUSTED_PROXIES form without the edge
-  ansible.builtin.fail:
-    msg: >-
-      TRUSTED_PROXIES='{{ _tp_raw }}' is supported on Docker Compose only.
-      On Kubernetes, use 'cloudflare', 'imperva', or a CIDR list.
-  when:
-    - not (_behind_edge | bool)
-    - "'@' in _tp_raw"
-
-- name: Normalize trusted-proxy mode
-  ansible.builtin.set_fact:
-    # Behind the edge, the edge has already recovered the client address
-    # (from a CDN's header or a trusted proxy's X-Forwarded-For, per
-    # TRUSTED_PROXIES) and appended it to X-Forwarded-For. Caddy reads
-    # only that, so a client-supplied CDN header is never believed.
-    _tp_mode: "{{ 'edge' if (_behind_edge | bool) else (_tp_raw | lower) }}"
-    # Activate trusted-proxy handling behind the edge, when the operator
-    # sets TRUSTED_PROXIES, or whenever CrowdSec is enabled, so the
-    # engine attributes decisions to the real client IP instead of the
-    # proxy's (true even before the bouncer is enrolled).
-    _trusted_proxies_enabled: >-
-      {{ (_behind_edge | bool) or (_tp_raw | length) > 0 or (_crowdsec_enabled | bool) }}
-
-- name: Resolve trusted-proxy rendering parameters
-  ansible.builtin.set_fact:
-    # The CDN is not Caddy's immediate peer (the proxy is), so a provider
-    # mode combines the proxy CIDRs with the CDN ranges via
-    # caddy-combine-ip-ranges (needs the plugin image).
-    _tp_combine: "{{ _tp_mode in ['cloudflare', 'imperva'] }}"
-    # Static CIDR list = proxy CIDRs + the operator's explicit list
-    # (non-provider modes only). Provider modes contribute no static CIDRs
-    # of their own; their ranges come from the cdn_ranges source.
     _trusted_proxies_cidrs: >-
-      {{ _proxy_trusted_cidrs
-         + ([] if _tp_mode in ['cloudflare', 'imperva', 'edge']
-            else (_tp_raw | split(',') | map('trim') | reject('equalto', '') | list)) }}
-    _trusted_proxies_headers: >-
-      {{ 'Cf-Connecting-Ip' if _tp_mode == 'cloudflare'
-         else 'Incap-Client-IP' if _tp_mode == 'imperva'
-         else 'X-Forwarded-For' }}
-    # Strict (right-to-left XFF) only matters for the generic X-Forwarded-For
-    # path. The provider modes read a single-value dedicated header the
-    # provider sets, so strict is moot there.
-    _trusted_proxies_strict: "{{ _tp_mode not in ['cloudflare', 'imperva'] }}"
-  when: _trusted_proxies_enabled | bool
+      {{ (_env_caddy.variables.CADDY_TRUSTED_PROXY_CIDRS
+          | default('10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7'))
+         | split(',') | map('trim') | reject('equalto', '') | list }}
 
 - name: Extract unique server names from wiki URLs
   ansible.builtin.set_fact:
@@ -191,7 +121,6 @@
       {{ _caddyfile_global_content
          | caddy_http_site_addresses(_caddyfile_global_content | caddy_site_hostnames)
          | caddy_unsafe }}
-  when: not (instance_is_k8s | bool)
 
 # Object-storage-backed media hostnames. Absent file = none declared.
 - name: Stat media-hosts.yaml

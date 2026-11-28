@@ -1,9 +1,7 @@
 ---
 # Display an instance's backup schedule.
 #
-# Scheduling is orchestrator-agnostic — the schedule is a crontab entry on
-# the host where the instance runs (Compose: the instance's host; K8s: the
-# control-plane node, to which resolve_instance switched the connection).
+# The schedule is a crontab entry on the host where the instance runs.
 # Output: "Instance 'X' is scheduled for backup at: M H D M W"
 # with optional "Auto-purge: <retention flags>"
 # Input: instance_id

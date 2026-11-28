@@ -1,13 +1,9 @@
-"""CANASTA_ELASTICSEARCH_HEAP sets the Elasticsearch heap on Kubernetes.
-
-A deploy-time reconcile copies it into values.yaml as elasticsearch.heap, and
-the chart derives ES_JAVA_OPTS and the container's memory request and limit
-from it. Compose runs OpenSearch instead, sized by CANASTA_OPENSEARCH_HEAP,
-which is validated the same way.
+"""CANASTA_OPENSEARCH_HEAP sizes OpenSearch. CANASTA_ELASTICSEARCH_HEAP stays a
+known, host-specific key because an upgrade carries its value over to
+CANASTA_OPENSEARCH_HEAP; both are validated the same way.
 """
 
 import os
-import shutil
 import subprocess
 import sys
 
@@ -15,7 +11,6 @@ import pytest
 import yaml
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-CHART = os.path.join(REPO_ROOT, "roles", "orchestrator", "files", "helm", "canasta")
 DEFAULTS = os.path.join(REPO_ROOT, "roles", "config", "defaults", "main.yml")
 CLASSIFIER = os.path.join(REPO_ROOT, "vars", "secret_classification.yml")
 VALIDATE_VALUE = os.path.join(REPO_ROOT, "roles", "config", "tasks", "_validate_value.yml")
@@ -87,15 +82,3 @@ class TestValidation:
     def test_unset_is_not_validated(self, tmp_path, key):
         code, out = _run_play(tmp_path, [_validate_task()], {"_config_key": key})
         assert code == 0, out
-
-
-def _render(tmp_path, es):
-    if not shutil.which("helm"):
-        pytest.skip("helm is not installed")
-    vf = tmp_path / "values.yaml"
-    vf.write_text(yaml.safe_dump({"instance": {"id": "t1"},
-                                  "elasticsearch": dict(es, enabled=True)}))
-    return subprocess.run(
-        ["helm", "template", "canasta", CHART, "-f", str(vf),
-         "--show-only", "templates/statefulset-elasticsearch.yaml"],
-        capture_output=True, text=True)

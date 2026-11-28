@@ -41,9 +41,9 @@ FULL = {
 
 def _params(**kw):
     params = {
-        "state": "query", "id": None, "path": None, "orchestrator": None,
-        "dev_mode": None, "build_from": None, "build_args": None,
-        "build_base": None, "host": None, "docker_host": None, "compose_command": None,
+        "state": "query", "id": None, "path": None, "dev_mode": None,
+        "build_from": None, "build_args": None, "build_base": None,
+        "host": None, "docker_host": None, "compose_command": None,
         "inspect_command": None, "filter_host": None, "setting_key": None,
         "setting_value": None, "config_dir": None,
     }
@@ -204,17 +204,13 @@ class TestPresentKeepsWhatItWasNotGiven:
         _seed(tmp_dir)
         _, failed, _ = run_module_with_params(canasta_registry, _params(
             state="present", id="demo", path="/srv/canasta/demo",
-            orchestrator="compose", config_dir=tmp_dir))
+            config_dir=tmp_dir))
         assert not failed
         entry = _read_back(tmp_dir)
         assert entry["composeCommand"] == "podman-compose"
         assert entry["inspectCommand"] == "podman"
 
-    def test_the_orchestrator_default_survived_losing_its_argspec_default(
-            self, tmp_dir):
-        # The argument default moved into the present branch so update
-        # could tell "not supplied" from "supplied"; present must still
-        # record compose when nothing is passed.
+    def test_present_records_compose(self, tmp_dir):
         _, failed, _ = run_module_with_params(canasta_registry, _params(
             state="present", id="fresh", path="/srv/canasta/fresh",
             config_dir=tmp_dir))
@@ -233,10 +229,11 @@ class TestEveryStoredFieldCanBeUpdated:
     def test_the_map_covers_the_stored_format(self):
         # instance_to_dict defines what a record may hold; a field
         # missing from UPDATABLE_FIELDS is one no caller can change
-        # without falling back to a whole-record replace.
+        # without falling back to a whole-record replace. The orchestrator
+        # is always compose, so nothing updates it.
         stored = set(canasta_registry.instance_to_dict(FULL))
         updatable = {key for key, _param in canasta_registry.UPDATABLE_FIELDS}
-        assert stored - updatable == {"id", "path"}
+        assert stored - updatable == {"id", "path", "orchestrator"}
 
 
 class TestThePreserveListCannotGoStale:

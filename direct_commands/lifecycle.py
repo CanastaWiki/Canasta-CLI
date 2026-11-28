@@ -1,4 +1,4 @@
-"""start, stop, restart, scale — lifecycle commands."""
+"""start, stop — lifecycle commands."""
 
 import os
 import sys
@@ -12,9 +12,8 @@ from ._helpers import register
 
 @register("start")
 def cmd_start(args):
-    # Ansible starts every instance: K8s needs its chart deployed and
-    # config synced, and every Compose instance's place behind the HAProxy
-    # edge is rendered there.
+    # Ansible starts every instance: its place behind the HAProxy edge is
+    # rendered there.
     _helpers._resolve_instance(args)
     return _helpers.FALLBACK
 
@@ -22,12 +21,6 @@ def cmd_start(args):
 @register("stop")
 def cmd_stop(args):
     inst_id, inst = _helpers._resolve_instance(args)
-    if _helpers._is_k8s(inst):
-        # K8s stop suspends Argo CD sync and scales the instance's
-        # workloads to 0 — kubectl must run on the instance's host
-        # (where the cluster kubeconfig lives), not the controller.
-        # Ansible resolves the host and switches the connection.
-        return _helpers.FALLBACK
     if _helpers._instance_has_sidecars(inst):
         return _helpers.FALLBACK  # Ansible includes the sidecar -f layer.
     if "podman" in _helpers._resolve_inspect_cmd(inst):

@@ -15,7 +15,6 @@ import sys
 import pytest
 import yaml
 
-from _orchestrator import INSTANCE_IS_K8S_VARS
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
@@ -44,8 +43,7 @@ def _play(tmp_path, tasks, extra_vars, expect_fail=False):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": dict(INSTANCE_IS_K8S_VARS, instance_orchestrator="compose",
-                     canasta_root=REPO_ROOT,
+        "vars": dict(canasta_root=REPO_ROOT,
                      ansible_python_interpreter=sys.executable, **extra_vars),
         "tasks": tasks,
     }]))

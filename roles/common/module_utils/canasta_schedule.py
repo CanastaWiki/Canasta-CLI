@@ -29,7 +29,7 @@ _CRON_RE = re.compile(r"^[0-9A-Za-z*/,-]+([ \t]+[0-9A-Za-z*/,-]+){4}\Z")
 _SERVICE_RE = re.compile(r"^[a-z0-9]([a-z0-9_.-]*[a-z0-9])?\Z")
 _HOST_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?\Z")
 # cron runs jobs with PATH=/usr/bin:/bin, which lacks the tools canasta runs
-# from /usr/local/bin (kubectl, as k3s installs it).
+# from /usr/local/bin (canasta itself, as get-canasta.sh installs it).
 CRON_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 

@@ -8,7 +8,7 @@ Report them privately through GitHub: open this repository's **Security** tab an
 
 Include what you can of:
 - The Canasta CLI version affected (`canasta version`)
-- Whether the installation uses Docker Compose or Kubernetes
+- Whether the installation uses Docker or Podman
 - Steps to reproduce, or a proof of concept
 - The impact you expect
 
@@ -20,13 +20,13 @@ Security fixes are made to the latest Canasta CLI release. Please confirm the is
 
 This policy covers the Canasta CLI:
 - The `canasta` command, its Ansible playbooks and roles, and the installer
-- The Docker Compose and Kubernetes configuration it generates, including the Helm chart
+- The Docker Compose configuration it generates
 - The handling of passwords, keys, and other secrets in installations and gitops repositories
 - The `canasta-ansible` and `canasta-caddy` images built from this repository
 
 Report these elsewhere:
 - Vulnerabilities in MediaWiki core or Wikimedia-maintained extensions and skins: https://www.mediawiki.org/wiki/Reporting_security_bugs
 - Vulnerabilities in the `canasta-base` or `canasta` image, its scripts, its Apache and PHP configuration, or its bundled extensions and skins: https://github.com/CanastaWiki/Canasta
-- Vulnerabilities in Ansible, Kubernetes, Docker, Caddy, or other upstream dependencies: the upstream project
+- Vulnerabilities in Ansible, Docker, Podman, Caddy, or other upstream dependencies: the upstream project
 
 If you are unsure where an issue belongs, report it here and we will help route it.

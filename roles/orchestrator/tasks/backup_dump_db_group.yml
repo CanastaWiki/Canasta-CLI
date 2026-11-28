@@ -1,5 +1,5 @@
 ---
-# Dump one wiki's database group (Compose) and record it if it failed.
+# Dump one wiki's database group and record it if it failed.
 #
 # Input: item (a db_groups entry), instance_path, _backup_time_limit,
 #        _backup_time_limit_hint, dump_command (a host

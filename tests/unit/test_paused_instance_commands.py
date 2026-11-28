@@ -91,7 +91,7 @@ esac
 """
 
 
-def _refuse(tmp_path, paused, k8s=False):
+def _refuse(tmp_path, paused):
     inst = tmp_path / "MySite"
     inst.mkdir()
     fake = tmp_path / "docker"
@@ -105,7 +105,6 @@ def _refuse(tmp_path, paused, k8s=False):
         "vars": {
             "instance_path": str(inst),
             "instance_id": "mysite",
-            "instance_is_k8s": k8s,
             "inspect_command": str(fake),
             "ansible_python_interpreter": sys.executable,
         },

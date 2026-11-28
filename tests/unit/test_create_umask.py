@@ -63,7 +63,6 @@ class TestCreateUnderRestrictiveUmask:
         inst = tmp_path / "inst"
         proc = _run_play(tmp_path, {
             "instance_path": str(inst),
-            "instance_is_k8s": False,
             "wiki": "main",
             "_domain_with_port": "wiki.example.com",
         }, _create_tasks(["Create instance directory"])

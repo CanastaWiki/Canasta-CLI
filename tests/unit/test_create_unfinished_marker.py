@@ -115,8 +115,5 @@ class TestMarkerLifetime:
         clear = _task(tasks, "Clear the unfinished-create marker")
         assert "when" not in clear
         assert clear["ansible.builtin.file"]["state"] == "absent"
-        start = _index(
-            tasks,
-            "Start containers (Compose) or sync config + Helm deploy (K8s)",
-        )
+        start = _index(tasks, "Start containers")
         assert _index(tasks, "Clear the unfinished-create marker") == start - 1

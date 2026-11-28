@@ -18,7 +18,6 @@
   canasta_registry:
     id: "{{ id }}"
     path: "{{ instance_path }}"
-    orchestrator: "{{ orchestrator | default('compose') }}"
     host: "{{ _registry_host }}"
     docker_host: "{{ docker_host | default(_detected_docker_host | default(''), true) | default(omit, true) }}"
     compose_command: "{{ compose_command | default(omit, true) }}"
@@ -43,7 +42,6 @@
   canasta_registry:
     id: "{{ id }}"
     path: "{{ instance_path }}"
-    orchestrator: "{{ orchestrator | default('compose') }}"
     docker_host: "{{ docker_host | default(_detected_docker_host | default(''), true) | default(omit, true) }}"
     compose_command: "{{ compose_command | default(omit, true) }}"
     inspect_command: "{{ inspect_command | default(omit, true) }}"

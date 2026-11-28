@@ -1,12 +1,7 @@
 ---
-# Start containers for the new instance. Compose runs `docker
-# compose up`; K8s syncs ConfigMaps, deploys the Helm release
-# without --wait, then blocks on `kubectl rollout status`.
-#
-# This is the first start (no dev mode); Compose path is restarted
-# later with the full config (Step 14 in main.yml). K8s does not
-# need the restart because pods come up with the right config from
-# the start.
+# Start containers for the new instance with `compose up`. This is the
+# first start (no dev mode); the instance is restarted later with the
+# full config (Step 14 in main.yml).
 
 - name: Report pulling Docker images
   ansible.builtin.debug:
@@ -16,7 +11,7 @@
   ansible.builtin.debug:
     msg: "Creating Canasta instance '{{ id }}'..."
 
-- name: Start containers (Compose)
+- name: Start containers
   ansible.builtin.include_role:
     name: orchestrator
     tasks_from: start.yml
@@ -26,8 +21,3 @@
     # this create has not written yet. The step-14 restart re-runs start
     # too, but enrollment is idempotent (skips once the key is stored).
     crowdsec_autoenroll: false
-  when: not (instance_is_k8s | bool)
-
-    # CrowdSec bouncer enrollment happens after registration (main.yml),
-    # because the crowdsec role's preflight resolves the instance from the
-    # registry — which this create has not written yet.

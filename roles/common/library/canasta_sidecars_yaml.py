@@ -6,7 +6,7 @@
 Provides CRUD + validation on `config/sidecars.yaml`, the instance file
 that declares app sidecars (companion services the wiki talks to). This
 module only reads/writes/validates the declaration; rendering it into
-runtime artifacts (a Compose override layer / Helm values) is separate.
+runtime artifacts (a Compose override layer) is separate.
 """
 
 from __future__ import absolute_import, division, print_function
@@ -39,18 +39,6 @@ options:
       but withheld from the web-tier getenv() bridge (for a secret only the
       sidecar should hold).
     type: str
-  orchestrator:
-    description:
-      - The instance orchestrator. On Kubernetes, import refuses a plain
-        C(${VAR}) reference to a secret variable outside envSecret.
-    type: str
-    choices: [compose, k8s, kubernetes]
-    default: compose
-  secret_key_regex:
-    description:
-      - The secret classifier (canasta_secret_key_regex); required for
-        import on Kubernetes.
-    type: str
 """
 
 import os
@@ -58,10 +46,7 @@ import os
 import yaml
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.canasta_config import is_k8s_orchestrator
 from ansible.module_utils.canasta_sidecar_render import (
-    secret_classifier,
-    validate_k8s_secret_refs,
     validate_spec,
 )
 from ansible.module_utils.canasta_validate import (
@@ -171,9 +156,6 @@ def run_module():
                             "validate", "import"]),
         name=dict(type="str", required=False),
         definitions=dict(type="str", required=False),
-        orchestrator=dict(type="str", default="compose",
-                          choices=["compose", "k8s", "kubernetes"]),
-        secret_key_regex=dict(type="str", required=False),
     )
 
     module = AnsibleModule(
@@ -223,15 +205,6 @@ def run_module():
                         % sidecar.get("name"))
                     return
         err = validate_sidecars(incoming)
-        if not err and is_k8s_orchestrator(module.params.get("orchestrator")):
-            regex = module.params.get("secret_key_regex")
-            if not regex:
-                module.fail_json(
-                    msg="secret_key_regex is required for import on "
-                        "Kubernetes")
-                return
-            err = validate_k8s_secret_refs(
-                incoming, secret_classifier(instance_path, regex))
         if err:
             module.fail_json(msg=err)
             return

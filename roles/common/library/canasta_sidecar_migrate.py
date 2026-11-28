@@ -4,7 +4,7 @@
 """Ansible module: migrate legacy docker-compose.override.yml sidecars.
 
 Translates the override's non-core services into config/sidecars.yaml (the
-orchestrator-agnostic schema) and removes them from the override, so the
+sidecar schema) and removes them from the override, so the
 migrated sidecar isn't shadowed by a left-behind override entry. Core-stack
 overrides and services it can't fully model stay in the override and are
 reported. dry_run reports the plan without writing.
@@ -29,18 +29,6 @@ options:
     description: Report the plan without writing any files.
     type: bool
     default: false
-  orchestrator:
-    description:
-      - The instance orchestrator. On Kubernetes, a migrated sidecar with a
-        plain C(${VAR}) reference to a secret variable is refused.
-    type: str
-    choices: [compose, k8s, kubernetes]
-    default: compose
-  secret_key_regex:
-    description:
-      - The secret classifier (canasta_secret_key_regex); required on
-        Kubernetes.
-    type: str
 """
 
 import os
@@ -48,12 +36,7 @@ import os
 import yaml
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.canasta_config import is_k8s_orchestrator
 from ansible.module_utils.canasta_override_migrate import plan_migration
-from ansible.module_utils.canasta_sidecar_render import (
-    secret_classifier,
-    validate_k8s_secret_refs,
-)
 
 
 def _read_yaml(path):
@@ -68,9 +51,6 @@ def run_module():
         argument_spec=dict(
             instance_path=dict(type="str", required=True),
             dry_run=dict(type="bool", default=False),
-            orchestrator=dict(type="str", default="compose",
-                              choices=["compose", "k8s", "kubernetes"]),
-            secret_key_regex=dict(type="str", required=False),
         ),
         supports_check_mode=True,
     )
@@ -83,7 +63,7 @@ def run_module():
     override = _read_yaml(override_path)
     if not override or not (override.get("services")):
         module.exit_json(changed=False, migrated=[], unmigrated=[],
-                         assumptions=[], dry_run=dry_run,
+                         dry_run=dry_run,
                          message="No docker-compose.override.yml services to migrate.")
         return
 
@@ -91,22 +71,9 @@ def run_module():
     existing_names = [s.get("name") for s in existing]
     plan = plan_migration(override, existing_names=existing_names)
 
-    if is_k8s_orchestrator(module.params.get("orchestrator")):
-        regex = module.params.get("secret_key_regex")
-        if not regex:
-            module.fail_json(
-                msg="secret_key_regex is required on Kubernetes")
-            return
-        error = validate_k8s_secret_refs(
-            plan["sidecars"], secret_classifier(instance_path, regex))
-        if error:
-            module.fail_json(msg=error)
-            return
-
     result = dict(
         migrated=plan["migrated"],
         unmigrated=plan["skipped"],
-        assumptions=plan["assumptions"],
         dry_run=dry_run,
         changed=bool(plan["migrated"]) and not dry_run,
     )

@@ -16,6 +16,7 @@ from direct_commands import doctor  # noqa: E402
 from direct_commands import _helpers  # noqa: E402
 
 D = _helpers._SENTINEL
+_FIELD_NAMES = [name for name, _ in doctor._PROBE_FIELDS]
 
 
 def _probe_line():
@@ -54,7 +55,7 @@ class TestProbe:
         assert _run_probe(tmp_path, "1000", None) == "NOT_MEMBER|"
 
     def test_probe_is_the_last_field(self):
-        stdout = (D + "\n").join(["x"] * 27 + ["MEMBER|tape"]) + "\n"
+        stdout = (D + "\n").join(["x"] * (len(_FIELD_NAMES) - 1) + ["MEMBER|tape"]) + "\n"
         assert doctor._doctor_probes(stdout)["web_gid"] == "MEMBER|tape"
 
 
@@ -94,12 +95,13 @@ class TestReportLine:
         assert "NOT A MEMBER" in doctor._www_data_line("user", "")
 
     def _report(self, rootless_sock="", daemon="OK"):
-        fields = ["Python 3.12.0"] * 28
-        fields[3] = daemon
-        fields[4] = "user wheel"
-        fields[13] = "Linux"
-        fields[17] = rootless_sock
-        fields[27] = "NOT_MEMBER|tape"
+        fields = dict.fromkeys(_FIELD_NAMES, "Python 3.12.0")
+        fields["daemon"] = daemon
+        fields["groups"] = "user wheel"
+        fields["host_os"] = "Linux"
+        fields["rootless_sock"] = rootless_sock
+        fields["web_gid"] = "NOT_MEMBER|tape"
+        fields = [fields[name] for name in _FIELD_NAMES]
         return doctor._parse_doctor((D + "\n").join(fields) + "\n", "h")
 
     def test_full_report_on_rhel(self):

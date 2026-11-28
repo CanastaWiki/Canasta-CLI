@@ -1,11 +1,6 @@
-"""`canasta upgrade` must stage the gitops files it edits, and edit no
-shared file for a CLI's own image pin.
+"""`canasta upgrade` edits no shared gitops file for a CLI's own image pin.
 
-On Kubernetes the image bump is persisted to hosts/<host>/vars.yaml so it
-survives the next render. Left unstaged, that edit blocks the next
-`canasta gitops pull` (which refuses a dirty tree) and is invisible to
-`canasta gitops push` (which only commits what is staged). On Compose the
-render gives each host its own CLI default, so the bump stays in .env and
+The render gives each host its own CLI default, so the bump stays in .env and
 the shared env.template is left as it is.
 """
 

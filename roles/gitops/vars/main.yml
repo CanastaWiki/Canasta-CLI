@@ -41,8 +41,8 @@ gitops_shared_keys:
   - smtp_password
   - smtp_user
 
-# Environment applied to every git command in the Compose-side gitops
-# flows (init, push, pull, join). accept-new lets the first contact
+# Environment applied to every git command in the gitops flows (init,
+# push, pull, join). accept-new lets the first contact
 # with a forge (github.com etc.) silently add its host key instead of
 # failing with "Host key verification failed".
 #
@@ -50,9 +50,7 @@ gitops_shared_keys:
 # private key (`-i <ssh_key>`). Otherwise, pair with ForwardAgent=yes
 # in ANSIBLE_SSH_ARGS (set by canasta.py) so the operator's local
 # ssh-agent reaches the target host and authenticates against private
-# repos without per-host deploy keys. The Kubernetes gitops flows
-# generate their own deploy key and override GIT_SSH_COMMAND with
-# `-i <key>`, so this default doesn't apply there.
+# repos without per-host deploy keys.
 gitops_git_env:
   GIT_SSH_COMMAND: >-
     ssh{{ (ssh_key | default('') | length > 0)
@@ -60,20 +58,9 @@ gitops_git_env:
     -o StrictHostKeyChecking=accept-new
     -o UserKnownHostsFile=~/.ssh/known_hosts
 
-# Environment for git commands that reach the remote from an existing
-# Kubernetes gitops checkout (pull, push). A Kubernetes host
-# authenticates with its staged .gitops-deploy-key unless --ssh-key
-# overrides it; the ambient ssh/agent is not present on every host.
-gitops_k8s_git_env:
-  GIT_SSH_COMMAND: >-
-    ssh -i {{ ssh_key | default(instance_path + '/.gitops-deploy-key', true) }}
-    -o StrictHostKeyChecking=accept-new
-    -o UserKnownHostsFile=~/.ssh/known_hosts
-
-# Paths a gitops commit stages on its own (init's initial commit, and every
-# Kubernetes push). Staging is limited to these so stray files elsewhere in the
-# instance directory never reach the remote. Within them, adds, modifications,
-# and deletions are all staged. Anything else is committed only through
+# Paths gitops init's initial commit stages on its own. Staging is limited to
+# these so stray files elsewhere in the instance directory never reach the
+# remote. Within them, adds, modifications, and deletions are all staged. Anything else is committed only through
 # 'canasta gitops add'.
 gitops_compose_tracked_paths:
   - .gitignore
@@ -91,20 +78,3 @@ gitops_compose_tracked_paths:
   - skins
   - public_assets
   - scripts
-
-gitops_k8s_tracked_paths:
-  - .gitignore
-  - .gitmodules
-  - .sops.yaml
-  - Chart.yaml
-  - chart-defaults.yaml
-  - templates
-  - files
-  - values.yaml
-  - values.template.yaml
-  - argocd
-  - hosts
-  - config
-  - extensions
-  - skins
-  - public_assets

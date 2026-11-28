@@ -1,4 +1,4 @@
-"""Guard for restore file-ownership normalization (Compose).
+"""Guard for restore file-ownership normalization.
 
 The Compose restore copies files to the host with `cp -a`, which preserves the
 snapshot's numeric uids. On a cross-host restore those ids need not map to a

@@ -203,7 +203,7 @@ def _render_compose_exec(extra):
     with open(EXEC_YML) as f:
         tasks = yaml.safe_load(f)
     build = next(t for t in tasks
-                 if t.get("name") == "Build exec command (Compose)")
+                 if t.get("name") == "Build exec command")
     template = build["ansible.builtin.set_fact"]["_exec_full_cmd"]
     return _render(template, extra)
 
