@@ -1027,8 +1027,8 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
         if _is_self_signed(issuer, subject) and _is_public_hostname(name):
             lines.append(
                 "  %s: WARN — self-signed certificate (issuer %s), not "
-                "publicly trusted, so browsers reject it. Check the "
-                "certificate TLS_CERT names." % (name, issuer))
+                "publicly trusted, so browsers reject it. Replace the "
+                "certificate that TLS_CERT names." % (name, issuer))
             continue
         expiry = _parse_cert_expiry(not_after)
         if expiry is None:

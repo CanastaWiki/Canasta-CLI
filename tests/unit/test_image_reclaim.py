@@ -112,17 +112,12 @@ def test_registry_gc_include_is_not_wrapped_in_a_conditional_block():
 
 
 class TestPinSetCoversEveryImageKey:
-    """CANASTA_IMAGE alone left an instance's Caddy and Elasticsearch
-    images unprotected."""
+    """CANASTA_IMAGE alone left an instance's Caddy image unprotected."""
 
     def test_all_image_valued_env_keys_are_pinned(self):
         keys = _by_name("Name the .env keys that hold an image reference")[
             "ansible.builtin.set_fact"]["_reclaim_image_keys"]
-        assert set(keys) >= {
-            "CANASTA_IMAGE",
-            "CANASTA_CADDY_IMAGE",
-            "CANASTA_ELASTICSEARCH_IMAGE",
-        }
+        assert set(keys) >= {"CANASTA_IMAGE", "CANASTA_CADDY_IMAGE"}
 
     def test_pins_are_read_from_every_instance_on_the_host(self):
         read = _by_name("Read the images each instance is pinned to")

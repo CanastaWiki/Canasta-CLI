@@ -38,43 +38,41 @@
     msg: "Stopping containers..."
   when: _stop_was_running | bool
 
-- name: Stop (Docker Compose)
-  block:
-    # Reconcile COMPOSE_PROFILES before `down`: docker compose down only tears
-    # down services in the active profiles, so a drifted profile set would
-    # leave a running container as an unmanaged orphan. The start path syncs
-    # before `up`; syncing here too keeps `down` and `up` symmetric so a
-    # restart recreates the whole intended set (and never strands a peer like
-    # Varnish on a stale backend IP).
-    - name: Reconcile COMPOSE_PROFILES before stop
-      ansible.builtin.include_tasks: sync_compose_profiles.yml
+# Reconcile COMPOSE_PROFILES before `down`: docker compose down only tears
+# down services in the active profiles, so a drifted profile set would
+# leave a running container as an unmanaged orphan. The start path syncs
+# before `up`; syncing here too keeps `down` and `up` symmetric so a
+# restart recreates the whole intended set (and never strands a peer like
+# Varnish on a stale backend IP).
+- name: Reconcile COMPOSE_PROFILES before stop
+  ansible.builtin.include_tasks: sync_compose_profiles.yml
 
-    # The same layers as start, so `down` tears down every service they
-    # add; the start path regenerates them. No render here.
-    - name: Build compose file arguments
-      ansible.builtin.include_tasks: compose_file_args.yml
+# The same layers as start, so `down` tears down every service they
+# add; the start path regenerates them. No render here.
+- name: Build compose file arguments
+  ansible.builtin.include_tasks: compose_file_args.yml
 
-    # podman-compose ignores COMPOSE_PROFILES from .env, so we must pass
-    # --profile flags explicitly for `down` to tear down all profiled services.
-    - name: Read COMPOSE_PROFILES from .env
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: read_all
-      register: _env_profiles_stop
-      no_log: true  # registers the whole .env, including passwords
-      when: compose_command is search('podman')
+# podman-compose ignores COMPOSE_PROFILES from .env, so we must pass
+# --profile flags explicitly for `down` to tear down all profiled services.
+- name: Read COMPOSE_PROFILES from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _env_profiles_stop
+  no_log: true  # registers the whole .env, including passwords
+  when: compose_command is search('podman')
 
-    - name: Build compose profile flags
-      ansible.builtin.set_fact:
-        _compose_profile_flags: >-
-          {{ (((_env_profiles_stop.variables.COMPOSE_PROFILES | default(''))
-             | split(',') | map('trim') | reject('equalto', '')
-             | map('regex_replace', '^', '--profile ')
-             | join(' '))
-             if compose_command is search('podman') else '') }}
+- name: Build compose profile flags
+  ansible.builtin.set_fact:
+    _compose_profile_flags: >-
+      {{ (((_env_profiles_stop.variables.COMPOSE_PROFILES | default(''))
+         | split(',') | map('trim') | reject('equalto', '')
+         | map('regex_replace', '^', '--profile ')
+         | join(' '))
+         if compose_command is search('podman') else '') }}
 
-    - name: Stop containers
-      ansible.builtin.command:
-        cmd: "{{ compose_command }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} down"
-        chdir: "{{ instance_path }}"
-      changed_when: true
+- name: Stop containers
+  ansible.builtin.command:
+    cmd: "{{ compose_command }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} down"
+    chdir: "{{ instance_path }}"
+  changed_when: true

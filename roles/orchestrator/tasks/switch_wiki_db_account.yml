@@ -13,7 +13,7 @@
 # Output: _mig_db_redeployed (true once the move restarted the instance,
 #         onto the new account or back onto root)
 
-- name: Switch (Docker Compose)
+- name: Switch to the wiki account, rolling back on failure
   block:
     - name: Generate the account's password
       ansible.builtin.include_tasks: >-

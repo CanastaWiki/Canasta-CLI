@@ -829,7 +829,8 @@ class TestInstallDockerMode:
     """`canasta install` under the docker wrapper.
 
     The wrapper passes install through unchanged — the refusal of a
-    local install lives in canasta.py (check_docker_mode_install_target),
+    local install lives in canasta_docker_mode.py
+    (check_docker_mode_install_target),
     where the parsed args and the real registry decide whether the
     target is the controller itself or a remote host. That move is what
     makes attached short forms (-Hprod1, -imysite) and pre-command flags

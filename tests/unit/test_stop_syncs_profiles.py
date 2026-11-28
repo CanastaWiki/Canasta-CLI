@@ -24,20 +24,13 @@ def _includes(task):
     return inc or ""
 
 
-def _stop_block():
+def _stop_tasks():
     with open(STOP) as f:
-        tasks = yaml.safe_load(f)
-    stop = next(
-        (t for t in tasks if t.get("name") == "Stop (Docker Compose)"
-         and t.get("block")),
-        None,
-    )
-    assert stop is not None, "stop.yml must have a stop block"
-    return stop["block"]
+        return yaml.safe_load(f)
 
 
 def test_stop_syncs_profiles_before_down():
-    block = _stop_block()
+    block = _stop_tasks()
     sync_idx = next(
         (i for i, t in enumerate(block)
          if "sync_compose_profiles.yml" in _includes(t)),
