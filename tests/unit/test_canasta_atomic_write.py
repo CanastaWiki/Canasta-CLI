@@ -20,6 +20,28 @@ def _mode(path):
     return stat.S_IMODE(os.stat(path).st_mode)
 
 
+class TestWriteIfChanged:
+    def test_writes_new_content_with_the_mode(self, tmp_path):
+        path = tmp_path / "f"
+        assert canasta_atomic_write.write_if_changed(str(path), "a\n", 0o600)
+        assert path.read_text() == "a\n"
+        assert _mode(path) == 0o600
+
+    def test_same_content_is_not_written(self, tmp_path):
+        path = tmp_path / "f"
+        path.write_text("a\n")
+        os.chmod(path, 0o640)
+        assert not canasta_atomic_write.write_if_changed(str(path), "a\n")
+        assert _mode(path) == 0o640
+
+    def test_makes_the_directory_only_when_asked(self, tmp_path):
+        path = tmp_path / "d" / "f"
+        with pytest.raises(OSError):
+            canasta_atomic_write.write_if_changed(str(path), "a")
+        assert canasta_atomic_write.write_if_changed(str(path), "a", make_dirs=True)
+        assert path.read_text() == "a"
+
+
 class TestReplaceFile:
     def test_replaces_content_and_keeps_mode(self, tmp_path):
         env = tmp_path / ".env"

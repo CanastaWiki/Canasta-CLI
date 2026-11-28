@@ -79,7 +79,10 @@ import hashlib
 import yaml
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.canasta_atomic_write import read_text as _read
+from ansible.module_utils.canasta_atomic_write import write_if_changed
 from ansible.module_utils.canasta_config import get_config_dir
+from ansible.module_utils.canasta_env_lines import read_env_file
 from ansible.module_utils.canasta_edge_render import ACME_IMAGE
 from ansible.module_utils.canasta_opensearch_render import (
     ADMIN_CN, CONF_DIR, CONF_VOLUME, CONTAINER, GLOBAL_SETTINGS, IMAGE,
@@ -103,25 +106,8 @@ class OpenSearchError(Exception):
     pass
 
 
-def _read(path):
-    try:
-        with open(path) as handle:
-            return handle.read()
-    except (IOError, OSError):
-        return None
-
-
 def _write_if_changed(path, content, mode=0o644):
-    if _read(path) == content:
-        return False
-    directory = os.path.dirname(path)
-    os.makedirs(directory, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".tmp-")
-    with os.fdopen(fd, "w") as handle:
-        handle.write(content)
-    os.chmod(tmp, mode)
-    os.rename(tmp, path)
-    return True
+    return write_if_changed(path, content, mode, make_dirs=True)
 
 
 def _remove(path):
@@ -137,17 +123,7 @@ def _tail(out, err, lines=8):
 
 
 def read_env(instance_path):
-    env = {}
-    for line in (_read(os.path.join(instance_path, ".env")) or "").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        env[key.strip()] = value
-    return env
+    return read_env_file(os.path.join(instance_path, ".env"))
 
 
 def enabled(env):

@@ -168,6 +168,7 @@ from ansible.module_utils.canasta_edge_writable import (
 )
 from ansible.module_utils.urls import open_url
 from ansible.module_utils.canasta_atomic_write import read_text as _read
+from ansible.module_utils.canasta_atomic_write import write_if_changed as _write_if_changed
 from ansible.module_utils.canasta_edge_acme import (
     ACME_CA_DIRS, ACME_CA_NAMES, ACME_CONTAINER, ACME_DEPLOY_ENV, ACME_SERVERS,
     RETRIED_PROBLEMS, _acme, _domain_conf, _tail, acme_failure, acme_hint, acme_listed,
@@ -375,19 +376,6 @@ SPOA_SERVICE = """\
         aliases:
           - crowdsec-spoa-%(id)s
 """
-
-
-def _write_if_changed(path, content, mode=0o644):
-    """Write content atomically when it differs. Returns True if written."""
-    if _read(path) == content:
-        return False
-    directory = os.path.dirname(path)
-    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".tmp-")
-    with os.fdopen(fd, "w") as handle:
-        handle.write(content)
-    os.chmod(tmp, mode)
-    os.rename(tmp, path)
-    return True
 
 
 def write_layer(instance_path, instance_id, present, spoa=False):
