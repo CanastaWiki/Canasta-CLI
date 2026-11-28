@@ -47,35 +47,8 @@
   ansible.builtin.debug:
     msg: "Checking for config migrations..."
 
-# Single round-trip that gathers every stat / find / .env-read each
-# migration would otherwise do for itself. Each migration consults
-# `_mig` and skips entirely on no-op, collapsing what used to be
-# ~12-15 round-trips on a steady-state upgrade into one.
-- name: Probe migration-relevant state
-  ansible.builtin.include_tasks: pre_migration_probe.yml
-
 - name: Run migrations
-  ansible.builtin.include_tasks: "migrations/{{ _migration }}"
-  loop:
-    - extract_secret_key.yml
-    - migrate_directory_structure.yml
-    - fix_vector_default_skin.yml
-    - remove_empty_composer_local.yml
-    - remove_legacy_git_dir.yml
-    - remove_legacy_gitignore_files.yml
-    - remove_skip_binary_as_hex.yml
-    - backfill_canasta_image.yml
-    - backfill_compose_profiles.yml
-    - backfill_hosts_yaml.yml
-    - tighten_env_permissions.yml
-    - quote_env_dollar_values.yml
-    - remove_enable_edge.yml
-    - rename_tls_keys.yml
-    - convert_backup_schedule_retention.yml
-    - adopt_own_redis.yml
-    - elasticsearch_to_opensearch.yml
-  loop_control:
-    loop_var: _migration
+  ansible.builtin.include_tasks: run_migrations.yml
 
 # --- DB migrations (MySQL->MariaDB) ---
 - name: Run DB migrations

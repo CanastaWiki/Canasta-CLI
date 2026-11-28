@@ -1,0 +1,56 @@
+---
+# Bring the files a full restore of an older major release's snapshot put in
+# place up to this release, as an upgrade would: its migrations, the image
+# pin, and the managed stack and config files. The restart that follows runs
+# MediaWiki's database update on the new image.
+# Input: instance_path, instance_id, _instance_result, _restore_snapshot_image
+
+- name: Report bringing the restored files up to this release
+  ansible.builtin.debug:
+    msg: >-
+      The snapshot ran {{ _restore_snapshot_image }}, from an older major
+      release. Bringing its files up to this release...
+
+- name: Run the upgrade's migrations on the restored files
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/upgrade/tasks/run_migrations.yml
+
+- name: Move the restored image pin to this release
+  ansible.builtin.include_tasks: upgrade_image_tag.yml
+  vars:
+    _upgrade_inst: "{{ _instance_result }}"
+    _upgrade_rebuild: false
+    _built_image: ""
+
+- name: Refresh the stack files
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: write_stack_files.yml
+  vars:
+    stack_files_force: true
+
+- name: Regenerate the Caddyfile
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: update_config.yml
+
+- name: Initialize orchestrator config
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: init_config.yml
+
+# The image runs update.php on start unless the restored .env turns that off.
+- name: Read whether the database updates on start
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: MW_AUTOUPDATE
+  register: _restore_autoupdate
+
+- name: Warn that the database schema needs updating by hand
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: MW_AUTOUPDATE is false in the restored .env, so the restart
+      does not update the databases to this release's MediaWiki. Run
+      'canasta maintenance update -i {{ instance_id }}' once the instance is up.
+  when: (_restore_autoupdate.value | default('') | lower) == 'false'

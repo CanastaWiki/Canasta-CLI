@@ -14,7 +14,7 @@ import yaml
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 MIGRATIONS = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "migrations")
-UPGRADE_MAIN = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "main.yml")
+UPGRADE_MIGRATIONS = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "run_migrations.yml")
 PROBE = os.path.join(REPO_ROOT, "roles", "upgrade", "files",
                      "probe_migration_state.py")
 GITIGNORE_MIGRATION = os.path.join(MIGRATIONS,
@@ -89,7 +89,7 @@ class TestGitignoreMigration:
 
 class TestWiring:
     def test_gitignore_migration_runs_on_upgrade(self):
-        loop = next(t for t in _load(UPGRADE_MAIN)
+        loop = next(t for t in _load(UPGRADE_MIGRATIONS)
                     if t.get("name") == "Run migrations")["loop"]
         assert "remove_legacy_gitignore_files.yml" in loop
 

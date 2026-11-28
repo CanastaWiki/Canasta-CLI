@@ -262,7 +262,7 @@ class TestMigration:
 
     def test_migration_is_in_the_upgrade_loop(self):
         with open(os.path.join(REPO_ROOT, "roles", "upgrade", "tasks",
-                               "main.yml")) as f:
+                               "run_migrations.yml")) as f:
             assert "- quote_env_dollar_values.yml" in f.read()
 
 

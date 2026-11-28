@@ -65,6 +65,14 @@ def retarget_release_image(value, target_image):
     return "%s:%s" % (pin[0], _unquote(target_image).rsplit(":", 1)[1])
 
 
+def predates_release_major(value, target_image):
+    """Whether value is a release pin of an older major release than
+    target_image's."""
+    pin = release_image(value)
+    target = release_image(target_image)
+    return bool(pin and target and pin[1][0] < target[1][0])
+
+
 def base_image_for(canasta_image):
     """The canasta-base image of the same release as a canasta image."""
     text = _unquote(canasta_image)

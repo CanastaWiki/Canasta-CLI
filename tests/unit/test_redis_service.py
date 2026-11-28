@@ -21,7 +21,7 @@ DEFAULTS = os.path.join(REPO_ROOT, "roles", "config", "defaults", "main.yml")
 CLASSIFICATION = os.path.join(REPO_ROOT, "vars", "secret_classification.yml")
 SIDE_EFFECTS = os.path.join(REPO_ROOT, "roles", "config", "tasks",
                             "_side_effects.yml")
-UPGRADE_MAIN = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "main.yml")
+UPGRADE_MIGRATIONS = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "run_migrations.yml")
 ADOPT = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "migrations",
                      "adopt_own_redis.yml")
 
@@ -75,7 +75,7 @@ def test_config_set_syncs_profiles():
 
 
 def test_upgrade_enables_redis_for_the_instances_own_redis_service():
-    loop = next(t for t in _load(UPGRADE_MAIN)
+    loop = next(t for t in _load(UPGRADE_MIGRATIONS)
                 if t.get("name") == "Run migrations")["loop"]
     assert "adopt_own_redis.yml" in loop
     note, enable, report = _load(ADOPT)
