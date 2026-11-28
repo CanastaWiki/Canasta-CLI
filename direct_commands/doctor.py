@@ -889,13 +889,12 @@ def _instance_consistency_lines(inst):
 # whatever the origin presents, so an expired or internally-issued origin
 # certificate shows no symptom until the CDN is switched to strict validation.
 
-# Caddy renews well before this, so a certificate still this close to expiry
+# acme.sh renews well before this, so a certificate still this close to expiry
 # means renewal is failing.
 _TLS_RENEWAL_FLOOR_DAYS = 14
 
-# Caddy's fallback when it cannot obtain a public certificate, and the CA
-# the HAProxy edge signs its own certificates with.
-_TLS_INTERNAL_ISSUER_MARKERS = ("caddy local authority", "canasta edge ca")
+# The CA the HAProxy edge signs its own certificates with.
+_TLS_INTERNAL_ISSUER_MARKERS = ("canasta edge ca",)
 
 # Let's Encrypt's staging CA marks every issuer CN this way, e.g.
 # "(STAGING) Artificial Amaranth YE1". Staging certificates are valid and
@@ -903,7 +902,7 @@ _TLS_INTERNAL_ISSUER_MARKERS = ("caddy local authority", "canasta edge ca")
 # the same visible outcome as the internal-CA case above.
 _TLS_STAGING_ISSUER_MARKERS = ("(staging)",)
 
-# Names Caddy serves from its internal CA by design.
+# Names that never get a public certificate.
 _TLS_LOCAL_NAMES = ("localhost",)
 _TLS_LOCAL_SUFFIXES = (
     ".localhost", ".local", ".internal", ".test", ".example", ".invalid",
@@ -913,7 +912,6 @@ _TLS_LOCAL_SUFFIXES = (
 # while the others hold valid certificates.
 _ORIGIN_TLS_SCRIPT = r"""
 command -v openssl >/dev/null 2>&1 || { echo NO_OPENSSL; exit 0; }
-printf '%%sTLSINTERNAL:%%s\n' '%(delim)s' "$(grep -lE '^[[:space:]]*tls[[:space:]]+internal([[:space:]]|$)' %(cfg)s 2>/dev/null | head -1)"
 for n in %(names)s; do
   printf '%%sNAME:%%s\n' '%(delim)s' "$n"
   echo | openssl s_client -connect 127.0.0.1:%(port)s -servername "$n" \
@@ -945,8 +943,6 @@ def _parse_origin_tls(stdout):
     entries = []
     for seg in segments[1:]:
         header, _, body = seg.partition("\n")
-        if header.startswith("TLSINTERNAL:"):
-            continue
         if not header.startswith("NAME:"):
             continue
         issuer = not_after = subject = ""
@@ -961,25 +957,6 @@ def _parse_origin_tls(stdout):
         entries.append(
             (header[len("NAME:"):].strip(), issuer, not_after, subject))
     return entries
-
-
-def _parse_tls_internal(stdout):
-    """True when the instance's Caddy config asks for the internal CA.
-
-    `tls internal` is a deliberate choice — typically behind a CDN that
-    terminates public TLS — and it means Caddy never contacts ACME at
-    all. Without this, an internally-issued certificate is indistinguishable
-    from ACME having failed, and the check accuses a working instance.
-
-    The directive may sit in the rendered Caddyfile (where Caddyfile.global
-    is inlined) or in Caddyfile.site (imported into the site block at
-    runtime), so both are searched.
-    """
-    for seg in stdout.split(_helpers._SENTINEL):
-        header, _, _body = seg.partition("\n")
-        if header.startswith("TLSINTERNAL:"):
-            return bool(header[len("TLSINTERNAL:"):].strip())
-    return False
 
 
 def _parse_cert_expiry(text):
@@ -1000,13 +977,11 @@ def _is_self_signed(issuer, subject):
 
 
 def _origin_tls_lines_from_entries(inst_id, entries, now,
-                                   tls_internal=False, edge=False,
                                    internal_names=None):
-    """doctor lines for the probed certificates. With `edge`, the HAProxy
-    edge served them, and `tls_internal` means TLS_MODE=internal.
+    """doctor lines for the certificates the HAProxy edge served.
     internal_names maps each name the edge serves from its CA on purpose
     to the setting that asks for it."""
-    ca = "the edge's internal CA" if edge else "Caddy internal CA"
+    ca = "the edge's internal CA"
     internal_names = internal_names or {}
     title = ["", "Origin TLS (%s):" % inst_id]
     if entries is None:
@@ -1039,14 +1014,12 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
                 "  %s: OK (%s — expected for a name with no "
                 "public certificate)" % (name, ca))
             continue
-        if internal and (tls_internal or name in internal_names):
-            # `tls internal` is configured, so Caddy never contacts ACME.
+        if internal and name in internal_names:
             # An internal certificate is the requested outcome, not a
             # silent fallback.
             lines.append(
                 "  %s: OK (%s — %s is configured for this instance)"
-                % (name, ca, internal_names.get(name, "TLS_MODE=internal")
-                   if edge else "'tls internal'"))
+                % (name, ca, internal_names[name]))
             continue
         if internal:
             fallback_names.append(name)
@@ -1054,8 +1027,8 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
         if _is_self_signed(issuer, subject) and _is_public_hostname(name):
             lines.append(
                 "  %s: WARN — self-signed certificate (issuer %s), not "
-                "publicly trusted, so browsers reject it. Check the tls "
-                "directive in config/Caddyfile.site." % (name, issuer))
+                "publicly trusted, so browsers reject it. Check the "
+                "certificate TLS_CERT names." % (name, issuer))
             continue
         expiry = _parse_cert_expiry(not_after)
         if expiry is None:
@@ -1096,27 +1069,13 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
             lines.append(
                 "  %s: OK (expires in %d days, issuer %s)"
                 % (name, days, issuer or "unknown"))
-    if fallback_names and edge:
+    if fallback_names:
         lines.append(
             "  %s: WARN — served by the edge's internal CA, not a publicly "
             "trusted certificate. The edge has no Let's Encrypt certificate "
             "for these names. If the internal CA is what you want, set "
             "TLS_MODE=internal and this check will report it as "
             "intended." % ", ".join(fallback_names))
-    elif fallback_names:
-        lines.append(
-            "  %s: WARN — served by Caddy's internal CA, not a publicly "
-            "trusted certificate." % ", ".join(fallback_names))
-        lines.append(
-            "    ACME is failing and Caddy fell back silently; it reissues "
-            "every 12 hours and logs \"certificate renewed successfully\" "
-            "each time, so nothing else reports it. A CDN in a non-strict "
-            "origin mode hides this from visitors, and switching that CDN to "
-            "strict origin validation would take the site down. Check the "
-            "caddy container's log for the underlying ACME failure. If the "
-            "internal CA is what you want, set 'tls internal' in "
-            "config/Caddyfile.site and this check will report it as "
-            "intended.")
     return lines
 
 
@@ -1516,9 +1475,6 @@ def _origin_tls_lines(inst):
         "names": " ".join(_helpers._shell_quote(n) for n in names),
         "port": _helpers._shell_quote(str(port)),
         "delim": _helpers._SENTINEL,
-        "cfg": " ".join(
-            _helpers._shell_quote(os.path.join(path, "config", f))
-            for f in ("Caddyfile", "Caddyfile.site")),
     }
     try:
         if _helpers._is_localhost(host):
@@ -1543,7 +1499,7 @@ def _origin_tls_lines(inst):
     return _origin_tls_lines_from_entries(
         inst.get("id", "?"), _parse_origin_tls(stdout),
         datetime.datetime.now(datetime.timezone.utc),
-        edge=True, internal_names=internal_names)
+        internal_names=internal_names)
 
 
 def _composer_failure_lines(inst):
