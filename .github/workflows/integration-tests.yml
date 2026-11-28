@@ -86,13 +86,13 @@ jobs:
         run: |
           case "$LEG" in
             "config-side-effects")
-              tests="config-side-effects upgrade-rebuilds-buildable reconcile gitops-add-wikis-yaml" ;;
+              tests="config-side-effects upgrade-rebuilds-buildable reconcile" ;;
             "sidecar-lifecycle")
               tests="sidecar-lifecycle config-set-gitops-port canasta-base" ;;
             "upgrade-backfills-mycnf-template")
               tests="upgrade-backfills-mycnf-template import sidecar-migrate" ;;
             "extension-lifecycle")
-              tests="extension-lifecycle gitops-push-shared gitops-fix-submodules-no-url" ;;
+              tests="extension-lifecycle gitops-push-shared gitops-fix-submodules-no-url gitops-add-wikis-yaml" ;;
             "backup")
               tests="backup gitops-fix-submodules config-set-gitops" ;;
             "backup-advanced")
