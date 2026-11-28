@@ -189,6 +189,21 @@ class TestModuleBridge:
         with open(bridge) as handle:
             assert "putenv('CITATION_HOST=citoid');" in handle.read()
 
+    def test_bridge_carries_the_value_compose_reads(self, tmp_dir):
+        with open(os.path.join(tmp_dir, ".env"), "w") as handle:
+            handle.write('CITATION_HOST="citoid"\nCITATION_PORT=\'1970\'\n')
+        _write_sidecars(tmp_dir, [{"name": "citation",
+                                   "image": "example/citoid:1.0",
+                                   "env": {"HOST": "${CITATION_HOST:-}",
+                                           "PORT": "${CITATION_PORT:-}"}}])
+        run_module_with_params(canasta_render_sidecars, {
+            "instance_path": tmp_dir, "secret_key_regex": SECRET_RE})
+        with open(os.path.join(tmp_dir, "config", "settings", "global",
+                               "00-canasta-sidecar-env.php")) as handle:
+            text = handle.read()
+        assert "putenv('CITATION_HOST=citoid');" in text
+        assert "putenv('CITATION_PORT=1970');" in text
+
     def test_bridge_removed_when_no_refs(self, tmp_dir):
         bridge = os.path.join(tmp_dir, "config", "settings", "global",
                               "00-canasta-sidecar-env.php")

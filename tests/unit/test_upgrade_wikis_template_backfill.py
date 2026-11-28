@@ -35,4 +35,4 @@ def test_runs_unconditionally():
 def test_gitops_tracks_the_template():
     with open(GITOPS_VARS) as f:
         gitops_vars = yaml.safe_load(f)
-    assert "wikis.yaml.template" in gitops_vars["gitops_compose_tracked_paths"]
+    assert "wikis.yaml.template" in gitops_vars["gitops_tracked_paths"]

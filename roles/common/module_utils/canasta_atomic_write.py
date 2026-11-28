@@ -32,6 +32,22 @@ def read_text(path):
         return None
 
 
+def write_if_changed(path, content, mode=0o644, make_dirs=False):
+    """Write content to path with mode when it differs from what is there,
+    through a temporary file moved over it. Returns True if written."""
+    if read_text(path) == content:
+        return False
+    directory = os.path.dirname(path)
+    if make_dirs:
+        os.makedirs(directory, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".tmp-")
+    with os.fdopen(fd, "w") as handle:
+        handle.write(content)
+    os.chmod(tmp, mode)
+    os.rename(tmp, path)
+    return True
+
+
 def replace_file(path, content):
     """Write content to path, keeping the original's mode and owner.
 

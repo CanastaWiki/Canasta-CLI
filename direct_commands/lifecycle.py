@@ -15,7 +15,7 @@ def cmd_stop(args):
     inst_id, inst = _helpers._resolve_instance(args)
     if _helpers._instance_has_sidecars(inst):
         return _helpers.FALLBACK  # Ansible includes the sidecar -f layer.
-    if "podman" in _helpers._resolve_inspect_cmd(inst):
+    if _helpers._is_podman(inst):
         return _helpers.FALLBACK  # Ansible disables the instance's boot unit.
     if not _helpers._is_localhost(inst.get("host") or "localhost"):
         return _helpers.FALLBACK  # Ansible checks the edge on the instance's host.

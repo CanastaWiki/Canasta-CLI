@@ -121,6 +121,17 @@ def lint_env_file(content):
     return "\r" in content
 
 
+def read_env_file(path):
+    """A .env file's keys and values as a dict, unquoted as Compose reads
+    them (last value wins); {} when the file cannot be read."""
+    try:
+        with open(path) as handle:
+            content = handle.read()
+    except (IOError, OSError):
+        return {}
+    return entries_to_dict(parse_env_file(content))
+
+
 def entries_to_dict(entries):
     """Convert parsed entries to a dict (last value wins for duplicates)."""
     result = {}

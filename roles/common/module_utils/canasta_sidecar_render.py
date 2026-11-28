@@ -17,6 +17,11 @@ import re
 
 from ansible.module_utils.canasta_validate import validate_sidecar_name
 
+try:
+    from ansible.module_utils.canasta_env_lines import read_env_file
+except ImportError:  # direct_commands and unit tests import module_utils directly
+    from canasta_env_lines import read_env_file
+
 _ENV_REF = re.compile(r"\$\{([A-Za-z_]\w*)(:-|-)?([^}]*)\}")
 
 
@@ -235,18 +240,7 @@ def bridge_omitted_secrets(sidecars, env, is_secret):
 
 def read_env(instance_path, relpath=".env"):
     """Parse an instance env file (default .env) into a dict."""
-    path = os.path.join(instance_path, relpath)
-    env = {}
-    if not os.path.exists(path):
-        return env
-    with open(path) as handle:
-        for line in handle:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            env[key.strip()] = value.strip()
-    return env
+    return read_env_file(os.path.join(instance_path, relpath))
 
 
 def read_names(instance_path, relpath):

@@ -24,7 +24,7 @@ HELPER = os.path.join(TASKS_DIR, "_stage_tracked_paths.yml")
 GITIGNORE = os.path.join(REPO_ROOT, "roles", "gitops", "files", "gitignore.default")
 
 SITES = {
-    "_init.yml": "gitops_compose_tracked_paths",
+    "_init.yml": "gitops_tracked_paths",
 }
 
 # Files that hold secrets or host-local state and must never be staged by name.
@@ -115,7 +115,7 @@ class TestNoWholeTreeStaging:
 
 
 class TestPathLists:
-    @pytest.mark.parametrize("key", ["gitops_compose_tracked_paths"])
+    @pytest.mark.parametrize("key", ["gitops_tracked_paths"])
     def test_lists_exclude_secret_and_local_files(self, key):
         v = _load(VARS)
         assert not NEVER_STAGED & set(v[key]), key
@@ -128,7 +128,7 @@ class TestPathLists:
                          "wikis.yaml.template", "my.cnf.template",
                          "media-hosts.yaml.template",
                          "docker-compose.override.yml"} \
-            <= set(v["gitops_compose_tracked_paths"])
+            <= set(v["gitops_tracked_paths"])
 
 
 class TestComposeInitGuard:
@@ -184,7 +184,7 @@ class TestHelperBehavior:
         self._write(repo, "stray.sql")
         self._write(repo, "Dockerfile.custom", "changed\n")
 
-        paths = _load(VARS)["gitops_compose_tracked_paths"]
+        paths = _load(VARS)["gitops_tracked_paths"]
         subprocess.run(["sh", "-c", _render_helper(paths)], cwd=repo,
                        check=True, capture_output=True, text=True)
 

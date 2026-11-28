@@ -345,7 +345,7 @@
 - name: Stage the gitops-managed paths
   ansible.builtin.include_tasks: _stage_tracked_paths.yml
   vars:
-    _stage_paths: "{{ gitops_compose_tracked_paths }}"
+    _stage_paths: "{{ gitops_tracked_paths }}"
 
 # An extension/skin whose Step-13 conversion didn't run — its .git is a gitlink
 # file the directory-only find missed, or it is a loose clone with no origin
