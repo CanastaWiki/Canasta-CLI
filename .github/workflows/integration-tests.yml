@@ -58,7 +58,7 @@ jobs:
       matrix:
         leg: ["config-side-effects", "sidecar-lifecycle",
               "upgrade-backfills-mycnf-template", "extension-lifecycle",
-              "backup", "backup-advanced", "gitops-pull-reapplies",
+              "backup", "backup-advanced", "multi-instance",
               "add-extra-database", "backup-restore-safety",
               "backup-extra-database", "backup-custom-dockerfile",
               "crowdsec", "wiki-farm", "config-set-gitops-domain",
@@ -97,8 +97,8 @@ jobs:
               tests="backup gitops-fix-submodules config-set-gitops" ;;
             "backup-advanced")
               tests="backup-advanced gitops-pull-diff upgrade-backfill-hosts-yaml" ;;
-            "gitops-pull-reapplies")
-              tests="gitops-pull-reapplies gitops-renders-mycnf gitops-add-wikis-yaml maintenance" ;;
+            "multi-instance")
+              tests="multi-instance gitops-pull-reapplies gitops-renders-mycnf gitops-add-wikis-yaml maintenance" ;;
             "add-extra-database")
               tests="add-extra-database gitops upgrade" ;;
             "backup-restore-safety")
