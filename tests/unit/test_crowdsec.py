@@ -373,10 +373,9 @@ class TestCrowdsecProfileSync:
             )
         )
         assert "'crowdsec'" in content
-        assert "CANASTA_ENABLE_CROWDSEC" in content
         # Image reconciliation must be present and target the managed key.
         assert "CANASTA_CADDY_IMAGE" in content
-        assert "canasta_caddy_plugin_image" in content
+        assert "canasta_caddy_image(canasta_caddy_plugin_image)" in content
 
     def test_side_effects_triggers_profile_sync_for_crowdsec(self):
         content = _read(
@@ -392,16 +391,13 @@ class TestCrowdsecProfileSync:
     def test_image_reconcile_matches_managed_repo_by_prefix(self):
         # An instance carrying an OLDER managed tag must still be recognized
         # as managed (and bumped), not stranded on the stale image.
-        sync = _read(os.path.join(
-            REPO_ROOT, "roles", "orchestrator", "tasks",
-            "sync_compose_profiles.yml",
-        ))
-        assert "startswith(_managed_caddy_prefix)" in sync
-        helpers = _read(os.path.join(
-            REPO_ROOT, "direct_commands", "_helpers.py",
-        ))
-        assert "_managed_caddy_prefix" in helpers
-        assert ".startswith(" in helpers
+        from direct_commands import _helpers
+        import canasta_compose_profiles
+        plugin = _helpers._CADDY_PLUGIN_IMAGE
+        old = plugin.rsplit(":", 1)[0] + ":1.0"
+        assert canasta_compose_profiles.desired_caddy_image(
+            {"CANASTA_ENABLE_CROWDSEC": "true", "CANASTA_CADDY_IMAGE": old},
+            plugin) == plugin
 
 
 class TestCrowdsecConfigBackfill:
