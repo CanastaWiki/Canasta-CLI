@@ -51,9 +51,8 @@ skip_list:
   - command-instead-of-shell
   - no-handler
   - name
-  # jinja[spacing] is style. jinja[invalid], a template that cannot
-  # parse, is worth having: enable it, skipping jinja[spacing], once the
-  # fix to sidecar_migrate.yml's report reaches this branch.
-  - jinja
+  # Style only. The rest of the jinja rule stays on: a template that cannot
+  # parse otherwise fails only when its task runs.
+  - jinja[spacing]
   - var-naming
   - yaml
