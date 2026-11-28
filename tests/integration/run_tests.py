@@ -1029,7 +1029,7 @@ def test_reconcile(inst):
     and converges the running containers without a disruptive stop.
 
     Introduces config/runtime drift by hand-injecting a stale profile
-    (elasticsearch) into .env's COMPOSE_PROFILES while the feature flag stays
+    (redis) into .env's COMPOSE_PROFILES while CANASTA_ENABLE_REDIS stays
     off. reconcile must strip the stale profile back out (its source of truth
     is the flags, not the raw list) and leave the wiki serving.
     """
@@ -1044,16 +1044,16 @@ def test_reconcile(inst):
     print("Introducing drift: injecting a stale profile into COMPOSE_PROFILES...")
     env = read_env(inst.env_path())
     profiles = [p for p in env.get("COMPOSE_PROFILES", "").split(",") if p]
-    assert "elasticsearch" not in profiles, (
-        "precondition: elasticsearch profile should be absent"
+    assert "redis" not in profiles, (
+        "precondition: redis profile should be absent"
     )
-    drifted = ",".join(profiles + ["elasticsearch"])
+    drifted = ",".join(profiles + ["redis"])
     inst.run_ok(
         "config", "set", "-i", inst.id,
         "COMPOSE_PROFILES=%s" % drifted, "--force", "--no-restart",
     )
     env = read_env(inst.env_path())
-    assert "elasticsearch" in env.get("COMPOSE_PROFILES", ""), (
+    assert "redis" in env.get("COMPOSE_PROFILES", "").split(","), (
         "drift not seeded: %s" % env.get("COMPOSE_PROFILES")
     )
 
@@ -1066,8 +1066,8 @@ def test_reconcile(inst):
     print("Verifying the stale profile was healed out of COMPOSE_PROFILES...")
     env = read_env(inst.env_path())
     healed = [p for p in env.get("COMPOSE_PROFILES", "").split(",") if p]
-    assert "elasticsearch" not in healed, (
-        "reconcile did not strip the stale elasticsearch profile: %s"
+    assert "redis" not in healed, (
+        "reconcile did not strip the stale redis profile: %s"
         % env.get("COMPOSE_PROFILES")
     )
 
