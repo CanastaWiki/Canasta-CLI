@@ -22,12 +22,23 @@ from mock_ansible import run_module_with_params
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 ROLE = os.path.join(REPO_ROOT, "roles", "extensions_skins")
 ADD = os.path.join(ROLE, "tasks", "add.yml")
+ADD_COMPOSER = os.path.join(ROLE, "tasks", "_add_composer.yml")
 PHP_CHECK = os.path.join(ROLE, "files", "missing_autoload_files.php")
 
 
 def _add_tasks():
+    """add.yml with _add_composer.yml spliced in where it is included."""
     with open(ADD) as f:
-        return yaml.safe_load(f)
+        tasks = yaml.safe_load(f)
+    with open(ADD_COMPOSER) as f:
+        composer = yaml.safe_load(f)
+    out = []
+    for t in tasks:
+        if t.get("ansible.builtin.include_tasks") == "_add_composer.yml":
+            out.extend(composer)
+        else:
+            out.append(t)
+    return out
 
 
 def _task(name):

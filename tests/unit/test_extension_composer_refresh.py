@@ -21,7 +21,7 @@ import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 TASKS = os.path.join(REPO_ROOT, "roles", "extensions_skins", "tasks")
-ADD = os.path.join(TASKS, "add.yml")
+ADD = os.path.join(TASKS, "_add_composer.yml")
 REMOVE = os.path.join(TASKS, "remove.yml")
 SHARED = os.path.join(TASKS, "_composer_update.yml")
 
