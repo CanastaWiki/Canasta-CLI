@@ -72,7 +72,7 @@
     # untrack is committed, a host pulling that commit has my.cnf removed
     # from its working tree before this runs — so with no value here there
     # is nothing to keep, and skipping would leave the host with no my.cnf
-    # at all and MariaDB back at 128 MB. Refuse instead, as render_compose
+    # at all and MariaDB back at 128 MB. Refuse instead, as render.yml
     # does for a missing wiki_url_<id>.
     - name: Fail when there is no value and no my.cnf to fall back on
       ansible.builtin.fail:

@@ -130,14 +130,14 @@ class TestCheckHelper:
         assert "/files/gitattributes.default" in expr
 
     def test_init_writes_the_same_default(self):
-        task = _named(_load("init_compose.yml"), "Write .gitattributes")
+        task = _named(_load("_init.yml"), "Write .gitattributes")
         assert task["ansible.builtin.copy"]["src"].endswith(
             "/files/gitattributes.default")
 
 
 class TestPush:
     def test_checks_the_index_before_committing(self):
-        tasks = _load("push_compose.yml")
+        tasks = _load("_push.yml")
         check = _index(tasks, lambda t: _includes(
             t, "_check_gitattributes_rules.yml"))
         refuse = _index(tasks, lambda t: t.get("name")
@@ -149,7 +149,7 @@ class TestPush:
         assert inc["vars"]["gitattributes_rev"] == ""
 
     def test_refusal_names_the_rules(self):
-        task = _named(_load("push_compose.yml"),
+        task = _named(_load("_push.yml"),
                       "Refuse to push without the encryption rules")
         assert task["when"] == "_gitattributes_missing | length > 0"
         msg = task["ansible.builtin.fail"]["msg"]
@@ -159,7 +159,7 @@ class TestPush:
 
 class TestPull:
     def test_checks_after_the_pull_and_before_applying(self):
-        tasks = _load("pull_compose.yml")
+        tasks = _load("_pull.yml")
         pulled = _index(tasks, lambda t: t.get("name") == "Pull from remote")
         check = _index(tasks, lambda t: _includes(
             t, "_check_gitattributes_rules.yml"))
@@ -176,7 +176,7 @@ class TestPull:
         assert inc["vars"]["gitattributes_rev"] == "{{ _local_changes_base }}"
 
     def test_rolls_back_to_the_pre_pull_commit_then_fails(self):
-        block = _named(_load("pull_compose.yml"),
+        block = _named(_load("_pull.yml"),
                        "Refuse a pull that weakens encryption")
         assert block["when"] == "_gitattributes_missing | length > 0"
         reset, restrict, fail = block["block"]
@@ -293,7 +293,7 @@ class TestPushRefusalMessage:
         else:
             (repo / ".gitattributes").write_text(on_disk)
 
-        tasks = [t for t in _walk(_load("push_compose.yml"))
+        tasks = [t for t in _walk(_load("_push.yml"))
                  if t.get("name") in PUSH_REFUSAL]
         assert [t["name"] for t in tasks] == PUSH_REFUSAL
         play = tmp_path / "play.yml"

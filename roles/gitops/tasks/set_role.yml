@@ -3,6 +3,6 @@
 # Input: id, host_name, role.
 
 - name: Change the host's role
-  ansible.builtin.include_tasks: _hosts_change_dispatch.yml
+  ansible.builtin.include_tasks: _hosts_change_entry.yml
   vars:
     _hc_action: set_role

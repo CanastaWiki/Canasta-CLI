@@ -61,7 +61,7 @@ def _load_defs():
 
 
 class TestStart:
-    @pytest.mark.parametrize("name,result", [("pull_compose.yml", "_pull_result")])
+    @pytest.mark.parametrize("name,result", [("_pull.yml", "_pull_result")])
     def test_the_pull_stops_at_conflicts_instead_of_rolling_back(self, name, result):
         path = os.path.join(TASKS, name)
         explain = _named(path, "Explain and roll back a failed pull")
@@ -100,7 +100,7 @@ class TestKeep:
 
 class TestContinue:
     def test_the_pull_skips_its_rebase_when_continuing(self):
-        path = os.path.join(TASKS, "pull_compose.yml")
+        path = os.path.join(TASKS, "_pull.yml")
         for name in ("Set local changes aside for the rebase", "Get current commit hash",
                      "Put back local changes an interrupted pull set aside",
                      "Pull from remote", "Sync wikis.yaml with its gitops template",

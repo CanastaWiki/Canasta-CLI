@@ -14,11 +14,11 @@ ORCHESTRATOR_TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 
 
 class TestGitopsDispatchers:
-    """Each dispatched gitops command has a dispatcher that resolves the
-    instance, and a Compose variant that leaves that to the dispatcher."""
+    """Each gitops command's entry file resolves the instance, and its body
+    (_<command>.yml, also included from elsewhere) leaves that to it."""
 
     DISPATCHED = ["init", "push", "pull", "diff"]
-    # diff on Compose runs only in direct_commands.
+    # diff runs only in direct_commands.
     COMPOSE_DISPATCHED = ["init", "push", "pull"]
 
     def test_dispatcher_files_exist(self):
@@ -26,12 +26,10 @@ class TestGitopsDispatchers:
             path = os.path.join(GITOPS_TASKS, "%s.yml" % cmd)
             assert os.path.isfile(path), "Missing dispatcher: %s.yml" % cmd
 
-    def test_compose_variants_exist(self):
+    def test_bodies_exist(self):
         for cmd in self.COMPOSE_DISPATCHED:
-            path = os.path.join(GITOPS_TASKS, "%s_compose.yml" % cmd)
-            assert os.path.isfile(path), (
-                "Missing compose variant: %s_compose.yml" % cmd
-            )
+            path = os.path.join(GITOPS_TASKS, "_%s.yml" % cmd)
+            assert os.path.isfile(path), "Missing body: _%s.yml" % cmd
 
     def test_dispatchers_include_resolve_instance(self):
         for cmd in self.DISPATCHED:
@@ -42,15 +40,14 @@ class TestGitopsDispatchers:
                 "Dispatcher %s.yml missing resolve_instance" % cmd
             )
 
-    def test_compose_variants_do_not_resolve_instance(self):
+    def test_bodies_do_not_resolve_instance(self):
         for cmd in self.COMPOSE_DISPATCHED:
-            path = os.path.join(GITOPS_TASKS, "%s_compose.yml" % cmd)
+            path = os.path.join(GITOPS_TASKS, "_%s.yml" % cmd)
             with open(path) as f:
                 content = f.read()
             assert "resolve_instance" not in content, (
-                "Compose variant %s_compose.yml should not resolve_instance "
-                "(dispatcher handles it)" % cmd
-            )
+                "_%s.yml should not resolve_instance (%s.yml does)"
+                % (cmd, cmd))
 
 
 class TestGitopsComposeGitEnv:
@@ -70,9 +67,9 @@ class TestGitopsComposeGitEnv:
 
     # Files that contain at least one git command.
     COMPOSE_FILES = [
-        "init_compose.yml",
-        "pull_compose.yml",
-        "push_compose.yml",
+        "_init.yml",
+        "_pull.yml",
+        "_push.yml",
         "join.yml",
     ]
 
@@ -87,7 +84,7 @@ class TestGitopsComposeGitEnv:
     @pytest.mark.parametrize("filename", COMPOSE_FILES)
     def test_every_git_command_has_gitops_git_env(self, filename):
         tasks = flow_tasks(filename)
-        # Recursive walk: gitops_*_compose files nest tasks inside
+        # Recursive walk: the gitops flow files nest tasks inside
         # block: structures, so we descend into block/rescue/always
         # rather than just iterating the top level.
         offending = []
@@ -149,7 +146,7 @@ class TestGitopsReinit:
     what --reinit exists to prevent. Cheap to gate against."""
 
     INIT_JOIN_FILES = [
-        "init_compose.yml",
+        "_init.yml",
         "join.yml",
     ]
 

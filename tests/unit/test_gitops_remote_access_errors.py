@@ -145,7 +145,7 @@ class TestComposeHostKeyCheck:
         assert "RESULT=" + kind in out
 
     def test_compose_init_wires_the_host_key_check(self):
-        with open(os.path.join(TASKS, "init_compose.yml")) as f:
+        with open(os.path.join(TASKS, "_init.yml")) as f:
             tasks = yaml.safe_load(f)
         names = [t.get("name", "") for t in tasks]
         inc = next(t for t in tasks

@@ -124,8 +124,8 @@ class TestCompare:
 
 class TestWhereTheCheckRuns:
     @pytest.mark.parametrize("flow, before", [
-        ("pull_compose.yml", "Sync wikis.yaml with its gitops template"),
-        ("push_compose.yml", "Install and register the git-crypt merge driver"),
+        ("_pull.yml", "Sync wikis.yaml with its gitops template"),
+        ("_push.yml", "Install and register the git-crypt merge driver"),
     ])
     def test_pull_and_push_check_before_touching_anything(self, flow, before):
         tasks = _load(os.path.join(TASKS, flow))
@@ -167,7 +167,7 @@ class TestWhereTheCheckRuns:
 
 class TestWhereTheRecordIsWritten:
     @pytest.mark.parametrize("flow", [
-        "init_compose.yml", "join.yml", "push_compose.yml",
+        "_init.yml", "join.yml", "_push.yml",
     ])
     def test_each_flow_writes_this_hosts_record(self, flow):
         assert any(_includes(t, "_write_cli_version.yml")
@@ -185,14 +185,14 @@ class TestWhereTheRecordIsWritten:
         assert "hosts/{{ host_name }}/cli-version" in str(tasks[stage])
 
     def test_compose_push_stages_the_record_before_the_commit(self):
-        tasks = _load(os.path.join(TASKS, "push_compose.yml"))
+        tasks = _load(os.path.join(TASKS, "_push.yml"))
         names = [t.get("name") for t in tasks]
         stage = names.index("Stage this host's CLI version record")
         assert "hosts/{{ _push_hostname }}/cli-version" in str(tasks[stage])
         assert names.index("Record this host's CLI version") < stage
         assert stage < names.index("Check for staged changes")
 
-    @pytest.mark.parametrize("flow", ["init_compose.yml"])
+    @pytest.mark.parametrize("flow", ["_init.yml"])
     def test_init_writes_the_record_before_staging(self, flow):
         tasks = _load(os.path.join(TASKS, flow))
         write = next(i for i, t in enumerate(tasks)
@@ -414,7 +414,7 @@ class TestPushReadsRemoteRoles:
         _git(a, "branch", "-q", "--unset-upstream")
         assert _remote_role(tmp_path, a, "a") == "both"
 
-    @pytest.mark.parametrize("flow", ["push_compose.yml"])
+    @pytest.mark.parametrize("flow", ["_push.yml"])
     def test_push_takes_its_role_from_the_remote(self, flow):
         tasks = _load(os.path.join(TASKS, flow))
         read = next(i for i, t in enumerate(tasks)

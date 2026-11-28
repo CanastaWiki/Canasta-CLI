@@ -49,7 +49,7 @@ def _run(tmp_path, step, play_vars, include_vars=None):
                   "_join_move_git.yml", "_git_identity_repo.yml",
                   "_join_checkout_differing.yml",
                   "_register_host.yml", "_join_commit_push.yml"]),
-    ("init_compose.yml", ["_git_identity.yml", "_init_require_no_repo.yml",
+    ("_init.yml", ["_git_identity.yml", "_init_require_no_repo.yml",
                           "_git_identity_repo.yml",
                           "_init_convert_submodules.yml",
                           "_init_commit_push.yml"]),
@@ -62,7 +62,7 @@ def test_each_flow_includes_its_shared_steps_in_order(flow, steps):
     assert included == steps
 
 
-@pytest.mark.parametrize("flow", ["join.yml", "init_compose.yml"])
+@pytest.mark.parametrize("flow", ["join.yml", "_init.yml"])
 def test_every_parameter_of_a_shared_step_is_passed(flow):
     text = yaml.safe_dump(flow_tasks(flow))
     for name in ("_join_commit_message",):

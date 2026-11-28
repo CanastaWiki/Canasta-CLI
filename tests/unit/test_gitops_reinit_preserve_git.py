@@ -122,7 +122,7 @@ class TestInitBacksUpAndRestoresGit:
         )
 
     def test_dispatch_runs_inside_block(self):
-        assert any(_include(t).startswith("init_") for t in self.block["block"]), (
+        assert any(_include(t) == "_init.yml" for t in self.block["block"]), (
             "the init dispatch must run inside the block so a failure triggers "
             "the rescue/restore"
         )

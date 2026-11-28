@@ -507,7 +507,7 @@
 - name: Re-render gitops templates against this host's vars
   ansible.builtin.include_role:
     name: gitops
-    tasks_from: render_compose.yml
+    tasks_from: render.yml
   when:
     - wiki is not defined
     - _restore_gitops_stat.stat.exists | default(false)

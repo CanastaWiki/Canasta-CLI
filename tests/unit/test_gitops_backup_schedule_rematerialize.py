@@ -14,7 +14,7 @@ import yaml
 
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-PULL_COMPOSE = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "pull_compose.yml")
+PULL_COMPOSE = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "_pull.yml")
 REMATERIALIZE = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "backup_schedule_rematerialize.yml"
 )
@@ -38,7 +38,7 @@ def test_pull_compose_rematerializes_when_schedule_file_changed():
         if "backup_schedule_rematerialize.yml" in _includes(t)
     ]
     assert rematerialize, (
-        "pull_compose.yml must re-materialize the backup schedule after a pull"
+        "_pull.yml must re-materialize the backup schedule after a pull"
     )
     # Only when the pull actually touched the schedule file.
     assert "config/backup-schedule.yml" in str(rematerialize[0].get("when", "")), (

@@ -17,7 +17,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
 WARN = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
                     "warn_missing_wiki_databases.yml")
-PULL = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "pull_compose.yml")
+PULL = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "_pull.yml")
 RECONCILE = os.path.join(REPO_ROOT, "roles", "instance_lifecycle", "tasks",
                          "reconcile.yml")
 

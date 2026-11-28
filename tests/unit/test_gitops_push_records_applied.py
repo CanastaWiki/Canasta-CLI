@@ -13,7 +13,7 @@ import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 PUSH_COMPOSE = os.path.join(
-    REPO_ROOT, "roles", "gitops", "tasks", "push_compose.yml",
+    REPO_ROOT, "roles", "gitops", "tasks", "_push.yml",
 )
 
 

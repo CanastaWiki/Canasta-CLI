@@ -1,12 +1,12 @@
 """Regression guards for 'canasta gitops push'.
 
-push_compose.yml used to end the play whenever nothing was staged,
+_push.yml used to end the play whenever nothing was staged,
 so a commit already made by another command (e.g. 'canasta gitops
 fix-submodules', which commits the .gitmodules registration directly)
 could never be pushed — the operator had to fall back to a bare
 'git push origin main'.
 
-These tests parse push_compose.yml and assert that push fires on
+These tests parse _push.yml and assert that push fires on
 unpushed commits as well as staged changes, and that the commit step
 is guarded so it never runs against an empty index.
 """
@@ -17,7 +17,7 @@ import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 PUSH_COMPOSE = os.path.join(
-    REPO_ROOT, "roles", "gitops", "tasks", "push_compose.yml",
+    REPO_ROOT, "roles", "gitops", "tasks", "_push.yml",
 )
 
 
@@ -59,7 +59,7 @@ class TestPushPublishesUnpushedCommits:
         cmds = [c.get("cmd", "") if isinstance(c, dict) else str(c) for c in cmds]
         assert any(
             "rev-list" in c and "@{upstream}..HEAD" in c for c in cmds
-        ), "push_compose.yml must count unpushed commits via git rev-list @{upstream}..HEAD"
+        ), "_push.yml must count unpushed commits via git rev-list @{upstream}..HEAD"
 
     def test_end_play_considers_unpushed_not_just_staged(self):
         """The early-exit must require BOTH no staged changes AND no
@@ -69,7 +69,7 @@ class TestPushPublishesUnpushedCommits:
             t for t in tasks
             if (t.get("ansible.builtin.meta") or t.get("meta")) == "end_play"
         ]
-        assert end_tasks, "push_compose.yml lost its end_play guard"
+        assert end_tasks, "_push.yml lost its end_play guard"
         for t in end_tasks:
             when = _when_str(t)
             assert "_push_has_unpushed" in when and "_push_has_staged" in when, (
@@ -83,7 +83,7 @@ class TestPushPublishesUnpushedCommits:
         and fails."""
         tasks = _load_tasks()
         commit_tasks = _task_by_name(tasks, "Commit staged changes")
-        assert commit_tasks, "push_compose.yml lost its commit task(s)"
+        assert commit_tasks, "_push.yml lost its commit task(s)"
         for t in commit_tasks:
             assert "_push_has_staged" in _when_str(t), (
                 "each 'Commit staged changes' task must be guarded by "

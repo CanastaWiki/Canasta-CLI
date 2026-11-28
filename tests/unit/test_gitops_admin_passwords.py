@@ -14,7 +14,7 @@ import yaml
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
-INIT = os.path.join(TASKS, "init_compose.yml")
+INIT = os.path.join(TASKS, "_init.yml")
 JOIN = os.path.join(TASKS, "join.yml")
 READ = os.path.join(TASKS, "_read_admin_passwords.yml")
 

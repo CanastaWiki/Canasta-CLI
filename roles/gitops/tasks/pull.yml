@@ -8,4 +8,4 @@
   ansible.builtin.include_tasks: _ssh_key.yml
 
 - name: Run gitops pull
-  ansible.builtin.include_tasks: "pull_compose.yml"
+  ansible.builtin.include_tasks: "_pull.yml"

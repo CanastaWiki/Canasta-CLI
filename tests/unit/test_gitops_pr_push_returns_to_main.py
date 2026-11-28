@@ -2,7 +2,7 @@
 
 The feature branch has no upstream, so a checkout left on it breaks the next
 `gitops pull` and every @{upstream} check. Runs the pull-request block of
-push_compose.yml against a temp repo whose remote rejects the push.
+_push.yml against a temp repo whose remote rejects the push.
 """
 
 import os
@@ -12,7 +12,7 @@ import sys
 import yaml
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-PUSH_COMPOSE = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "push_compose.yml")
+PUSH_COMPOSE = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "_push.yml")
 
 
 def _git(cwd, *args):

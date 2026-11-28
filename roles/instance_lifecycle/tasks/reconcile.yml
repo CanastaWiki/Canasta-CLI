@@ -37,7 +37,7 @@
 - name: Render the gitops files from their sources
   ansible.builtin.include_role:
     name: gitops
-    tasks_from: render_compose.yml
+    tasks_from: render.yml
   when: _reconcile_gitops_host.stat.exists
 
 # env.template has no COMPOSE_PROFILES line, so the render drops it.

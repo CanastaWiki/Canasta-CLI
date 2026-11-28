@@ -140,7 +140,7 @@ class TestComposeLayering:
         assert render and "when" not in render[0]
 
     def test_gitops_pull_renders_and_restarts_on_list_change(self):
-        body = _read(os.path.join(GITOPS_TASKS, "pull_compose.yml"))
+        body = _read(os.path.join(GITOPS_TASKS, "_pull.yml"))
         assert "render_web_env.yml" in body
         fingerprint = _read(os.path.join(GITOPS_TASKS, "_rendered_fingerprint.yml"))
         assert '"secret-keys-web"' in fingerprint
@@ -180,7 +180,7 @@ class TestDispatch:
         assert write and write[0]["no_log"] is True
 
     def test_init_and_join_classify_listed_keys(self):
-        for name in ("init_compose.yml", "join.yml"):
+        for name in ("_init.yml", "join.yml"):
             assert "config/secret-keys" in _read(
                 os.path.join(GITOPS_TASKS, name)), name
 
