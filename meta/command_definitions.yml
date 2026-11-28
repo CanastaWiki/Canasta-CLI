@@ -992,6 +992,11 @@ commands:
       `canasta backup restore -s <snapshot>`, which returns the instance to
       the image and database it had before the move.
 
+      The CLI of the new major upgrades an instance still on a Canasta
+      release of an earlier major only after the earlier CLI checked every
+      instance for the move. Otherwise it names each such instance, upgrades
+      none, and says how to go back and move through the checks.
+
       Pass --purge to reclaim disk after the upgrade: each upgraded host has
       the Canasta images the upgrade superseded removed (never one an instance
       on that host is pinned to, running or stopped), dangling sidecar-rebuild

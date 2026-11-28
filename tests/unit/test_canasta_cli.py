@@ -1227,6 +1227,11 @@ class TestSelfUpdateCli:
         # max_major=0 (no eligible tag) → None even though tags exist.
         assert self_update._pick_latest_release_tag(
             tags, max_major=0) is None
+        # An earlier major is never picked, with or without the cap.
+        assert self_update._pick_latest_release_tag(
+            tags, max_major=5, min_major=5) == "v5.0.0"
+        assert self_update._pick_latest_release_tag(
+            "v4.3.1".split(), min_major=5) is None
 
     def test_version_major(self):
         assert self_update._version_major("4.2.1") == 4
@@ -1692,6 +1697,24 @@ class TestSelfUpdateCli:
         assert any("v5.0.0" in c for c in calls)         # checked out v5
         assert "newer major release" not in out          # no cap → no hint
 
+    @pytest.mark.parametrize("allow_major", [False, True])
+    def test_a_pre_release_never_moves_to_an_earlier_major(
+        self, monkeypatch, tmp_path, capsys, allow_major,
+    ):
+        # A 5.0.0 release candidate before 5.0.0 exists: the only releases
+        # are 4.x, which would be a move back, whatever the history.
+        self._patch_repo(monkeypatch, tmp_path, version="5.0.0-rc.1")
+        runner, calls = self._make_runner([
+            {"stdout": "abc1234\n"},             # rev-parse HEAD
+            {"stdout": ""},                       # fetch --tags
+            {"stdout": "v4.34.1\nv5.0.0-rc.1\n"},  # tag -l
+        ])
+        monkeypatch.setattr(_subprocess, "run", runner)
+        self_update.self_update_cli(allow_major=allow_major)
+        assert "stays on 5.0.0-rc.1: there is no 5.x release yet" in \
+            capsys.readouterr().out
+        assert not any("checkout" in c for c in calls)
+
     def test_no_release_at_or_below_major_warns(
         self, monkeypatch, tmp_path, capsys,
     ):
@@ -1706,7 +1729,7 @@ class TestSelfUpdateCli:
         monkeypatch.setattr(_subprocess, "run", runner)
         self_update.self_update_cli()
         err = capsys.readouterr().err
-        assert "no release found at or below the current major" in err
+        assert "no release found in the current major" in err
         assert "v4.x" in err
         assert "v5.0.0" in err
         assert "--allow-major" in err

@@ -560,19 +560,41 @@ fi
 # runs the same image.
 WRAPPER_PATH="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
 
-# Resolve the highest vX.Y.Z release tag via the GitHub tags API (no jq/git
-# dependency). Echoes the bare version (e.g. 4.0.4), or nothing on failure.
-latest_release_tag() {
-    curl -fsSL "https://api.github.com/repos/CanastaWiki/Canasta-CLI/tags" 2>/dev/null \
+# The vX.Y.Z release versions on the GitHub tags API (no jq/git
+# dependency), bare (e.g. 4.0.4) and lowest first, or nothing on failure.
+# Pre-releases are not releases.
+release_versions() {
+    curl -fsSL "https://api.github.com/repos/CanastaWiki/Canasta-CLI/tags?per_page=100" 2>/dev/null \
         | grep -oE '"name": *"v[0-9]+\.[0-9]+\.[0-9]+"' \
-        | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' \
-        | sort -V | tail -1 | sed 's/^v//' || true
+        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' \
+        | sort -V || true
+}
+
+# The version of the CLI in $IMAGE: its tag when that is a version, else
+# its VERSION file. Empty when neither can be read.
+installed_version() {
+    local tag="${IMAGE##*:}"
+    if [[ "$tag" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+        printf '%s' "$tag"
+    else
+        "$CONTAINER_ENGINE" run --rm --entrypoint cat "$IMAGE" \
+            /opt/canasta-ansible/VERSION 2>/dev/null | tr -d '[:space:]' || true
+    fi
 }
 
 DEV_CHANNEL=false
+ALLOW_MAJOR=false
+DRY_RUN=false
 for arg in "$@"; do
-    [[ "$arg" == "--dev" ]] && DEV_CHANNEL=true
+    case "$arg" in
+        --dev) DEV_CHANNEL=true ;;
+        --allow-major) ALLOW_MAJOR=true ;;
+        --dry-run) DRY_RUN=true ;;
+    esac
 done
+# Set by 'upgrade --allow-major' to the release of a higher major it moves
+# to once every instance passes that major's checks.
+MAJOR_TAG=""
 
 for arg in "$@"; do
     case "$arg" in
@@ -586,14 +608,39 @@ for arg in "$@"; do
                 IMAGE="ghcr.io/canastawiki/canasta-ansible:latest"
                 WRAPPER_REF="main"
             else
-                TAG="$(latest_release_tag)"
-                if [[ -z "$TAG" ]]; then
+                # The release channel stays within the installed major, as
+                # the native self-update does; --allow-major moves to a
+                # higher one in steps (see MAJOR_TAG).
+                RELEASES="$(release_versions)"
+                NEWER_MAJOR=""
+                if [[ -z "$RELEASES" ]]; then
                     echo "Warning: could not determine the latest release; keeping current image ($IMAGE)." >&2
                     WRAPPER_REF="main"
                 else
-                    echo "$TAG" > "$PINNED_TAG_FILE"
-                    IMAGE="ghcr.io/canastawiki/canasta-ansible:$TAG"
-                    WRAPPER_REF="v$TAG"
+                    CURRENT="$(installed_version)"
+                    CURRENT_MAJOR="${CURRENT%%.*}"
+                    if ! [[ "$CURRENT_MAJOR" =~ ^[0-9]+$ ]]; then
+                        echo "Warning: could not read the CLI version of $IMAGE; keeping it." >&2
+                        WRAPPER_REF=""
+                    else
+                        TAG="$(printf '%s\n' "$RELEASES" | awk -F. -v m="$CURRENT_MAJOR" '$1 == m' | tail -1)"
+                        LATEST="$(printf '%s\n' "$RELEASES" | tail -1)"
+                        if (( ${LATEST%%.*} > CURRENT_MAJOR )); then
+                            if [[ "$ALLOW_MAJOR" == "true" ]]; then
+                                MAJOR_TAG="$LATEST"
+                            else
+                                NEWER_MAJOR="$LATEST"
+                            fi
+                        fi
+                        if [[ -z "$TAG" ]]; then
+                            echo "There is no ${CURRENT_MAJOR}.x release yet; keeping the installed CLI ($CURRENT)."
+                            WRAPPER_REF=""
+                        else
+                            echo "$TAG" > "$PINNED_TAG_FILE"
+                            IMAGE="ghcr.io/canastawiki/canasta-ansible:$TAG"
+                            WRAPPER_REF="v$TAG"
+                        fi
+                    fi
                 fi
             fi
             WRAPPER_URL="https://raw.githubusercontent.com/CanastaWiki/Canasta-CLI/${WRAPPER_REF}/canasta-docker"
@@ -608,6 +655,9 @@ for arg in "$@"; do
                 echo "CLI channel: development (head of main), image $IMAGE."
             else
                 echo "CLI channel: release, image $IMAGE."
+                if [[ -n "$NEWER_MAJOR" ]]; then
+                    echo "A newer major release ($NEWER_MAJOR) is available. Run 'canasta upgrade --allow-major' to move to it (may include breaking changes)."
+                fi
             fi
 
             echo "Pulling canasta-ansible image ($IMAGE)..."
@@ -622,7 +672,9 @@ for arg in "$@"; do
             # `--dev` appears to do nothing. Report it as an error the
             # operator has to act on, not a passing note.
             WRAPPER_STALE=false
-            if command -v curl &>/dev/null; then
+            if [[ -z "$WRAPPER_REF" ]]; then
+                :  # The installed CLI stays, and so does its wrapper.
+            elif command -v curl &>/dev/null; then
                 TMP_WRAPPER="$(mktemp)"
                 if curl -fsSL "$WRAPPER_URL" -o "$TMP_WRAPPER"; then
                     if ! cmp -s "$TMP_WRAPPER" "$WRAPPER_PATH"; then
@@ -761,6 +813,9 @@ fi
 # tag too (the part after the last colon) so 'canasta version' can tell a
 # release (semver tag) from a dev build (':latest').
 DOCKER_RUN_FLAGS+=(-e CANASTA_RUN_MODE=docker)
+if [[ -n "$MAJOR_TAG" ]]; then
+    DOCKER_RUN_FLAGS+=(-e "CANASTA_MAJOR_STEP=${MAJOR_TAG%%.*}")
+fi
 if [[ -n "${CANASTA_FORWARD_AGENT:-}" ]]; then
     DOCKER_RUN_FLAGS+=(-e "CANASTA_FORWARD_AGENT=$CANASTA_FORWARD_AGENT")
 fi
@@ -824,6 +879,26 @@ if [[ -n "$SCHEDULE_CRONTAB_FILE" ]]; then
     fi
     rm -f "$SCHEDULE_CRONTAB_FILE"
     exit "$_sched_rc"
+fi
+
+# 'upgrade --allow-major' to a higher major: the CLI in $IMAGE, the latest
+# release of the installed major, upgrades every instance, checks each for
+# the new major and backs it up. The CLI moves only when all of that passed.
+if [[ -n "$MAJOR_TAG" ]]; then
+    _major_rc=0
+    "$CONTAINER_ENGINE" run ${ENGINE_OPTS[@]+"${ENGINE_OPTS[@]}"} --rm "${DOCKER_RUN_FLAGS[@]}" \
+        "${MOUNTS[@]}" \
+        "$IMAGE" "$@" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} || _major_rc=$?
+    if [[ "$_major_rc" -ne 0 ]]; then
+        echo "Canasta CLI stays on $IMAGE, and no instance moved to ${MAJOR_TAG%%.*}.x." >&2
+        exit "$_major_rc"
+    fi
+    [[ "$DRY_RUN" == "true" ]] && exit 0
+    echo "Pulling canasta-ansible image (ghcr.io/canastawiki/canasta-ansible:$MAJOR_TAG)..."
+    "$CONTAINER_ENGINE" pull "ghcr.io/canastawiki/canasta-ansible:$MAJOR_TAG" || exit
+    echo "$MAJOR_TAG" > "$PINNED_TAG_FILE"
+    echo "Canasta CLI moved to $MAJOR_TAG. Run 'canasta upgrade' to upgrade the instances to ${MAJOR_TAG%%.*}.x."
+    exit 0
 fi
 
 exec "$CONTAINER_ENGINE" run ${ENGINE_OPTS[@]+"${ENGINE_OPTS[@]}"} --rm "${DOCKER_RUN_FLAGS[@]}" \

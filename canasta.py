@@ -49,13 +49,17 @@ from direct_commands._helpers import (
     _is_k8s,
     _is_local_target,
     _read_env,
+    _read_env_file,
+    _read_registry,
     _resolve_compose_cmd,
     resolve_instance,
 )
 from canasta_self_update import (
     _install_group_shared,
+    _version_major,
     self_update_cli,
 )
+import canasta_image_pin
 from canasta_docker_mode import (
     check_docker_mode_can_reach_runtime,
     check_docker_mode_install_target,
@@ -1577,18 +1581,85 @@ def before_major_upgrade(ansible_playbook, command_name, args, data, major):
     rc = subprocess.call(build_ansible_args(
         ansible_playbook, command_name, args, data,
         extra={"upgrade_preflight_major": major}))
-    if rc != 0 or dry_run or getattr(args, "skip_backup", False):
+    if rc != 0 or dry_run:
         return rc == 0
-    print("Backing up the instances before moving to %d.x..." % major)
-    sys.stdout.flush()
-    rc = subprocess.call(build_ansible_args(
-        ansible_playbook, command_name, args, data,
-        extra={"upgrade_backup_major": major}))
-    if rc != 0:
-        print("A backup failed, so the CLI did not move to %d.x." % major,
-              file=sys.stderr)
-        return False
+    if not getattr(args, "skip_backup", False):
+        print("Backing up the instances before moving to %d.x..." % major)
+        sys.stdout.flush()
+        rc = subprocess.call(build_ansible_args(
+            ansible_playbook, command_name, args, data,
+            extra={"upgrade_backup_major": major}))
+        if rc != 0:
+            print("A backup failed, so the CLI did not move to %d.x." % major,
+                  file=sys.stderr)
+            return False
+    record_major_move(major)
     return True
+
+
+MAJOR_MOVE_FILE = "major_move"
+
+
+def check_earlier_line_instances():
+    """Stop an upgrade that would move an instance from a Canasta release of
+    an earlier major to this CLI's major, unless the earlier major's CLI
+    recorded that every instance passed the checks for this one.
+
+    The CLI and the images share a version, so a release image of a lower
+    major is an earlier line. A CLI that reached this major without the
+    checks (an old Docker wrapper, an old --allow-major) stops here, before
+    any instance moves.
+    """
+    try:
+        with open(os.path.join(SCRIPT_DIR, "VERSION")) as f:
+            major = _version_major(f.read())
+    except OSError:
+        return
+    if major is None:
+        return
+    try:
+        with open(os.path.join(get_config_dir(), MAJOR_MOVE_FILE)) as f:
+            if f.read().strip() == str(major):
+                return
+    except OSError:
+        pass
+    earlier = []
+    instances = _read_registry(get_config_file_path())
+    for iid in sorted(instances):
+        inst = instances[iid]
+        image = _read_env_file(inst.get("path", ""),
+                               inst.get("host") or "localhost").get("CANASTA_IMAGE", "")
+        pin = canasta_image_pin.release_image(image)
+        if pin and pin[1][0] < major:
+            earlier.append("  %s: %s" % (iid, image))
+    if not earlier:
+        return
+    print("Error: these instances run a Canasta release from before %d.x:\n%s\n"
+          "The move to %d.x goes through the latest %d.x release of the CLI, "
+          "which checks and backs up every instance first, and that did not "
+          "happen. No instance was upgraded. Put the CLI back on the latest "
+          "%d.x release and run 'canasta upgrade --allow-major' there. In "
+          "Docker mode, write that version to %s and run "
+          "'canasta upgrade --allow-major'."
+          % (major, "\n".join(earlier), major, major - 1, major - 1,
+             os.path.join(get_config_dir(), "cli_image_tag")),
+          file=sys.stderr)
+    sys.exit(1)
+
+
+def record_major_move(major):
+    """Record in the config dir that every instance passed the checks for
+    `major`. The CLI of that major upgrades an instance from an earlier
+    line only when this says so, so a move that skipped the checks stops
+    there."""
+    path = os.path.join(get_config_dir(), MAJOR_MOVE_FILE)
+    try:
+        with open(path, "w") as f:
+            f.write("%d\n" % major)
+    except OSError as e:
+        print("Warning: could not record the checks for %d.x in %s (%s); "
+              "the %d.x CLI will refuse to upgrade the instances until it "
+              "can." % (major, path, e, major), file=sys.stderr)
 
 
 def should_prompt_confirmation(cmd_def, yes_passed):
@@ -1940,6 +2011,14 @@ def main():
     # but running it inside the playbook means ansible-playbook's
     # in-memory config goes stale on cfg changes.
     if command_name == "upgrade":
+        # Set by the canasta-docker wrapper for 'upgrade --allow-major' to
+        # a higher major: this run only upgrades, checks and backs up the
+        # instances, and the wrapper moves the CLI if it succeeds.
+        step_major = os.environ.get("CANASTA_MAJOR_STEP")
+        if step_major:
+            sys.exit(0 if before_major_upgrade(
+                ansible_playbook, command_name, args, data,
+                int(step_major)) else 1)
         self_update_cli(
             dev=getattr(args, "dev", False),
             allow_major=getattr(args, "allow_major", False),
@@ -1947,6 +2026,7 @@ def main():
             before_major=lambda major: before_major_upgrade(
                 ansible_playbook, command_name, args, data, major),
         )
+        check_earlier_line_instances()
 
     sys.stdout.flush()
     sys.stderr.flush()

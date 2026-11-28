@@ -635,6 +635,19 @@ def test_canasta_base(inst):
         for k, v in env.items():
             f.write("%s=%s\n" % (k, v))
 
+    print("Verifying upgrade refuses an earlier line without its checks...")
+    _, rc = inst.run("upgrade")
+    assert rc != 0, (
+        "upgrade moved an instance from %s without the earlier CLI's "
+        "checks for the new major" % older
+    )
+    assert read_env(inst.env_path())["CANASTA_IMAGE"] == "%s:%s" % (repo, older)
+
+    # What the earlier major's CLI records once every instance passes its
+    # checks for this major.
+    with open(os.path.join(inst.config_dir, "major_move"), "w") as f:
+        f.write("%s\n" % current.split(".")[0])
+
     print("Running upgrade...")
     inst.run_ok("upgrade")
 
