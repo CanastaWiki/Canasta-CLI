@@ -20,7 +20,7 @@ CLI_ENTRY = os.path.join(SCRIPT_DIR, "canasta.py")
 _RELEASE_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 
 
-def _pick_latest_release_tag(tags, max_major=None):
+def _pick_latest_release_tag(tags, max_major=None, min_major=None):
     """Return the highest strict vX.Y.Z tag from `tags`, or None.
 
     Pre-releases (e.g. v5.0.0-rc1) and non-version tags are ignored so we
@@ -30,6 +30,8 @@ def _pick_latest_release_tag(tags, max_major=None):
     When `max_major` is set, tags whose major exceeds it are skipped, so
     the result never crosses into a higher major version than the caller
     permits (the default `canasta upgrade` stays within the current major).
+    Tags whose major is below `min_major` are skipped too: a release of an
+    earlier major is never a step forward, even from a pre-release.
     """
     best = None
     best_key = None
@@ -39,6 +41,8 @@ def _pick_latest_release_tag(tags, max_major=None):
             continue
         key = tuple(int(p) for p in m.groups())
         if max_major is not None and key[0] > max_major:
+            continue
+        if min_major is not None and key[0] < min_major:
             continue
         if best_key is None or key > best_key:
             best, best_key = tag.strip(), key
@@ -63,21 +67,30 @@ def _self_update_target(git, dev, allow_major, current_version):
         target_ref = "origin/main"
     else:
         tags = git(["tag", "-l", "v*"], timeout=10).stdout.split()
-        max_major = None if allow_major else _version_major(current_version)
-        target_ref = _pick_latest_release_tag(tags, max_major=max_major)
-        latest_overall = _pick_latest_release_tag(tags)
+        current_major = _version_major(current_version)
+        max_major = None if allow_major else current_major
+        target_ref = _pick_latest_release_tag(
+            tags, max_major=max_major, min_major=current_major)
+        latest_overall = _pick_latest_release_tag(tags, min_major=current_major)
         if target_ref is None:
             if latest_overall is not None:
                 # Tags exist but all sit above the current major and the cap
                 # is in effect — point the operator at --allow-major.
                 print(
-                    "WARNING: self-update skipped — no release found at or "
-                    "below the current major (v%s.x); the latest release is "
+                    "WARNING: self-update skipped — no release found in "
+                    "the current major (v%s.x); the latest release is "
                     "%s.\nRun 'canasta upgrade --allow-major' to move to it "
                     "(may include breaking changes), or 'canasta upgrade "
                     "--dev' to track the development branch."
                     % (max_major, latest_overall),
                     file=sys.stderr,
+                )
+            elif _pick_latest_release_tag(tags) is not None:
+                # Only releases of earlier majors: a pre-release of a major
+                # with no release yet.
+                print(
+                    "Canasta CLI stays on %s: there is no %d.x release yet."
+                    % (current_version, current_major)
                 )
             else:
                 print(
