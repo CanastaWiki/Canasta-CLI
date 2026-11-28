@@ -112,18 +112,6 @@ def dump(schedules):
     return yaml.safe_dump(out, default_flow_style=False, sort_keys=False)
 
 
-def parse_hosts(value):
-    """A comma-separated --gitops-hosts value as a list, or None."""
-    if value is None:
-        return None
-    if isinstance(value, list):
-        items = value
-    else:
-        items = str(value).split(",")
-    items = [h.strip() for h in items if h and h.strip()]
-    return items or None
-
-
 def is_active(entry, gitops_hostname):
     """Whether a schedule runs on this host.
 

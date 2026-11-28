@@ -44,8 +44,7 @@ def _params(**kw):
         "state": "query", "id": None, "path": None, "dev_mode": None,
         "build_from": None, "build_args": None, "build_base": None,
         "host": None, "docker_host": None, "compose_command": None,
-        "inspect_command": None, "filter_host": None, "setting_key": None,
-        "setting_value": None, "config_dir": None,
+        "inspect_command": None, "filter_host": None, "config_dir": None,
     }
     params.update(kw)
     return params

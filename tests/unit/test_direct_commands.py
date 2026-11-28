@@ -414,16 +414,6 @@ class TestSshRunResolvesCanastaHostName:
         assert captured["cmd"][-2] == "admin@cp.example.com"
 
 
-class TestCheckDirExists:
-    def test_local_exists(self, tmp_path):
-        d = tmp_path / "exists"
-        d.mkdir()
-        assert direct_commands._check_dir_exists(str(d), "localhost")
-
-    def test_local_missing(self, tmp_path):
-        assert not direct_commands._check_dir_exists(str(tmp_path / "nope"), "localhost")
-
-
 class TestCheckRunningCompose:
     def test_running(self, monkeypatch, tmp_path):
         monkeypatch.setattr(

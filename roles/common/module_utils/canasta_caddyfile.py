@@ -168,11 +168,6 @@ def _parse_top_level(text):
     return blocks, inter
 
 
-def parse_top_level(text):
-    """Public name for _parse_top_level."""
-    return _parse_top_level(text)
-
-
 _IPV4 = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 
 

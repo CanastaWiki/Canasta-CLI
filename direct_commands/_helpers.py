@@ -772,14 +772,6 @@ def _composer_failure_details_hint(inst_id):
         inst_id, COMPOSER_FAILED_PATH)
 
 
-def _warn_composer_failure(inst_id, inst):
-    """Print one warning when the last startup composer update failed."""
-    summary = _composer_failure_summary(inst_id, inst)
-    if summary:
-        print("Warning: %s %s" % (summary, _composer_failure_details_hint(inst_id)),
-              file=sys.stderr)
-
-
 def _stream_in_container(inst_id, inst, command, service="web",
                          retry_on_reset=False, user=None):
     """Run a command inside a container, streaming its stdout and
@@ -1235,13 +1227,6 @@ def _is_local_target(host):
     return _is_localhost(host) or (host or "").strip() in ("127.0.0.1", "::1")
 
 
-def _check_dir_exists(path, host):
-    if _is_localhost(host):
-        return os.path.isdir(path)
-    rc, _ = _ssh_run(host, "test -d %s" % _shell_quote(path))
-    return rc == 0
-
-
 def _shell_quote(s):
     """Shell-quote a string for use in SSH commands."""
     return "'" + s.replace("'", "'\\''") + "'"
@@ -1352,43 +1337,6 @@ def _compose_paused_services(inst):
     if rc != 0:
         return []
     return sorted({ln.strip() for ln in out.splitlines() if ln.strip()})
-
-
-def _missing_profile_services(inst, compose_cmd=None):
-    """Services the active COMPOSE_PROFILES imply that are not running.
-
-    A running web container is not the same as a converged instance: a
-    profile added since the last converge (a feature just enabled, or
-    COMPOSE_PROFILES repaired) names a service nothing has started, and
-    `up -d` is the only step that would start it. Compose itself answers
-    which services the active profiles imply, so this cannot drift from
-    the profile map.
-
-    An unreadable service list returns [] — the caller then behaves as it
-    did before, skipping on a running web container rather than forcing a
-    converge on a bad reading.
-    """
-    path = inst.get("path", "")
-    host = inst.get("host") or "localhost"
-    docker_host = inst.get("dockerHost")
-    if compose_cmd is None:
-        compose_cmd = _resolve_compose_cmd(inst)
-    expected = _capture_in_instance(
-        path, host, docker_host,
-        list(compose_cmd) + _compose_profile_args(inst)
-        + ["config", "--services"],
-    )
-    if expected is None:
-        return []
-    runtime = "podman" if "podman" in compose_cmd[0] else "docker"
-    running = _capture_in_instance(
-        path, host, docker_host,
-        [runtime, "ps", "--filter", "status=running",
-         "--filter",
-         "label=com.docker.compose.project=%s" % _compose_project(path),
-         "--format", _PS_SERVICE_FORMAT[runtime]],
-    )
-    return sorted(set(expected.split()) - set((running or "").split()))
 
 
 _SECRET_CLASSIFICATION = None
@@ -2063,51 +2011,3 @@ def _resolve_ssh_target(host):
     target = entry.get("ansible_host") or host
     user = entry.get("ansible_user")
     return ("%s@%s" % (user, target)) if user else target
-
-
-def _read_remote_or_local_file(path, host):
-    """Read a file from localhost or a remote host. Returns content or
-    None on error."""
-    if _is_localhost(host):
-        try:
-            with open(path) as f:
-                return f.read()
-        except OSError as e:
-            print("Error reading %s: %s" % (path, e), file=sys.stderr)
-            return None
-    rc, content = _ssh_run(host, "cat %s 2>/dev/null" % _shell_quote(path))
-    if rc != 0:
-        print("Error reading remote %s" % path, file=sys.stderr)
-        return None
-    return content
-
-
-def _write_remote_or_local_file(path, host, content):
-    """Write content to path on localhost or a remote host. Returns True
-    on success."""
-    if _is_localhost(host):
-        try:
-            with open(path, "w") as f:
-                f.write(content)
-            return True
-        except OSError as e:
-            print("Error writing %s: %s" % (path, e), file=sys.stderr)
-            return False
-    target = _resolve_ssh_target(host)
-    ssh_cmd = ["ssh"] + _ssh_args() + [target, "cat > %s" % _shell_quote(path)]
-    try:
-        result = subprocess.run(
-            ssh_cmd, input=content, text=True,
-            capture_output=True, timeout=30,
-        )
-    except (subprocess.TimeoutExpired, OSError) as e:
-        print("Error writing remote %s: %s" % (path, e), file=sys.stderr)
-        return False
-    if result.returncode != 0:
-        print(
-            "Error writing remote %s: %s"
-            % (path, (result.stderr or "").strip()),
-            file=sys.stderr,
-        )
-        return False
-    return True
