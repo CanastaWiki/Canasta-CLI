@@ -100,7 +100,6 @@ from ansible.module_utils.canasta_config import (
     get_config_dir,
     is_root,
     locked,
-    normalize_orchestrator,
     read_config,
     write_config,
 )
@@ -181,15 +180,6 @@ def preserved_on_present():
     return tuple(k for k in probe if k not in _ALWAYS_WRITTEN)
 
 
-def _as_read(instance):
-    """A copy of a stored record with its orchestrator normalized, so
-    readers never see the `k8s` alias."""
-    result = dict(instance)
-    if "orchestrator" in result:
-        result["orchestrator"] = normalize_orchestrator(result["orchestrator"])
-    return result
-
-
 def _save_instances(module, config_dir, data, instances):
     if not module.check_mode:
         data["Instances"] = instances
@@ -207,7 +197,7 @@ def _state_query(module, config_dir, data, instances):
     if inst_id not in instances:
         module.fail_json(msg="Instance '%s' not found in registry" % inst_id)
         return None
-    instance = _as_read(instances[inst_id])
+    instance = dict(instances[inst_id])
     instance["id"] = inst_id
     return {"changed": False, "instance": instance}
 
@@ -222,11 +212,11 @@ def _state_query_all(module, config_dir, data, instances):
             return bare == target or stored == target
 
         selected = {
-            k: _as_read(v) for k, v in instances.items()
+            k: dict(v) for k, v in instances.items()
             if host_matches(v.get("host", "localhost"), filter_host)
         }
     else:
-        selected = {k: _as_read(v) for k, v in instances.items()}
+        selected = {k: dict(v) for k, v in instances.items()}
     return {"changed": False, "instances": selected}
 
 
@@ -239,7 +229,7 @@ def _state_query_by_path(module, config_dir, data, instances):
     if not found_id:
         module.fail_json(msg="No instance found for path '%s'" % inst_path)
         return None
-    instance = _as_read(found_inst)
+    instance = dict(found_inst)
     instance["id"] = found_id
     return {"changed": False, "instance": instance}
 
