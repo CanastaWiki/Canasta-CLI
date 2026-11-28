@@ -6,6 +6,7 @@ native self-update's major cap and the checks and backups of
 """
 
 import os
+from urllib.parse import urlparse
 
 import pytest
 
@@ -81,7 +82,7 @@ class TestAPreReleaseInstall:
     def test_it_keeps_its_wrapper(self, stubs, tmp_path):
         _, _, _, urls = _upgrade(stubs, tmp_path, "5.0.0-rc.1",
                                  tags=self.TAGS)
-        assert not any("raw.githubusercontent.com" in u for u in urls)
+        assert "raw.githubusercontent.com" not in {urlparse(u).hostname for u in urls}
 
     def test_allow_major_does_not_move_it_back(self, stubs, tmp_path):
         out, _, pinned, _ = _upgrade(stubs, tmp_path, "5.0.0-rc.1",
