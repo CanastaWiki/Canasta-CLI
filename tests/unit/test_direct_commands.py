@@ -2117,11 +2117,10 @@ class TestSyncComposeProfiles:
         # Profile is still added even though the image is left alone.
         assert "COMPOSE_PROFILES=crowdsec" in content
 
-    # --- Caddy plugin image is also driven by trusted-proxy provider modes ---
+    # --- Trusted proxies leave the caddy image alone ---
 
-    def test_trusted_proxies_provider_mode_switches_caddy_image(self, tmp_path):
-        # imperva needs the caddy-cdn-ranges plugin, so the image switches
-        # even with CrowdSec off.
+    def test_trusted_proxies_provider_mode_stays_on_stock_caddy(self, tmp_path):
+        # The edge handles CDN providers; Caddy only trusts the edge.
         (tmp_path / ".env").write_text(
             "TRUSTED_PROXIES=imperva\n"
             "CANASTA_ENABLE_VARNISH=false\n"
@@ -2129,10 +2128,7 @@ class TestSyncComposeProfiles:
         )
         direct_commands._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
-        assert (
-            "CANASTA_CADDY_IMAGE=%s" % direct_commands._helpers._CADDY_PLUGIN_IMAGE
-            in content
-        )
+        assert "CANASTA_CADDY_IMAGE" not in content
 
     def test_explicit_cidr_trusted_proxies_stays_on_stock_caddy(self, tmp_path):
         # An explicit CIDR list uses Caddy's built-in static source, so no

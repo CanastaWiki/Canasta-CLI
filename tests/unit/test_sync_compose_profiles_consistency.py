@@ -1,10 +1,10 @@
-"""The Compose-profile reconciliation is implemented twice — in Python
-(direct_commands/_helpers.py, used by the start/stop/rebuild fast path and the
-doctor consistency check) and in Ansible
-(roles/orchestrator/tasks/sync_compose_profiles.yml, used by gitops pull and
-config set). Both read their tables from vars/compose_profiles.yml and
-vars/images.yml, and must derive identical COMPOSE_PROFILES,
-CANASTA_CADDY_IMAGE and the addresses Caddy publishes.
+"""The Compose-profile reconciliation runs from Python
+(direct_commands/_helpers.py: the fast path and the doctor consistency check)
+and from Ansible (roles/orchestrator/tasks/sync_compose_profiles.yml: gitops
+pull and config set). Both call module_utils/canasta_compose_profiles.py with
+the tables from vars/compose_profiles.yml and vars/images.yml, and must derive
+identical COMPOSE_PROFILES, CANASTA_CADDY_IMAGE and the addresses Caddy
+publishes.
 """
 
 import os
@@ -19,6 +19,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
 from direct_commands import _helpers  # noqa: E402
+import canasta_compose_profiles  # noqa: E402
 
 SYNC = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "sync_compose_profiles.yml")
@@ -34,11 +35,6 @@ def _text():
 def _vars(name):
     with open(os.path.join(VARS, name)) as f:
         return yaml.safe_load(f)
-
-
-def _ansible_trusted_proxy_modes():
-    m = re.search(r"_tp_mode in \[([^\]]+)\]", _text())
-    return {s.strip().strip("'\"") for s in m.group(1).split(",")} if m else set()
 
 
 def _run_sync(tmp_path, env_text):
@@ -59,6 +55,7 @@ def _run_sync(tmp_path, env_text):
     }]))
     env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
                ANSIBLE_LIBRARY=os.path.join(COMMON, "library"),
+               ANSIBLE_FILTER_PLUGINS=os.path.join(REPO_ROOT, "filter_plugins"),
                ANSIBLE_MODULE_UTILS=os.path.join(COMMON, "module_utils"))
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
     proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
@@ -79,14 +76,11 @@ class TestEmptyMeansUnset:
     pinned here so a future true-defaulting flag cannot inherit the bug.
     """
 
-    def test_every_ansible_flag_read_treats_empty_as_unset(self):
-        bare = re.findall(
-            r"CANASTA_ENABLE_\w+\s*\|\s*default\('(?:true|false)'\)",
-            _text())
-        assert not bare, (
-            "single-argument default() only fires on undefined, so an empty "
-            "value falls through as-is: %s" % bare)
-        assert "default(item.default, true)" in _text()
+    def test_ansible_reads_no_flag_itself(self):
+        code = "\n".join(line for line in _text().splitlines()
+                         if not line.lstrip().startswith("#"))
+        assert not re.findall(r"CANASTA_ENABLE_\w+", code), (
+            "the flags are read by canasta_compose_profiles, not the task file")
 
     def test_python_reader_treats_empty_as_unset(self):
         for flag, default in (("CANASTA_ENABLE_VARNISH", "true"),
@@ -119,9 +113,8 @@ class TestEmptyMeansUnset:
 class TestSyncComposeProfilesConsistency:
     def test_python_tables_come_from_the_vars_files(self):
         profiles = _vars("compose_profiles.yml")
-        assert _helpers._MANAGED_PROFILES == [
-            (p["profile"], p["flag"], p["default"])
-            for p in profiles["canasta_managed_profiles"]]
+        assert (_helpers._MANAGED_PROFILES
+                == profiles["canasta_managed_profiles"])
         assert (_helpers._MANAGED_PROFILE_SERVICES
                 == profiles["canasta_managed_profile_services"])
         assert (_helpers._CADDY_PLUGIN_IMAGE
@@ -129,16 +122,34 @@ class TestSyncComposeProfilesConsistency:
 
     def test_ansible_reads_the_tables_instead_of_literals(self):
         text = _text()
+        assert "canasta_compose_profiles(" in text
+        assert "canasta_caddy_image(" in text
         assert "canasta_managed_profiles" in text
         assert "_profile_services: \"{{ canasta_managed_profile_services }}\"" in text
         assert "canasta_caddy_plugin_image" in text
         assert "canasta-caddy" not in text
         assert "ternary(['observable']" not in text
 
-    def test_trusted_proxy_modes_match(self):
-        assert _ansible_trusted_proxy_modes() == set(
-            _helpers._CADDY_PLUGIN_TRUSTED_PROXY_MODES), (
-            "the trusted-proxy plugin modes have drifted")
+
+PLUGIN = _helpers._CADDY_PLUGIN_IMAGE
+OLD_PLUGIN = PLUGIN.rsplit(":", 1)[0] + ":1.0"
+
+
+@pytest.mark.parametrize("env,expected", [
+    ({}, ""),
+    ({"CANASTA_ENABLE_CROWDSEC": "true"}, PLUGIN),
+    ({"CANASTA_ENABLE_CROWDSEC": " TRUE "}, PLUGIN),
+    ({"CANASTA_ENABLE_CROWDSEC": ""}, ""),
+    ({"TRUSTED_PROXIES": "cloudflare"}, ""),
+    ({"TRUSTED_PROXIES": "cloudflare", "CANASTA_CADDY_IMAGE": PLUGIN}, ""),
+    ({"CANASTA_ENABLE_CROWDSEC": "true", "CANASTA_CADDY_IMAGE": OLD_PLUGIN},
+     PLUGIN),
+    ({"CANASTA_ENABLE_CROWDSEC": "true",
+      "CANASTA_CADDY_IMAGE": "example.com/caddy:1"}, "example.com/caddy:1"),
+    ({"CANASTA_CADDY_IMAGE": "example.com/caddy:1"}, "example.com/caddy:1"),
+])
+def test_caddy_image(env, expected):
+    assert canasta_compose_profiles.desired_caddy_image(env, PLUGIN) == expected
 
 
 @pytest.mark.parametrize("env_text", [
@@ -148,6 +159,9 @@ class TestSyncComposeProfilesConsistency:
     "CANASTA_ENABLE_VARNISH=false\nCANASTA_ENABLE_OBSERVABILITY=TRUE\n"
     "USE_EXTERNAL_DB=true\n",
     "TRUSTED_PROXIES=cloudflare\n",
+    "TRUSTED_PROXIES=cloudflare\nCANASTA_CADDY_IMAGE=%s\n" % _helpers._CADDY_PLUGIN_IMAGE,
+    "CANASTA_ENABLE_CROWDSEC=true\n",
+    "CANASTA_ENABLE_CROWDSEC=true\nCANASTA_CADDY_IMAGE=example.com/caddy:1\n",
     "CANASTA_CADDY_IMAGE=ghcr.io/canastawiki/canasta-caddy:1.0\n",
     "TRUSTED_PROXIES=imperva\nCANASTA_CADDY_IMAGE=example.com/caddy:1\n",
     "HTTP_PORT=8080\nHTTPS_PORT=8443\n",

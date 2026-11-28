@@ -17,6 +17,7 @@ import urllib.request
 
 import canasta_atomic_write
 import canasta_caddyfile
+import canasta_compose_profiles
 import canasta_config
 import canasta_edge_render
 import canasta_env_keys
@@ -468,11 +469,7 @@ def _wiki_db_move_pending(env):
 
 _COMPOSE_PROFILES_VARS = _load_vars("compose_profiles.yml")
 
-# (profile_name, flag_name, default_when_flag_unset)
-_MANAGED_PROFILES = [
-    (p["profile"], p["flag"], p["default"])
-    for p in _COMPOSE_PROFILES_VARS["canasta_managed_profiles"]
-]
+_MANAGED_PROFILES = _COMPOSE_PROFILES_VARS["canasta_managed_profiles"]
 
 # Service names declared under each managed profile, used to tear down
 # containers left running when a feature flag is turned off.
@@ -483,36 +480,13 @@ _MANAGED_PROFILE_SERVICES = {
 
 _CADDY_PLUGIN_IMAGE = _load_vars("images.yml")["canasta_caddy_plugin_image"]
 
-# Trusted-proxy modes that need the cdn_ranges plugin (and so the plugin
-# image). An explicit CIDR list uses Caddy's built-in 'static' source and
-# runs on stock Caddy. Mirrors rewrite_caddy.yml / sync_compose_profiles.yml.
-_CADDY_PLUGIN_TRUSTED_PROXY_MODES = ("cloudflare", "imperva")
-
-# Profile names sync derives from the env (feature flags + DB mode). internal-db
-# is included (it is derived too) but is intentionally absent from
-# _MANAGED_PROFILE_SERVICES, so the teardown never removes the db container.
-_MANAGED_PROFILE_NAMES = (
-    {p for p, _flag, _default in _MANAGED_PROFILES} | {"internal-db"}
-)
-
 
 def _reconcile_compose_profiles(env, current):
-    """The COMPOSE_PROFILES that sync derives for `env`: unmanaged profiles in
-    `current` preserved, managed feature profiles whose CANASTA_ENABLE_* flag is
-    true, and internal-db unless an external DB is configured. Shared by
-    _sync_compose_profiles and the doctor consistency check so the checker can
-    never disagree with the syncer."""
-    desired = [p for p in current if p not in _MANAGED_PROFILE_NAMES]
-    for profile, flag, default in _MANAGED_PROFILES:
-        # `or default` rather than dict.get's default: a key present with
-        # an empty value is this host storing no opinion, not "off".
-        # CANASTA_ENABLE_VARNISH= otherwise read as false and dropped
-        # varnish from COMPOSE_PROFILES while its container kept running.
-        if (env.get(flag) or default).strip().lower() == "true":
-            desired.append(profile)
-    if (env.get("USE_EXTERNAL_DB") or "false").strip().lower() != "true":
-        desired.append("internal-db")
-    return desired
+    """The COMPOSE_PROFILES sync derives for `env`. Shared by
+    _sync_compose_profiles and the doctor consistency check so the checker
+    can never disagree with the syncer."""
+    return canasta_compose_profiles.desired_profiles(
+        env, current, _MANAGED_PROFILES)
 
 
 def _caddy_publish(env):
@@ -524,8 +498,8 @@ def _caddy_publish(env):
 
 
 def _sync_compose_profiles(inst):
-    """Align COMPOSE_PROFILES (and the CrowdSec Caddy image) in .env with
-    the CANASTA_ENABLE_* feature flags.
+    """Align COMPOSE_PROFILES and CANASTA_CADDY_IMAGE in .env with the
+    CANASTA_ENABLE_* feature flags.
 
     Called before 'docker compose up' so hand-edited .env files, gitops
     pulls, or any other drift between the managed flags and
@@ -546,7 +520,6 @@ def _sync_compose_profiles(inst):
     entries = _parse_env_entries(content)
     env = canasta_env_keys.modernize_values(
         {k: v for k, v, c in entries if not c and k})
-    managed_names = _MANAGED_PROFILE_NAMES  # for the teardown below
 
     current_raw = env.get("COMPOSE_PROFILES", "")
     current = [p.strip() for p in current_raw.split(",") if p.strip()]
@@ -554,25 +527,10 @@ def _sync_compose_profiles(inst):
 
     profiles_changed = sorted(desired) != sorted(current)
 
-    # Point the caddy service at the plugin image when a plugin feature is
-    # on — CrowdSec, or a provider trusted-proxy mode (cloudflare/imperva).
-    # CANASTA_CADDY_IMAGE is managed only when empty or already the managed
-    # value; a custom override the operator set is left alone.
-    crowdsec_on = (
-        (env.get("CANASTA_ENABLE_CROWDSEC") or "false").strip().lower() == "true"
-    )
-    tp_mode = env.get("TRUSTED_PROXIES", "").strip().lower()
-    plugin_needed = crowdsec_on or tp_mode in _CADDY_PLUGIN_TRUSTED_PROXY_MODES
     current_caddy_image = env.get("CANASTA_CADDY_IMAGE", "")
-    desired_caddy_image = _CADDY_PLUGIN_IMAGE if plugin_needed else ""
-    # Managed when empty or ANY tag of the managed repo, so an instance on an
-    # older managed tag is recognized as managed and bumped rather than
-    # stranded. Mirror sync_compose_profiles.yml.
-    _managed_caddy_prefix = _CADDY_PLUGIN_IMAGE.rsplit(":", 1)[0] + ":"
-    image_managed = current_caddy_image == "" or current_caddy_image.startswith(
-        _managed_caddy_prefix
-    )
-    image_changed = image_managed and current_caddy_image != desired_caddy_image
+    desired_caddy_image = canasta_compose_profiles.desired_caddy_image(
+        env, _CADDY_PLUGIN_IMAGE)
+    image_changed = current_caddy_image != desired_caddy_image
 
     publish_changes = {
         key: value for key, value in _caddy_publish(env).items()
@@ -604,14 +562,13 @@ def _sync_compose_profiles(inst):
     # the teardown in sync_compose_profiles.yml.
     if profiles_changed:
         removed = [
-            p for p in current if p in managed_names and p not in desired
+            p for p in current if p in _MANAGED_PROFILE_SERVICES
+            and p not in desired
         ]
-        # internal-db is in managed_names but not in _MANAGED_PROFILE_SERVICES:
-        # switching to an external DB drops it from the profile set, but the
-        # database container is intentionally never torn down here.
+        # internal-db has no entry in _MANAGED_PROFILE_SERVICES, so switching
+        # to an external DB never tears down the database container.
         stale_services = [
-            svc for p in removed if p in _MANAGED_PROFILE_SERVICES
-            for svc in _MANAGED_PROFILE_SERVICES[p]
+            svc for p in removed for svc in _MANAGED_PROFILE_SERVICES[p]
         ]
         if stale_services:
             profile_flags = []
