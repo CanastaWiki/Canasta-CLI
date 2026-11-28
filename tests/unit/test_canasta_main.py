@@ -315,7 +315,9 @@ class TestUpgradeSelfUpdate:
         (True, False, [2], False, [{"upgrade_preflight_major": 5}]),
     ])
     def test_before_major_upgrades_checks_then_backs_up(
-            self, monkeypatch, capsys, dry_run, skip_backup, rcs, ok, extras):
+            self, monkeypatch, capsys, tmp_path, dry_run, skip_backup, rcs,
+            ok, extras):
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
         built = []
         monkeypatch.setattr(
             canasta, "build_ansible_args",
@@ -325,3 +327,23 @@ class TestUpgradeSelfUpdate:
         args = type("A", (), {"dry_run": dry_run, "skip_backup": skip_backup})()
         assert canasta.before_major_upgrade("ap", "upgrade", args, {}, 5) is ok
         assert built == extras
+        # Only a move that passed records it for the new major's CLI.
+        marker = tmp_path / canasta.MAJOR_MOVE_FILE
+        if ok and not dry_run:
+            assert marker.read_text() == "5\n"
+        else:
+            assert not marker.exists()
+
+    @pytest.mark.parametrize("passed,code", [(True, 0), (False, 1)])
+    def test_the_docker_step_only_checks_and_backs_up(
+            self, harness, monkeypatch, passed, code):
+        # canasta-docker sets CANASTA_MAJOR_STEP and moves the CLI itself.
+        monkeypatch.setenv("CANASTA_MAJOR_STEP", "5")
+        steps = []
+        monkeypatch.setattr(canasta, "self_update_cli",
+                            lambda **kw: steps.append("self-update"))
+        monkeypatch.setattr(
+            canasta, "before_major_upgrade",
+            lambda pb, name, args, data, major: steps.append(major) or passed)
+        assert _run(monkeypatch, ["upgrade", "--allow-major"]) == code
+        assert steps == [5]
