@@ -9,6 +9,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 import canasta as canasta_cli
+import canasta_self_update as self_update
 
 
 @pytest.fixture
@@ -1165,7 +1166,7 @@ import subprocess as _subprocess
 
 
 class TestSelfUpdateCli:
-    """canasta.self_update_cli runs in canasta.py before exec'ing
+    """self_update_cli runs in canasta.py before exec'ing
     ansible-playbook so the playbook process always sees the post-pull
     state of ansible.cfg / module_utils / etc."""
 
@@ -1182,7 +1183,7 @@ class TestSelfUpdateCli:
         if has_git:
             (tmp_path / ".git").mkdir()
         (tmp_path / "VERSION").write_text(version + "\n")
-        monkeypatch.setattr(canasta_cli, "SCRIPT_DIR", str(tmp_path))
+        monkeypatch.setattr(self_update, "SCRIPT_DIR", str(tmp_path))
         return tmp_path
 
     def _make_runner(self, side_effects):
@@ -1212,27 +1213,27 @@ class TestSelfUpdateCli:
                 "not-a-tag").split()
         # Numeric (not lexical) ordering: v4.0.10 > v4.0.2; pre-release and
         # non-version refs are ignored.
-        assert canasta_cli._pick_latest_release_tag(tags) == "v4.0.10"
-        assert canasta_cli._pick_latest_release_tag([]) is None
-        assert canasta_cli._pick_latest_release_tag(["v5.0.0-rc1"]) is None
+        assert self_update._pick_latest_release_tag(tags) == "v4.0.10"
+        assert self_update._pick_latest_release_tag([]) is None
+        assert self_update._pick_latest_release_tag(["v5.0.0-rc1"]) is None
 
     def test_pick_latest_release_tag_max_major(self):
         tags = "v4.2.1 v4.2.3 v4.3.1 v5.0.0 v6.1.0".split()
         # Uncapped: highest overall, crossing majors.
-        assert canasta_cli._pick_latest_release_tag(tags) == "v6.1.0"
+        assert self_update._pick_latest_release_tag(tags) == "v6.1.0"
         # Capped to major 4: never crosses into v5/v6.
-        assert canasta_cli._pick_latest_release_tag(
+        assert self_update._pick_latest_release_tag(
             tags, max_major=4) == "v4.3.1"
         # max_major=0 (no eligible tag) → None even though tags exist.
-        assert canasta_cli._pick_latest_release_tag(
+        assert self_update._pick_latest_release_tag(
             tags, max_major=0) is None
 
     def test_version_major(self):
-        assert canasta_cli._version_major("4.2.1") == 4
-        assert canasta_cli._version_major("v5.0.0") == 5
-        assert canasta_cli._version_major("10.0.0") == 10
-        assert canasta_cli._version_major("unknown") is None
-        assert canasta_cli._version_major("") is None
+        assert self_update._version_major("4.2.1") == 4
+        assert self_update._version_major("v5.0.0") == 5
+        assert self_update._version_major("10.0.0") == 10
+        assert self_update._version_major("unknown") is None
+        assert self_update._version_major("") is None
 
     def test_no_op_when_not_a_git_repo(
         self, monkeypatch, tmp_path, capsys,
@@ -1243,7 +1244,7 @@ class TestSelfUpdateCli:
             raise AssertionError("subprocess.run should not be called")
 
         monkeypatch.setattr(_subprocess, "run", fail_run)
-        canasta_cli.self_update_cli()
+        self_update.self_update_cli()
         out = capsys.readouterr()
         assert out.out == ""
         assert out.err == ""
@@ -1261,7 +1262,7 @@ class TestSelfUpdateCli:
             raise AssertionError("subprocess.run should not be called")
 
         monkeypatch.setattr(_subprocess, "run", fail_run)
-        canasta_cli.self_update_cli()
+        self_update.self_update_cli()
         out = capsys.readouterr()
         assert out.out == ""
         assert out.err == ""
@@ -1277,7 +1278,7 @@ class TestSelfUpdateCli:
             {"returncode": 0},               # merge-base --is-ancestor (contained)
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
-        canasta_cli.self_update_cli()
+        self_update.self_update_cli()
         out = capsys.readouterr().out
         assert "already up to date" in out
         assert "release v4.0.0" in out
@@ -1303,7 +1304,7 @@ class TestSelfUpdateCli:
             {"returncode": 0},                # merge-base: tag IS ancestor of HEAD
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
-        canasta_cli.self_update_cli()
+        self_update.self_update_cli()
         out = capsys.readouterr().out
         assert "already ahead of the latest release" in out
         assert "v4.0.4" in out
@@ -1330,7 +1331,7 @@ class TestSelfUpdateCli:
             {"returncode": 1},                  # merge-base: not contained
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
-        canasta_cli.self_update_cli(dry_run=True)
+        self_update.self_update_cli(dry_run=True)
         out = capsys.readouterr().out
         assert ("Dry run - would update Canasta CLI from 4.0.0 (old1234) to "
                 "v4.1.0 (new1234). This preview uses the installed version.") in out
@@ -1351,7 +1352,7 @@ class TestSelfUpdateCli:
             {"stdout": "main\n"},      # rev-parse --abbrev-ref HEAD
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
-        canasta_cli.self_update_cli(dev=True, dry_run=True)
+        self_update.self_update_cli(dev=True, dry_run=True)
         out = capsys.readouterr().out
         assert "would update Canasta CLI from 4.0.0 (old1234) to origin/main (new1234)" in out
         assert not any("checkout" in c or "pull" in c for c in calls)
@@ -1367,7 +1368,7 @@ class TestSelfUpdateCli:
             {"stdout": "main\n"},       # rev-parse --abbrev-ref HEAD
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
-        canasta_cli.self_update_cli(dev=True)
+        self_update.self_update_cli(dev=True)
         out = capsys.readouterr().out
         assert "already up to date" in out
         assert "dev (main)" in out
@@ -1412,7 +1413,7 @@ class TestSelfUpdateCli:
             canasta_cli.os, "execv",
             lambda *a: execv_calls.append(a),
         )
-        canasta_cli.self_update_cli()
+        self_update.self_update_cli()
 
         # After a successful pull the CLI re-execs itself on the fresh
         # code, guarded by CANASTA_SELF_UPDATED so it won't loop.
@@ -1480,7 +1481,7 @@ class TestSelfUpdateCli:
         execs = []
         monkeypatch.setattr(canasta_cli.os, "execv", lambda *a: execs.append(a))
         with pytest.raises(SystemExit) as exc:
-            canasta_cli.self_update_cli()
+            self_update.self_update_cli()
         assert exc.value.code == 1
         assert execs == []
 
@@ -1507,7 +1508,7 @@ class TestSelfUpdateCli:
             {"stdout": "", "returncode": 1, "stderr": "diverged\n"},  # checkout
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
-        canasta_cli.self_update_cli()
+        self_update.self_update_cli()
         err = capsys.readouterr().err
         assert "Could not move to v4.1.0" in err
 
@@ -1522,7 +1523,7 @@ class TestSelfUpdateCli:
             {"stdout": "\n"},           # tag -l → none
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
-        canasta_cli.self_update_cli()
+        self_update.self_update_cli()
         err = capsys.readouterr().err
         assert "no release tags found" in err
         assert "--dev" in err
@@ -1548,7 +1549,7 @@ class TestSelfUpdateCli:
             {"stdout": ""},                                # ansible-galaxy
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
-        canasta_cli.self_update_cli()
+        self_update.self_update_cli()
         out = capsys.readouterr().out
         assert "Updated Canasta CLI" in out
         assert any("v4.3.1" in c for c in calls)        # checked out 4.3.1
@@ -1585,7 +1586,7 @@ class TestSelfUpdateCli:
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
         checked = []
-        canasta_cli.self_update_cli(allow_major=True,
+        self_update.self_update_cli(allow_major=True,
                                     before_major=lambda m: checked.append(m))
         out = capsys.readouterr().out
         assert "Moving to v4.3.1, the latest 4.x release, before v5.0.0." in out
@@ -1629,12 +1630,12 @@ class TestSelfUpdateCli:
             return passes
 
         if passes:
-            canasta_cli.self_update_cli(allow_major=True, before_major=before)
+            self_update.self_update_cli(allow_major=True, before_major=before)
             assert ["checkout", "v5.0.0"] == calls[7][1:]
             assert os.environ.get("CANASTA_SELF_UPDATED") == "1"
         else:
             with pytest.raises(SystemExit):
-                canasta_cli.self_update_cli(allow_major=True, before_major=before)
+                self_update.self_update_cli(allow_major=True, before_major=before)
             assert "stays on 4.3.1, and no instance moved to 5.x" in capsys.readouterr().err
             assert not any(c[1] == "checkout" for c in calls)
         assert checked == [5]
@@ -1656,7 +1657,7 @@ class TestSelfUpdateCli:
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
         checked = []
-        canasta_cli.self_update_cli(allow_major=True, dry_run=True,
+        self_update.self_update_cli(allow_major=True, dry_run=True,
                                     before_major=lambda m: checked.append(m))
         out = capsys.readouterr().out
         assert checked == [5]
@@ -1685,7 +1686,7 @@ class TestSelfUpdateCli:
             {"stdout": ""},                                # ansible-galaxy
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
-        canasta_cli.self_update_cli(allow_major=True)
+        self_update.self_update_cli(allow_major=True)
         out = capsys.readouterr().out
         assert "Updated Canasta CLI" in out
         assert any("v5.0.0" in c for c in calls)         # checked out v5
@@ -1703,7 +1704,7 @@ class TestSelfUpdateCli:
             {"stdout": "v5.0.0\n"},     # tag -l → only a higher major
         ])
         monkeypatch.setattr(_subprocess, "run", runner)
-        canasta_cli.self_update_cli()
+        self_update.self_update_cli()
         err = capsys.readouterr().err
         assert "no release found at or below the current major" in err
         assert "v4.x" in err
@@ -1737,7 +1738,7 @@ class TestSelfUpdateCli:
             return attempts.pop(0)
 
         monkeypatch.setattr(_subprocess, "run", runner)
-        canasta_cli.self_update_cli()
+        self_update.self_update_cli()
         err = capsys.readouterr().err
         assert "could not fetch from origin" in err
 
@@ -1761,7 +1762,7 @@ class TestSelfUpdateCli:
             return first.pop(0)
 
         monkeypatch.setattr(_subprocess, "run", runner)
-        canasta_cli.self_update_cli()
+        self_update.self_update_cli()
         err = capsys.readouterr().err
         assert "self-update skipped" in err
         assert "NOT updated" in err
