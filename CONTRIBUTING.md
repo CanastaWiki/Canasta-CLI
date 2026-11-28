@@ -44,8 +44,11 @@ workflow manually against a branch to exercise them before merging.
 ## Architecture
 
 ```
-canasta wrapper → canasta.py (argparse) → ansible-playbook canasta.yml → roles/<role>/tasks/<action>.yml
+canasta wrapper → canasta.py (argparse) ─┬─ direct_commands/<command>.py   (fast path, no Ansible)
+                                         └─ ansible-playbook canasta.yml → roles/<role>/tasks/<action>.yml
 ```
+
+`canasta.py` tries `direct_commands/` first and runs the Ansible playbook when a command returns `FALLBACK` or has no fast path.
 
 `meta/command_definitions.yml` is the single source of truth for all commands, parameters, and documentation. Both the CLI's argparse subcommands and the auto-generated `docs/commands/*.md` files are derived from it.
 
@@ -89,6 +92,6 @@ The publisher writes pages under the `CLI:` namespace plus `MediaWiki:Menu-cli-r
 
 ## Documentation
 
-Narrative documentation — user-facing guides, conceptual pages, and design notes — lives on canasta.wiki, not in this repository. See [Help:About the user guide](https://canasta.wiki/wiki/Help:About_the_user_guide) for the structure, and e.g. [Help:Multi-node Kubernetes](https://canasta.wiki/wiki/Help:Multi-node_Kubernetes) for multi-node K8s deployments.
+Narrative documentation — user-facing guides, conceptual pages, and design notes — lives on canasta.wiki, not in this repository. See [Help:About the user guide](https://canasta.wiki/wiki/Help:About_the_user_guide) for the structure.
 
 The `docs/` directory holds only the auto-generated CLI command reference (`docs/commands/*.md`, produced by `make docs` from `meta/command_definitions.yml` and git-ignored). Do not add hand-written Markdown there — see [docs/README.md](docs/README.md).

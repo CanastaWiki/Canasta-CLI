@@ -38,9 +38,9 @@ test: test-unit
 
 # --- Linting -----------------------------------------------------------------
 
-# --offline makes ansible-lint use ANSIBLE_HOME as its cache and write the
-# mock_modules into its collections, which by default is the operator's real
-# ~/.ansible. Point both at a throwaway directory.
+# --offline makes ansible-lint use ANSIBLE_HOME as its cache, which by
+# default is the operator's real ~/.ansible. Point it and the collections
+# path at a throwaway directory.
 lint: venv
 	$(YAMLLINT) --strict meta/ roles/ playbooks/ inventory/ canasta.yml
 	$(RUFF) check .
@@ -61,9 +61,8 @@ validate: venv
 	$(PYTHON) scripts/validate_ci_test_coverage.py
 
 # Report integration tests that no workflow runs, so a test cannot sit in
-# the registry asserting behavior that changed underneath it. Separate
-# from 'validate' until the current backlog is triaged (see the tracking
-# issue) — wire it in once the list is empty or exempted.
+# the registry asserting behavior that changed underneath it. 'validate'
+# runs it too.
 validate-ci-coverage: venv
 	$(PYTHON) scripts/validate_ci_test_coverage.py
 

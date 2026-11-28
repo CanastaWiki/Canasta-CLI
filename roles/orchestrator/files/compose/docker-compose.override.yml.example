@@ -9,6 +9,6 @@ services:
   #db:
   #web:
   #  image: ghcr.io/canastawiki/canasta:latest
-  #elasticsearch:
+  #opensearch:
   #caddy:
   #varnish:
