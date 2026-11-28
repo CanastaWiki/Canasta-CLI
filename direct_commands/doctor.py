@@ -1124,9 +1124,11 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
 #
 # The edge's own containers, its membership list and acme.sh's certificates,
 # read on the instance's host from the operator's config directory, as the
-# edge module writes them.
+# edge module writes them. confdir is that directory when the host is this
+# one; on another host it is empty and the script works it out there.
 _EDGE_SCRIPT = r"""
-if [ "$(id -u)" = 0 ]; then d=/etc/canasta; else d="${XDG_CONFIG_HOME:-$HOME/.config}/canasta"; fi
+d=%(confdir)s
+if [ -z "$d" ]; then if [ "$(id -u)" = 0 ]; then d=/etc/canasta; else d="${XDG_CONFIG_HOME:-$HOME/.config}/canasta"; fi; fi
 printf '%%sEDGE:%%s\n' '%(delim)s' "$(%(inspect)s ps --filter 'name=^canasta-edge$' --format '{{.Status}}' 2>/dev/null)"
 printf '%%sACME:%%s\n' '%(delim)s' "$(%(inspect)s ps --filter 'name=^canasta-edge-acme$' --format '{{.Status}}' 2>/dev/null)"
 printf '%%sSPOA:%%s\n' '%(delim)s' "$(%(inspect)s ps --filter 'label=com.docker.compose.project=%(project)s' --filter 'label=com.docker.compose.service=crowdsec-spoa' --format '{{.Status}}' 2>/dev/null)"
@@ -1260,16 +1262,19 @@ def _edge_lines(inst):
     if not path:
         return []
     host = inst.get("host") or "localhost"
-    inspect = inst.get("inspectCommand") or "docker"
+    inspect = _helpers._resolve_inspect_cmd(inst)
     project = os.path.basename(path.rstrip("/")).lower()
+    local = _helpers._is_localhost(host)
     script = _EDGE_SCRIPT % {"delim": _helpers._SENTINEL,
                              "inspect": _helpers._shell_quote(inspect),
-                             "project": project}
+                             "project": project,
+                             "confdir": _helpers._shell_quote(
+                                 _helpers._get_config_dir() if local else "")}
     docker_host = inst.get("dockerHost")
     if docker_host:
         script = "export DOCKER_HOST=%s\n%s" % (_helpers._shell_quote(docker_host), script)
     try:
-        if _helpers._is_localhost(host):
+        if local:
             stdout = subprocess.run(["bash", "-c", script], capture_output=True,
                                     text=True, timeout=60).stdout
         else:

@@ -36,16 +36,6 @@
           {{ (_config_key == 'CANASTA_ENABLE_OBSERVABILITY')
              or (_se_mem_flags.results[1].value | default('false') | lower == 'true') }}
 
-# Search runs on the host's OpenSearch.
-- name: Refuse an Elasticsearch setting
-  ansible.builtin.fail:
-    msg: >-
-      {{ _config_key }} is not supported. Canasta searches with OpenSearch
-      (CANASTA_ENABLE_OPENSEARCH).
-  when:
-    - _config_value is defined
-    - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ELASTICSEARCH_HEAP', 'CANASTA_ELASTICSEARCH_IMAGE']
-
 # OpenSearch is for CirrusSearch, so turning it on enables Elastica and
 # CirrusSearch for every wiki (unless already enabled), and turning it off
 # disables them: CirrusSearch can do nothing without it. The restart that

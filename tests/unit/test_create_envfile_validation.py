@@ -66,7 +66,7 @@ def _create(tmp_path, lines, orchestrator="compose"):
     "HTTP_PORT=8080", "HTTPS_PORT=8443",
     "TRUSTED_PROXIES=cloudflare", "TRUSTED_PROXIES=imperva@203.0.113.10/32",
     "TLS_MODE_HOSTS=origin.example.net=acme",
-    "CANASTA_ELASTICSEARCH_HEAP=768m",
+    "CANASTA_OPENSEARCH_HEAP=768m",
     "CANASTA_BACKUP_TIMEOUT=360", "CANASTA_BACKUP_TIMEOUT=1",
     "MW_SITEMAP_URL_PATH=/wiki/sitemap",
     "CADDY_TLS_MODE=internal", "CADDY_AUTO_HTTPS=off",
@@ -83,7 +83,9 @@ def test_good_values_pass(tmp_path, line):
     ("HTTP_PORT=70000", "HTTP_PORT must be between 1 and 65535 (got '70000')"),
     ("TRUSTED_PROXIES=cloudfalre", "TRUSTED_PROXIES must be"),
     ("TLS_MODE_HOSTS=origin.example.net=letsencrypt", "TLS_MODE_HOSTS must be"),
-    ("CANASTA_ELASTICSEARCH_HEAP=4gb", "CANASTA_ELASTICSEARCH_HEAP must be"),
+    ("CANASTA_OPENSEARCH_HEAP=4gb", "CANASTA_OPENSEARCH_HEAP must be"),
+    ("CANASTA_ENABLE_ELASTICSEARCH=true", "CANASTA_ENABLE_ELASTICSEARCH is not supported"),
+    ("CANASTA_ELASTICSEARCH_HEAP=4g", "CANASTA_ELASTICSEARCH_HEAP is not supported"),
     ("CANASTA_BACKUP_TIMEOUT=0", "CANASTA_BACKUP_TIMEOUT must be a whole number of minutes"),
     ("CANASTA_BACKUP_TIMEOUT=abc", "CANASTA_BACKUP_TIMEOUT must be a whole number of minutes"),
     ("CANASTA_BACKUP_TIMEOUT=-5", "CANASTA_BACKUP_TIMEOUT must be a whole number of minutes"),
@@ -145,7 +147,7 @@ def test_compose_profiles_is_reported_as_not_used(tmp_path):
 
 
 def test_an_env_file_of_known_keys_passes_quietly(tmp_path):
-    code, out = _create(tmp_path, ["CANASTA_ENABLE_ELASTICSEARCH=true", "",
+    code, out = _create(tmp_path, ["CANASTA_ENABLE_OPENSEARCH=true", "",
                                    "MW_SITE_FQDN=wiki.example.com"])
     assert code == 0, out
     assert "Warning:" not in out, out
