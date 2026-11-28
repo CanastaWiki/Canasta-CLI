@@ -10,7 +10,6 @@
   ansible.builtin.set_fact:
     instance_id: "{{ _inst.key }}"
     instance_path: "{{ _inst.value.path }}"
-    instance_orchestrator: "{{ _inst.value.orchestrator | default('compose') }}"
     instance_devmode: "{{ _inst.value.devMode | default(false) }}"
     # Without these, every step of the upgrade uses the play-scope
     # default runtime: `docker compose pull` against a podman host fails
@@ -46,7 +45,6 @@
 # value recorded" only ever caught the first.
 - name: Confirm the recorded runtime against the instance's host
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/detect_runtime.yml"
-  when: not (instance_is_k8s | bool)
 
 - name: Check for an unfinished gitops pull
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/check_unfinished_pull.yml"
@@ -68,7 +66,6 @@
   register: _upgrade_caddy_tls
   failed_when: false
   when:
-    - not (instance_is_k8s | bool)
     - not (unfinished_pull | bool)
 
 # Before the upgrade stops anything, so the instance keeps running as it is.
@@ -88,7 +85,6 @@
   vars:
     space_measure_image: "{{ _inst.value.buildFrom | default('') == '' }}"
   when:
-    - not (instance_is_k8s | bool)
     - not (unfinished_pull | bool)
     - _upgrade_caddy_tls.tls_directives | default([]) | length == 0
 
@@ -107,7 +103,6 @@
 - name: Check that .env still has the database password
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/check_mysql_password.yml"
   when:
-    - not (instance_is_k8s | bool)
     - not (unfinished_pull | bool)
     - _upgrade_caddy_tls.tls_directives | default([]) | length == 0
     - _upgrade_space_reason | length == 0
@@ -157,7 +152,6 @@
   register: _upgrade_spoa_layer
   changed_when: false
   when:
-    - not (instance_is_k8s | bool)
     - not (_upgrade_skip | bool)
 
 - name: Rewrite the edge layer with the bouncer's tmpfs mounts
@@ -209,7 +203,6 @@
     state: prune
     inspect_command: "{{ inspect_command }}"
   register: _upgrade_spoa_prune
-  when: not (instance_is_k8s | bool)
 
 - name: Report the removed bouncer volumes
   ansible.builtin.debug:
@@ -217,7 +210,6 @@
       Removed {{ _upgrade_spoa_prune.removed | length }} volume(s) earlier
       CrowdSec bouncers left behind.
   when:
-    - not (instance_is_k8s | bool)
     - (_upgrade_spoa_prune.removed | default([]) | length) > 0
 
 # Also for an instance the upgrade did not restart: the edge in front of it

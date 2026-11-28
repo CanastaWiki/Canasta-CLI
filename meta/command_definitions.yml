@@ -9,13 +9,6 @@
 #   choice   - One of a fixed set of values (see 'choices')
 #   integer  - Whole number
 #
-# Command-level fields:
-#   orchestrators       - Orchestrators the command supports ([compose] or
-#                         [kubernetes]). canasta.py refuses the command on
-#                         an instance of any other orchestrator.
-#   orchestrators_note  - Sentence appended to that refusal, saying why or
-#                         what to do instead.
-#
 # Special fields:
 #   required          - Parameter must be provided
 #   required_unless   - Required unless the named parameter is provided
@@ -129,10 +122,8 @@ command_groups:
     long_description: |
       Run a command inside one of an instance's containers on a recurring
       schedule: cache cleanup, a maintenance script, third-party
-      housekeeping. Scheduling is the same on both orchestrators: each
-      schedule is a crontab entry on the host where the instance runs (the
-      instance's host for Compose, the control-plane node for Kubernetes)
-      that runs `canasta schedule run` on the schedule. That host needs the
+      housekeeping. Each schedule is a crontab entry on the host where the
+      instance runs that runs `canasta schedule run` on the schedule. That host needs the
       `cron` package and a runnable `canasta`, as scheduled backups do.
 
       Schedules are kept in `config/schedules.yml`, which backups capture
@@ -160,33 +151,20 @@ command_groups:
   - name: backup_schedule
     description: "Manage scheduled backups"
     long_description: |
-      Manage recurring backup schedules. Scheduling is the same on both
-      orchestrators: a crontab entry on the host where the instance runs
-      — the local or remote host for Compose, the control-plane node for
-      Kubernetes (the same host the instance's other commands run on).
-      The entry runs `canasta backup create -i <id> --tag scheduled` on
-      the schedule, which performs the backup the orchestrator-native
-      way: a Compose container, or an in-cluster restic Job for
-      Kubernetes. Output goes to `backup.log` in the instance directory;
-      failures are visible there and via `tail -F`.
+      Manage recurring backup schedules. A schedule is a crontab entry on
+      the host where the instance runs — the local or remote host the
+      instance's other commands run on. The entry runs
+      `canasta backup create -i <id> --tag scheduled` on the schedule,
+      which performs the backup in a Compose container. Output goes to
+      `backup.log` in the instance directory; failures are visible there
+      and via `tail -F`.
 
       That host therefore needs the `cron` package (Debian:
       `apt install cron`) and a runnable `canasta` — the cron entry calls
       `canasta backup create`. `canasta backup schedule set` fails with
-      guidance if either is missing on a remote / control-plane host. The
+      guidance if either is missing on a remote host. The
       schedule is also persisted to `config/backup-schedule.yml`, so it
       is captured by backups and re-materialized on restore.
-
-      For Kubernetes, the in-cluster backup Job runs a `dump-databases`
-      init container (mariadb-dump for every DB on the configured
-      `MYSQL_HOST`, with each wiki and the extra databases it declares
-      dumped together) followed by a `restic` container that snapshots the
-      instance's PVCs. Both `envFrom` a `canasta-<id>-backup-env` Secret
-      synced from the instance's `.env`, containing restic + cloud-backend
-      credentials (`RESTIC_*`, `AWS_*`, `B2_*`, `AZURE_*`, `GOOGLE_*`,
-      `OS_*`, `ST_*`) plus `MYSQL_HOST` / `MYSQL_USER` / `MYSQL_PASSWORD`.
-      Find a failed run via `kubectl get jobs -n canasta-<id>` (status
-      `Failed`) and `kubectl logs -n canasta-<id> job/<name>`.
 
   - name: backup_databases
     description: "Manage which databases a wiki's backup captures"
@@ -206,22 +184,20 @@ command_groups:
     long_description: |
       Manage Canasta instance configuration through a Git repository.
       Supports version-controlled configuration, encrypted secrets via
-      git-crypt, and multi-server deployments with push/pull workflows
-      reconciled by Argo CD on Kubernetes.
+      git-crypt, and multi-server deployments with push/pull workflows.
 
   - name: devmode
     description: "Manage development mode"
     long_description: |
       Enable or disable development mode on a Canasta instance.
       Development mode extracts MediaWiki code for live editing and
-      enables Xdebug for step debugging. Only supported with Docker
-      Compose.
+      enables Xdebug for step debugging.
 
   - name: crowdsec
     description: "Manage CrowdSec threat detection"
     long_description: |
-      Manage the optional CrowdSec security feature on a Compose or
-      Kubernetes instance. Enable or disable CrowdSec itself with
+      Manage the optional CrowdSec security feature on an instance.
+      Enable or disable CrowdSec itself with
       `canasta config set CANASTA_ENABLE_CROWDSEC=true|false` (the
       same pattern as the other optional features). The subcommands
       below allow further configuration and monitoring once CrowdSec
@@ -256,20 +232,12 @@ command_groups:
       instance directory — a version-controlled file, like
       `Caddyfile.global`.
 
-      On Kubernetes the local API runs in its own pod and an agent in the
-      Caddy pod reads the access log; the same subcommands work via
-      `kubectl exec`. Because Caddy always sits
-      behind the in-cluster ingress there, CrowdSec auto-trusts the cluster
-      pod CIDRs (override with `CADDY_TRUSTED_PROXY_CIDRS`) so it attributes
-      decisions to the real client IP rather than the ingress.
-
   - name: sidecar
     description: "Manage app sidecars for a Canasta instance"
     long_description: |
       Declare and manage app sidecars — companion services the wiki talks
       to (e.g. a cache or a parsing service) — in `config/sidecars.yaml`.
-      Sidecars are declared once and deploy the same way on Docker Compose
-      and Kubernetes. Subcommands add, list, and remove sidecar
+      Subcommands add, list, and remove sidecar
       declarations, and migrate legacy `docker-compose.override.yml` sidecars
       into the schema; run `canasta restart` to apply. For richer sidecars
       (mounted config files, dependencies, healthchecks), edit
@@ -334,12 +302,6 @@ commands:
           and the value must be absolute (or '~'-prefixed) — relative
           paths are rejected because they'd otherwise be resolved
           against the laptop's filesystem.
-      - name: orchestrator
-        short: o
-        type: choice
-        choices: [compose, kubernetes, k8s]
-        default: compose
-        description: "Container orchestrator (k8s is an alias for kubernetes)"
       - name: id
         short: i
         type: string
@@ -382,7 +344,6 @@ commands:
       - name: override
         short: r
         type: path
-        orchestrator_only: compose
         description: "File on the controller (the machine running canasta) to copy to docker-compose.override.yml"
       - name: rootdbpass
         type: string
@@ -392,7 +353,7 @@ commands:
         type: string
         description: >-
           Database account MediaWiki connects with (default: mediawiki, or
-          mediawiki_<id> on an external database on Docker Compose, since
+          mediawiki_<id> on an external database, since
           the server can serve other instances). The CLI creates it with
           access to the instance's wiki databases only, logging in to an
           external database as the env file's MYSQL_USER. Pass root to
@@ -483,10 +444,6 @@ commands:
       - name: composer
         type: path
         description: "Path on the controller (the machine running canasta) to a custom composer.local.json"
-      - name: tls_email
-        type: string
-        orchestrator_only: kubernetes
-        description: "Email for Let's Encrypt certificate notifications"
       - name: skip_tls
         type: bool
         default: false
@@ -505,19 +462,13 @@ commands:
       the instance is resolved by matching the current directory against the
       registry.
 
-      If the containers and volumes of a Docker Compose instance cannot be
+      If the containers and volumes of an instance cannot be
       removed, delete stops and leaves the instance registered and its files
-      in place. If the namespace of a Kubernetes instance is still
-      terminating after 10 minutes, delete stops and leaves the instance
-      registered, so running delete again finishes the job. Pass --force to
-      delete the instance anyway; any containers, volumes or namespace that
-      remain must then be removed by hand.
+      in place. Pass --force to delete the instance anyway; any containers
+      or volumes that remain must then be removed by hand.
 
       Pass --keep-data to remove the instance from the registry only: its
-      containers or Kubernetes namespace, volumes, Argo CD Application and
-      files stay as they are. Use it to move an instance to the other
-      orchestrator under the same ID: create the new instance, restore a
-      backup into it, and keep the old one as the way back.
+      containers, volumes and files stay as they are.
     examples:
       - "canasta delete -y"
       - "cd /path/to/instance && canasta delete -y"
@@ -538,11 +489,11 @@ commands:
         short: f
         type: bool
         default: false
-        description: "Delete even if the containers, volumes or namespace cannot be removed"
+        description: "Delete even if the containers or volumes cannot be removed"
       - name: keep_data
         type: bool
         default: false
-        description: "Remove the instance from the registry only, leaving its containers or namespace, volumes and files in place"
+        description: "Remove the instance from the registry only, leaving its containers, volumes and files in place"
 
   - name: start
     description: "Start a Canasta instance"
@@ -576,7 +527,7 @@ commands:
       packages in `config/composer.local.json` are not installed, a
       warning names the failure and how to read its details.
 
-      On Docker Compose, each wiki's API is then requested through the
+      Each wiki's API is then requested through the
       HAProxy edge on the instance's host, and a warning names each wiki
       that does not answer within a minute, with the reason. Any
       response from behind the edge other than a server error (5xx)
@@ -617,8 +568,8 @@ commands:
       applied during the restart. Use `canasta devmode enable` or
       `canasta devmode disable` to change the development mode
       setting. The command returns once the web container reports
-      healthy, and warns if its startup `composer update` failed. On
-      Docker Compose, it also warns about each wiki that does not answer
+      healthy, and warns if its startup `composer update` failed. It
+      also warns about each wiki that does not answer
       through the HAProxy edge, as `canasta start` does.
     examples:
       - "canasta restart"
@@ -638,10 +589,8 @@ commands:
       reported by 'canasta doctor'.
 
       The most common use is applying edits to config/settings,
-      config/wikis.yaml, .env, or Caddyfile.site. On Docker Compose it
-      recreates only the containers whose configuration changed and
-      reloads Caddy; on Kubernetes it re-syncs the ConfigMaps and runs
-      'helm upgrade', rolling only the pods whose configuration changed.
+      config/wikis.yaml, .env, or Caddyfile.site. It recreates only the
+      containers whose configuration changed and reloads Caddy.
       It also regenerates the Caddyfile, re-derives COMPOSE_PROFILES from
       the feature flags, starts any containers that should be running but
       are not, and clears the Varnish cache so no page is served with the
@@ -686,7 +635,6 @@ commands:
       - "canasta rebuild -i mywiki --no-cache"
       - "canasta rebuild --no-restart"
     direct_only: true
-    orchestrators: [compose]
     parameters:
       - name: id
         short: i
@@ -713,7 +661,7 @@ commands:
       silently dropped. Pass --force to remove unreachable entries
       too, or --dry-run to preview without removing anything.
 
-      The STATUS column reports what the orchestrator says about the
+      The STATUS column reports what the container runtime says about the
       web container: RUNNING, STOPPED, or UNHEALTHY when the container
       is crash-looping or failing its health check (`canasta doctor -i
       <id>` names the cause). It can read RUNNING while MediaWiki itself
@@ -805,18 +753,17 @@ commands:
   - name: doctor
     description: "Check target host dependencies"
     long_description: |
-      Verify that the target host has the tools required for its
-      orchestrator: Docker + Docker Compose for Compose installs,
-      or kubectl + Helm for Kubernetes installs. Also reports
-      status of optional tools (git, git-crypt, sops, age, crontab) and
-      system resources (memory, disk space).
+      Verify that the target host has a container runtime: Docker +
+      Docker Compose, or Podman. Also reports status of optional tools
+      (git, git-crypt, crontab) and system resources (memory, disk
+      space).
 
       When an instance is resolved (from -i, or from the current
       directory), also checks that instance: config and runtime
       agreement, whether local config edits have been applied, whether
       CrowdSec is enabled with no TRUSTED_PROXIES set,
       the certificate the origin is actually serving (expired, or not
-      publicly trusted), on Docker Compose the HAProxy edge (whether it,
+      publicly trusted), the HAProxy edge (whether it,
       acme.sh and the instance's CrowdSec bouncer are running, whether the
       instance is among its members, each hostname's certificate, and
       whether it can see visitors' addresses), whether the web container's startup `composer update` failed, and
@@ -880,18 +827,8 @@ commands:
     unfinished_pull_ok: true
     long_description: |
       Install one or more dependencies on the target host. Supported
-      packages: docker, git-crypt, sops, canasta, podman,
-      docker-rootless, uv, uv:<tool>.
-
-      `sops` installs the SOPS toolchain (sops + age), required for
-      encrypted secrets in Kubernetes gitops (`gitops init
-      --encrypt-secrets`). Two hosts need it: the controller (where the
-      CLI runs) uses age-keygen to manage the operator key, and the
-      gitops target host uses sops to encrypt Secret manifests. Run it
-      once per role: `canasta install sops` (no --host) for the
-      controller and `canasta install -H <host> sops` for the target
-      (they may be the same machine). Idempotent — skips a binary
-      already present.
+      packages: docker, git-crypt, canasta, podman, docker-rootless,
+      uv, uv:<tool>.
 
       `canasta` installs the Canasta CLI (canasta-native) on the target
       host, so an instance deployed remotely from a controller can also
@@ -929,7 +866,6 @@ commands:
       - "canasta install docker"
       - "canasta install docker git-crypt"
       - "canasta install -i mysite git-crypt"
-      - "canasta install -i mysite sops"
       - "canasta install -i mysite canasta"
       - "canasta install podman"
       - "canasta install --host prod1.example.com podman"
@@ -964,7 +900,7 @@ commands:
         positional: true
         multi: true
         required: true
-        choices: [docker, git-crypt, sops, podman, docker-rootless, canasta, uv]
+        choices: [docker, git-crypt, podman, docker-rootless, canasta, uv]
         choices_dynamic_prefix: "uv:"
         # Charset the tail after the prefix must match. Mirrors the
         # playbook's `^uv:[a-zA-Z0-9_-]+$` validation in install.yml so
@@ -972,7 +908,7 @@ commands:
         # tests/unit/test_install_podman.py asserts the two agree.
         choices_dynamic_pattern: "[a-zA-Z0-9_-]+"
         description: >-
-          Dependencies to install (docker, git-crypt, sops, podman,
+          Dependencies to install (docker, git-crypt, podman,
           docker-rootless, canasta, uv, uv:<tool>)
 
   - name: upgrade
@@ -984,11 +920,11 @@ commands:
       with `--dry-run` it reports the release it would update to and
       previews with the installed version.
       A restarted instance whose startup `composer update` failed is
-      reported with a warning, and so is each wiki of a running Docker
-      Compose instance that does not answer through the HAProxy edge
+      reported with a warning, and so is each wiki of a running
+      instance that does not answer through the HAProxy edge
       after the upgrade, as `canasta start` reports it.
 
-      On Docker Compose, an instance whose new image may not fit on the
+      An instance whose new image may not fit on the
       filesystem that holds container images is not upgraded and keeps
       running as it is. The size of the image it runs now is the measure,
       so the check can ask for more space than the pull needs. The
@@ -996,7 +932,7 @@ commands:
       unpacks to over 100,000 files. `canasta image prune` reclaims the
       images no instance uses.
 
-      On Docker Compose, upgrade first moves each host's instances behind
+      Upgrade first moves each host's instances behind
       the HAProxy edge, keeping their hostnames, ports and certificates. A
       host whose instances the edge cannot all serve is refused with the
       reason, and none of its instances is upgraded; an instance whose move
@@ -1006,19 +942,12 @@ commands:
       `TLS_MODE=off`), and `CADDY_TRUSTED_PROXIES`, `CADDY_TLS_CERT` and
       `CADDY_TLS_KEY` to `TRUSTED_PROXIES`, `TLS_CERT` and `TLS_KEY`.
 
-      A Docker Compose instance managed through gitops runs the Canasta
+      An instance managed through gitops runs the Canasta
       release of the CLI on its own host, so upgrade moves its `.env` to the
       new release and leaves env.template, which every host shares,
       unchanged. An image set with `canasta config set CANASTA_IMAGE=...`
       other than a release of the official image is kept in env.template
       for every host, and upgrade leaves it as it is.
-
-      A Kubernetes instance managed through gitops is not redeployed: Argo CD
-      deploys it from its gitops repo. Upgrade stages the refreshed chart and
-      image tag there, and you deploy them with `canasta gitops push`, then
-      `canasta gitops sync`. An instance built from source still has its
-      image rebuilt, and its web pods restart when the new build differs
-      from the image they run.
 
       An instance built from source is rebuilt on the upgrade's Canasta
       release: a `BASE_IMAGE` build argument that names an older
@@ -1032,9 +961,7 @@ commands:
       on root, and says why, while a settings file sets `$wgDBuser` or
       `$wgDBpassword` or the server holds a database no wiki declares, and
       tries again on the next upgrade. `canasta config set
-      CANASTA_DB_ROOT_ACCOUNT=true` keeps an instance on root. On a
-      gitops-managed Kubernetes instance the move is staged with the rest
-      and takes effect at the push and sync. A stopped instance is left
+      CANASTA_DB_ROOT_ACCOUNT=true` keeps an instance on root. A stopped instance is left
       stopped and on root until an upgrade runs while it is running;
       `--dry-run` and the end of the upgrade name each such instance.
 
@@ -1051,8 +978,7 @@ commands:
       what would stop it from moving, and moves to the new major only if
       nothing does; otherwise it names each problem and stays where it is,
       with no instance moved. For the move to 5.x, which runs MediaWiki
-      1.47 on Docker Compose only, these stop it: a Kubernetes instance; the
-      Interwiki or Lingo extension enabled or loaded, which
+      1.47, these stop it: the Interwiki or Lingo extension enabled or loaded, which
       the 1.47 image does not ship; an enabled extension in `user-extensions`
       whose `requires.MediaWiki` excludes 1.47; and `php8.2` packages or
       `/etc/php/8.2` in `docker-compose.override.yml`, `config/sidecars.yaml`,
@@ -1074,8 +1000,7 @@ commands:
       Pass --purge to reclaim disk after the upgrade: each upgraded host has
       the Canasta images the upgrade superseded removed (never one an instance
       on that host is pinned to, running or stopped), dangling sidecar-rebuild
-      layers pruned, and — on Kubernetes — the in-cluster registry
-      garbage-collected. Volumes are never touched. `canasta image prune`
+      layers pruned. Volumes are never touched. `canasta image prune`
       runs the same reclaim on one host without upgrading anything.
     examples:
       - "canasta upgrade"
@@ -1129,12 +1054,6 @@ commands:
       whose database name is not valid, is a MariaDB system database, or
       is a database another wiki in the instance uses is reported and
       skipped.
-
-      A Kubernetes instance managed through gitops is not redeployed: Argo CD
-      deploys it from its gitops repo. Add creates the new wiki's database
-      and stages its configuration there, and you deploy it with `canasta
-      gitops push`, then `canasta gitops sync`. The web pods run update.php
-      for the new wiki when the sync restarts them.
     examples:
       - "canasta add -w docs -u localhost/docs"
     playbook: add.yml
@@ -1205,11 +1124,6 @@ commands:
     long_description: |
       Remove a wiki from a Canasta instance. Drops the wiki database
       and removes per-wiki configuration.
-
-      A Kubernetes instance managed through gitops is not redeployed: Argo CD
-      deploys it from its gitops repo. Remove drops the wiki's database and
-      stages the configuration change there, and you deploy it with `canasta
-      gitops push`, then `canasta gitops sync`.
     examples:
       - "canasta remove -w docs -y"
     playbook: remove.yml
@@ -1365,11 +1279,6 @@ commands:
       Change one or more configuration values in the instance .env file.
       Handles side effects automatically (e.g. updating wikis.yaml when
       changing HTTPS_PORT).
-
-      A Kubernetes instance managed through gitops is not restarted: Argo
-      CD deploys it from its gitops repo. Config set saves the change for
-      that repo, and you deploy it with `canasta gitops push`, then
-      `canasta gitops sync`.
     examples:
       - "canasta config set MW_SITE_SERVER=https://example.com"
       - "canasta config set --web MW_MAP_DOMAIN_TO_DOCKER_GATEWAY=false"
@@ -1401,12 +1310,10 @@ commands:
         description: >-
           Store opaque app secrets such as a sidecar credential or a
           Settings.php API key, bypassing .env validation and side effects.
-          On Compose the value goes in .env, where a sidecar's env can
-          reference it as ${KEY}, and the key name is recorded in
-          config/secret-keys; on a gitops instance it is also stored in the
-          encrypted host vars. On Kubernetes it goes in the gitignored
-          config/secrets.env, which feeds a per-instance Secret consumed by
-          sidecars via secretKeyRef. Recognized configuration keys are
+          The value goes in .env, where a sidecar's env can reference it as
+          ${KEY}, and the key name is recorded in config/secret-keys; on a
+          gitops instance it is also stored in the encrypted host vars.
+          Recognized configuration keys are
           rejected; set them without --secret.
       - name: web
         type: bool
@@ -1417,15 +1324,11 @@ commands:
           reads with getenv() that Canasta does not pass on its own.
           Without --secret the value is a plain setting: it is stored in
           .env (and env.template on a gitops instance), shown by 'config
-          get', and the key is listed in config/env-keys-web; on Compose it
-          reaches the container through the generated
-          docker-compose.web-env.yml, on Kubernetes through the web pods'
-          env ConfigMap. Unrecognized keys are accepted without --force;
-          recognized keys and keys named like credentials are refused.
-          With --secret, on Compose the key is listed in
-          config/secret-keys-web and passed the same way; on Kubernetes it
-          is listed in config/secrets-web and exposed to the web pods via
-          secretKeyRef.
+          get', and the key is listed in config/env-keys-web; it reaches the
+          container through the generated docker-compose.web-env.yml.
+          Unrecognized keys are accepted without --force; recognized keys
+          and keys named like credentials are refused. With --secret, the
+          key is listed in config/secret-keys-web and passed the same way.
 
   - name: config_refresh_template
     description: "List, diff, or adopt template versions of seeded config files"
@@ -1485,16 +1388,9 @@ commands:
       to the web container. The instance is then
       restarted unless `--no-restart` is specified.
 
-      A Kubernetes instance managed through gitops is not restarted: Argo
-      CD deploys it from its gitops repo. Config unset saves the change
-      for that repo, and you deploy it with `canasta gitops push`, then
-      `canasta gitops sync`.
-
       With `--secret`, the keys set with `config set --secret` are
-      removed, along with any `--web` exposure: on Compose from `.env`
-      (and the gitops vars), `config/secret-keys`, and
-      `config/secret-keys-web`; on Kubernetes from the gitignored
-      `config/secrets.env` and `config/secrets-web`.
+      removed, along with any `--web` exposure: from `.env` (and the
+      gitops vars), `config/secret-keys`, and `config/secret-keys-web`.
     examples:
       - "canasta config unset MW_SITE_SERVER"
       - "canasta config unset MY_SIDECAR_TOKEN --secret"
@@ -1559,12 +1455,6 @@ commands:
       required database changes. Use `--skip-update` to skip this
       step.
 
-      A Kubernetes instance managed through gitops is not redeployed: Argo
-      CD deploys it from its gitops repo. Enable saves the change there, and
-      you deploy it with `canasta gitops push`, then `canasta gitops
-      sync`. The web pods run `update.php` for the affected wikis when
-      the sync restarts them, even with `--skip-update`.
-
       An extension whose extension.json requires an extension or skin that is not
       enabled is refused, naming what is missing; enable it first or name
       it in the same command. Only what `canasta extension enable` and
@@ -1601,11 +1491,6 @@ commands:
       extensions can be specified as a comma-separated list. Use
       the `--wiki` flag to disable an extension for a specific wiki
       only.
-
-      A Kubernetes instance managed through gitops is not redeployed: Argo
-      CD deploys it from its gitops repo. Disable saves the change there, and
-      you deploy it with `canasta gitops push`, then `canasta gitops
-      sync`.
 
       An extension that another extension or skin enabled with `canasta
       extension enable` or `canasta skin enable` requires is refused,
@@ -1654,10 +1539,6 @@ commands:
       - "canasta extension remove MyExtension"
       - "canasta extension remove MyExtension,OtherExtension"
     playbook: extension_remove.yml
-    orchestrators: [compose]
-    orchestrators_note: >-
-      This includes gitops instances; Kubernetes user extensions and skins
-      live in a PVC and are not managed this way.
     parameters:
       - name: id
         short: i
@@ -1693,10 +1574,6 @@ commands:
       - "canasta skin remove Mirage"
       - "canasta skin remove Mirage,Cosmos"
     playbook: skin_remove.yml
-    orchestrators: [compose]
-    orchestrators_note: >-
-      This includes gitops instances; Kubernetes user extensions and skins
-      live in a PVC and are not managed this way.
     parameters:
       - name: id
         short: i
@@ -1802,9 +1679,6 @@ commands:
       enabled automatically (write settings + run update.php); use
       `--skip-enable` to add the code only.
 
-      Requires a Compose (including gitops) instance; Kubernetes is not
-      supported.
-
       Enabling refuses an extension whose extension.json requires an extension or
       skin that is not enabled, and is rolled back if `update.php` fails;
       the code stays added.
@@ -1815,10 +1689,6 @@ commands:
       - "canasta extension add MyExtension --repository https://example.org/MyExtension.git --branch main"
       - "canasta extension add SemanticMediaWiki --override --branch 7.2.1"
     playbook: extension_add.yml
-    orchestrators: [compose]
-    orchestrators_note: >-
-      This includes gitops instances; Kubernetes user extensions and skins
-      live in a PVC and are not managed this way.
     parameters:
       - name: id
         short: i
@@ -1892,12 +1762,6 @@ commands:
       required database changes. Use `--skip-update` to skip this
       step.
 
-      A Kubernetes instance managed through gitops is not redeployed: Argo
-      CD deploys it from its gitops repo. Enable saves the change there, and
-      you deploy it with `canasta gitops push`, then `canasta gitops
-      sync`. The web pods run `update.php` for the affected wikis when
-      the sync restarts them, even with `--skip-update`.
-
       A skin whose skin.json requires an extension or skin that is not
       enabled is refused, naming what is missing; enable it first or name
       it in the same command. Only what `canasta extension enable` and
@@ -1933,11 +1797,6 @@ commands:
       Disable one or more Canasta skins by name. Multiple skins can
       be specified as a comma-separated list. Use the `--wiki` flag
       to disable a skin for a specific wiki only.
-
-      A Kubernetes instance managed through gitops is not redeployed: Argo
-      CD deploys it from its gitops repo. Disable saves the change there, and
-      you deploy it with `canasta gitops push`, then `canasta gitops
-      sync`.
 
       A skin that another extension or skin enabled with `canasta
       extension enable` or `canasta skin enable` requires is refused,
@@ -2013,9 +1872,6 @@ commands:
       automatically (write settings + run update.php); use `--skip-enable` to
       add the code only.
 
-      Requires a Compose (including gitops) instance; Kubernetes is not
-      supported.
-
       Enabling refuses a skin whose skin.json requires an extension or
       skin that is not enabled, and is rolled back if `update.php` fails;
       the code stays added.
@@ -2024,10 +1880,6 @@ commands:
       - "canasta skin add Mirage --clone"
       - "canasta skin add Mirage --clone --mw-version 1.43.2"
     playbook: skin_add.yml
-    orchestrators: [compose]
-    orchestrators_note: >-
-      This includes gitops instances; Kubernetes user extensions and skins
-      live in a PVC and are not managed this way.
     parameters:
       - name: id
         short: i
@@ -2178,8 +2030,8 @@ commands:
 
       Use --stdin-file to feed a file to the command's standard input — for
       example, piping wikitext to `maintenance/run.php edit <page>`. The
-      file is read on the controller, so it works for local, remote, and
-      Kubernetes targets alike. Content is read as text (UTF-8).
+      file is read on the controller, so it works for local and remote
+      targets alike. Content is read as text (UTF-8).
 
       On a wiki farm, a MediaWiki command run without --wiki uses the
       first wiki listed in config/wikis.yaml. Pass --wiki=<id> in the
@@ -2414,11 +2266,8 @@ commands:
       Restart the CrowdSec engine to apply pending changes without
       restarting the whole instance. Use it after accepting a console
       enrollment or after editing `config/crowdsec/whitelists.yaml`.
-      Only the engine restarts (on Kubernetes, the local API's own pod),
-      so the Caddy bouncer keeps enforcing its cached decisions
-      throughout. On Kubernetes, reload first deploys the instance's
-      current config files, so any other pending config edits are applied
-      too. Note that community and console blocklists arrive on
+      Only the engine restarts, so the Caddy bouncer keeps enforcing its
+      cached decisions throughout. Note that community and console blocklists arrive on
       CrowdSec's own pull cycle (about every 2 hours), which a restart does
       not force.
 
@@ -2595,14 +2444,10 @@ commands:
     description: "Enable development mode"
     long_description: |
       Enable development mode on a Canasta instance. Extracts MediaWiki code
-      for live editing and builds an Xdebug-enabled image. Docker Compose only.
+      for live editing and builds an Xdebug-enabled image.
     examples:
       - "canasta devmode enable"
     playbook: devmode_enable.yml
-    orchestrators: [compose]
-    orchestrators_note: >-
-      Xdebug enablement requires a custom image build and values.yaml
-      configuration.
     parameters:
       - name: id
         short: i
@@ -2617,7 +2462,6 @@ commands:
     examples:
       - "canasta devmode disable"
     playbook: devmode_disable.yml
-    orchestrators: [compose]
     parameters:
       - name: id
         short: i
@@ -2754,7 +2598,7 @@ commands:
       lacks, and the command exits non-zero naming each failed database
       and its error. A scheduled backup's purge therefore does not run.
 
-      On Docker Compose, each wiki's dump may run for 240 minutes. A
+      Each wiki's dump may run for 240 minutes. A
       dump still running then is stopped and the backup fails. Set
       `CANASTA_BACKUP_TIMEOUT` in `.env` to allow a different number of
       minutes.
@@ -2794,7 +2638,7 @@ commands:
       databases as they are. `-s latest` skips `INCOMPLETE` snapshots
       unless `--allow-incomplete` is given.
 
-      On Docker Compose, each wiki's database import may run for
+      Each wiki's database import may run for
       `CANASTA_BACKUP_TIMEOUT` minutes (240 by default), read from the
       `.env` in place when the import starts. A full restore has already
       replaced `.env` with the snapshot's by then.
@@ -2980,11 +2824,10 @@ commands:
       `minute hour day-of-month month day-of-week`.
 
       This writes a crontab entry on the host where the instance runs
-      (the instance's host for Compose, the control-plane node for
-      Kubernetes) that runs `canasta backup create -i <id> --tag
-      scheduled` on the schedule; output goes to `backup.log` in the
-      instance directory. `canasta` must be installed on that host — on a
-      remote or Kubernetes instance, set it up first with
+      that runs `canasta backup create -i <id> --tag scheduled` on the
+      schedule; output goes to `backup.log` in the instance directory.
+      `canasta` must be installed on that host — on a remote instance,
+      set it up first with
       `canasta install canasta -H <host>`.
 
       Give any of the retention flags to chain `canasta backup purge`
@@ -3045,8 +2888,7 @@ commands:
       Show the current backup schedule for this instance, if one
       exists.
 
-      Reads the crontab on the host where the instance runs (the
-      control-plane node for Kubernetes) and parses the
+      Reads the crontab on the host where the instance runs and parses the
       `canasta backup create -i <id>` entry, reporting the schedule
       expression and the retention policy of the purge chained after it,
       if any. "No backup schedule found" means no entry exists for this
@@ -3064,8 +2906,7 @@ commands:
     description: "Remove a scheduled backup"
     long_description: |
       Remove the recurring backup schedule for this instance — deletes
-      the crontab entry on the host where the instance runs (the
-      control-plane node for Kubernetes) and clears
+      the crontab entry on the host where the instance runs and clears
       `config/backup-schedule.yml` so it isn't re-materialized on
       restore. A backup already running when the schedule is removed
       finishes naturally — only future firings stop.
@@ -3099,10 +2940,8 @@ commands:
       stored in `config/wikis.yaml` and takes effect on the next backup —
       no restart.
 
-      MediaWiki's own database account gets access to the database at once
-      on Compose. On Kubernetes it gets it when the instance next restarts,
-      or, on a gitops-managed instance, when the change is pushed and
-      synced.
+      MediaWiki's own database account gets access to the database at
+      once.
     examples:
       - "canasta backup databases add mywiki_cargo"
       - "canasta backup databases add -w mywiki mywiki_cargo"
@@ -3132,9 +2971,8 @@ commands:
       database they captured, so a restore from one of them still brings
       it back.
 
-      MediaWiki's own database account loses access to the database at once
-      on Compose, and on Kubernetes when the instance next restarts or, on
-      a gitops-managed instance, when the change is pushed and synced.
+      MediaWiki's own database account loses access to the database at
+      once.
     examples:
       - "canasta backup databases remove mywiki_cargo"
     playbook: backup_databases_remove.yml
@@ -3182,11 +3020,8 @@ commands:
       Bootstrap git-based configuration management. Converts extensions
       and skins to submodules and pushes to a remote repository.
 
-      On Compose, per-host vars.yaml is encrypted with git-crypt so
-      secrets stay out of the repo at rest. On Kubernetes, secrets
-      live in K8s Secrets (created by `canasta create`) rather than
-      in the gitops repo, so the K8s repo is cleartext and Argo CD
-      can read rendered-values.yaml directly.
+      Per-host vars.yaml is encrypted with git-crypt so secrets stay out
+      of the repo at rest.
     examples:
       - "canasta gitops init -n prod --repo git@github.com:org/config.git --key /tmp/gc.key"
     playbook: gitops_init.yml
@@ -3209,25 +3044,18 @@ commands:
       - name: repo
         type: string
         required: true
-        description: >-
-          Git repository URL. On Kubernetes it must be an SSH URL
-          (user@host:path or ssh://user@host/path), since Argo CD clones it
-          over SSH from inside the cluster.
+        description: "Git repository URL"
       - name: key
         type: path
         required_unless: git_crypt_gpg_user
         description: >-
-          A path on the controller (the machine running canasta). On Compose,
-          the path that receives the git-crypt symmetric key, which other
-          hosts use to unlock encrypted vars. Not used with
-          --git-crypt-gpg-user. On Kubernetes, the path basename for the
-          generated SSH deploy key, `<key>.ssh` (private) and `<key>.ssh.pub`
-          (public — register this as a deploy key on the forge), and for the
-          SOPS age key with --encrypt-secrets.
+          A path on the controller (the machine running canasta) that
+          receives the git-crypt symmetric key, which other hosts use to
+          unlock encrypted vars. Not used with --git-crypt-gpg-user.
       - name: git_crypt_gpg_user
         type: string
         description: >-
-          Compose only. GPG recipient (email or key id) to encrypt the
+          GPG recipient (email or key id) to encrypt the
           git-crypt key to, enabling GPG-based unlock instead of a shared
           symmetric key file. When set, gitops initializes git-crypt with
           `git-crypt add-gpg-user` and later `gitops pull`/`push` unlock via
@@ -3240,11 +3068,10 @@ commands:
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
           <ssh-key> ...". On a remote host, give an absolute path or one
-          starting with a quoted '~' (for example '~/x'). On Compose, the instance
+          starting with a quoted '~' (for example '~/x'). The instance
           remembers the path, and later gitops commands use it when --ssh-key
           is omitted; passing it again replaces it. Without a remembered key,
-          git uses ssh-agent forwarding on Compose, or the generated `<key>.ssh`
-          deploy key on Kubernetes.
+          git uses ssh-agent forwarding.
       - name: force
         short: f
         type: bool
@@ -3255,7 +3082,7 @@ commands:
         default: false
         description: >-
           Wipe local gitops state (.git, .gitops-host, env.template,
-          wikis.yaml.template, hosts/, plus K8s chart files) before
+          wikis.yaml.template, hosts/) before
           starting. Use after a previous init died mid-run, e.g.
           before the git push succeeded. Submodule structure is not
           fully restorable — extensions whose conversion finished
@@ -3264,32 +3091,12 @@ commands:
         type: bool
         default: false
         description: "Require pull requests instead of pushing to main"
-      - name: encrypt_secrets
-        type: bool
-        default: false
-        description: >-
-          Kubernetes only. Encrypt the instance's Secrets in git with
-          SOPS+age instead of leaving them out of version control. The
-          operator age key is generated on the controller (portable via
-          --key for DR); Argo CD's repo-server gains a helm-sops sidecar
-          that decrypts at render time. Requires sops on the target and
-          age on the controller ('canasta install sops'). No effect on
-          Compose, which already encrypts vars with git-crypt.
       - name: git_user_name
         type: string
         description: "Git user.name for commits in the instance's gitops repository, stored in that repository's git config"
       - name: git_user_email
         type: string
         description: "Git user.email for commits in the instance's gitops repository, stored in that repository's git config"
-      - name: non_interactive
-        type: bool
-        default: false
-        description: >-
-          Don't pause to prompt for registering the deploy key. The pause
-          is skipped automatically when the deploy key already works; this
-          flag additionally makes init fail fast (instead of hanging) when
-          the key is not yet authorized — for unattended/CI runs where the
-          key was pre-installed on the remote.
 
   - name: gitops_join
     description: "Join an existing gitops repository"
@@ -3298,15 +3105,14 @@ commands:
 
       Clones the repo, adds this host to the host inventory, extracts
       host-specific values into `vars.yaml`, and pushes the new host
-      entry back to the repo. On Compose this also unlocks git-crypt
-      so encrypted vars become readable; K8s repos are cleartext and
-      need no unlock step.
+      entry back to the repo. It also unlocks git-crypt so encrypted
+      vars become readable.
 
       The instance must already exist and have a working `.env`
       file. Use `canasta gitops init` to bootstrap a new gitops
       repository instead.
 
-      On Compose, each wiki's URL on this host is taken from the
+      Each wiki's URL on this host is taken from the
       instance, so when the repository holds a wiki farm, the instance
       must already have every wiki in it. Add any it lacks with
       `canasta add -w <id> -u <url>` before joining; otherwise join
@@ -3343,19 +3149,14 @@ commands:
       - name: repo
         type: string
         required: true
-        description: >-
-          Git repository URL. On Kubernetes it must be an SSH URL
-          (user@host:path or ssh://user@host/path), since Argo CD clones it
-          over SSH from inside the cluster.
+        description: "Git repository URL"
       - name: key
         type: path
         description: >-
-          A path on the controller (the machine running canasta). Compose: the
+          A path on the controller (the machine running canasta) to the
           git-crypt symmetric key file exported by `canasta gitops init`. It
           unlocks any git-crypt repo; it may be omitted for a repo with GPG
           recipients, which is then unlocked through a forwarded GPG agent.
-          Kubernetes: required, the basename of the SSH deploy key
-          (<key>.ssh).
       - name: ssh_key
         type: path
         path_kind: instance_host
@@ -3363,11 +3164,10 @@ commands:
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
           <ssh-key> ...". On a remote host, give an absolute path or one
-          starting with a quoted '~' (for example '~/x'). On Compose, the instance
+          starting with a quoted '~' (for example '~/x'). The instance
           remembers the path, and later gitops commands use it when --ssh-key
           is omitted; passing it again replaces it. Without a remembered key,
-          git uses ssh-agent forwarding on Compose, or the generated `<key>.ssh`
-          deploy key on Kubernetes.
+          git uses ssh-agent forwarding.
       - name: reinit
         type: bool
         default: false
@@ -3468,15 +3268,14 @@ commands:
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
           <ssh-key> ...". On a remote host, give an absolute path or one
-          starting with a quoted '~' (for example '~/x'). On Compose, the instance
+          starting with a quoted '~' (for example '~/x'). The instance
           remembers the path, and later gitops commands use it when --ssh-key
           is omitted; passing it again replaces it. Without a remembered key,
-          git uses ssh-agent forwarding on Compose, or the staged deploy key on
-          Kubernetes.
+          git uses ssh-agent forwarding.
       - name: key
         type: path
         description: >-
-          Compose only. Path on the controller (the machine running canasta)
+          Path on the controller (the machine running canasta)
           to the git-crypt symmetric key, used to unlock the checkout if it is
           locked. Without it, a repo with GPG recipients is unlocked through a
           forwarded GPG agent.
@@ -3485,8 +3284,8 @@ commands:
     description: "Remove a host from the gitops repository"
     long_description: |
       Remove a host from `hosts/hosts.yaml`, together with its own files
-      under `hosts/<host>/`: its `vars.yaml`, its recorded CLI version
-      and, on Kubernetes, its rendered values and encrypted Secrets.
+      under `hosts/<host>/`: its `vars.yaml` and its recorded CLI
+      version.
       Values every host shares stay in `hosts/_shared/`. Use it for a
       host that is retired; the host's own instance is not changed.
 
@@ -3519,15 +3318,14 @@ commands:
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
           <ssh-key> ...". On a remote host, give an absolute path or one
-          starting with a quoted '~' (for example '~/x'). On Compose, the instance
+          starting with a quoted '~' (for example '~/x'). The instance
           remembers the path, and later gitops commands use it when --ssh-key
           is omitted; passing it again replaces it. Without a remembered key,
-          git uses ssh-agent forwarding on Compose, or the staged deploy key on
-          Kubernetes.
+          git uses ssh-agent forwarding.
       - name: key
         type: path
         description: >-
-          Compose only. Path on the controller (the machine running canasta)
+          Path on the controller (the machine running canasta)
           to the git-crypt symmetric key, used to unlock the checkout if it is
           locked. Without it, a repo with GPG recipients is unlocked through a
           forwarded GPG agent.
@@ -3573,15 +3371,14 @@ commands:
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
           <ssh-key> ...". On a remote host, give an absolute path or one
-          starting with a quoted '~' (for example '~/x'). On Compose, the instance
+          starting with a quoted '~' (for example '~/x'). The instance
           remembers the path, and later gitops commands use it when --ssh-key
           is omitted; passing it again replaces it. Without a remembered key,
-          git uses ssh-agent forwarding on Compose, or the staged deploy key on
-          Kubernetes.
+          git uses ssh-agent forwarding.
       - name: key
         type: path
         description: >-
-          Compose only. Path on the controller (the machine running canasta)
+          Path on the controller (the machine running canasta)
           to the git-crypt symmetric key, used to unlock the checkout if it is
           locked. Without it, a repo with GPG recipients is unlocked through a
           forwarded GPG agent.
@@ -3620,15 +3417,14 @@ commands:
           Path on the instance's host to an SSH private key for git network
           operations. When set, git runs with GIT_SSH_COMMAND="ssh -i
           <ssh-key> ...". On a remote host, give an absolute path or one
-          starting with a quoted '~' (for example '~/x'). On Compose, the instance
+          starting with a quoted '~' (for example '~/x'). The instance
           remembers the path, and later gitops commands use it when --ssh-key
           is omitted; passing it again replaces it. Without a remembered key,
-          git uses ssh-agent forwarding on Compose, or the staged deploy key on
-          Kubernetes.
+          git uses ssh-agent forwarding.
       - name: key
         type: path
         description: >-
-          Compose only. Path on the controller (the machine running canasta)
+          Path on the controller (the machine running canasta)
           to the git-crypt symmetric key, used to unlock the checkout if it is
           locked. Without it, a repo with GPG recipients is unlocked through a
           forwarded GPG agent.
@@ -3693,13 +3489,12 @@ commands:
         path_kind: instance_host
         description: >-
           Path on the instance's host to an SSH private key for git network
-          operations. On Compose, the instance remembers the path for later
-          gitops commands. Without a remembered key, git uses ssh-agent
-          forwarding on Compose, or the staged deploy key on Kubernetes.
+          operations. The instance remembers the path for later gitops
+          commands. Without a remembered key, git uses ssh-agent forwarding.
       - name: key
         type: path
         description: >-
-          Compose only. Path on the controller (the machine running canasta)
+          Path on the controller (the machine running canasta)
           to the git-crypt symmetric key, used to unlock the checkout if it is
           locked.
 
@@ -3723,9 +3518,8 @@ commands:
           Path on the instance's host to an SSH private key for the remote
           fetch. When set, git runs with GIT_SSH_COMMAND="ssh -i <ssh-key>
           ...". On a remote host, give an absolute path or one starting with
-          '~'. When omitted, the key path a gitops command remembered for a
-          Compose instance is used, else ssh-agent forwarding on Compose, or the staged
-          deploy key on Kubernetes.
+          '~'. When omitted, the key path a gitops command remembered for the
+          instance is used, else ssh-agent forwarding.
 
   - name: gitops_diff
     description: "Show local and remote changes since the branches diverged"
@@ -3767,22 +3561,6 @@ commands:
     examples:
       - "canasta gitops fix-submodules"
     playbook: gitops_fix_submodules.yml
-    parameters:
-      - name: id
-        short: i
-        type: string
-        description: "Canasta instance ID"
-
-  - name: gitops_sync
-    description: "Trigger an immediate Argo CD sync (kubernetes only)"
-    long_description: |
-      Forces Argo CD to immediately reconcile the cluster state with the Git
-      repository, rather than waiting for the next automatic sync interval.
-      A stopped instance is left stopped; the pushed changes deploy when it
-      starts. On Docker Compose instances this command has no effect.
-    examples:
-      - "canasta gitops sync"
-    playbook: gitops_sync.yml
     parameters:
       - name: id
         short: i
@@ -3853,14 +3631,12 @@ commands:
     parameters: []
 
   - name: status
-    description: "Show pod/PVC/ingress/cert state for a single instance"
+    description: "Show container state for a single instance"
     long_description: |
-      Show runtime state for a single Canasta instance: containers /
-      pods, volumes, ingress / domain, and (on Kubernetes) the TLS
-      certificate. Replaces the orchestrator-native incantations the
-      multi-node walkthrough currently spells out (`kubectl get pods,
-      pvc,ingress,certificate -n canasta-<id>` on K8s; `docker
-      compose ps` on Compose).
+      Show runtime state for a single Canasta instance: its host, whether
+      it is RUNNING, STOPPED or PAUSED (naming the paused services), any
+      unfinished restore or gitops pull, and the `compose ps` listing of
+      its containers.
     examples:
       - "canasta status --id mysite"
       - "cd /path/to/instance && canasta status"
@@ -3877,9 +3653,8 @@ commands:
       Declare app sidecar(s) in `config/sidecars.yaml` from a YAML file of
       full definitions — a single sidecar mapping, a list, or a `sidecars:`
       list — then run `canasta restart` to deploy them. The file uses the
-      orchestrator-agnostic sidecar schema (name, image/build, ports, command,
-      env, envSecret, envPrivate, volumes, files, depends_on, healthcheck,
-      resources), so it renders identically on Compose and Kubernetes. Any
+      sidecar schema (name, image/build, ports, command, env, envPrivate,
+      volumes, files, depends_on, healthcheck, resources). Any
       other key is refused.
 
       To migrate an existing `docker-compose.override.yml`, use
@@ -3899,8 +3674,7 @@ commands:
         required: true
         description: >-
           Path on the controller (the machine running canasta) to a YAML file
-          of full sidecar definition(s) (the orchestrator-agnostic sidecar
-          schema)
+          of full sidecar definition(s) (the sidecar schema)
 
   - name: sidecar_list
     description: "List app sidecars declared for a Canasta instance"
@@ -3941,9 +3715,8 @@ commands:
     description: "Migrate docker-compose.override.yml sidecars to config/sidecars.yaml"
     long_description: |
       Translate sidecar services in an instance's `docker-compose.override.yml`
-      into `config/sidecars.yaml` (the orchestrator-agnostic schema) and remove
-      them from the override, so they gain Kubernetes support and managed
-      lifecycle. Core-stack overrides (web/db/caddy/...) and any service that
+      into `config/sidecars.yaml` (the sidecar schema) and remove them
+      from the override, so they gain a managed lifecycle. Core-stack overrides (web/db/caddy/...) and any service that
       can't be fully modelled are left in the override and reported. Run
       `canasta restart` afterward to deploy the migrated sidecars.
     examples:
@@ -4029,8 +3802,7 @@ commands:
       `canasta create --build-from`, replacing any value already recorded
       for the same key, then rebuild the instance's image with them and
       restart the instance onto it. The rebuild runs on the instance's
-      host, from the source directory recorded at create; on Kubernetes
-      the image is pushed to the in-cluster registry as on upgrade.
+      host, from the source directory recorded at create.
 
       The image is rebuilt before the new arguments are recorded, so a
       failed build leaves both the recorded arguments and the running

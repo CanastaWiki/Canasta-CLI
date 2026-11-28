@@ -44,22 +44,22 @@ class TestExampleChecks:
              "description": "Chatter"},
             {"name": "packages", "type": "string", "description": "Packages",
              "positional": True, "multi": True,
-             "choices": ["docker", "sops", "canasta"]},
+             "choices": ["docker", "git-crypt", "canasta"]},
         ],
     }
-    CREATE = {
-        "name": "create",
-        "description": "Create an instance",
-        "playbook": "create.yml",
+    INIT = {
+        "name": "init",
+        "description": "Initialize gitops",
+        "playbook": "gitops_init.yml",
         "parameters": [
             {"name": "id", "type": "string", "short": "i", "description": "ID"},
-            {"name": "orchestrator", "type": "choice",
-             "choices": ["compose", "k8s"], "description": "Orchestrator"},
+            {"name": "role", "type": "choice",
+             "choices": ["source", "sink", "both"], "description": "Role"},
         ],
     }
 
     def _defs(self):
-        return {"commands": [self.INSTALL, self.CREATE], "command_groups": [],
+        return {"commands": [self.INSTALL, self.INIT], "command_groups": [],
                 "global_flags": [{"name": "verbose", "short": "v",
                                   "type": "bool", "description": "Verbose"}]}
 
@@ -81,11 +81,11 @@ class TestExampleChecks:
         assert len(errors) == 1 and "'podman'" in errors[0]
 
     def test_choice_flag_outside_choices_is_rejected(self):
-        errors = self._check(self.CREATE, "canasta create -i x --orchestrator nomad")
-        assert errors and "--orchestrator: 'nomad' is not one of" in errors[0]
+        errors = self._check(self.INIT, "canasta init -i x --role mirror")
+        assert errors and "--role: 'mirror' is not one of" in errors[0]
 
     def test_choice_flag_accepts_inline_value_form(self):
-        assert self._check(self.CREATE, "canasta create --orchestrator=k8s") == []
+        assert self._check(self.INIT, "canasta init --role=sink") == []
 
     def test_flag_value_is_not_mistaken_for_a_positional(self):
         # -H takes a value; 'prod1' must not be checked against packages.
@@ -108,8 +108,8 @@ class TestExampleChecks:
         assert errors and errors[0].startswith("unknown command:")
 
     def test_example_listed_under_the_wrong_command_is_reported(self):
-        assert self._check(self.INSTALL, "canasta create -i x") == [
-            "invokes 'create'"
+        assert self._check(self.INSTALL, "canasta init -i x") == [
+            "invokes 'init'"
         ]
 
     def test_placeholder_values_are_not_checked(self):
@@ -209,9 +209,8 @@ class TestDispatchChecks:
         assert validate_definitions.check_dispatch({}, param, path) == []
 
     def test_a_playbook_without_the_idiom_is_not_checked(self, tmp_dir):
-        # create --orchestrator and gitops init --role consume their
-        # value rather than branching on it; demanding a branch per
-        # choice would be a false positive.
+        # gitops init --role consumes its value rather than branching on
+        # it; demanding a branch per choice would be a false positive.
         path = self._write(tmp_dir, "---\n- name: Noop\n  ansible.builtin.debug:\n"
                                     "    msg: hi\n")
         param = {"name": "packages", "choices": ["one"]}
@@ -234,7 +233,7 @@ class TestDispatchChecks:
 
     def test_install_choices_and_branches_agree(self):
         param = {"name": "packages",
-                 "choices": ["docker", "git-crypt", "sops", "podman",
+                 "choices": ["docker", "git-crypt", "podman",
                              "docker-rootless", "canasta", "uv"]}
         assert validate_definitions.check_dispatch(
             {}, param, self._playbook("install.yml")) == []
@@ -602,32 +601,3 @@ class TestAliasChecks:
         cmd = {"parameters": [
             {"name": "apply", "type": "bool", "aliases": ["yes"]}]}
         assert validate_definitions.check_aliases(cmd, cmd["parameters"][0])
-
-
-class TestOrchestratorsChecks:
-    _ID = [{"name": "id", "type": "string", "description": "x"}]
-
-    def test_valid(self):
-        cmd = {"orchestrators": ["compose"], "orchestrators_note": "Why.",
-               "parameters": self._ID}
-        assert validate_definitions.check_orchestrators(cmd) == []
-
-    def test_absent_is_fine(self):
-        assert validate_definitions.check_orchestrators(
-            {"parameters": []}) == []
-
-    def test_unknown_orchestrator_rejected(self):
-        cmd = {"orchestrators": ["k8s"], "parameters": self._ID}
-        assert validate_definitions.check_orchestrators(cmd)
-
-    def test_empty_list_rejected(self):
-        cmd = {"orchestrators": [], "parameters": self._ID}
-        assert validate_definitions.check_orchestrators(cmd)
-
-    def test_note_without_orchestrators_rejected(self):
-        cmd = {"orchestrators_note": "Why.", "parameters": self._ID}
-        assert validate_definitions.check_orchestrators(cmd)
-
-    def test_needs_an_instance(self):
-        cmd = {"orchestrators": ["compose"], "parameters": []}
-        assert validate_definitions.check_orchestrators(cmd)

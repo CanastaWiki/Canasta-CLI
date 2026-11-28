@@ -50,10 +50,7 @@ from direct_commands._helpers import (  # noqa: E402
     _install_repair_commands,
     _is_k8s,
     _is_local_target,
-    _k8s_first_live_pod,
     _read_env,
-    K8S_POD_JSONPATH,
-    K8S_POD_PICK_SHELL,
     _resolve_compose_cmd,
 )
 
@@ -127,7 +124,7 @@ SUBCOMMAND_GROUPS = {
     ],
     "gitops": [
         "init", "join", "add", "rm", "push", "pull", "resolve",
-        "status", "diff", "fix-submodules", "sync", "set-role",
+        "status", "diff", "fix-submodules", "set-role",
         "remove-host",
     ],
     "host": ["add", "remove", "list"],
@@ -167,12 +164,11 @@ def _hostname_hint(value):
 # hint_fn(value) returns extra, value-specific guidance to append.
 #
 # Validation runs after argparse but before any Ansible invocation, so
-# bad values fail in milliseconds instead of after Argo CD/helm/image
-# pull steps have already done work.
+# bad values fail in milliseconds instead of after image pulls and other
+# steps have already done work.
 _VALIDATORS = {
-    # RFC 1123 subdomain. Same regex k8s uses to validate
-    # Ingress.spec.rules[].host. Lowercase letters/digits, '-' and '.'
-    # only; each label starts and ends with an alphanumeric character.
+    # RFC 1123 subdomain: lowercase letters/digits, '-' and '.' only;
+    # each label starts and ends with an alphanumeric character.
     "hostname": (
         re.compile(
             r"^[a-z0-9]([-a-z0-9]*[a-z0-9])?"
@@ -209,7 +205,7 @@ _VALIDATORS = {
 # Parameter validation runs at two layers by design. These functions are
 # the CLI's fast-fail half: they run after argparse but before any Ansible
 # work, so a typo (comma-vs-period domain, a missing required_unless
-# partner) fails in milliseconds instead of after Argo CD/helm/image-pull
+# partner) fails in milliseconds instead of after image pulls and other
 # steps have already done work. The playbook re-validates the same
 # command_definitions.yml metadata in roles/common/tasks/validate_params.yml
 # so values that bypass the CLI (CANASTA_FORCE_ANSIBLE, a raw
@@ -230,28 +226,6 @@ def _validate_required_unless(cmd_def, get_value):
                 1,
                 "Error: --%s is required unless --%s is provided"
                 % (param["name"].replace("_", "-"), ru.replace("_", "-")),
-            ))
-    return errors
-
-
-def _validate_orchestrator_only(cmd_def, get_value):
-    """Flag params restricted to one orchestrator when another is selected."""
-    errors = []
-    orchestrator = get_value("orchestrator")
-    if not orchestrator:
-        return errors
-    for param in cmd_def.get("parameters", []):
-        orch_only = param.get("orchestrator_only")
-        if not orch_only:
-            continue
-        value = get_value(param["name"])
-        if value is None or value == param.get("default"):
-            continue
-        if orchestrator != orch_only:
-            errors.append((
-                1,
-                "Error: --%s can only be used with --orchestrator %s"
-                % (param["name"].replace("_", "-"), orch_only),
             ))
     return errors
 
@@ -338,15 +312,13 @@ def collect_cli_param_errors(cmd_def, args):
     """Run the CLI-layer parameter validations and return a list of
     (exit_code, message) tuples, in evaluation order. Empty when valid.
 
-    `args` is the parsed argparse Namespace; orchestrator-alias
-    normalization (k8s -> kubernetes) is expected to have run already.
+    `args` is the parsed argparse Namespace.
     """
     def get_value(name):
         return getattr(args, name, None)
 
     return (
         _validate_required_unless(cmd_def, get_value)
-        + _validate_orchestrator_only(cmd_def, get_value)
         + _validate_mutual_exclusion(cmd_def, get_value)
         + _validate_named_validators(cmd_def, get_value)
     )
@@ -698,8 +670,7 @@ def _self_update_refresh_deps(repo, umask=-1):
     # Refresh Python and Ansible deps in case requirements.txt or
     # requirements.yml was bumped in the pull. Without this, dep pins
     # added to the new code don't actually land — operators see new
-    # code with stale collections (Helm 4 / kubernetes.core 6.4 was
-    # the last instance) and hit cryptic playbook errors.
+    # code with stale collections and hit cryptic playbook errors.
     def _refresh_deps(label, cmd, timeout):
         try:
             subprocess.run(cmd, check=True, timeout=timeout, umask=umask)
@@ -1268,58 +1239,6 @@ def resolve_instance(instance_id=None, required=True):
     return _unresolved("Error: no instance found for current directory")
 
 
-ORCHESTRATOR_LABELS = {"compose": "Compose", "kubernetes": "Kubernetes"}
-
-
-def command_display_name(command_name):
-    """'extension_add' -> 'extension add', 'config_refresh_template' ->
-    'config refresh-template'."""
-    group, _, rest = command_name.partition("_")
-    if rest and group in SUBCOMMAND_GROUPS:
-        return "%s %s" % (group, display_name(rest))
-    return display_name(command_name)
-
-
-def orchestrator_refusal(cmd_def, command_name, orchestrator):
-    """The refusal for running a command on an instance of `orchestrator`.
-
-    None when the command declares no `orchestrators:` restriction or the
-    orchestrator is one it supports.
-    """
-    allowed = cmd_def.get("orchestrators")
-    if not allowed:
-        return None
-    orchestrator = canasta_config.normalize_orchestrator(orchestrator) or "compose"
-    if orchestrator in allowed:
-        return None
-    message = "Error: 'canasta %s' is only supported on %s instances." % (
-        command_display_name(command_name),
-        " and ".join(ORCHESTRATOR_LABELS.get(o, o) for o in allowed),
-    )
-    note = (cmd_def.get("orchestrators_note") or "").strip()
-    if note:
-        message += " " + " ".join(note.split())
-    return message
-
-
-def check_command_orchestrator(cmd_def, command_name, args):
-    """Refuse a command on an instance whose orchestrator it does not support.
-
-    Runs before both the direct path and the Ansible path. An instance
-    that does not resolve is left to the command to report.
-    """
-    if not cmd_def.get("orchestrators"):
-        return
-    inst = resolve_instance(getattr(args, "id", None), required=False)
-    if not inst:
-        return
-    message = orchestrator_refusal(
-        cmd_def, command_name, inst.get("orchestrator"))
-    if message:
-        print(message, file=sys.stderr)
-        sys.exit(1)
-
-
 # Commands that change an instance wholesale or start and stop it. Each holds
 # an exclusive per-instance lock for its whole run, so two of them never
 # interleave on one instance.
@@ -1392,10 +1311,7 @@ ACROSS_INSTANCES_COMMANDS = {"upgrade"}
 
 
 def uses_kubernetes(command_name, cmd_def, args):
-    """Whether this run sets up, or acts on, Kubernetes."""
-    if command_name == "create":
-        return canasta_config.is_k8s_orchestrator(
-            getattr(args, "orchestrator", None))
+    """Whether this run acts on a Kubernetes instance a 4.x CLI created."""
     if any(p.get("name") == "id" for p in cmd_def.get("parameters", [])):
         inst = resolve_instance(getattr(args, "id", None), required=False)
         return bool(inst) and _is_k8s(inst)
@@ -1565,8 +1481,7 @@ def check_docker_mode_can_reach_runtime(args):
 
     blocked = sorted(
         k for k, v in candidates.items()
-        if not _is_k8s(v)
-        and v.get("host") in ("localhost", "", None)
+        if v.get("host") in ("localhost", "", None)
         and _runs_under_podman(v)
     )
     if not blocked:
@@ -1594,8 +1509,8 @@ def check_docker_mode_can_reach_runtime(args):
 def check_docker_mode_install_target(args):
     """Refuse a *local* `canasta install` under the Docker-mode CLI.
 
-    `canasta install` provisions host-level software (k3s as a systemd
-    unit, the docker engine package, etc.), which the canasta-ansible
+    `canasta install` provisions host-level software (the docker engine
+    package, podman, etc.), which the canasta-ansible
     container cannot do: it has no systemd and no privilege over the
     host package manager. A *remote* install is fine — the playbook runs
     over SSH on the target named by -H/--host, or resolved from -i/--id
@@ -1681,17 +1596,15 @@ def _refuse_local_docker_install():
     print(
         "Error: 'canasta install' is not supported in canasta-docker mode.\n"
         "\n"
-        "These commands install system packages on the host (k3s as a "
-        "systemd unit, docker engine, etc.) which can't run from inside a "
-        "container.\n"
+        "These commands install system packages on the host (docker "
+        "engine, podman, etc.) which can't run from inside a container.\n"
         "\n"
         "Either:\n"
         "  - Use canasta-native:\n"
         "      curl -fsSL https://get.canasta.wiki | bash -s -- --native\n"
-        "  - Or install the dependency manually on the host (e.g.\n"
-        "      curl -sfL https://get.k3s.io | sh -\n"
-        "    for k3s) and use canasta-docker for the rest of the workflow\n"
-        "    (create, start, backup, restore, etc.).\n"
+        "  - Or install the dependency manually on the host and use\n"
+        "    canasta-docker for the rest of the workflow (create, start,\n"
+        "    backup, restore, etc.).\n"
         "\n"
         "Or install on a remote host with:\n"
         "      canasta install <package> -i <instance-id>\n"
@@ -1707,7 +1620,7 @@ def _redirect_stdin_from_file(path):
     stdin. Used by `maintenance exec --stdin-file`. No-op when path is unset.
 
     This runs in the direct-exec path (handle_interactive_exec os.execvp's
-    docker/kubectl/ssh, replacing this process), so there is no shell to do
+    docker/ssh, replacing this process), so there is no shell to do
     a `< file` redirect — we dup the file onto stdin ourselves.
     """
     if not path:
@@ -1725,7 +1638,7 @@ def _redirect_stdin_from_file(path):
 
 
 def handle_interactive_exec(args):
-    """Handle maintenance exec by running docker/kubectl exec directly.
+    """Handle maintenance exec by running docker compose exec directly.
 
     Dispatch rules:
       - No -s, no command  -> list services (fall through to Ansible)
@@ -1766,139 +1679,61 @@ def handle_interactive_exec(args):
                    "if command -v bash >/dev/null 2>&1; then exec bash; "
                    "else exec sh; fi"]
 
-    if _is_k8s(inst):
-        ns = "canasta-%s" % inst["id"]
-        # With --stdin-file the exec is non-interactive: keep stdin open
-        # (-i) but drop the TTY (-t), which would otherwise mangle a piped
-        # payload. Without it, preserve the interactive -it behavior.
-        stdin_file = getattr(args, "stdin_file", None)
-        tty_flags = "-i" if stdin_file else "-it"
-        host = inst.get("host", "localhost")
-        if host and host != "localhost":
-            # kubectl and the cluster live on the instance's host, not the
-            # controller — run the pod lookup and the exec there via ssh,
-            # mirroring the Compose branch below. ssh forwards our stdin,
-            # so a --stdin-file payload flows through to `kubectl exec -i`.
-            import shlex
-            lookup = (
-                "kubectl get pods -n %s "
-                "-l app.kubernetes.io/component=%s "
-                "--field-selector=status.phase=Running "
-                "-o '%s' | %s"
-                % (shlex.quote(ns), shlex.quote(service),
-                   K8S_POD_JSONPATH, K8S_POD_PICK_SHELL)
-            )
-            remote_cmd = (
-                'pod="$(%s 2>/dev/null)"; '
-                'if [ -z "$pod" ]; then '
-                "echo \"Error: no running pod found for service '%s'\" >&2; "
-                "exit 1; fi; "
-                'exec kubectl exec %s "$pod" -n %s -c %s -- %s'
-                % (lookup, service, tty_flags, shlex.quote(ns),
-                   shlex.quote(service),
-                   " ".join(shlex.quote(a) for a in command))
-            )
-            try:
-                ssh_args = ["ssh", "-T" if stdin_file else "-t",
-                            "-o", "LogLevel=ERROR"]
-                # Include any custom SSH args (e.g. from ANSIBLE_SSH_ARGS)
-                extra_ssh = os.environ.get("ANSIBLE_SSH_ARGS", "")
-                if extra_ssh:
-                    ssh_args.extend(extra_ssh.split())
-                ssh_args.extend([host, remote_cmd])
-                _redirect_stdin_from_file(stdin_file)
-                os.execvp("ssh", ssh_args)
-            except FileNotFoundError:
-                print("Error: ssh not found on PATH", file=sys.stderr)
-                sys.exit(1)
-            return True  # unreachable: execvp replaced the process
-        # Find the pod for this service.
-        # Select only a Running pod that is not being deleted, matching
-        # roles/orchestrator/tasks/k8s_get_pod.yml. During a rollout, scale
-        # or crash loop the first pod can be Pending, Failed or draining, so
-        # the exec would target the wrong replica or fail outright.
-        result = subprocess.run(
-            [
-                "kubectl", "get", "pods", "-n", ns,
-                "-l", "app.kubernetes.io/component=%s" % service,
-                "--field-selector=status.phase=Running",
-                "-o", K8S_POD_JSONPATH,
-            ],
-            capture_output=True, text=True,
+    host = inst.get("host", "localhost")
+    # With --stdin-file the exec must be non-interactive so the piped
+    # payload reaches the command: `docker compose exec -T` (no TTY).
+    # Without it, omit -T to preserve the interactive shell behavior.
+    stdin_file = getattr(args, "stdin_file", None)
+    docker_cmd = (_resolve_compose_cmd(inst)
+                  + _compose_profile_args(inst) + ["exec"])
+    if stdin_file:
+        docker_cmd.append("-T")
+    docker_cmd += [service] + command
+    docker_host = inst.get("dockerHost")
+    if host and host != "localhost":
+        # Run via SSH on the remote host. ssh forwards our stdin to the
+        # remote command, so the --stdin-file payload (dup'd onto fd 0
+        # below) flows through to `docker compose exec -T`. Use -T (no
+        # remote TTY) when piping; -t for interactive sessions.
+        import shlex
+        remote_cmd = "cd %s && %s" % (
+            shlex.quote(inst["path"]),
+            " ".join(shlex.quote(a) for a in docker_cmd),
         )
-        pod = (_k8s_first_live_pod(result.stdout)
-               if result.returncode == 0 else None)
-        if not pod:
+        if docker_host:
+            remote_cmd = "export DOCKER_HOST=%s; %s" % (
+                shlex.quote(docker_host), remote_cmd)
+        try:
+            ssh_args = ["ssh", "-T" if stdin_file else "-t",
+                        "-o", "LogLevel=ERROR"]
+            # Include any custom SSH args (e.g. from ANSIBLE_SSH_ARGS)
+            extra_ssh = os.environ.get("ANSIBLE_SSH_ARGS", "")
+            if extra_ssh:
+                ssh_args.extend(extra_ssh.split())
+            ssh_args.extend([host, remote_cmd])
+            _redirect_stdin_from_file(stdin_file)
+            os.execvp("ssh", ssh_args)
+        except FileNotFoundError:
+            print("Error: ssh not found on PATH", file=sys.stderr)
+            sys.exit(1)
+    else:
+        try:
+            os.chdir(inst["path"])
+        except FileNotFoundError:
             print(
-                "Error: no running pod found for service '%s'" % service,
+                "Error: instance path '%s' not found" % inst["path"],
                 file=sys.stderr,
             )
             sys.exit(1)
-        exec_args = ["kubectl", "exec", tty_flags, pod, "-n", ns,
-                     "-c", service, "--"]
-        exec_args.extend(command)
-        _redirect_stdin_from_file(stdin_file)
+        if docker_host:
+            os.environ["DOCKER_HOST"] = docker_host
         try:
-            os.execvp("kubectl", exec_args)
+            _redirect_stdin_from_file(stdin_file)
+            os.execvp(docker_cmd[0], docker_cmd)
         except FileNotFoundError:
-            print("Error: kubectl not found on PATH", file=sys.stderr)
+            print("Error: %s not found on PATH" % docker_cmd[0],
+                  file=sys.stderr)
             sys.exit(1)
-    else:
-        host = inst.get("host", "localhost")
-        # With --stdin-file the exec must be non-interactive so the piped
-        # payload reaches the command: `docker compose exec -T` (no TTY).
-        # Without it, omit -T to preserve the interactive shell behavior.
-        stdin_file = getattr(args, "stdin_file", None)
-        docker_cmd = (_resolve_compose_cmd(inst)
-                      + _compose_profile_args(inst) + ["exec"])
-        if stdin_file:
-            docker_cmd.append("-T")
-        docker_cmd += [service] + command
-        docker_host = inst.get("dockerHost")
-        if host and host != "localhost":
-            # Run via SSH on the remote host. ssh forwards our stdin to the
-            # remote command, so the --stdin-file payload (dup'd onto fd 0
-            # below) flows through to `docker compose exec -T`. Use -T (no
-            # remote TTY) when piping; -t for interactive sessions.
-            import shlex
-            remote_cmd = "cd %s && %s" % (
-                shlex.quote(inst["path"]),
-                " ".join(shlex.quote(a) for a in docker_cmd),
-            )
-            if docker_host:
-                remote_cmd = "export DOCKER_HOST=%s; %s" % (
-                    shlex.quote(docker_host), remote_cmd)
-            try:
-                ssh_args = ["ssh", "-T" if stdin_file else "-t",
-                            "-o", "LogLevel=ERROR"]
-                # Include any custom SSH args (e.g. from ANSIBLE_SSH_ARGS)
-                extra_ssh = os.environ.get("ANSIBLE_SSH_ARGS", "")
-                if extra_ssh:
-                    ssh_args.extend(extra_ssh.split())
-                ssh_args.extend([host, remote_cmd])
-                _redirect_stdin_from_file(stdin_file)
-                os.execvp("ssh", ssh_args)
-            except FileNotFoundError:
-                print("Error: ssh not found on PATH", file=sys.stderr)
-                sys.exit(1)
-        else:
-            try:
-                os.chdir(inst["path"])
-            except FileNotFoundError:
-                print(
-                    "Error: instance path '%s' not found" % inst["path"],
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-            if docker_host:
-                os.environ["DOCKER_HOST"] = docker_host
-            try:
-                _redirect_stdin_from_file(stdin_file)
-                os.execvp(docker_cmd[0], docker_cmd)
-            except FileNotFoundError:
-                print("Error: %s not found on PATH" % docker_cmd[0],
-                      file=sys.stderr)
-                sys.exit(1)
 
 
 class CanastaArgumentParser(argparse.ArgumentParser):
@@ -1907,11 +1742,11 @@ class CanastaArgumentParser(argparse.ArgumentParser):
     to a valid option.
 
     Argparse's stock error for an unknown subcommand is, e.g.:
-        argument subcommand: invalid choice: 'up'
-        (choose from ui, password, apps)
+        argument subcommand: invalid choice: 'lst'
+        (choose from add, list, remove)
     Helpful but easy to miss. With this subclass:
-        argument subcommand: invalid choice: 'up'
-        (choose from ui, password, apps). Did you mean 'ui'?
+        argument subcommand: invalid choice: 'lst'
+        (choose from add, list, remove). Did you mean 'list'?
     """
 
     # Match argparse's "invalid choice" message. The argument name
@@ -2434,8 +2269,8 @@ def _export_connection_env():
         "-o StrictHostKeyChecking=accept-new "
         "-o UserKnownHostsFile=~/.ssh/known_hosts "
         "-o %s "
-        # Long-running remote commands (helm upgrade --wait, gitops
-        # init's git push, maintenance update) can outlast a NAT or
+        # Long-running remote commands (gitops init's git push,
+        # maintenance update) can outlast a NAT or
         # firewall idle timeout. ServerAliveInterval keeps the SSH
         # session warm so the parent doesn't see a "Broken pipe"
         # while the remote is still working.
@@ -2449,8 +2284,7 @@ def _export_connection_env():
 
     # Hand the platform-correct config dir to Ansible. get_config_dir()
     # picks the macOS / Linux / root location; without exporting it,
-    # YAML-side env lookups (e.g. roles/install/tasks/k3s_worker.yml)
-    # fall through to a Linux-only fallback and miss hosts.yml on
+    # YAML-side env lookups fall through to a Linux-only fallback and miss hosts.yml on
     # macOS. setdefault preserves any pre-set value (canasta-docker
     # sets it explicitly, and tests use it for isolation).
     os.environ.setdefault("CANASTA_CONFIG_DIR", get_config_dir())
@@ -2783,13 +2617,8 @@ def resolve_command_or_exit(parser, args, data):
 
 
 def validate_command_args(cmd_def, args):
-    """Normalize and validate the parsed arguments before dispatch."""
-    # Normalize orchestrator alias: k8s → kubernetes.
-    if getattr(args, "orchestrator", None) is not None:
-        args.orchestrator = canasta_config.normalize_orchestrator(
-            args.orchestrator)
-
-    # CLI-layer parameter validation (required_unless, orchestrator_only,
+    """Validate the parsed arguments before dispatch."""
+    # CLI-layer parameter validation (required_unless, mutual exclusion,
     # named regex validators). Runs before Ansible so typos fail in
     # milliseconds; the playbook re-validates the same metadata as a
     # backstop. Exit on the first error in evaluation order.
@@ -2932,9 +2761,8 @@ def main():
     # Before the direct-command dispatch, so both paths read these the same.
     apply_instance_host_paths(cmd_def, args)
 
-    check_command_orchestrator(cmd_def, command_name, args)
-    run_preflight_checks(command_name, args)
     refuse_kubernetes(command_name, cmd_def, args)
+    run_preflight_checks(command_name, args)
 
     lock_fd = acquire_instance_lock(command_name, args)
 

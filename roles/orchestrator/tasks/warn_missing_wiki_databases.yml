@@ -6,7 +6,6 @@
 # not databases. A server that cannot be reached, such as a stopped
 # instance's, skips the check rather than failing the caller.
 #
-# Compose only.
 # Input: instance_path, instance_id, compose_command
 
 - name: Read the databases the wikis declare

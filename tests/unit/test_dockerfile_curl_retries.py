@@ -20,8 +20,7 @@ DOCKERFILE = os.path.join(REPO_ROOT, "Dockerfile")
 def _curl_invocations():
     """The argument text of each curl call, one entry per call.
 
-    Flags are split across backslash continuations, and the kubectl step
-    nests a second `$(curl ...)` inside the first — so continuations are
+    Flags are split across backslash continuations, so continuations are
     joined and every `curl` on the resulting logical line is split out,
     rather than letting one match swallow the calls that follow it.
     """

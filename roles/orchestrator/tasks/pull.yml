@@ -1,6 +1,6 @@
 ---
 # Pull latest images for an instance.
-# Input: instance_path, instance_orchestrator
+# Input: instance_path
 # Output: _pull_changed (bool) — whether the Canasta image ID changed.
 
 - name: Read CANASTA_IMAGE from .env
@@ -9,7 +9,6 @@
     state: read
     key: CANASTA_IMAGE
   register: _pull_image_env
-  when: not (instance_is_k8s | bool)
 
 - name: Get image ID before pull
   ansible.builtin.command:
@@ -17,7 +16,6 @@
   register: _pre_pull_id
   changed_when: false
   ignore_errors: true
-  when: not (instance_is_k8s | bool)
 
 # Launched detached and polled (resilient_exec): an image pull can run for
 # minutes, and a controller-side SSH reset mid-pull would otherwise abort it.
@@ -50,14 +48,13 @@
       {{ '' if compose_command is search('podman')
          else '--ignore-buildable --ignore-pull-failures' }}
 
-- name: Pull images (Compose)
+- name: Pull images
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/resilient_exec.yml"
   vars:
     rx_name: "pull Compose images"
     rx_chdir: "{{ instance_path }}"
     rx_async: 1800
     rx_cmd: "{{ compose_command }} {{ _pull_profile_flags | default('') }} pull {{ _pull_compat_flags }}"
-  when: not (instance_is_k8s | bool)
 
 - name: Get image ID after pull
   ansible.builtin.command:
@@ -65,14 +62,9 @@
   register: _post_pull_id
   changed_when: false
   ignore_errors: true
-  when: not (instance_is_k8s | bool)
 
 - name: Detect image changes
   ansible.builtin.set_fact:
     _pull_changed: >-
       {{ (_pre_pull_id.stdout | default('')) !=
          (_post_pull_id.stdout | default('')) }}
-  when: not (instance_is_k8s | bool)
-
-# Kubernetes: image pulls happen automatically during helm upgrade.
-# No explicit pull needed.

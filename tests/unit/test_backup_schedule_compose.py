@@ -13,7 +13,7 @@ command accepts. A flag purge does not know kills the scheduled job at
 argument parsing, on every run, producing no output at all — the backup
 simply stops happening.
 
-Pure YAML-structure parsing, mirroring test_backup_schedule_k8s.py.
+Pure YAML-structure parsing.
 """
 
 import os
@@ -120,9 +120,7 @@ class TestComposeSchedulePurgeFlag:
 
 
 def _compose_tasks():
-    """Every task in schedule_set.yml. Scheduling is now orchestrator-
-    agnostic host-crontab logic (no Compose/K8s branch), so this is just
-    the whole file."""
+    """Every task in schedule_set.yml."""
     with open(SCHEDULE_SET) as f:
         tasks = yaml.safe_load(f)
     return list(_walk_tasks(tasks))

@@ -66,18 +66,14 @@ class TestGitopsComposeGitEnv:
     Drift here is invisible at runtime until someone tries to
     onboard a private repo, so the structural check is worth its
     weight in cheap-and-mechanical lines.
-
-    The Kubernetes-side flows generate their own deploy key and
-    set GIT_SSH_COMMAND with `-i <key>`; they're allowed to use a
-    different env (or no env reference at all).
     """
 
-    # Files on the Compose path that contain at least one git command.
+    # Files that contain at least one git command.
     COMPOSE_FILES = [
         "init_compose.yml",
         "pull_compose.yml",
         "push_compose.yml",
-        "join.yml",  # Compose join (k8s join is in join_kubernetes.yml)
+        "join.yml",
     ]
 
     GIT_VERBS = (
@@ -110,8 +106,6 @@ class TestGitopsComposeGitEnv:
                 and any(
                     "GIT_SSH_COMMAND" in str(v) for v in env.values()
                 )
-                # The k8s-style override (-i <_ssh_key_path>) doesn't
-                # apply on the Compose side; require gitops_git_env.
                 and "gitops_git_env" in str(env)
             )
             if not ok:
@@ -390,9 +384,9 @@ class TestResilientExec:
         # rx_cmd often comes from a `>-` folded scalar whose more-indented
         # Jinja continuations preserve newlines. Under `shell` (/bin/sh -c) a
         # bare newline is a command separator, so the launch must fold the
-        # command onto one line (regression for the helm `--reset-values`
-        # rc=127 break) — but collapse ONLY newlines, not all whitespace, so
-        # a secret with a tab/double-space on the exec_long path isn't mangled.
+        # command onto one line — but collapse ONLY newlines, not all
+        # whitespace, so a secret with a tab/double-space on the exec_long
+        # path isn't mangled.
         tasks = yaml.safe_load(open(self.PRIMITIVE))
         cmd = tasks[0]["ansible.builtin.shell"]["cmd"]
         assert "regex_replace" in cmd and r"\r\n" in cmd, (

@@ -4,7 +4,6 @@ On an external database there is no db service, so installing, importing
 and dropping a wiki's databases go through the web container as the
 operator's account. remove drops the extra databases the wiki declares
 (not ones another wiki shares) and says so when it cannot drop them.
-Kubernetes create refuses a MediaWiki account other than root.
 """
 
 import json
@@ -14,7 +13,6 @@ import sys
 
 import yaml
 
-from _orchestrator import INSTANCE_IS_K8S_VARS
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ADD = os.path.join(REPO_ROOT, "playbooks", "add.yml")
@@ -47,7 +45,7 @@ def _run_play(tmp_path, play_vars, tasks):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": dict(INSTANCE_IS_K8S_VARS, **play_vars),
+        "vars": dict(**play_vars),
         "tasks": tasks,
     }]))
     env = dict(

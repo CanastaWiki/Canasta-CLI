@@ -1,8 +1,6 @@
 ---
 # Propagate config-set changes into a gitops instance's vars.yaml so they
 # survive the next gitops pull (which re-renders .env from env.template).
-# Extracted from set.yml; the Compose-only orchestrator guard now lives in
-# the caller, roles/orchestrator/tasks/config_update_gitops_vars.yml.
 # Input: instance_path, _config_settings, _config_gitops_stat
 - name: Load gitops placeholder definitions
   ansible.builtin.include_vars:

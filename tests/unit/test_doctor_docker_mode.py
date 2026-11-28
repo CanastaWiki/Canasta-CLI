@@ -26,10 +26,9 @@ D = _helpers._SENTINEL
 _CONTAINER_FIELDS = [
     "Python 3.12.0", "Docker version 27.0.0",
     "Docker Compose version v2.30.0", "OK",
-    "user www-data", "OK", "v3.15.0", "MISSING",
-    "UNREACHABLE", "MISSING", "git version 2.45.0", "OK", "MISSING",
+    "user www-data", "git version 2.45.0", "OK", "MISSING",
     "Linux", "16 GB", "50G", "0", "", "MISSING", "NOT_WRITABLE",
-    "OK", "OK", "MISSING", "MISSING", "MISSING", "MISSING", "",
+    "MISSING", "MISSING", "MISSING", "MISSING", "",
 ]
 _STDOUT = (D + "\n").join(_CONTAINER_FIELDS) + "\n"
 

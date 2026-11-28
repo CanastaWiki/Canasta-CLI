@@ -8,7 +8,7 @@ type" follows a missing extension). The start paths call this on the web
 log so the failure leads with the cause instead of a generic guess.
 
 Shared by the Compose fast path (direct_commands) and, through the
-web_startup_cause filter, the Ansible start and Kubernetes rollout paths.
+web_startup_cause filter, the Ansible start path.
 """
 
 from __future__ import absolute_import, division, print_function

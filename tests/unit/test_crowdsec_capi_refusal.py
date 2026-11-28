@@ -437,7 +437,6 @@ def _run_reload(tmp_path, capi_ok=False, restored=False, refused=False):
         "hosts": "localhost", "connection": "local", "gather_facts": False,
         "vars": {"canasta_root": str(tmp_path),
                  "instance_id": "demo",
-                 "instance_is_k8s": False,
                  "instance_path": str(tmp_path / "instance"),
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_role": {

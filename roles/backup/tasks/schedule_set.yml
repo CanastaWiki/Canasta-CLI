@@ -33,8 +33,7 @@
   loop: "{{ _retention_params }}"
   when: (lookup('vars', item, default='') | string | trim) != ''
 
-# Scheduling is a host crontab entry on the host where the instance runs
-# (the cp node for K8s); the orchestrator task installs it uniformly.
+# Scheduling is a crontab entry on the host where the instance runs.
 - name: Install backup schedule
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/backup_schedule_set.yml

@@ -1,6 +1,6 @@
 """Tests for sidecar rendering — config/sidecars.yaml -> runtime artifacts.
 
-Covers the pure render logic (Compose service, env resolution, the env
+Covers the pure render logic (Compose service, memory conversion, the env
 bridge) and the module's write/mirror behavior (write the env bridge, remove
 the compose layer when no sidecars remain).
 """
@@ -20,7 +20,7 @@ CACHE = {"name": "cache", "image": "redis:7-alpine",
          "command": "redis-server --maxmemory ${REDIS_MAX_MEMORY:-100mb}",
          "ports": [6379],
          "volumes": [{"name": "data", "mountPath": "/data",
-                      "persistent": True, "size": "1Gi"}]}
+                      "persistent": True}]}
 
 CITATION = {"name": "citation", "image": "example/citoid:1.0",
             "ports": [1970], "depends_on": ["translator"],
@@ -29,18 +29,6 @@ CITATION = {"name": "citation", "image": "example/citoid:1.0",
                        "mountPath": "/srv/config.yaml", "readOnly": True}],
             "healthcheck": {"path": "/_info", "port": 1970},
             "resources": {"memory": "512Mi"}}
-
-
-class TestResolveEnv:
-    def test_variants(self):
-        env = {"SET": "val", "EMPTY": ""}
-        r = render.resolve_env_value
-        assert r("${SET}", env) == "val"
-        assert r("${MISSING}", env) == ""
-        assert r("${MISSING:-d}", env) == "d"
-        assert r("${EMPTY:-d}", env) == "d"      # :- falls back on empty
-        assert r("${EMPTY-d}", env) == ""        # - keeps empty
-        assert r("pre-${SET}-post", env) == "pre-val-post"
 
 
 class TestComposeRender:
@@ -85,7 +73,7 @@ class TestComposeRender:
     def test_depends_on_and_resources(self):
         svc, _ = render.render_compose_service(CITATION)
         assert svc["depends_on"] == ["translator"]
-        # k8s '512Mi' becomes a string byte count — Compose rejects the 'Mi'
+        # '512Mi' becomes a string byte count — Compose rejects the 'Mi'
         # suffix and a bare integer.
         assert svc["deploy"]["resources"]["limits"]["memory"] == str(
             512 * 1024 ** 2)
@@ -109,24 +97,24 @@ class TestComposeRender:
 
 class TestMemoryConversion:
     def test_binary_suffixes(self):
-        b = render.k8s_memory_to_bytes
+        b = render.memory_to_bytes
         assert b("256Mi") == 256 * 1024 ** 2
         assert b("1Gi") == 1024 ** 3
         assert b("512Ki") == 512 * 1024
 
     def test_decimal_suffixes(self):
-        b = render.k8s_memory_to_bytes
+        b = render.memory_to_bytes
         assert b("500M") == 500 * 1000 ** 2
         assert b("2G") == 2 * 1000 ** 3
 
     def test_bare_and_numeric(self):
-        b = render.k8s_memory_to_bytes
+        b = render.memory_to_bytes
         assert b("1048576") == 1048576
         assert b(1048576) == 1048576
 
     def test_unrecognized_passthrough(self):
         # An already-Compose value or junk is left as-is, not corrupted.
-        assert render.k8s_memory_to_bytes("256m") == "256m"
+        assert render.memory_to_bytes("256m") == "256m"
 
 
 class TestEnvBridge:
@@ -194,8 +182,7 @@ class TestModuleBridge:
                                    "image": "example/citoid:1.0",
                                    "env": {"HOST": "${CITATION_HOST:-}"}}])
         result, failed, _ = run_module_with_params(canasta_render_sidecars, {
-            "instance_path": tmp_dir, "orchestrator": "compose",
-            "secret_key_regex": SECRET_RE})
+            "instance_path": tmp_dir, "secret_key_regex": SECRET_RE})
         assert not failed and result["changed"] is True
         bridge = os.path.join(tmp_dir, "config", "settings", "global",
                               "00-canasta-sidecar-env.php")
@@ -210,8 +197,7 @@ class TestModuleBridge:
             handle.write("<?php putenv('X=1');\n")
         _write_sidecars(tmp_dir, [])
         run_module_with_params(canasta_render_sidecars, {
-            "instance_path": tmp_dir, "orchestrator": "compose",
-            "secret_key_regex": SECRET_RE})
+            "instance_path": tmp_dir, "secret_key_regex": SECRET_RE})
         assert not os.path.exists(bridge)
 
 
@@ -226,8 +212,7 @@ class TestModuleCompose:
     def test_writes_override(self, tmp_dir):
         _write_sidecars(tmp_dir, [CACHE])
         result, failed, _ = run_module_with_params(canasta_render_sidecars, {
-            "instance_path": tmp_dir, "orchestrator": "compose",
-            "secret_key_regex": SECRET_RE})
+            "instance_path": tmp_dir, "secret_key_regex": SECRET_RE})
         assert not failed and result["changed"] is True
         path = os.path.join(tmp_dir, "docker-compose.sidecars.yml")
         with open(path) as handle:
@@ -241,17 +226,14 @@ class TestModuleCompose:
             handle.write("services: {}\n")
         _write_sidecars(tmp_dir, [])
         result, failed, _ = run_module_with_params(canasta_render_sidecars, {
-            "instance_path": tmp_dir, "orchestrator": "compose",
-            "secret_key_regex": SECRET_RE})
+            "instance_path": tmp_dir, "secret_key_regex": SECRET_RE})
         assert not failed and result["changed"] is True
         assert not os.path.exists(path)
 
     def test_idempotent(self, tmp_dir):
         _write_sidecars(tmp_dir, [CACHE])
         run_module_with_params(canasta_render_sidecars, {
-            "instance_path": tmp_dir, "orchestrator": "compose",
-            "secret_key_regex": SECRET_RE})
+            "instance_path": tmp_dir, "secret_key_regex": SECRET_RE})
         result, _, _ = run_module_with_params(canasta_render_sidecars, {
-            "instance_path": tmp_dir, "orchestrator": "compose",
-            "secret_key_regex": SECRET_RE})
+            "instance_path": tmp_dir, "secret_key_regex": SECRET_RE})
         assert result["changed"] is False

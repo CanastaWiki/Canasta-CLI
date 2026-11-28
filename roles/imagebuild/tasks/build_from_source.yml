@@ -8,19 +8,16 @@
 #   canasta_default_image (the Canasta image an overlay builds on by default)
 #   build_arg  (optional list of "KEY=VALUE" strings forwarded to the builds)
 #   build_base_only (optional bool: build canasta-base alone under the output tag)
-#   instance_id or id, instance_is_k8s
-# Output fact: _built_image (str: "canasta:local-<id>" on Compose,
-#   "canasta:local" on Kubernetes)
+#   instance_id or id
+# Output fact: _built_image (str: "canasta:local-<id>")
 
-# Each Compose instance gets its own tag: a tag shared by the instances on a
-# host is taken over by whichever built last, and the others run that build
-# once their containers are recreated. Kubernetes keeps canasta:local, the
-# name its values.yaml and in-cluster registry pushes refer to.
+# Each instance gets its own tag: a tag shared by the instances on a host is
+# taken over by whichever built last, and the others run that build once
+# their containers are recreated.
 - name: Name the image this build produces
   ansible.builtin.set_fact:
     _build_image_name: >-
-      {{ 'canasta:local' if (instance_is_k8s | bool)
-         else 'canasta:local-' ~ (instance_id | default(id)) }}
+      {{ 'canasta:local-' ~ (instance_id | default(id)) }}
 
 - name: Verify Canasta source exists
   ansible.builtin.stat:

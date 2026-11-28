@@ -114,7 +114,7 @@ class TestRebuildFiresOnAnyImageChange:
 
 
 class TestRunningVsConfiguredAllInstances:
-    """The running-vs-configured image check runs for every Compose instance,
+    """The running-vs-configured image check runs for every instance,
     so an upgrade to an image already on disk still restarts (running !=
     configured) instead of reporting success while leaving the old container."""
 
@@ -125,11 +125,10 @@ class TestRunningVsConfiguredAllInstances:
         when = str(check.get("when", ""))
         assert "_buildable_services" not in when, (
             "the running-vs-configured check must not require buildable "
-            "services; it applies to every Compose instance"
+            "services; it applies to every instance"
         )
-        assert "not (instance_is_k8s | bool)" in when and "_images_updated" in when, (
-            "it must stay Compose-scoped and skip when pull already flagged "
-            "an update"
+        assert when == "['not (_images_updated | bool)']", (
+            "it must skip when pull already flagged an update"
         )
 
     def test_check_flags_restart_on_image_mismatch(self):

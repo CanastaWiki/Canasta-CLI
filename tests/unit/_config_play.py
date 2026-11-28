@@ -1,6 +1,6 @@
 """Run the config role's set.yml or unset.yml as a localhost play against a
-stub orchestrator and instance_lifecycle: restart, the Kubernetes values
-reconciles and the running check only log what they were asked to do."""
+stub orchestrator and instance_lifecycle: restart, the config update, the
+secret writes and the running check only log what they were asked to do."""
 
 import os
 import shutil
@@ -9,7 +9,6 @@ import sys
 
 import yaml
 
-from _orchestrator import INSTANCE_IS_K8S_VARS
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
@@ -27,9 +26,6 @@ def _stub_root(tmp_path, running):
     stubs = {
         "orchestrator": {
             "update_config.yml": [_log(log, "UPDATE_CONFIG")],
-            "k8s_reconcile_caddy.yml": [_log(log, "RECONCILE_CADDY")],
-            "k8s_reconcile_elasticsearch.yml": [_log(log, "RECONCILE_ES")],
-            "k8s_reconcile_redis.yml": [_log(log, "RECONCILE_REDIS")],
             "config_set_secret.yml": [_log(log, "SET_SECRET")],
             "config_unset_secret.yml": [_log(log, "UNSET_SECRET")],
             "check_running.yml": [{"ansible.builtin.set_fact": {
@@ -48,7 +44,7 @@ def _stub_root(tmp_path, running):
         tasks.mkdir(parents=True)
         for name, content in files.items():
             (tasks / name).write_text(yaml.safe_dump(content))
-    # The real per-orchestrator gitops dispatch, which holds the K8s warning.
+    # The real gitops vars dispatch, leading to the stubbed config role tasks.
     for name in ("config_update_gitops_vars.yml", "config_remove_gitops_vars.yml"):
         shutil.copy(os.path.join(ORCH, name),
                     root / "roles" / "orchestrator" / "tasks" / name)
@@ -66,8 +62,6 @@ def _instance(tmp_path, gitops):
     (inst / ".env").write_text(
         "MW_ENABLE_JOB_RUNNER=true\n"
         "CANASTA_IMAGE=ghcr.io/canastawiki/canasta:3.5.27\n")
-    (inst / "values.yaml").write_text(yaml.safe_dump({"image": {
-        "repository": "ghcr.io/canastawiki/canasta", "tag": "3.5.27"}}))
     subprocess.run(["git", "init", "-q"], cwd=inst, check=True)
     if gitops:
         (inst / ".gitops-host").write_text("host1\n")
@@ -77,7 +71,7 @@ def _instance(tmp_path, gitops):
     return inst
 
 
-def _run(tmp_path, tasks_from, *, k8s=True, gitops=True, running=True,
+def _run(tmp_path, tasks_from, *, gitops=True, running=True,
          **play_vars):
     root, log = _stub_root(tmp_path, running)
     inst = _instance(tmp_path, gitops)
@@ -88,9 +82,7 @@ def _run(tmp_path, tasks_from, *, k8s=True, gitops=True, running=True,
         "gather_facts": False,
         "vars_files": [os.path.join(REPO_ROOT, "vars",
                                     "secret_classification.yml")],
-        "vars": dict(INSTANCE_IS_K8S_VARS,
-                     instance_orchestrator="kubernetes" if k8s else "compose",
-                     canasta_root=str(root), instance_path=str(inst),
+        "vars": dict(canasta_root=str(root), instance_path=str(inst),
                      instance_id="inst",
                      ansible_python_interpreter=sys.executable, **play_vars),
         "tasks": [{"ansible.builtin.include_role": {

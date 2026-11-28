@@ -118,15 +118,11 @@ class TestLeftoverVolumesAreFatal:
 
 
 class TestContentIsRemovedOnlyAfterTeardown:
-    CLEANUP = os.path.join(
-        REPO_ROOT, "roles", "orchestrator", "tasks",
-        "delete_cleanup_files.yml")
-
     def test_compose_cleanup_follows_the_teardown_checks(self):
         tasks = _walk(_load(DESTROY))
         names = [t.get("name") for t in tasks]
         clean = "Clean up container-owned files"
-        assert clean in names, "Compose content cleanup missing from destroy"
+        assert clean in names, "content cleanup missing from destroy"
         for check in ("Destroy containers and volumes",
                       "Fail if containers and volumes could not be removed",
                       "Fail if volumes could not be removed"):
@@ -144,11 +140,14 @@ class TestContentIsRemovedOnlyAfterTeardown:
             assert "/instance/%s" % d in cmd
         assert "-mindepth 1 -delete" in cmd
 
-    def test_nothing_removes_compose_content_before_teardown(self):
-        text = open(self.CLEANUP).read()
-        assert "compose_command" not in text
-        assert "instance_orchestrator | default('compose') == 'compose'" \
-            not in text
+    def test_nothing_removes_content_before_teardown(self):
+        tasks = _load(DELETE)
+        names = [t.get("name") for t in tasks]
+        destroy = names.index("Destroy containers and volumes")
+        for task in tasks[:destroy]:
+            body = str(task)
+            assert "Clean up container-owned files" not in body, task.get("name")
+            assert "-mindepth 1 -delete" not in body, task.get("name")
 
 
 class TestDeregistrationFollowsTeardown:

@@ -11,7 +11,6 @@ import subprocess
 import sys
 
 import yaml
-from _orchestrator import INSTANCE_IS_K8S_VARS
 
 import canasta_edge as mod
 import canasta_edge_render as render
@@ -124,10 +123,8 @@ def _guard(task, state):
     return (task.get("canasta_edge") or {}).get("state") == state
 
 
-def _compose_only(task):
-    when = task.get("when")
-    whens = when if isinstance(when, list) else [when]
-    return "not (instance_is_k8s | bool)" in whens
+def _unconditional(task):
+    return task.get("when") is None
 
 
 def test_start_refuses_before_it_syncs_the_edge():
@@ -143,14 +140,14 @@ def test_restart_refuses_before_it_stops():
     tasks = _tasks("roles", "instance_lifecycle", "tasks", "restart.yml")
     checks = [i for i, t in enumerate(tasks) if _guard(t, "check")]
     assert checks and checks[0] < _names(tasks).index("Stop containers")
-    assert _compose_only(tasks[checks[0]])
+    assert _unconditional(tasks[checks[0]])
 
 
 def _config_guard(parts, first_change):
     tasks = _tasks(*parts)
     names = _names(tasks)
     guard = names.index("Check whether the instance predates the edge")
-    assert _guard(tasks[guard], "current") and _compose_only(tasks[guard])
+    assert _guard(tasks[guard], "current") and _unconditional(tasks[guard])
     # A pre-edge instance passes only with --no-restart.
     assert tasks[guard]["failed_when"] == [
         "_config_edge_current.predates_edge | default(false)",
@@ -190,7 +187,6 @@ def _config_set(tmp_path, compose, no_restart):
         "vars_files": [os.path.join(REPO_ROOT, "vars", "secret_classification.yml")],
         "vars": {"instance_path": str(inst), "instance_id": "inst",
                  "canasta_root": os.path.abspath(REPO_ROOT),
-                 "instance_orchestrator": "compose", **INSTANCE_IS_K8S_VARS,
                  "settings": ["HTTP_PORT=8080"], "no_restart": no_restart,
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_role": {
@@ -237,18 +233,19 @@ def test_commands_that_start_the_instance_refuse_right_after_resolving_it():
                   ("playbooks", "remove.yml"),
                   ("roles", "backup", "tasks", "restore.yml"),
                   ("roles", "instance_lifecycle", "tasks", "reconcile.yml"),
-                  ("roles", "extensions_skins", "tasks", "add.yml"),
                   ("roles", "extensions_skins", "tasks", "remove.yml")):
         tasks = _tasks(*parts)
         guard = next(i for i, t in enumerate(tasks) if _guard(t, "current"))
         assert tasks[0]["name"].startswith("Resolve instance"), parts
         assert all(t["name"] == "Validate wiki ID" for t in tasks[1:guard]), parts
-        assert _compose_only(tasks[guard]), parts
+        assert _unconditional(tasks[guard]), parts
 
 
 def test_an_extension_added_without_enabling_does_not_start_and_is_not_refused():
     tasks = _tasks("roles", "extensions_skins", "tasks", "add.yml")
-    assert "not (skip_enable | default(false) | bool)" in tasks[1]["when"]
+    assert tasks[0]["name"].startswith("Resolve instance")
+    assert _guard(tasks[1], "current")
+    assert tasks[1]["when"] == ["not (skip_enable | default(false) | bool)"]
 
 
 def test_the_upgrade_is_not_refused_and_starts_on_the_new_compose_file():
@@ -277,7 +274,7 @@ def test_the_move_behind_the_edge_replaces_the_compose_file_first():
 def test_create_writes_the_compose_file_before_it_starts():
     names = _names(_tasks("roles", "create", "tasks", "main.yml"))
     assert names.index("Write stack files") < \
-        names.index("Start containers (Compose) or sync config + Helm deploy (K8s)")
+        names.index("Start containers")
 
 
 # --- rebuild -------------------------------------------------------------- #
@@ -291,8 +288,8 @@ def _args(**kw):
 
 def _patch_rebuild(monkeypatch, path, calls):
     monkeypatch.setattr(direct_commands._helpers, "_resolve_instance",
-                        lambda args: ("one", {"path": path, "orchestrator": "compose",
-                                              "host": "localhost", "devMode": False}))
+                        lambda args: ("one", {"path": path, "host": "localhost",
+                                              "devMode": False}))
     monkeypatch.setattr(direct_commands.rebuild, "_list_buildable_services",
                         lambda inst, include_sidecars=False: ["web"])
     monkeypatch.setattr(direct_commands._helpers, "_run_compose",

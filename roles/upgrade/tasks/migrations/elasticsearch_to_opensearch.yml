@@ -2,8 +2,7 @@
 # Migration: Docker Compose instances search with the host's OpenSearch
 # instead of their own Elasticsearch. OpenSearch 3 can't read the indexes
 # Elasticsearch 7.10 wrote, so the old ones are dropped and the wikis are
-# indexed again; until then they search the database. Kubernetes keeps its
-# Elasticsearch.
+# indexed again; until then they search the database.
 #
 # Runs before the stack files are rewritten, while the old elasticsearch
 # service is still defined.
@@ -12,7 +11,6 @@
 # whatever the instance.
 - name: Note the instance's Elasticsearch settings
   ansible.builtin.set_fact:
-    _mig_es_compose: "{{ not (instance_is_k8s | bool) }}"
     _mig_es_on: >-
       {{ (_mig.env.CANASTA_ENABLE_ELASTICSEARCH | default('') | lower) == 'true' }}
     _mig_es_keys: >-
@@ -24,7 +22,6 @@
     _mig_es_project: "{{ instance_path | basename | lower }}"
 
 - name: Move the instance's search from Elasticsearch to OpenSearch
-  when: _mig_es_compose | bool
   block:
     - name: Report moving search to OpenSearch
       ansible.builtin.debug:

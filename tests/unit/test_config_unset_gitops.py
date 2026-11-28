@@ -72,8 +72,7 @@ def test_unset_dispatches_to_orchestrator_role():
     assert dispatch is not None, "unset must dispatch gitops removal"
     inc = str(dispatch.get("ansible.builtin.include_tasks", ""))
     assert inc.endswith("config_remove_gitops_vars.yml"), (
-        "must dispatch to the orchestrator role, not branch on "
-        "instance_orchestrator in the action code")
+        "must remove the vars through the orchestrator role")
     assert "_config_gitops_stat.stat.exists" in _when(dispatch)
 
 

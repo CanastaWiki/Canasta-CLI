@@ -50,7 +50,7 @@ def _template(expr, variables):
 
 class TestTheBuildFailureIsRecorded:
     def test_build_is_not_ignore_errors(self):
-        build = _task(REBUILD, "Rebuild buildable services if image was bumped (Compose)")
+        build = _task(REBUILD, "Rebuild buildable services if image was bumped")
         assert "ignore_errors" not in build
         assert build["failed_when"] is False
         assert build["register"] == "_upgrade_build_results"

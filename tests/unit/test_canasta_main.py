@@ -212,15 +212,6 @@ class TestConfirmationPrompt:
         assert _run(monkeypatch, ["delete", "-i", "mysite", "--yes"]) == "exec"
 
 
-class TestOrchestratorNormalization:
-    def test_compose_left_alone(self, harness, monkeypatch):
-        assert _run(monkeypatch, [
-            "create", "-i", "mysite", "-w", "main", "-n", "example.com",
-            "-o", "compose",
-        ]) == "exec"
-        assert harness.ansible_calls[0][1].orchestrator == "compose"
-
-
 class TestGlobalFlagIsolation:
     """The global --verbose flag only consumes from before the command,
     so a post-command -v (e.g. 'php -v' in passthrough args) isn't

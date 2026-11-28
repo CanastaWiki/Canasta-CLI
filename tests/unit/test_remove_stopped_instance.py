@@ -1,9 +1,6 @@
-"""remove on a stopped instance refuses before changing anything, and K8s
-pod lookups that find no Running pod fail with a plain message.
+"""remove on a stopped instance refuses before changing anything.
 
-The fake kubectl mimics the real one: a jsonpath that indexes `items[0]` of
-an empty pod list exits 1 with an index error, while `items[*]` prints
-nothing. The fake docker prints FAKE_OUT for `ps` and logs everything else.
+The fake docker prints FAKE_OUT for `ps` and logs everything else.
 """
 
 import os
@@ -13,26 +10,10 @@ import sys
 
 import yaml
 
-from _orchestrator import INSTANCE_IS_K8S_VARS
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 REMOVE = os.path.join(REPO_ROOT, "playbooks", "remove.yml")
-CROWDSEC_PREFLIGHT = os.path.join(REPO_ROOT, "roles", "crowdsec", "tasks",
-                                  "_preflight.yml")
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
-
-FAKE_KUBECTL = """#!/bin/sh
-echo "kubectl $*" >> "$CMD_LOG"
-case "$*" in
-  *"items[0]"*)
-    if [ -z "$FAKE_OUT" ]; then
-      echo 'error: error executing jsonpath "{.items[0]}": array index out of bounds' >&2
-      exit 1
-    fi
-    echo "${FAKE_OUT%% *}" ;;
-  *) printf '%s' "$FAKE_OUT" ;;
-esac
-"""
 
 FAKE_DOCKER = """#!/bin/sh
 echo "docker $*" >> "$CMD_LOG"
@@ -41,16 +22,13 @@ case "$1" in
 esac
 """
 
-RAW_ERROR = "array index out of bounds"
-
 
 def _run(tmp_path, tasks, play_vars, fake_out):
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
-    for name, body in (("kubectl", FAKE_KUBECTL), ("docker", FAKE_DOCKER)):
-        exe = bindir / name
-        exe.write_text(body)
-        exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    exe = bindir / "docker"
+    exe.write_text(FAKE_DOCKER)
+    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
     log = tmp_path / "cmd.log"
     log.write_text("")
     play = tmp_path / "play.yml"
@@ -58,7 +36,7 @@ def _run(tmp_path, tasks, play_vars, fake_out):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": dict(INSTANCE_IS_K8S_VARS, canasta_root=REPO_ROOT,
+        "vars": dict(canasta_root=REPO_ROOT,
                      ansible_python_interpreter=sys.executable, **play_vars),
         "tasks": tasks,
     }]))
@@ -66,6 +44,7 @@ def _run(tmp_path, tasks, play_vars, fake_out):
                PATH="%s:%s" % (bindir, os.environ.get("PATH", "")),
                FAKE_OUT=fake_out, CMD_LOG=str(log),
                ANSIBLE_ROLES_PATH=os.path.join(REPO_ROOT, "roles"),
+               ANSIBLE_FILTER_PLUGINS=os.path.join(REPO_ROOT, "filter_plugins"),
                ANSIBLE_LIBRARY=os.path.join(COMMON, "library"),
                ANSIBLE_MODULE_UTILS=os.path.join(COMMON, "module_utils"))
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
@@ -97,7 +76,7 @@ def _remove_tasks():
         {"ansible.builtin.debug": {"msg": "REMOVE CONTINUED"}}]
 
 
-def _remove_vars(tmp_path, orchestrator, env_text="MYSQL_PASSWORD=x\n"):
+def _remove_vars(tmp_path, env_text="MYSQL_PASSWORD=x\n"):
     inst = tmp_path / "inst"
     (inst / "config").mkdir(parents=True, exist_ok=True)
     (inst / ".env").write_text(env_text)
@@ -105,7 +84,6 @@ def _remove_vars(tmp_path, orchestrator, env_text="MYSQL_PASSWORD=x\n"):
     return {
         "instance_path": str(inst),
         "instance_id": "site",
-        "instance_orchestrator": orchestrator,
         "compose_command": "docker compose",
         "wiki": "docs",
         "_remove_wikis": {
@@ -125,26 +103,25 @@ class TestRemoveStoppedInstance:
     def _assert_refused_unchanged(self, tmp_path, proc, out, log):
         assert proc.returncode != 0
         assert REFUSAL in " ".join(out.split())
-        assert RAW_ERROR not in out
         assert "REMOVE CONTINUED" not in out
         assert " exec " not in log
         assert (tmp_path / "inst" / "config" / "wikis.yaml").read_text() \
             == WIKIS_YAML
 
-    def test_stopped_compose_instance_is_refused(self, tmp_path):
+    def test_stopped_instance_is_refused(self, tmp_path):
         proc, out, log = _run(tmp_path, _remove_tasks(),
-                              _remove_vars(tmp_path, "compose"), "")
+                              _remove_vars(tmp_path), "")
         self._assert_refused_unchanged(tmp_path, proc, out, log)
 
     def test_external_db_needs_the_web_service(self, tmp_path):
-        play_vars = _remove_vars(tmp_path, "compose",
+        play_vars = _remove_vars(tmp_path,
                                  "USE_EXTERNAL_DB=true\nMYSQL_HOST=x\n")
         proc, out, log = _run(tmp_path, _remove_tasks(), play_vars, "db\n")
         self._assert_refused_unchanged(tmp_path, proc, out, log)
 
-    def test_running_compose_instance_proceeds(self, tmp_path):
+    def test_running_instance_proceeds(self, tmp_path):
         proc, out, log = _run(tmp_path, _remove_tasks(),
-                              _remove_vars(tmp_path, "compose"), "web\ndb\n")
+                              _remove_vars(tmp_path), "web\ndb\n")
         assert proc.returncode == 0, out
         assert "REMOVE CONTINUED" in out
         assert "id: docs" not in (

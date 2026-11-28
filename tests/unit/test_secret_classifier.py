@@ -60,7 +60,7 @@ def test_non_secrets_not_classified():
 
 def test_rclone_covered_but_smtp_excluded_in_backup_backends():
     cls = _load()
-    # RCLONE_ was the historical omission that broke restic rclone on K8s.
+    # restic's rclone backend reads RCLONE_* from backup-env.
     assert "RCLONE_" in cls["canasta_backup_backend_prefixes"]
     # SMTP is a secret but not a backup backend, so it stays out of backup-env.
     assert "SMTP_" not in cls["canasta_backup_backend_prefixes"]

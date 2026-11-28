@@ -47,7 +47,7 @@ def _build(tmp_path, files, build_arg=(), base_only=False, expect_rc=0):
                  "build_arg": list(build_arg),
                  "build_base_only": base_only,
                  "canasta_default_image": DEFAULT_IMAGE,
-                 "instance_is_k8s": False, "id": "site",
+                 "id": "site",
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_tasks": BUILD_FROM}],
     }]))

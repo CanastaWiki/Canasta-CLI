@@ -1997,9 +1997,9 @@ def test_leaving_the_edge_forgets_the_names(tmp_path):
 
 
 def test_an_instance_not_behind_the_edge_is_not_asked(tmp_path):
-    path = _instance(tmp_path, "k8s")
+    path = _instance(tmp_path, "outside")
     run = WikiRunner({"example.com": _siteinfo("Spezial")})
-    assert _learn(run, tmp_path / "edge", "k8s", path) == {"changed": False, "reload": False}
+    assert _learn(run, tmp_path / "edge", "outside", path) == {"changed": False, "reload": False}
     assert run.calls == [] and not (tmp_path / "edge").exists()
 
 

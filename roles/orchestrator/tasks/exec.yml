@@ -1,16 +1,15 @@
 ---
-# Execute a command inside a container/pod.
+# Execute a command inside a service container.
 # Uses set_fact to build the command, then a single unconditional
 # register to avoid register-on-skip variable clobbering.
 #
 # Input:
 #   instance_path (str)
-#   instance_orchestrator (str) - compose or kubernetes
 #   exec_service (str) - service name (default: web)
 #   exec_command (str) - command to run
 #   exec_stdin (str, optional) - path to a file (on the controller) whose
 #     contents are fed to the command's stdin. Read as UTF-8 text. Ignored
-#     on the long/detached path. Compose pipes via `exec -T`; K8s adds `-i`.
+#     on the long/detached path.
 #   exec_no_log (bool, optional) - suppress command in output
 #   exec_long (bool, optional) - run detached + polled for long commands
 #     (update.php on a big wiki, a large mysqldump) so a controller-side
@@ -18,14 +17,11 @@
 #   exec_long_async (int, optional) - max seconds for a long exec (3600)
 #   exec_long_timeout_msg (str, optional) - on a long exec still running
 #     when the wait ends, warn with this text and continue instead of failing
-#   exec_user (str, optional) - container user to run as. kubectl exec
-#     cannot switch users, so on K8s the pod command runs under
-#     `runuser -u`, which the image's container user must be root to use.
+#   exec_user (str, optional) - container user to run as.
 #     Default: the image's user (root in the web container).
-#   exec_dotenv (dict, optional) - variables to pass into the command on
-#     Compose, each read from the .env key it maps to when the command runs
-#     (canasta_dotenv_exec), so the value is never on a command line. Ignored
-#     on K8s.
+#   exec_dotenv (dict, optional) - variables to pass into the command,
+#     each read from the .env key it maps to when the command runs
+#     (canasta_dotenv_exec), so the value is never on a command line.
 #   exec_lock (str, optional) - lock file on the target host; the command
 #     runs under `flock -n` on it, and exits 75 without running when another
 #     holder has it. Ignored on the long/detached path.
@@ -55,7 +51,6 @@
   no_log: true  # registers the whole .env, including passwords
   when:
     - compose_command is search('podman')
-    - not (instance_is_k8s | bool)
 
 - name: Build compose profile flags
   ansible.builtin.set_fact:
@@ -66,9 +61,8 @@
          | join(' ') }}
   when:
     - compose_command is search('podman')
-    - not (instance_is_k8s | bool)
 
-- name: Build exec command (Compose)
+- name: Build exec command
   ansible.builtin.set_fact:
     _exec_full_cmd: >-
       {{ exec_dotenv | default({}, true) | canasta_dotenv_exec }}
@@ -78,7 +72,6 @@
       {{ exec_service | default('web') }}
       {{ _exec_shell }} {{ exec_command | quote }}
     _exec_chdir: "{{ instance_path }}"
-  when: not (instance_is_k8s | bool)
   no_log: "{{ exec_no_log | default(false) }}"
 
 - name: Hold a lock for the exec

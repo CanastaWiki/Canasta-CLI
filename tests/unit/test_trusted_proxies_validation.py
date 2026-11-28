@@ -7,7 +7,6 @@ import sys
 import pytest
 import yaml
 
-from _orchestrator import INSTANCE_IS_K8S_VARS
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 VALIDATE = os.path.join(REPO_ROOT, "roles", "config", "tasks",
@@ -15,14 +14,13 @@ VALIDATE = os.path.join(REPO_ROOT, "roles", "config", "tasks",
 VALIDATE_VALUE = os.path.join(REPO_ROOT, "roles", "config", "tasks", "_validate_value.yml")
 
 
-def _validate(tmp_path, value, orchestrator="compose"):
+def _validate(tmp_path, value):
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": dict(INSTANCE_IS_K8S_VARS, _config_value=value,
-                     instance_orchestrator=orchestrator,
+        "vars": dict(_config_value=value,
                      ansible_python_interpreter=sys.executable),
         "tasks": [{"ansible.builtin.include_tasks": VALIDATE}],
     }]))

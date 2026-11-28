@@ -1,6 +1,6 @@
 ---
 # canasta install - Install dependencies on the target host.
-# Accepts one or more package names: docker, git-crypt, sops, canasta,
+# Accepts one or more package names: docker, git-crypt, canasta,
 # podman, docker-rootless, uv, uv:<tool>.
 
 # When --id is given without --host, resolve the instance's registered
@@ -20,10 +20,10 @@
 - name: Validate packages
   ansible.builtin.fail:
     msg: >-
-      Unknown package '{{ item }}'. Supported: docker, git-crypt, sops,
-      canasta, podman, docker-rootless, uv, uv:<tool>.
+      Unknown package '{{ item }}'. Supported: docker, git-crypt, canasta,
+      podman, docker-rootless, uv, uv:<tool>.
   when: >
-    item not in ['docker', 'git-crypt', 'sops', 'canasta', 'podman',
+    item not in ['docker', 'git-crypt', 'canasta', 'podman',
                  'docker-rootless', 'uv']
     and not (item | regex_search('^uv:[a-zA-Z0-9_-]+$'))
   loop: "{{ _install_packages }}"
@@ -52,12 +52,6 @@
     name: install
     tasks_from: git_crypt.yml
   when: "'git-crypt' in _install_packages"
-
-- name: Install the SOPS toolchain (sops + age)
-  ansible.builtin.include_role:
-    name: install
-    tasks_from: sops_age.yml
-  when: "'sops' in _install_packages"
 
 - name: Install canasta-native
   ansible.builtin.include_role:

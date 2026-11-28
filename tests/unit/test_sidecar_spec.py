@@ -1,8 +1,8 @@
 """Sidecar declarations pass through only known, well-formed values.
 
-config/sidecars.yaml is copied into the Compose override and interpolated
-into the Helm chart, so build options are an allowlist, names and env keys
-are held to fixed shapes, and the chart quotes what it interpolates.
+config/sidecars.yaml is copied into the Compose override, so build options
+are an allowlist and names, env keys, and resource quantities are held to
+fixed shapes.
 """
 
 import os
@@ -18,10 +18,6 @@ from _classifier import secret_key_regex
 from mock_ansible import run_module_with_params
 
 SECRET_RE = secret_key_regex()
-
-REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-CHART = os.path.join(
-    REPO_ROOT, "roles", "orchestrator", "files", "helm", "canasta")
 
 
 def _one(**extra):
@@ -40,7 +36,7 @@ def _built(build, **extra):
     _one(),
     _one(name="receipt-scanner"),
     _one(env={"REDIS_URL": "redis://cache:6379", "_X1": "${FOO:-bar}"},
-         envSecret=["API_KEY"], envPrivate=["REDIS_URL"]),
+         envPrivate=["REDIS_URL"]),
     _one(resources={"memory": "512Mi", "cpu": "0.5"}),
     _one(resources={"memory": 536870912, "cpu": 1}),
     _one(resources={"memory": "1g", "cpu": "500m"}),
@@ -66,7 +62,7 @@ def test_build_options_outside_the_allowlist_are_refused(build, key):
     assert "args, context, dockerfile" in error
 
 
-ALLOWED_KEYS = ("name, image, build, command, env, envSecret, envPrivate, "
+ALLOWED_KEYS = ("name, image, build, command, env, envPrivate, "
                 "ports, volumes, files, depends_on, healthcheck, resources")
 
 
@@ -74,10 +70,10 @@ def test_every_documented_key_is_accepted():
     sidecar = {
         "name": "helper", "image": "example/helper:1.0",
         "command": ["serve", "--port", "8080"],
-        "env": {"A": "1", "B": "${B:-x}"}, "envSecret": ["S"],
+        "env": {"A": "1", "B": "${B:-x}"},
         "envPrivate": ["A"], "ports": [8080],
         "volumes": [{"name": "data", "mountPath": "/data",
-                     "persistent": True, "size": "1Gi"}],
+                     "persistent": True}],
         "files": [{"source": "config/x.conf", "mountPath": "/etc/x.conf"}],
         "depends_on": ["cache"],
         "healthcheck": {"path": "/health", "port": 8080},
@@ -96,6 +92,7 @@ def test_every_documented_key_is_accepted():
     ("replicas", None),
     ("privileged", None),
     ("environment", None),
+    ("envSecret", None),
 ])
 def test_unknown_sidecar_keys_are_refused(key, hint):
     error = render.validate_spec(_one(**{key: 80}))
@@ -170,7 +167,6 @@ def test_invalid_sidecar_names_are_refused(name):
     (_one(env={"1X": "x"}), "env"),
     (_one(env={"X\n  securityContext": "x"}), "env"),
     (_one(env=["A=1"]), "env"),
-    (_one(envSecret=["OK", "NOT OK"]), "envSecret"),
     (_one(env={"A": "1"}, envPrivate=["A:"]), "envPrivate"),
 ])
 def test_invalid_env_keys_are_refused(sidecars, field):
@@ -197,40 +193,33 @@ def _write_sidecars(instance_path, sidecars):
         yaml.safe_dump({"sidecars": sidecars}, handle)
 
 
-@pytest.mark.parametrize("orchestrator, artifact", [
-    ("compose", "docker-compose.sidecars.yml"),
-])
-def test_render_module_refuses_and_writes_nothing(tmp_dir, orchestrator, artifact):
+def test_render_module_refuses_and_writes_nothing(tmp_dir):
     _write_sidecars(tmp_dir, _built(
         {"context": ".", "additional_contexts": {"h": "/"}}))
     _, failed, msg = run_module_with_params(canasta_render_sidecars, {
-        "instance_path": tmp_dir, "orchestrator": orchestrator,
-        "secret_key_regex": SECRET_RE})
+        "instance_path": tmp_dir, "secret_key_regex": SECRET_RE})
     assert failed
     assert "Refusing config/sidecars.yaml" in msg
     assert "additional_contexts" in msg
-    assert not os.path.exists(os.path.join(tmp_dir, artifact))
+    assert not os.path.exists(
+        os.path.join(tmp_dir, "docker-compose.sidecars.yml"))
 
 
-@pytest.mark.parametrize("orchestrator, artifact", [
-    ("compose", "docker-compose.sidecars.yml"),
-])
-def test_render_module_refuses_an_unknown_key(tmp_dir, orchestrator, artifact):
+def test_render_module_refuses_an_unknown_key(tmp_dir):
     _write_sidecars(tmp_dir, _one(port=80))
     _, failed, msg = run_module_with_params(canasta_render_sidecars, {
-        "instance_path": tmp_dir, "orchestrator": orchestrator,
-        "secret_key_regex": SECRET_RE})
+        "instance_path": tmp_dir, "secret_key_regex": SECRET_RE})
     assert failed
     assert "key 'port' is not allowed" in msg
-    assert not os.path.exists(os.path.join(tmp_dir, artifact))
+    assert not os.path.exists(
+        os.path.join(tmp_dir, "docker-compose.sidecars.yml"))
 
 
 def test_compose_render_keeps_allowed_build_options(tmp_dir):
     build = {"context": ".", "dockerfile": "Dockerfile", "args": {"V": "1"}}
     _write_sidecars(tmp_dir, _built(build))
     _, failed, msg = run_module_with_params(canasta_render_sidecars, {
-        "instance_path": tmp_dir, "orchestrator": "compose",
-        "secret_key_regex": SECRET_RE})
+        "instance_path": tmp_dir, "secret_key_regex": SECRET_RE})
     assert not failed, msg
     with open(os.path.join(tmp_dir, "docker-compose.sidecars.yml")) as handle:
         rendered = yaml.safe_load(handle)

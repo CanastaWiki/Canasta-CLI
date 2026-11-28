@@ -1,6 +1,6 @@
 ---
-# Check if the web container/pod is running.
-# Input: instance_path, instance_orchestrator
+# Check if the web container is running.
+# Input: instance_path
 # Output: _container_running (bool)
 
 - name: Build check command for orchestrator
@@ -11,16 +11,6 @@
       --filter label=com.docker.compose.service=web
       --format {% raw %}{{.ID}}{% endraw %}
     _check_chdir: "{{ instance_path }}"
-  when: not (instance_is_k8s | bool)
-
-- name: Build K8s check command
-  ansible.builtin.set_fact:
-    _check_cmd: >-
-      kubectl get deployment/canasta-{{ instance_id }}-web
-      -n canasta-{{ instance_id }}
-      -o jsonpath={.status.readyReplicas}
-    _check_chdir: null
-  when: instance_is_k8s | bool
 
 - name: Check if web is running
   ansible.builtin.command:
@@ -28,7 +18,7 @@
     chdir: "{{ _check_chdir | default(omit) }}"
   register: _ps_result
   changed_when: false
-  ignore_errors: true  # OK if container/pod not running
+  ignore_errors: true  # OK if container not running
 
 - name: Set running status
   ansible.builtin.set_fact:

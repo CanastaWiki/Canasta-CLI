@@ -1,16 +1,7 @@
 ---
-# Pre-flight environment checks for `canasta create`, dispatched here by
-# the orchestrator role so it owns the Compose-vs-Kubernetes difference
-# (the caller, create's _preflight.yml, stays orchestrator-agnostic).
-#
-# Only Compose has early host probes that must run before any state
-# mutation. Kubernetes preflight lives in k8s_preflight.yml and runs
-# later, inside create's _validate_inputs.yml, coupled to the namespace
-# stale-state check (it must confirm kubectl reachability immediately
-# before it) and reused by the storage-setup playbooks — so there is no
-# Kubernetes branch here.
+# Pre-flight environment checks for `canasta create`: host probes that
+# must run before any state mutation.
 - name: Compose create pre-flight checks
-  when: not (instance_is_k8s | bool)
   block:
     # Auto-detect rootless container socket on the target before the
     # first docker call fires. Only runs when the operator didn't pass
@@ -443,7 +434,7 @@
     # feature flags aren't known yet. create enforces it in _env_update.yml
     # once .env is finalized, via roles/orchestrator/tasks/check_host_memory.yml.
 
-    # Compose-only host-gateway compatibility probe. The web service maps
+    # Host-gateway compatibility probe. The web service maps
     # gateway.docker.internal to the magic "host-gateway" value, which
     # podman only learned in 4.4 — on podman < 4.4, `compose up` aborts with
     # "invalid IP address in add-host: host-gateway". When the target runs an
@@ -473,7 +464,7 @@
       ansible.builtin.set_fact:
         _host_gateway_fallback: "{{ _host_gateway_probe.stdout | default('') | trim }}"
 
-    # Compose-only storage preflight. Canasta images are ~2.3 GiB; with
+    # Storage preflight. Canasta images are ~2.3 GiB; with
     # database volumes, logs, and build cache, container storage can
     # exhaust a small root partition. This warns (rather than fails like
     # the memory check) because disk is recoverable mid-flight — the

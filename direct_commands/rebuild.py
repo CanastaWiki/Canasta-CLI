@@ -91,16 +91,6 @@ def cmd_rebuild(args):
     if _helpers._refuse_unfinished_pull(inst_id, inst):
         return 1
 
-    if _helpers._is_k8s(inst):
-        print(
-            "Error: 'canasta rebuild' is only supported for Compose "
-            "instances. For Kubernetes instances with a custom image, "
-            "rebuild and push the image to a registry, then run "
-            "'canasta upgrade'.",
-            file=sys.stderr,
-        )
-        return 1
-
     # Layer the rendered docker-compose.sidecars.yml only when
     # config/sidecars.yaml declares sidecars — the same file set the
     # Ansible stop/start path uses. Without it, `down`/`up -d` run with

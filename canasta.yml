@@ -20,11 +20,6 @@
     canasta_user_agent: >-
       Canasta-CLI/{{ lookup('file', playbook_dir + '/VERSION') | trim }}
       (https://github.com/CanastaWiki/Canasta-CLI)
-    # Templated on every use, so it follows instance_orchestrator wherever
-    # that is set. Until it is, create's `orchestrator` extra-var decides.
-    instance_is_k8s: >-
-      {{ (instance_orchestrator | default(orchestrator | default('compose')))
-         in ['kubernetes', 'k8s'] }}
     # CANASTA_LOCAL_REMOTE_TEMP (set by canasta-docker) is for local
     # connections only. Templated per task because switch_connection.yml
     # rebinds the localhost play host to SSH targets with set_fact.
@@ -103,13 +98,13 @@
         file: meta/command_definitions.yml
         name: canasta_commands
 
-    # Canonical secret classifier, play-global so config/gitops/orchestrator
+    # Canonical secret classifier, play-global so config, gitops and orchestrator
     # all share one definition of "secret" (roles/*/defaults are role-scoped).
     - name: Load canonical secret classification
       ansible.builtin.include_vars:
         file: vars/secret_classification.yml
 
-    # Pinned tool versions (SOPS toolchain) shared across roles — one source.
+    # Pinned tool versions shared across roles — one source.
     - name: Load pinned tool versions
       ansible.builtin.include_vars:
         file: vars/tool_versions.yml

@@ -91,7 +91,7 @@ class TestReconcileTask:
         )
 
     def test_acts_only_when_template_exists_or_creating(self):
-        """Must no-op on K8s/non-gitops (no template) unless reconcile_create."""
+        """Must no-op without a template (not gitops) unless reconcile_create."""
         with open(RECONCILE) as f:
             content = f.read()
         assert "_reconcile_wikis_tmpl.stat.exists" in content

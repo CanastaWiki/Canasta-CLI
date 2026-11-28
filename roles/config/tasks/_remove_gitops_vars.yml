@@ -3,8 +3,7 @@
 # survive the next gitops pull (which re-renders .env from env.template). A
 # placeholder key is dropped from both vars.yaml and its env.template
 # placeholder line; a literal key is dropped from env.template. Mirrors
-# _update_gitops_vars.yml on the set side. Compose-only guard lives in the
-# caller, roles/orchestrator/tasks/config_remove_gitops_vars.yml.
+# _update_gitops_vars.yml on the set side.
 # Input: instance_path, keys (or _config_unset_keys, a list that takes its
 #        place), _config_gitops_stat
 

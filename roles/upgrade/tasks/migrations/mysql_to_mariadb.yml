@@ -1,8 +1,5 @@
 ---
 # Migration: Detect MySQL 8.0 data and migrate it to MariaDB.
-# Compose-only; the orchestrator guard is owned by the caller
-# (roles/orchestrator/tasks/upgrade_db_migration.yml), so no
-# instance_orchestrator switch is needed here.
 # Input: instance_path
 #
 # Approach: detection is a read-only file check against the data volume, so

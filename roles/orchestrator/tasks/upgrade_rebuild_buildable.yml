@@ -1,22 +1,18 @@
 ---
-# Compose-only: detect whether a service with a `build:` directive needs
-# rebuilding after an upgrade and rebuild it. Kubernetes builds custom
-# images from source and pushes them to the registry instead (handled by
-# upgrade_publish_rebuilt_image.yml), so every task here is gated on the
-# Compose orchestrator and is a no-op on K8s.
+# Detect whether a service with a `build:` directive needs rebuilding after
+# an upgrade and rebuild it.
 #
 # Reads/writes the shared _images_updated fact (set by the pull step,
 # consumed by the restart decision in the upgrade role).
 # Sets _upgrade_build_failed_services (the services whose rebuild failed).
-# Input: instance_path, instance_id, instance_orchestrator, instance_devmode,
+# Input: instance_path, instance_id, instance_devmode,
 #        _images_updated
 
 # Detect services that have a `build:` directive. The merged compose
 # config (main + override + dev) is what docker actually uses, so
 # query it directly rather than parsing the override file alone.
 # Covers operator overrides (custom Dockerfile) and devmode xdebug.
-- name: Enumerate buildable services from merged compose config (Compose)
-  when: not (instance_is_k8s | bool)
+- name: Enumerate buildable services from merged compose config
   block:
     - name: Check for docker-compose.override.yml
       ansible.builtin.stat:
@@ -86,9 +82,8 @@
 # on disk (pre-pulled, or a buildable web service pull skips) while the
 # container still runs an older one. Runs for every Compose instance, and only
 # when pull hasn't already flagged an update.
-- name: Check running container image vs configured (Compose)
+- name: Check running container image vs configured
   when:
-    - not (instance_is_k8s | bool)
     - not (_images_updated | bool)
   block:
     - name: Get running web container image ID
@@ -146,7 +141,7 @@
 # by the pull task (e.g., varnish/caddy updated) — the rebuild is
 # cheap thanks to Docker layer caching and avoids a stale buildable
 # image when other services updated.
-- name: Rebuild buildable services if image was bumped (Compose)
+- name: Rebuild buildable services if image was bumped
   ansible.builtin.command:
     cmd: "{{ compose_command }} {{ _upgrade_compose_files | join(' ') }} {{ _upgrade_profile_flags | default('') }} build {{ item }}"
     chdir: "{{ instance_path }}"
@@ -155,7 +150,6 @@
   changed_when: true
   failed_when: false
   when:
-    - not (instance_is_k8s | bool)
     - _images_updated | bool
     - (_buildable_services | default([]) | length) > 0
 

@@ -200,7 +200,7 @@ def _run(tmp_path, playbook, extra, record=None, **stub):
         tasks = [t for t in yaml.safe_load(f)
                  if t.get("name") != "Resolve instance"]
     play_vars = {
-        "canasta_root": REPO_ROOT, "instance_is_k8s": False,
+        "canasta_root": REPO_ROOT,
         "instance_id": "site", "instance_path": str(site),
         "inspect_command": "docker",
         "canasta_default_image": "ghcr.io/canastawiki/canasta:3.5.29",

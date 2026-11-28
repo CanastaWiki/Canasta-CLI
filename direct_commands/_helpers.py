@@ -181,7 +181,7 @@ def _read_env_content(path, host):
 
 
 def _read_secret_key_names(path, host):
-    """Names of the keys set with `config set --secret` on Compose."""
+    """Names of the keys set with `config set --secret`."""
     return set(_read_instance_file(
         path, host, os.path.join("config", "secret-keys")).split())
 
@@ -524,15 +524,13 @@ def _parse_db_account_env(text):
             if not c and k in _DB_ACCOUNT_KEYS}
 
 
-def _wiki_db_move_pending(env, k8s):
+def _wiki_db_move_pending(env):
     """True when `canasta upgrade` would still move MediaWiki off the
     database administrator account. Mirrors
     roles/upgrade/tasks/check_wiki_db_account.yml."""
     if not env:
         return False
     external = (env.get("USE_EXTERNAL_DB") or "").strip().lower() == "true"
-    if external and k8s:
-        return False
     if (env.get("CANASTA_DB_ROOT_ACCOUNT") or "").strip().lower() == "true":
         return False
     admin = ((env.get("MYSQL_USER") or "").strip() or "root") if external else "root"
@@ -1132,80 +1130,10 @@ def _rootless_operator_chown(inst):
         )
 
 
-def _k8s_namespace(instance_id):
-    return "canasta-%s" % instance_id
-
-
-# A pod being deleted keeps phase Running while it drains, so each Running
-# pod is listed with its deletionTimestamp and only one without it is used.
-K8S_POD_JSONPATH = ('jsonpath={range .items[*]}{.metadata.name}{" "}'
-                    '{.metadata.deletionTimestamp}{"\\n"}{end}')
-K8S_POD_PICK_SHELL = "awk 'NF==1{print $1; exit}'"
-
-
-def _k8s_first_live_pod(stdout):
-    """The first pod in K8S_POD_JSONPATH output that is not being deleted."""
-    for line in (stdout or "").splitlines():
-        fields = line.split()
-        if len(fields) == 1:
-            return fields[0]
-    return None
-
-
-def _k8s_get_pod(namespace, component="web"):
-    """Get the name of a running pod by component label."""
-    try:
-        result = subprocess.run(
-            ["kubectl", "get", "pods", "-n", namespace,
-             "-l", "app.kubernetes.io/component=%s" % component,
-             "--field-selector=status.phase=Running",
-             "-o", K8S_POD_JSONPATH],
-            capture_output=True, text=True, timeout=10,
-        )
-        if result.returncode != 0:
-            return None
-        return _k8s_first_live_pod(result.stdout)
-    except (subprocess.TimeoutExpired, OSError):
-        return None
-
-
-def _k8s_remote_exec_cmd(inst_id, service, command, forward_stdin=True,
-                         user=None):
-    """Shell command that resolves a Running pod and execs `command` in it,
-    for running on the instance's host via ssh — the controller has no
-    kubeconfig for a remote cluster, so both the pod lookup and the exec
-    must happen on the host. Pod selection matches _k8s_get_pod."""
-    ns = _k8s_namespace(inst_id)
-    lookup = (
-        "kubectl get pods -n %s -l app.kubernetes.io/component=%s "
-        "--field-selector=status.phase=Running "
-        "-o '%s' | %s" % (ns, service, K8S_POD_JSONPATH, K8S_POD_PICK_SHELL)
-    )
-    return (
-        'pod="$(%s 2>/dev/null)"; '
-        'if [ -z "$pod" ]; then '
-        "echo \"Error: no running pod found for service '%s'\" >&2; "
-        "exit 1; fi; "
-        'exec kubectl exec%s "$pod" -n %s -c %s -- %s'
-        % (lookup, service, " -i" if forward_stdin else "",
-           ns, service, " ".join(
-               [shlex.quote(a) for a in _k8s_user_argv(user)]
-               + ["/bin/bash", "-c", _shell_quote(command)]))
-    )
-
-
 # The web container's Apache, PHP-FPM, and job runner user. Maintenance
 # scripts run as it so the files they create stay changeable by the web
 # server.
 WEB_USER = "www-data"
-
-
-def _k8s_user_argv(user):
-    """Prefix that runs the rest of a pod command as user. kubectl exec has
-    no user option and runs as the container's user, root in the web
-    container, so the switch happens inside the pod. runuser -u execs the
-    command directly, so the target's nologin shell does not matter."""
-    return ["runuser", "-u", user, "--"] if user else []
 
 
 def _compose_exec_args(service, user=None):
@@ -1219,30 +1147,11 @@ def _compose_exec_args(service, user=None):
 
 def _exec_in_container(inst_id, inst, command, service="web", user=None,
                        timeout=30):
-    """Execute a command inside a container/pod. Returns (rc, stdout).
+    """Execute a command inside a container. Returns (rc, stdout).
 
     user runs the command as that container user."""
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
-    if _is_k8s(inst):
-        if not _is_localhost(host):
-            return _ssh_run(host, _k8s_remote_exec_cmd(
-                inst_id, service, command, forward_stdin=False, user=user),
-                timeout=timeout)
-        ns = _k8s_namespace(inst_id)
-        pod = _k8s_get_pod(ns, service)
-        if not pod:
-            return 1, ""
-        try:
-            result = subprocess.run(
-                ["kubectl", "exec", pod, "-n", ns, "-c", service, "--"]
-                + _k8s_user_argv(user) + ["/bin/bash", "-c", command],
-                capture_output=True, text=True, timeout=timeout,
-            )
-            return result.returncode, result.stdout
-        except (subprocess.TimeoutExpired, OSError):
-            return 1, ""
-
     compose_cmd = _resolve_compose_cmd(inst)
     if _is_localhost(host):
         try:
@@ -1302,7 +1211,7 @@ def _warn_composer_failure(inst_id, inst):
 
 def _stream_in_container(inst_id, inst, command, service="web",
                          retry_on_reset=False, user=None):
-    """Run a command inside a container/pod, streaming its stdout and
+    """Run a command inside a container, streaming its stdout and
     stderr to the CLI's stdout and stderr as they arrive. Returns the
     process return code. The streams stay separate so redirecting stdout
     (e.g. `dumpBackup.php > dump.xml`) captures only the script's output.
@@ -1332,36 +1241,7 @@ def _stream_in_container(inst_id, inst, command, service="web",
     path = inst.get("path", "")
     wrapped = "stdbuf -oL %s" % command
 
-    if _is_k8s(inst):
-        if not _is_localhost(host):
-            # kubectl and the cluster live on the instance's host — run
-            # the pod lookup and the exec there via ssh, mirroring the
-            # remote Compose branch below. ssh forwards stdin, so
-            # `... < probe.php` redirects still reach the pod.
-            target = _resolve_ssh_target(host)
-            argv = ["ssh"] + _ssh_args() + [
-                target, _k8s_remote_exec_cmd(inst_id, service, wrapped,
-                                             user=user),
-            ]
-            cwd = None
-        else:
-            ns = _k8s_namespace(inst_id)
-            pod = _k8s_get_pod(ns, service)
-            if not pod:
-                print(
-                    "Error: no running pod found for service '%s'" % service,
-                    file=sys.stderr,
-                )
-                return 1
-            # -i forwards the CLI's stdin, matching `docker compose exec`
-            # on the Compose paths, so redirects like
-            # `canasta maintenance script eval < probe.php` work on K8s
-            # too.
-            argv = [
-                "kubectl", "exec", "-i", pod, "-n", ns, "-c", service, "--",
-            ] + _k8s_user_argv(user) + ["/bin/bash", "-c", wrapped]
-            cwd = None
-    elif _is_localhost(host):
+    if _is_localhost(host):
         compose_cmd = _resolve_compose_cmd(inst)
         argv = compose_cmd + _compose_exec_args(service, user) + [
             "/bin/bash", "-c", wrapped,
@@ -1410,11 +1290,8 @@ def _stream_in_container(inst_id, inst, command, service="web",
     # When streaming over SSH to a remote host, retry on a connection-level
     # reset (ssh exit 255) ONLY when the caller opted in (idempotent command)
     # — re-streaming a non-idempotent operator script would double-apply it.
-    # localhost and in-cluster `kubectl exec` never return 255.
-    is_remote_ssh = (
-        not _is_k8s(inst) and not _is_localhost(host)
-    )
-    if is_remote_ssh and retry_on_reset:
+    # localhost never returns 255.
+    if not _is_localhost(host) and retry_on_reset:
         return _retry_on_ssh_reset(_run)
     return _run()
 
@@ -1504,10 +1381,9 @@ def _ssh_args():
     # plants when running through Ansible — direct commands that SSH
     # to a remote should expose the same agent so any forge auth
     # (gitops one-shots, future scripts) works the same way.
-    # ServerAliveInterval keeps long-running commands (e.g.
-    # `helm upgrade --wait --timeout 15m` from `canasta scale`) from
-    # tripping a NAT / firewall idle drop and reporting a bogus
-    # "Broken pipe" while the remote is still working.
+    # ServerAliveInterval keeps long-running commands (e.g. a
+    # streamed update.php) from tripping a NAT / firewall idle drop
+    # and reporting a bogus "Broken pipe" while the remote is still working.
     extra = os.environ.get(
         "ANSIBLE_SSH_ARGS",
         "-o StrictHostKeyChecking=accept-new -o %s "
@@ -1533,7 +1409,7 @@ def _ssh_run(host, cmd, docker_host=None, timeout=30):
     # _resolve_ssh_target maps short names to their actual SSH target
     # (user@hostname) via hosts.yml; if there's no match it returns
     # `host` unchanged, so real hostnames/IPs/user@host strings keep
-    # working. Without this, `canasta argocd password --host node1`
+    # working. Without this, a command run with `--host node1`
     # ends up running `ssh node1 …` which fails with "Could not
     # resolve hostname node1" even though canasta knows the mapping.
     target = _resolve_ssh_target(host)
@@ -1845,13 +1721,6 @@ def _docker_env(docker_host):
     return env
 
 
-def _check_running(instance_id, path, orchestrator, host, docker_host=None,
-                    compose_cmd=None):
-    if canasta_config.is_k8s_orchestrator(orchestrator):
-        return _check_running_k8s(instance_id, host)
-    return _check_running_compose(path, host, docker_host, compose_cmd)
-
-
 def _capture_in_instance(path, host, docker_host, argv,
                          capture_stderr=False):
     """Run argv in the instance directory and return stdout, or None.
@@ -1951,8 +1820,8 @@ def _secret_classification():
     """The canonical secret classification, read from the file that defines it.
 
     vars/secret_classification.yml is the one definition of "this key's
-    value is a secret", already driving no_log, the gitops placeholders
-    and the K8s Secret split. Reading it here keeps the CLI's own output
+    value is a secret", already driving no_log and the gitops
+    placeholders. Reading it here keeps the CLI's own output
     from drifting into a second, quieter opinion.
     """
     global _SECRET_CLASSIFICATION
@@ -2029,47 +1898,10 @@ def _check_running_compose(path, host, docker_host=None, compose_cmd=None):
         return rc == 0 and stdout.strip() != ""
 
 
-def _check_running_k8s(instance_id, host):
-    """True if the instance's web deployment has ≥1 ready replica.
-
-    For remote hosts, SSH and run kubectl on the host — its kubeconfig
-    points at the cluster it's part of. Running kubectl on the laptop
-    (the previous behavior) only worked when the laptop happened to
-    have a kubeconfig for that cluster, otherwise the call hit
-    whatever the laptop's KUBECONFIG pointed at (Docker Desktop, an
-    unrelated cluster, ...) and reported STOPPED for instances that
-    were running fine.
-    """
-    if _is_localhost(host):
-        try:
-            result = subprocess.run(
-                [
-                    "kubectl", "get",
-                    "deployment/canasta-%s-web" % instance_id,
-                    "-n", "canasta-%s" % instance_id,
-                    "-o", "jsonpath={.status.readyReplicas}",
-                ],
-                capture_output=True, text=True, timeout=10,
-            )
-            return (
-                result.returncode == 0
-                and result.stdout.strip() not in ("", "0")
-            )
-        except (subprocess.TimeoutExpired, OSError):
-            return False
-    cmd = (
-        "kubectl get deployment/canasta-%s-web "
-        "-n canasta-%s -o jsonpath='{.status.readyReplicas}'"
-        % (instance_id, instance_id)
-    )
-    rc, stdout = _ssh_run(host, cmd)
-    return rc == 0 and stdout.strip() not in ("", "0")
-
-
 # --- web container state (shared by list and doctor) ---
 #
 # Present-or-absent is not enough: a web container that crash-loops is still
-# listed by `ps`, and a crash-looping pod is intermittently ready.
+# listed by `ps`.
 
 WEB_RUNNING = "RUNNING"
 WEB_UNHEALTHY = "UNHEALTHY"
@@ -2144,6 +1976,8 @@ def _compose_web_state(ps_out, restart_count):
 
 
 def _web_state_compose(inst):
+    """WEB_RUNNING, WEB_UNHEALTHY, WEB_PAUSED or WEB_STOPPED for an
+    instance's web."""
     rc, out = _runtime_capture(inst, _compose_web_ps_argv(inst), timeout=10)
     if rc != 0:
         return WEB_STOPPED
@@ -2174,92 +2008,9 @@ def _remote_restart_counts(text):
     return counts
 
 
-# name|ready|restartCount|waiting reason|last exit code, per web pod.
-_K8S_WEB_PODS_JSONPATH = (
-    '{range .items[*]}{.metadata.name}|'
-    '{range .status.containerStatuses[?(@.name=="web")]}'
-    '{.ready}|{.restartCount}|{.state.waiting.reason}|'
-    '{.lastState.terminated.exitCode}{end}{"\\n"}{end}'
-)
-
-
-def _k8s_web_pods_argv(instance_id):
-    return [
-        "kubectl", "get", "pods", "-n", "canasta-%s" % instance_id,
-        "-l", "app.kubernetes.io/component=web",
-        "-o", "jsonpath=%s" % _K8S_WEB_PODS_JSONPATH,
-    ]
-
-
-def _k8s_web_pods(out):
-    """Parse _K8S_WEB_PODS_JSONPATH output into one dict per web pod."""
-    pods = []
-    for line in (out or "").splitlines():
-        fields = line.strip().split("|")
-        if len(fields) < 3 or not fields[0]:
-            continue
-        fields += [""] * (5 - len(fields))
-        try:
-            restarts = int(fields[2])
-        except ValueError:
-            restarts = 0
-        pods.append({
-            "name": fields[0],
-            "ready": fields[1] == "true",
-            "restarts": restarts,
-            "reason": fields[3],
-            "exit_code": fields[4],
-        })
-    return pods
-
-
-def _k8s_pod_unhealthy(pod):
-    """A web pod that is not ready and has crashed at least once."""
-    return not pod["ready"] and (
-        pod["reason"] == "CrashLoopBackOff" or pod["restarts"] > 0)
-
-
-def _k8s_web_state(pods):
-    """WEB_RUNNING, WEB_UNHEALTHY or WEB_STOPPED for a list of web pods.
-
-    A pod that is still starting, never having crashed, is not yet RUNNING.
-    """
-    if any(_k8s_pod_unhealthy(p) for p in pods):
-        return WEB_UNHEALTHY
-    if any(p["ready"] for p in pods):
-        return WEB_RUNNING
-    return WEB_STOPPED
-
-
-def _k8s_web_pods_query(instance_id, host):
-    """(rc, stdout) of the web pod query, run where the cluster's
-    kubeconfig is: locally, or on the instance's host."""
-    argv = _k8s_web_pods_argv(instance_id)
-    if _is_localhost(host):
-        try:
-            result = subprocess.run(
-                argv, capture_output=True, text=True, timeout=10)
-            return result.returncode, result.stdout
-        except (subprocess.TimeoutExpired, OSError):
-            return 1, ""
-    return _ssh_run(host, " ".join(_shell_quote(a) for a in argv))
-
-
-def _web_state_k8s(instance_id, host):
-    rc, out = _k8s_web_pods_query(instance_id, host)
-    return _k8s_web_state(_k8s_web_pods(out)) if rc == 0 else WEB_STOPPED
-
-
-def _web_state(instance_id, inst):
-    """WEB_RUNNING, WEB_UNHEALTHY or WEB_STOPPED for an instance's web."""
-    if _is_k8s(inst):
-        return _web_state_k8s(instance_id, inst.get("host") or "localhost")
-    return _web_state_compose(inst)
-
-
 # --- wiki liveness probe (shared by wiki-check and list) ---
 #
-# The orchestrator checks above answer "is the workload up"; this one
+# The container checks above answer "is the workload up"; this one
 # answers "is the wiki actually serving MediaWiki", which is what a
 # reader experiences. A container can be up while MediaWiki 500s.
 
@@ -2553,9 +2304,6 @@ def _gather_instance_info(inst_id, inst):
     if _is_localhost(host):
         return _gather_local(inst_id, inst)
 
-    if _is_k8s(inst):
-        return _gather_k8s(inst_id, path, host)
-
     env_prefix = (
         "DOCKER_HOST=%s " % _shell_quote(docker_host) if docker_host else "")
     compose_ps = (
@@ -2614,7 +2362,7 @@ def _gather_instance_info(inst_id, inst):
 
     return _make_detail(inst_id, host, path, orchestrator, status, wikis,
                        interrupted, pull_unfinished,
-                       dir_ok and _wiki_db_move_pending(db_env, False))
+                       dir_ok and _wiki_db_move_pending(db_env))
 
 
 def _gather_local(inst_id, inst):
@@ -2623,7 +2371,7 @@ def _gather_local(inst_id, inst):
     orchestrator = inst.get("orchestrator", "compose")
     dir_exists = os.path.isdir(path)
     wikis = _read_wikis(path, host) if dir_exists else []
-    status = _web_state(inst_id, inst) if dir_exists else "NOT FOUND"
+    status = _web_state_compose(inst) if dir_exists else "NOT FOUND"
 
     interrupted = dir_exists and os.path.exists(
         os.path.join(path, RESTORE_MARKER))
@@ -2631,30 +2379,7 @@ def _gather_local(inst_id, inst):
                        interrupted,
                        dir_exists and _unfinished_pull(path, host) is not None,
                        dir_exists and _wiki_db_move_pending(
-                           _read_env_file(path, host), _is_k8s(inst)))
-
-
-def _gather_k8s(inst_id, path, host):
-    if _is_localhost(host):
-        dir_exists = _check_dir_exists(path, host)
-        db_env = _read_env_file(path, host) if dir_exists else {}
-    else:
-        qpath = _shell_quote(path)
-        rc, stdout = _ssh_run(host, "test -d %s || exit 1; %s; true" % (
-            qpath, _db_account_env_grep(qpath)))
-        if rc == _SSH_CONN_FAILURE_RC:
-            return _make_detail(inst_id, host, path, "kubernetes",
-                                "UNREACHABLE", [])
-        dir_exists = rc == 0
-        db_env = _parse_db_account_env(stdout) if dir_exists else {}
-    wikis = _read_wikis(path, host) if dir_exists else []
-
-    status = _web_state_k8s(inst_id, host) if dir_exists else "NOT FOUND"
-
-    return _make_detail(inst_id, host, path, "kubernetes", status, wikis,
-                       dir_exists and _read_restore_marker(path, host) is not None,
-                       dir_exists and _unfinished_pull(path, host) is not None,
-                       _wiki_db_move_pending(db_env, True))
+                           _read_env_file(path, host)))
 
 
 def _make_detail(inst_id, host, path, orchestrator, status, wikis,

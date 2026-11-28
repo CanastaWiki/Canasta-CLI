@@ -4,7 +4,6 @@
 # auto-discovery does not fire under include_role / include_tasks).
 
 import base64
-import hashlib
 import json
 import os
 import re
@@ -16,10 +15,6 @@ sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "..", "roles", "common", "module_utils"))
 
-from canasta_gitops_pending import (  # noqa: E402
-    unpushed_changes,
-    unpushed_probe_script,
-)
 from canasta_env_keys import (  # noqa: E402
     PLAIN_HTTP_KEY,
     RENAMED_ENV_KEYS,
@@ -134,6 +129,13 @@ def _render_placeholders(text, values):
             line = before + (str(values[name]) if name in values else "") + after
         out.append(line)
     return "\n".join(out)
+
+
+def _listed_aliases(wiki):
+    listed = wiki.get("aliases")
+    if not isinstance(listed, list):
+        return [listed] if listed else []
+    return [a for a in listed if a and not (isinstance(a, str) and not a.strip())]
 
 
 def _aliases_by_wiki(content):
@@ -291,51 +293,6 @@ def canasta_wikis_render_with_live_urls(template, live, values=None):
     rendered = _URL_PLACEHOLDER.sub(lambda m: str(urls[m.group(1)]),
                                     str(template or ""))
     return _render_placeholders(rendered, values) if values is not None else rendered
-
-
-_ABSENT = object()
-
-
-def _refresh_values(values, base, shipped, former, path):
-    out = {}
-    for key in list(values) + [k for k in shipped if k not in values]:
-        here = "%s.%s" % (path, key) if path else str(key)
-        mine = values.get(key, _ABSENT)
-        old = base.get(key, _ABSENT) if isinstance(base, dict) else _ABSENT
-        new = shipped.get(key, _ABSENT)
-        if isinstance(mine, dict) and isinstance(new, dict):
-            out[key] = _refresh_values(
-                mine, old if isinstance(old, dict) else {}, new, former, here)
-        elif mine is _ABSENT:
-            out[key] = new
-        elif mine == old or mine in former.get(here, []):
-            if new is not _ABSENT:
-                out[key] = new
-        else:
-            out[key] = mine
-    return out
-
-
-def canasta_chart_values_refresh(values, shipped, base=None, former=None,
-                                 keep=None):
-    """Bring a gitops repo's values.yaml up to date with the shipped chart.
-
-    The repo's values.yaml carries a full copy of the chart defaults, because
-    Argo CD renders the repo itself as the chart. A value still equal to the
-    default the repo last took (`base`), or to a former default listed in
-    `former` (dotted path -> values), follows the shipped default, and is
-    dropped when the chart no longer has it. Anything else is the operator's
-    and is kept. Keys the chart added are filled in. Lists are compared whole.
-    Top-level keys in `keep` are left exactly as they are, or absent.
-    """
-    values = values or {}
-    keep = set(keep or [])
-    out = _refresh_values(values, base or {}, shipped or {}, former or {}, "")
-    for key in keep:
-        out.pop(key, None)
-        if key in values:
-            out[key] = values[key]
-    return out
 
 
 def canasta_env_render(template, env_vars, default_image=None):
@@ -654,52 +611,6 @@ def canasta_wiki_url_sync_plan(live_wikis, env_vars, base_vars=None, recorded=No
     return plan
 
 
-def canasta_wiki_ingress_domains(wikis_yaml, extra=None, fallback=None):
-    """The Ingress domains for a farm: each wiki url's host, then ``extra``.
-
-    The path and any port are dropped from each url, and duplicates are
-    removed keeping the first. With no wiki urls (no or empty
-    config/wikis.yaml), ``fallback`` is returned unchanged.
-    """
-    try:
-        doc = yaml.safe_load(str(wikis_yaml or "")) or {}
-    except yaml.YAMLError:
-        doc = {}
-    wikis = (doc.get("wikis") if isinstance(doc, dict) else None) or []
-    hosts = []
-    for wiki in wikis:
-        if not isinstance(wiki, dict) or not wiki.get("url"):
-            continue
-        host = re.sub(r":[0-9]+$", "", str(wiki["url"]).split("/", 1)[0])
-        if host:
-            hosts.append(host)
-    if not hosts:
-        return list(fallback or [])
-    domains = []
-    for name in hosts + list(extra or []):
-        if name not in domains:
-            domains.append(name)
-    return domains
-
-
-def canasta_wikis_with_aliases(wikis_yaml):
-    """The ids of the wikis whose aliases list has a hostname in it."""
-    try:
-        doc = yaml.safe_load(str(wikis_yaml or "")) or {}
-    except yaml.YAMLError:
-        doc = {}
-    wikis = (doc.get("wikis") if isinstance(doc, dict) else None) or []
-    return [str(w.get("id", "?")) for w in wikis
-            if isinstance(w, dict) and _listed_aliases(w)]
-
-
-def _listed_aliases(wiki):
-    listed = wiki.get("aliases")
-    if not isinstance(listed, list):
-        return [listed] if listed else []
-    return [a for a in listed if a and not (isinstance(a, str) and not a.strip())]
-
-
 # ssh/forge responses that mean the key was presented and refused. GitHub
 # answers "Repository not found" for a key registered on another repo.
 _REMOTE_UNAUTHORIZED = (
@@ -744,66 +655,6 @@ def canasta_git_remote_known_hosts_name(repo):
         return ""
     match = re.match(r"^(?:[^@/:]*@)?([^/:]+):", repo)
     return match.group(1) if match else ""
-
-
-def _secret_fingerprint(data, refs):
-    """sha256 over the (Secret, key, value) of each reference, in order."""
-    rows = sorted([name, key, data.get(name, {}).get(key)] for name, key in refs)
-    return hashlib.sha256(
-        json.dumps(rows, separators=(",", ":")).encode()).hexdigest()
-
-
-def canasta_secret_checksums(secrets, values, instance_id):
-    """Fingerprint the Secret values each workload of an instance reads.
-
-    ``secrets`` is a k8s_info Secret listing, ``values`` the instance's Helm
-    values. Returns hashes only, never the values: ``web`` (database
-    passwords, MediaWiki secret key and the --web app secrets), ``caddy``
-    (the CrowdSec bouncer key and agent password), ``crowdsec`` (the agent
-    password the local API registers) and ``sidecars`` (one per sidecar that
-    reads app secrets), for the chart to put on each pod template so a
-    changed Secret value rolls the pods that read it.
-    """
-    values = values or {}
-    names = values.get("secrets") or {}
-    db = names.get("dbSecretName") or "%s-db-credentials" % instance_id
-    mw = names.get("mwSecretName") or "%s-mw-secrets" % instance_id
-    app = names.get("appSecretName") or "%s-app-secrets" % instance_id
-    crowdsec = ("canasta-%s" % instance_id)[:63].rstrip("-") + "-crowdsec"
-    data = {}
-    for secret in secrets or []:
-        name = (secret.get("metadata") or {}).get("name")
-        if name:
-            data[name] = secret.get("data") or {}
-    # The hashes are committed to git. MediaWiki's random secret key goes
-    # into each one, so a guessable app secret can't be recovered from it.
-    pepper = [(mw, "MW_SECRET_KEY")]
-    # With its own account on the bundled database, MediaWiki reads that
-    # account's password, and the web pod's ensure-db-account init container
-    # also reads the root password.
-    db_values = values.get("db") or {}
-    own_account = (db_values.get("enabled", True) is not False
-                   and str(db_values.get("wikiUser") or "root") != "root")
-    if own_account:
-        web = pepper + [(db, "WIKI_DB_PASSWORD"), (db, "MYSQL_ROOT_PASSWORD")]
-    else:
-        web = pepper + [(db, "MYSQL_PASSWORD")]
-    web += [(app, key) for key in values.get("appSecretEnv") or []]
-    sidecars = {}
-    for sidecar in values.get("sidecars") or []:
-        keys = sidecar.get("envSecret") or []
-        if keys:
-            sidecars[sidecar["name"]] = _secret_fingerprint(
-                data, pepper + [(app, key) for key in keys])
-    return {
-        "web": _secret_fingerprint(data, web),
-        "caddy": _secret_fingerprint(
-            data, pepper + [(crowdsec, "CROWDSEC_BOUNCER_API_KEY"),
-                            (crowdsec, "CROWDSEC_AGENT_PASSWORD")]),
-        "crowdsec": _secret_fingerprint(
-            data, pepper + [(crowdsec, "CROWDSEC_AGENT_PASSWORD")]),
-        "sidecars": sidecars,
-    }
 
 
 # Fingerprint keys of the files a pull renders, and the path each names.
@@ -871,16 +722,6 @@ def canasta_maintenance_triggers(raw_diff):
     return names
 
 
-def canasta_gitops_unpushed_probe(instance_path):
-    """Read-only shell that gathers what a gitops instance has not pushed."""
-    return unpushed_probe_script(instance_path)
-
-
-def canasta_gitops_unpushed(stdout, secret_key_regex):
-    """The unpushed commits and paths canasta_gitops_unpushed_probe found."""
-    return unpushed_changes(stdout, secret_key_regex)
-
-
 class FilterModule(object):
     def filters(self):
         return {
@@ -890,7 +731,6 @@ class FilterModule(object):
             "canasta_wikis_sync_action": canasta_wikis_sync_action,
             "canasta_wikis_render_with_live_urls":
                 canasta_wikis_render_with_live_urls,
-            "canasta_chart_values_refresh": canasta_chart_values_refresh,
             "canasta_env_render": canasta_env_render,
             "canasta_env_modernize": canasta_env_modernize,
             "canasta_env_legacy_settings": canasta_env_legacy_settings,
@@ -901,17 +741,12 @@ class FilterModule(object):
             "canasta_cli_version_list": canasta_cli_version_list,
             "canasta_gitops_hosts_after": canasta_gitops_hosts_after,
             "canasta_wiki_url_sync_plan": canasta_wiki_url_sync_plan,
-            "canasta_wiki_ingress_domains": canasta_wiki_ingress_domains,
-            "canasta_wikis_with_aliases": canasta_wikis_with_aliases,
             "canasta_wikis_alias_edits": canasta_wikis_alias_edits,
             "canasta_wikis_record": canasta_wikis_record,
             "canasta_wikis_template_aliases": canasta_wikis_template_aliases,
             "canasta_git_remote_failure": canasta_git_remote_failure,
             "canasta_git_remote_known_hosts_name":
                 canasta_git_remote_known_hosts_name,
-            "canasta_secret_checksums": canasta_secret_checksums,
-            "canasta_gitops_unpushed_probe": canasta_gitops_unpushed_probe,
-            "canasta_gitops_unpushed": canasta_gitops_unpushed,
             "canasta_fingerprint_changes": canasta_fingerprint_changes,
             "canasta_maintenance_triggers": canasta_maintenance_triggers,
         }

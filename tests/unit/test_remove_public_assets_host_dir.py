@@ -1,9 +1,7 @@
 """remove deletes the wiki's public_assets/<wiki>/ from the instance dir.
 
-On Kubernetes the container's public_assets is a volume, so removing it
-inside the container leaves the instance dir's copy. That copy is mirrored
-back into the volume on start, and a gitops push's tracked-path staging
-adds it back to the repo after the remove staged its deletion.
+A copy left there would be added back to the repo by a gitops push's
+tracked-path staging after the remove staged its deletion.
 """
 
 import os

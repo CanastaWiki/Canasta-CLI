@@ -11,7 +11,7 @@
 # deleted. A gitops instance has the change staged for 'gitops push'. Nothing
 # here fails the upgrade: the image ignores these entries anyway.
 #
-# Input: instance_id, instance_path, instance_orchestrator, _was_running
+# Input: instance_id, instance_path, _was_running
 
 - name: Tidy config/composer.local.json
   when: _was_running | default(false) | bool

@@ -150,12 +150,12 @@ class TestRunnerOnFailed:
         should see only the real message, not the placeholder."""
         cb = _make_callback()
         cb.v2_runner_on_failed(_result(
-            msg="Instance 'mwstake' not found in the registry or Kubernetes.",
+            msg="Instance 'mwstake' not found in the registry.",
             exception="(traceback unavailable)",
         ))
         msgs = [m for (m, _, _) in cb._captured]
         assert msgs == [
-            "Error: Instance 'mwstake' not found in the registry or Kubernetes."
+            "Error: Instance 'mwstake' not found in the registry."
         ]
 
     def test_ignore_errors_suppresses_output(self):

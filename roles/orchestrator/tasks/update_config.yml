@@ -1,13 +1,9 @@
 ---
 # Update orchestrator configuration after changes (e.g. wiki add/remove).
-# Input: instance_path, instance_orchestrator
+# Input: instance_path
 
 - name: Regenerate Caddyfile
   ansible.builtin.include_tasks: rewrite_caddy.yml
 
 - name: Render web secret keys to a compose override layer
   ansible.builtin.include_tasks: render_web_env.yml
-  when: not (instance_is_k8s | bool)
-
-# Kubernetes: configuration changes go into values.yaml and are applied
-# via helm upgrade on next start/restart.

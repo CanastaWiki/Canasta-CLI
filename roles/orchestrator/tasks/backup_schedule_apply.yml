@@ -1,15 +1,13 @@
 ---
 # Materialize a backup schedule as a crontab entry on the host where the
-# instance runs (Compose: the instance's host; K8s: the control-plane node,
-# to which resolve_instance has switched the connection). The entry runs
-# 'canasta backup create' on that host, which performs the backup the
-# orchestrator-native way (a Compose container, or the in-cluster restic Job
-# for K8s) — only the trigger is the crontab.
+# instance runs. The entry runs 'canasta backup create' on that host, which
+# performs the backup in a restic container; only the trigger is the
+# crontab.
 #
 # Reused by: schedule set (from CLI args) and the rematerialize step run
 # after restore / gitops pull (from the persisted config/backup-schedule.yml).
 #
-# Input: instance_id, instance_path, instance_orchestrator,
+# Input: instance_id, instance_path,
 #        cron_expression, retention (optional dict of restic forget flags,
 #        e.g. {'keep-daily': '7', 'keep-weekly': '4'})
 
@@ -29,8 +27,7 @@
 #    container that can't touch the host crontab, so the wrapper dumps it
 #    to the host-mounted file named by CANASTA_HOST_CRONTAB before the run
 #    and re-installs it after. Here we just edit that file.
-#  - Remote (--host, a registry-pinned host, or any K8s instance whose
-#    connection switched to the cp node): the crontab lives on that host,
+#  - Remote (--host or a registry-pinned host): the crontab lives on that host,
 #    so resolve canasta there and fail if it isn't installed.
 - name: Classify the schedule target
   ansible.builtin.set_fact:

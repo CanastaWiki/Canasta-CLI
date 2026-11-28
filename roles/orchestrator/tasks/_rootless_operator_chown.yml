@@ -1,5 +1,5 @@
 ---
-# Rootless Podman bind-mount ownership fix (Compose only).
+# Rootless Podman bind-mount ownership fix.
 # The directories are vars/rootless_operator_dirs.yml, which the Compose fast
 # path (direct_commands/_helpers.py, _rootless_operator_chown) reads too.
 #
@@ -19,8 +19,7 @@
 # subdirs) so the running containers keep write access there.
 #
 # This is the rootless-only default. Docker and rootful Podman already keep
-# the operator as owner, and Kubernetes uses PVCs (no host bind mounts), so
-# both are skipped.
+# the operator as owner, so they are skipped.
 #
 # Detection is gated on the resolved inspect_command (docker vs podman) so
 # we don't probe podman on a Docker instance.
@@ -32,7 +31,6 @@
   changed_when: false
   failed_when: false
   when:
-    - not (instance_is_k8s | bool)
     - compose_command | default('docker compose') is search('podman')
 
 # A tree cloned by `gitops join` can lack any of these (git does not track
@@ -43,7 +41,6 @@
   loop: "{{ canasta_rootless_operator_dirs }}"
   register: _rootless_chown_dirs
   when:
-    - not (instance_is_k8s | bool)
     - _rootless_chown_rootless.stdout | default('') | trim == 'true'
 
 - name: Fix operator directory ownership for rootless Podman

@@ -1,9 +1,8 @@
 """`canasta upgrade` moves a running instance onto a new managed Caddy image.
 
 The restart decision counted only the Canasta image and stack changes, so a
-bump of canasta_caddy_plugin_image left instances on the old Caddy until
-their next start: Compose kept the old container, and Kubernetes never
-reconciled caddy.image in values.yaml.
+bump of canasta_caddy_plugin_image would leave an instance on the old
+Caddy container until its next start.
 """
 
 import os
@@ -78,8 +77,8 @@ OLD = "ghcr.io/canastawiki/canasta-caddy:2.11.3"
      ["registry.example.com/my-caddy:1.0"], False),
     ("", False, [], False),
 ])
-def test_compose_change_signal(before, env_set_changed, running, changed):
-    task = _named(_load(CHECK), "Note whether the Caddy image changes (Compose)")
+def test_change_signal(before, env_set_changed, running, changed):
+    task = _named(_load(CHECK), "Note whether the Caddy image changes")
     expr = task["ansible.builtin.set_fact"]["_upgrade_caddy_image_changed"]
     out = _render(expr, {
         "_upgrade_caddy_env_before": {"value": before},
@@ -116,7 +115,7 @@ def test_signal_feeds_the_restart():
     assert "_upgrade_caddy_image_changed" in restart
 
 
-def test_compose_image_is_read_before_the_stack_files_are_written():
+def test_image_is_read_before_the_stack_files_are_written():
     # Writing the stack files runs the profile sync, which moves
     # CANASTA_CADDY_IMAGE itself; only the earlier value shows the change.
     tasks = _load(MAIN)
@@ -125,7 +124,7 @@ def test_compose_image_is_read_before_the_stack_files_are_written():
     read = tasks[before]
     assert read["register"] == "_upgrade_caddy_env_before"
     assert read["canasta_env"]["key"] == "CANASTA_CADDY_IMAGE"
-    assert read["when"] == "not (instance_is_k8s | bool)"
+    assert "when" not in read
     writes = [i for i, t in enumerate(tasks)
               if t.get("ansible.builtin.include_role", {}).get("tasks_from")
               in ("write_stack_files.yml", "init_config.yml")]

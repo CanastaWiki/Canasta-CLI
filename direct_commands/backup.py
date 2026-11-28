@@ -76,8 +76,6 @@ def cmd_backup_list(args):
     inst_id, inst = _helpers._resolve_instance(args)
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
-    if _helpers._is_k8s(inst):
-        return _helpers.FALLBACK
 
     bvol = "canasta-backup-%s" % os.path.basename(path)
     env_content = _helpers._read_env_content(path, host)

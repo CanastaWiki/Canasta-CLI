@@ -7,10 +7,9 @@
 # the flag is written to .env (this runs earlier in _set_single than the
 # canasta_env write), so a host that can't run the feature is refused with the
 # flag left off rather than left half-enabled. Only checks on enable (true);
-# disabling never needs more memory. Compose-only host-memory check.
+# disabling never needs more memory.
 - name: Enforce memory floor when enabling OpenSearch or observability
   when:
-    - not (instance_is_k8s | bool)
     - _config_key in ['CANASTA_ENABLE_OPENSEARCH', 'CANASTA_ENABLE_OBSERVABILITY']
     - _config_value | lower == 'true'
   block:
@@ -37,23 +36,15 @@
           {{ (_config_key == 'CANASTA_ENABLE_OBSERVABILITY')
              or (_se_mem_flags.results[1].value | default('false') | lower == 'true') }}
 
-# Search runs on the host's OpenSearch on Docker Compose, and on a
-# per-instance Elasticsearch on Kubernetes.
-- name: Refuse a search setting of the other orchestrator
+# Search runs on the host's OpenSearch.
+- name: Refuse an Elasticsearch setting
   ansible.builtin.fail:
     msg: >-
-      {{ _config_key }} applies only to
-      {{ 'Docker Compose' if instance_is_k8s | bool else 'Kubernetes' }}
-      instances. {{ 'Kubernetes instances use CANASTA_ENABLE_ELASTICSEARCH.'
-      if instance_is_k8s | bool else
-      'Docker Compose instances search with OpenSearch (CANASTA_ENABLE_OPENSEARCH).' }}
+      {{ _config_key }} is not supported. Canasta searches with OpenSearch
+      (CANASTA_ENABLE_OPENSEARCH).
   when:
     - _config_value is defined
-    - >-
-      (instance_is_k8s | bool and _config_key is match('^CANASTA_(ENABLE_)?OPENSEARCH'))
-      or (not (instance_is_k8s | bool)
-          and _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ELASTICSEARCH_HEAP',
-                              'CANASTA_ELASTICSEARCH_IMAGE'])
+    - _config_key in ['CANASTA_ENABLE_ELASTICSEARCH', 'CANASTA_ELASTICSEARCH_HEAP', 'CANASTA_ELASTICSEARCH_IMAGE']
 
 # OpenSearch is for CirrusSearch, so turning it on enables Elastica and
 # CirrusSearch for every wiki (unless already enabled), and turning it off
@@ -66,7 +57,6 @@
     state: "{{ 'enable' if _config_value | lower == 'true' else 'disable' }}"
     names: [Elastica, CirrusSearch]
   when:
-    - not (instance_is_k8s | bool)
     - _config_key == 'CANASTA_ENABLE_OPENSEARCH'
     - _config_value is defined
 
@@ -233,9 +223,6 @@
             value: "{{ _base_domain }}{{ _port_suffix }}"
           when: _se_wikis.wikis | length > 0
 
-# Kubernetes port changes: Ingress handles port routing, no cluster
-# recreation needed. The change takes effect on next helm upgrade.
-
 # Switching TLS_MODE to or from "off" flips which port is "active" (the one
 # reflected in wikis.yaml and MW_SITE_*). The HTTP_PORT/HTTPS_PORT
 # handler above only fires when the port values change; we need a
@@ -345,12 +332,8 @@
 
 # Also reconciles CANASTA_CADDY_IMAGE, so TRUSTED_PROXIES (which can
 # require the plugin image) belongs in this trigger list too.
-# Intrinsic config-apply side effect; the K8s equivalent is reconciled at
-# deploy time by k8s_reconcile_caddy.yml. Kept in place by design
-# (orchestrator-specific side effect, not dispatched).
 - name: Sync COMPOSE_PROFILES / caddy image when feature flags change
   when:
-    - not (instance_is_k8s | bool)
     - _config_key in ['CANASTA_ENABLE_VARNISH',
                       'CANASTA_ENABLE_OBSERVABILITY', 'CANASTA_ENABLE_CROWDSEC',
                       'CANASTA_ENABLE_REDIS', 'TRUSTED_PROXIES']
@@ -361,10 +344,8 @@
 # registered. The restart this config-set triggers auto-enrolls the bouncer
 # (orchestrator start.yml), so the normal case just works; only flag the
 # manual fallback for --no-restart, where no start runs to enroll it.
-# Compose-only advisory side effect of a config change. Kept in place by design.
 - name: Note bouncer enrollment when CrowdSec is enabled without a key
   when:
-    - not (instance_is_k8s | bool)
     - _config_key == 'CANASTA_ENABLE_CROWDSEC'
     - _config_value | lower == 'true'
   block:
@@ -395,153 +376,6 @@
     tasks_from: ensure_observability_credentials.yml
   vars:
     _obs_enabling: true
-
-# --- Kubernetes values.yaml propagation ---
-# On K8s, certain env keys are sourced from values.yaml fields that
-# double-duty as cluster-level configuration (Ingress hostnames,
-# deployment gates, etc.). When these keys change via config set, we
-# must also update the corresponding values.yaml field so the change
-# reaches the cluster on the next helm upgrade (which the restart
-# that config set triggers will do). Without this, the value lands
-# in .env on the controller but the running pods and K8s resources
-# never see it.
-#
-# Mapping table:
-#   MW_SITE_FQDN           → domains: [<value>]
-#   CANASTA_ENABLE_VARNISH → varnish.enabled: <bool>
-#   CANASTA_ENABLE_ELASTICSEARCH → elasticsearch.enabled: <bool>
-#   CANASTA_ENABLE_REDIS → redis.enabled: <bool>
-#   CANASTA_REDIS_MEMORY → redis.memory: <megabytes>
-#   CANASTA_STAGING_CERTS  → ingress.certManager.issuer: letsencrypt-{staging,prod}
-#   CANASTA_IMAGE          → image.repository + image.tag
-#   CANASTA_ELASTICSEARCH_IMAGE → elasticsearch.image: <value>
-#
-# External DB keys (USE_EXTERNAL_DB, MYSQL_*) are intentionally NOT
-# propagated here — _validate_key.yml blocks them as immutable after
-# create. The values.yaml mapping is populated at create time only
-# (see roles/create/tasks/main.yml and templates/k8s_values.yaml.j2).
-# Intrinsically K8s config-apply (writes values.yaml); no Compose equivalent
-# (Compose reads .env directly). Kept in place by design (not dispatched).
-- name: Propagate config key to K8s values.yaml
-  when:
-    - instance_is_k8s | bool
-    - _config_key in ['MW_SITE_FQDN', 'CANASTA_ENABLE_VARNISH',
-                      'CANASTA_ENABLE_ELASTICSEARCH',
-                      'CANASTA_ENABLE_REDIS', 'CANASTA_REDIS_MEMORY',
-                      'CANASTA_STAGING_CERTS', 'CANASTA_IMAGE',
-                      'CANASTA_ELASTICSEARCH_IMAGE']
-  block:
-    - name: Read current values.yaml
-      ansible.builtin.slurp:
-        src: "{{ instance_path }}/values.yaml"
-      register: _k8s_values_raw
-
-    - name: Parse current values
-      ansible.builtin.set_fact:
-        _k8s_values: "{{ _k8s_values_raw.content | b64decode | from_yaml }}"
-
-    - name: Build values.yaml override for MW_SITE_FQDN
-      ansible.builtin.set_fact:
-        _k8s_override: "{{ {'domains': [_config_value | regex_replace(':[0-9]+$', '')]} }}"
-      when: _config_key == 'MW_SITE_FQDN'
-
-    - name: Build values.yaml override for CANASTA_ENABLE_VARNISH
-      ansible.builtin.set_fact:
-        _k8s_override: "{{ {'varnish': {'enabled': _config_value | lower == 'true'}} }}"
-      when: _config_key == 'CANASTA_ENABLE_VARNISH'
-
-    - name: Build values.yaml override for CANASTA_ENABLE_ELASTICSEARCH
-      ansible.builtin.set_fact:
-        _k8s_override: "{{ {'elasticsearch': {'enabled': _config_value | lower == 'true'}} }}"
-      when: _config_key == 'CANASTA_ENABLE_ELASTICSEARCH'
-
-    - name: Build values.yaml override for CANASTA_ENABLE_REDIS
-      ansible.builtin.set_fact:
-        _k8s_override: "{{ {'redis': {'enabled': _config_value | lower == 'true'}} }}"
-      when: _config_key == 'CANASTA_ENABLE_REDIS'
-
-    - name: Build values.yaml override for CANASTA_REDIS_MEMORY
-      ansible.builtin.set_fact:
-        _k8s_override: "{{ {'redis': {'memory': _config_value | int}} }}"
-      when: _config_key == 'CANASTA_REDIS_MEMORY'
-
-    - name: Build values.yaml override for CANASTA_STAGING_CERTS
-      ansible.builtin.set_fact:
-        _k8s_override:
-          ingress:
-            certManager:
-              issuer: "{{ (_config_value | lower == 'true') | ternary('letsencrypt-staging', 'letsencrypt-prod') }}"
-      when: _config_key == 'CANASTA_STAGING_CERTS'
-
-    # Split repository:tag the same way create does (k8s_values.yaml.j2):
-    # repository is everything before the last colon, tag is everything
-    # after it. config set + restart then redeploys the custom image,
-    # matching Compose's ${CANASTA_IMAGE} behavior.
-    - name: Build values.yaml override for CANASTA_IMAGE
-      ansible.builtin.set_fact:
-        _k8s_override:
-          image:
-            repository: "{{ _config_value | regex_replace(':[^:]+$', '') }}"
-            tag: "{{ _config_value | regex_replace('^.*:', '') }}"
-      when: _config_key == 'CANASTA_IMAGE'
-
-    # Deep-merged into values.yaml, so it composes with elasticsearch.enabled
-    # (CANASTA_ENABLE_ELASTICSEARCH) — setting one preserves the other. The
-    # StatefulSet only deploys while enabled, so this is inert until then.
-    - name: Build values.yaml override for CANASTA_ELASTICSEARCH_IMAGE
-      ansible.builtin.set_fact:
-        _k8s_override: "{{ {'elasticsearch': {'image': _config_value}} }}"
-      when: _config_key == 'CANASTA_ELASTICSEARCH_IMAGE'
-
-    - name: Write updated values.yaml
-      ansible.builtin.copy:
-        content: >-
-          {{ _k8s_values
-             | combine(_k8s_override, recursive=True)
-             | to_nice_yaml(indent=2) }}
-        dest: "{{ instance_path }}/values.yaml"
-        mode: "0644"
-
-    # A gitops render overlays the host's image_tag on the template's image,
-    # so a tag written only to values.yaml would never deploy.
-    - name: Check whether the instance is gitops-managed
-      ansible.builtin.stat:
-        path: "{{ instance_path }}/.gitops-host"
-      register: _se_image_gitops
-      when: _config_key == 'CANASTA_IMAGE'
-
-    - name: Read the gitops host name
-      ansible.builtin.slurp:
-        src: "{{ instance_path }}/.gitops-host"
-      register: _se_image_host
-      when: _se_image_gitops.stat.exists | default(false)
-
-    - name: Record the image tag in the host's gitops vars
-      ansible.builtin.lineinfile:
-        path: >-
-          {{ instance_path }}/hosts/{{ _se_image_host.content | b64decode
-             | trim }}/vars.yaml
-        regexp: "^image_tag:"
-        line: "image_tag: {{ _k8s_override.image.tag | to_json }}"
-        state: present
-      when: _se_image_gitops.stat.exists | default(false)
-
-    - name: Stage the image tag
-      ansible.builtin.command:
-        argv:
-          - git
-          - add
-          - "hosts/{{ _se_image_host.content | b64decode | trim }}/vars.yaml"
-        chdir: "{{ instance_path }}"
-      changed_when: true
-      when: _se_image_gitops.stat.exists | default(false)
-
-# CrowdSec enablement (crowdsec.enabled) and the caddy plugin image are
-# reconciled into values.yaml from .env at deploy time by the orchestrator
-# start path (roles/orchestrator/tasks/k8s_reconcile_caddy.yml), so the
-# config-set restart picks them up. TRUSTED_PROXIES feeds that same
-# reconcile (cloudflare/imperva need the plugin image), so neither needs a
-# config-set-time values.yaml write here.
 
 # --- MW_SITE_SERVER domain change cascade ---
 # When the domain changes, update MW_SITE_FQDN, wikis.yaml URLs,

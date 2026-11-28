@@ -8,25 +8,13 @@
   ansible.builtin.set_fact:
     instance_id: "{{ _inst.key }}"
     instance_path: "{{ _inst.value.path }}"
-    instance_orchestrator: "{{ _inst.value.orchestrator | default('compose') }}"
     inspect_command: >-
       {{ _inst.value.inspectCommand
          | default(_upgrade_default_inspect_command) }}
     instance_docker_host: "{{ _inst.value.dockerHost | default('') }}"
     _instance_host: "{{ _inst.value.host | default('localhost') }}"
 
-# 5.x has no Kubernetes support.
-- name: Note a Kubernetes instance
-  ansible.builtin.set_fact:
-    _preflight_blockers: >-
-      {{ _preflight_blockers + ["'" ~ instance_id ~ "': It runs on Kubernetes, "
-         ~ "which Canasta CLI 5.x does not support. Move it to Docker Compose "
-         ~ "with a backup and a restore first."] }}
-    _preflight_blocked: "{{ _preflight_blocked + [instance_id] }}"
-  when: instance_is_k8s | bool
-
 - name: Check a Docker Compose instance
-  when: not (instance_is_k8s | bool)
   block:
     - name: Switch connection to instance host
       ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/switch_connection.yml"

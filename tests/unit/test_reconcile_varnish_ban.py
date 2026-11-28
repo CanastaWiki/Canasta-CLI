@@ -5,14 +5,12 @@ name, the skin, the logo), and MediaWiki only purges pages it edits, so
 reconcile bans every cached object when Varnish is in use.
 """
 
-import base64
 import os
 
 import yaml
 from ansible.parsing.dataloader import DataLoader
 from ansible.template import Templar, trust_as_template
 
-from _orchestrator import TEMPLAR_VARS
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 BAN = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
@@ -30,25 +28,22 @@ def _by_name(tasks, name):
     return next(t for t in tasks if t.get("name") == name)
 
 
-def _enabled(orchestrator, flag=None, values=None):
+def _enabled(flag=None):
     expr = _by_name(_load(BAN), "Decide whether Varnish is in use")[
         "ansible.builtin.set_fact"]["_ban_varnish_enabled"]
-    variables = {"instance_orchestrator": orchestrator, **TEMPLAR_VARS}
+    variables = {}
     if flag is not None:
         variables["_ban_varnish_flag"] = {"value": flag}
-    if values is not None:
-        variables["_ban_values_raw"] = {
-            "content": base64.b64encode(values.encode()).decode()}
     templar = Templar(loader=DataLoader(), variables=variables)
     return str(templar.template(trust_as_template(expr))).strip() == "True"
 
 
 class TestVarnishInUse:
-    def test_compose_defaults_to_enabled(self):
-        assert _enabled("compose", flag="")
+    def test_defaults_to_enabled(self):
+        assert _enabled(flag="")
 
-    def test_compose_flag_off(self):
-        assert not _enabled("compose", flag="false")
+    def test_flag_off(self):
+        assert not _enabled(flag="false")
 
 
 class TestBan:

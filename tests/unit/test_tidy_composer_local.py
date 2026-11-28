@@ -239,7 +239,7 @@ def _run_tidy(tmp_path, inst, mw, running=True):
         "connection": "local",
         "gather_facts": False,
         "vars": {"instance_path": inst, "instance_id": "demo",
-                 "instance_orchestrator": "compose", "_was_running": running,
+                 "_was_running": running,
                  "canasta_root": _canasta_root(tmp_path), "test_mw_home": mw,
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_tasks": TIDY}],

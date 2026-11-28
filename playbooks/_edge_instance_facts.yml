@@ -6,7 +6,6 @@
   ansible.builtin.set_fact:
     instance_id: "{{ _edge_inst.key }}"
     instance_path: "{{ _edge_inst.value.path }}"
-    instance_orchestrator: compose
     instance_devmode: "{{ _edge_inst.value.devMode | default(false) }}"
     compose_command: >-
       {{ _edge_inst.value.composeCommand | default(_upgrade_default_compose_command) }}

@@ -90,7 +90,7 @@ def _env_password_preserves(block_name):
 
 
 def test_compose_env_password_preserve_gated_off_for_single_wiki():
-    preserves = _env_password_preserves("Restore (Compose)")
+    preserves = _env_password_preserves("Restore")
     assert len(preserves) == 1
     assert all("wiki is not defined" in _when(t) for t in preserves), (
         "single-wiki restore must not rewrite the shared .env")

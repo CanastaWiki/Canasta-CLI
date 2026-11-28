@@ -1,15 +1,12 @@
 ---
 # Start containers for an instance.
-# Dispatches to Compose or Kubernetes based on instance_orchestrator.
-# Input: instance_path, instance_devmode (bool), instance_orchestrator
-# Optional: start_converge (bool) - on Compose, run `up -d` even when every
-#   service is running, so containers whose configuration changed are
-#   recreated.
-# Optional: start_quiet_when_running (bool) - on Compose, print nothing about
-#   starting unless something is actually started.
+# Input: instance_path, instance_devmode (bool)
+# Optional: start_converge (bool) - run `up -d` even when every service is
+#   running, so containers whose configuration changed are recreated.
+# Optional: start_quiet_when_running (bool) - print nothing about starting
+#   unless something is actually started.
 
 - name: Start (Docker Compose)
-  when: not (instance_is_k8s | bool)
   block:
     # Also before the instance's first move: this start renders its
     # Caddyfile for plain HTTP and adds it to the edge.
@@ -25,7 +22,6 @@
     - name: Render sidecars to a compose override layer
       canasta_render_sidecars:
         instance_path: "{{ instance_path }}"
-        orchestrator: compose
         secret_key_regex: "{{ canasta_secret_key_regex }}"
       register: _sidecar_render
 
@@ -606,7 +602,7 @@
         - _inspect_cmd | default('docker') is search('podman')
 
     # Register CAPI + auto-enroll the bouncer when CrowdSec is on. Shared
-    # with the K8s start path and create. crowdsec_autoenroll is false only
+    # with create. crowdsec_autoenroll is false only
     # for create's first start, which defers enrollment until after the
     # instance is registered (the crowdsec preflight resolves it).
     - name: Auto-enroll CrowdSec (register CAPI + enroll bouncer) when enabled
@@ -630,5 +626,4 @@
       {{ _edge.error }} The HAProxy edge keeps its previous configuration
       until this is fixed; run 'canasta restart' again afterwards.
   when:
-    - not (instance_is_k8s | bool)
     - _edge.error | default('') | length > 0

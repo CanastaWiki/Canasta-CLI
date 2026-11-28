@@ -1,10 +1,8 @@
 """`make lint` must not write into the operator's ~/.ansible.
 
-ansible-lint --offline materializes the mock_modules from .ansible-lint
-under $ANSIBLE_HOME/collections, which defaults to ~/.ansible and
-replaces the installed kubernetes.core modules with stubs. The lint
-target points ANSIBLE_HOME and ANSIBLE_COLLECTIONS_PATH at a throwaway
-directory.
+The lint target points ANSIBLE_HOME and ANSIBLE_COLLECTIONS_PATH at a
+throwaway directory, so whatever ansible-lint prepares for its run stays
+out of the operator's collections.
 """
 
 import os

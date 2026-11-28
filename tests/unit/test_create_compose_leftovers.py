@@ -12,7 +12,6 @@ import sys
 
 import yaml
 
-from _orchestrator import INSTANCE_IS_K8S_VARS
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 VALIDATE = os.path.join(REPO_ROOT, "roles", "create", "tasks",
@@ -45,7 +44,7 @@ def _run(tmp_path, tasks, extra_vars, env_extra=None):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": dict(INSTANCE_IS_K8S_VARS, **extra_vars,
+        "vars": dict(**extra_vars,
                      ansible_python_interpreter=sys.executable),
         "tasks": tasks,
     }]))
@@ -73,7 +72,7 @@ class TestStaleVolumeCheck:
         with open(VALIDATE) as f:
             tasks = yaml.safe_load(f)
         block = next(t for t in tasks
-                     if "stale Compose volumes" in str(t.get("name")))
+                     if "stale volumes" in str(t.get("name")))
         vol_file = tmp_path / "volumes"
         vol_file.write_text("".join("%s %s\n" % v for v in volumes))
         stub = _stub(tmp_path, "docker", DOCKER_STUB)

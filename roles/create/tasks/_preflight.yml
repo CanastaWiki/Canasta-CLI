@@ -1,9 +1,7 @@
 ---
 # Pre-flight checks for `canasta create`. Runs before any state-mutating
-# step. The orchestrator-specific probes are owned by the orchestrator
-# role (create_preflight.yml dispatches to the Compose checks; Kubernetes
-# preflight runs later in _validate_inputs.yml, coupled to the namespace
-# stale-state check).
+# step. The host probes live in the orchestrator role
+# (create_preflight.yml).
 
 - name: Report connecting to host
   ansible.builtin.debug:
