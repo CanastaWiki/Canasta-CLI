@@ -16,6 +16,8 @@ import os
 import re
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
 
@@ -137,24 +139,35 @@ class TestCoreDependencyGate:
     """cmd_doctor returns 1 when no container runtime is present. That is
     the command's only hard failure."""
 
-    def _rc(self, **kw):
-        out = _stdout(**kw)
-        parts = out.split(D + "\n")
-        return 0 if doctor._has_container_runtime(
-            parts[1].strip(), parts[2].strip(), parts[3].strip(),
-            parts[_PODMAN_IDX].strip()) else 1
+    @pytest.fixture
+    def rc(self, monkeypatch, capsys):
+        def run_doctor(**kw):
+            out = _stdout(**kw)
+            monkeypatch.setattr(_helpers, "_get_config_dir", lambda: "/nonexistent")
+            monkeypatch.setattr(_helpers, "_read_registry", lambda path: {})
+            monkeypatch.setattr(
+                _helpers, "_resolve_instance_by_cwd", lambda args: (None, None))
+            monkeypatch.setattr(doctor, "_collection_integrity_lines", lambda: [])
+            monkeypatch.setattr(
+                doctor.subprocess, "run",
+                lambda *a, **k: type("R", (), {"stdout": out, "stderr": "",
+                                               "returncode": 0})())
+            code = doctor.cmd_doctor(type("Args", (), {"host": None, "id": None})())
+            capsys.readouterr()
+            return code
+        return run_doctor
 
-    def test_no_runtime_at_all_fails(self):
-        assert self._rc(docker="MISSING", compose="MISSING",
-                        daemon="NOT_RUNNING", podman=_NOT_FOUND) == 1, (
+    def test_no_runtime_at_all_fails(self, rc):
+        assert rc(docker="MISSING", compose="MISSING",
+                  daemon="NOT_RUNNING", podman=_NOT_FOUND) == 1, (
             "a host with neither Docker nor podman installed must fail the "
             "gate — the not-found text is output, not a runtime"
         )
 
-    def test_docker_only_passes(self):
-        assert self._rc(podman=_NOT_FOUND) == 0
+    def test_docker_only_passes(self, rc):
+        assert rc(podman=_NOT_FOUND) == 0
 
-    def test_podman_only_passes(self):
-        assert self._rc(docker="MISSING", compose="MISSING",
-                        daemon="NOT_RUNNING",
-                        podman="podman version 4.9.3") == 0
+    def test_podman_only_passes(self, rc):
+        assert rc(docker="MISSING", compose="MISSING",
+                  daemon="NOT_RUNNING",
+                  podman="podman version 4.9.3") == 0
