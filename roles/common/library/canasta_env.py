@@ -46,7 +46,7 @@ from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.canasta_atomic_write import replace_file
 from ansible.module_utils.canasta_env_keys import modernize_values, old_names
 from ansible.module_utils.canasta_env_lines import (
-    _key_of, lines_to_content, lint_env_file, parse_env_file, parse_env_lines,
+    _key_of, entries_to_dict, lines_to_content, lint_env_file, parse_env_file, parse_env_lines,
     raw_value_of, set_line, unset_lines)
 from ansible.module_utils.canasta_env_quote import quote_value, requote_raw
 
@@ -73,15 +73,6 @@ def requote_lines(lines):
             out.append("%s=%s" % (key, new_raw))
             requoted.append(key)
     return out, requoted, conflicts
-
-
-def entries_to_dict(entries):
-    """Convert parsed entries to a dict (last value wins for duplicates)."""
-    result = {}
-    for key, value, is_comment in entries:
-        if not is_comment and key:
-            result[key] = value
-    return result
 
 
 def _write(module, path, content):

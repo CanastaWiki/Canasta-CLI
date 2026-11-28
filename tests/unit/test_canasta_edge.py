@@ -16,6 +16,7 @@ import pytest
 import yaml
 
 import canasta_edge as mod
+import canasta_edge_acme as acme
 import canasta_edge_writable as writable
 
 # Pytest imports every test module before running any test, so this is the
@@ -1273,7 +1274,7 @@ def test_deploys_wait_for_a_starting_haproxy(tmp_path, monkeypatch):
 
 def test_a_silent_haproxy_leaves_imports_unregistered_not_unissued(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.time, "sleep", lambda s: None)
-    monkeypatch.setattr(mod, "STATS_SOCKET_WAIT", 0)
+    monkeypatch.setattr(acme, "STATS_SOCKET_WAIT", 0)
     run = FakeRunner(running=True, listed=_imported(tmp_path, "example.com"), stats_down=99)
     result = _issue(tmp_path, run, one={})
     assert run.acme_calls("--deploy") == []
@@ -1319,7 +1320,7 @@ def test_a_cached_certificate_already_served_is_not_deployed_again(tmp_path):
 
 def test_a_silent_haproxy_leaves_a_cached_certificate_uninstalled(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.time, "sleep", lambda s: None)
-    monkeypatch.setattr(mod, "STATS_SOCKET_WAIT", 0)
+    monkeypatch.setattr(acme, "STATS_SOCKET_WAIT", 0)
     run = FakeRunner(running=True, listed=_deployed_before(tmp_path), stats_down=99)
     result = _issue(tmp_path, run, one={})
     assert run.acme_calls("--deploy") == []

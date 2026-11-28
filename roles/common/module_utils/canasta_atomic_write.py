@@ -23,6 +23,15 @@ def _current_umask():
     return mask
 
 
+def read_text(path):
+    """The file's content, or None when it cannot be read."""
+    try:
+        with open(path) as handle:
+            return handle.read()
+    except (IOError, OSError):
+        return None
+
+
 def replace_file(path, content):
     """Write content to path, keeping the original's mode and owner.
 

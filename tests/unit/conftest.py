@@ -36,7 +36,7 @@ for _name in ("canasta_validate", "canasta_sitemap", "canasta_config",
               "canasta_caddyfile",
               "canasta_override_migrate", "canasta_env_keys",
               "canasta_env_quote", "canasta_env_lines", "canasta_atomic_write",
-              "canasta_php_fpm",
+              "canasta_edge_acme", "canasta_edge_conversion", "canasta_php_fpm",
               "canasta_schedule"):
     _mod = importlib.import_module(_name)
     sys.modules.setdefault("ansible.module_utils.%s" % _name, _mod)

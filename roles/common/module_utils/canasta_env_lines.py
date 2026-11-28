@@ -119,3 +119,12 @@ def lint_env_file(content):
     CR as part of each value; for restic that surfaces as an opaque "wrong
     password" / auth failure."""
     return "\r" in content
+
+
+def entries_to_dict(entries):
+    """Convert parsed entries to a dict (last value wins for duplicates)."""
+    result = {}
+    for key, value, is_comment in entries:
+        if not is_comment and key:
+            result[key] = value
+    return result
