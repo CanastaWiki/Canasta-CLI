@@ -408,6 +408,21 @@ def test_lifecycle(inst):
         "Instance should show RUNNING status:\n%s" % output
     )
 
+    print("Checking status...")
+    output = inst.run_quiet("status", "-i", inst.id)
+    assert "Status:       RUNNING" in output, output
+    assert "Containers:" in output and "web" in output, output
+
+    print("Checking image prune --dry-run removes nothing...")
+    images_before = subprocess.run(
+        [container_runtime(), "images", "-q"], capture_output=True, text=True,
+    ).stdout.split()
+    inst.run_ok("image", "prune", "--dry-run")
+    images_after = subprocess.run(
+        [container_runtime(), "images", "-q"], capture_output=True, text=True,
+    ).stdout.split()
+    assert images_after == images_before, "a dry run removed images"
+
 
 def test_import_export(inst):
     """Export DB, add wiki, import into it, verify."""
@@ -640,10 +655,14 @@ def test_build_from_overlay(inst):
     src = os.path.join(src_root, "Canasta")
     os.makedirs(src, exist_ok=True)
 
+    arg_marker = "/tmp/canasta-build-arg-ci"
+
     def write_dockerfile(value):
         with open(os.path.join(src, "Dockerfile"), "w") as f:
             f.write("ARG BASE_IMAGE\nFROM ${BASE_IMAGE}\n"
-                    "RUN echo %s > %s\n" % (value, marker))
+                    "ARG CI_MARKER=unset\n"
+                    "RUN echo %s > %s && echo $CI_MARKER > %s\n"
+                    % (value, marker, arg_marker))
 
     write_dockerfile("first")
     print("Creating instance from an overlay source (--build-from)...")
@@ -669,6 +688,25 @@ def test_build_from_overlay(inst):
         "upgrade did not rebuild the image from the recorded source"
     )
     wait_for_wiki(inst.http_port)
+
+    print("Setting a build argument rebuilds the image with it...")
+    output = inst.run_quiet("image", "build-args", "-i", inst.id)
+    assert "No build arguments recorded" in output, output
+    inst.run_ok("image", "set-build-arg", "-i", inst.id, "CI_MARKER=third")
+    assert "CI_MARKER=third" in inst.run_quiet(
+        "image", "build-args", "-i", inst.id)
+    assert _image_file(image, arg_marker) == "third", (
+        "set-build-arg did not rebuild with the argument"
+    )
+
+    print("Unsetting it without a rebuild only drops the record...")
+    inst.run_ok("image", "unset-build-arg", "-i", inst.id, "CI_MARKER",
+                "--no-rebuild")
+    output = inst.run_quiet("image", "build-args", "-i", inst.id)
+    assert "No build arguments recorded" in output, output
+    assert _image_file(image, arg_marker) == "third", (
+        "unset-build-arg --no-rebuild rebuilt the image"
+    )
 
 
 def _clone_canasta(inst):
@@ -1229,6 +1267,17 @@ def test_backup(inst):
         "Snapshot tag not found in list output"
     )
 
+    if shutil.which("crontab") is None:
+        raise SkipTest("crontab not installed")
+    print("Setting, listing and removing a backup schedule...")
+    inst.run_ok("backup", "schedule", "set", "-i", inst.id, "17 3 * * *",
+                "--keep-daily", "7")
+    listed = inst.run_quiet("backup", "schedule", "list", "-i", inst.id)
+    assert "scheduled for backup at: 17 3 * * *" in listed, listed
+    inst.run_ok("backup", "schedule", "remove", "-i", inst.id)
+    listed = inst.run_quiet("backup", "schedule", "list", "-i", inst.id)
+    assert "No backup schedule found" in listed, listed
+
     print("Simulating data loss...")
     subprocess.run(
         [
@@ -1361,6 +1410,12 @@ def test_backup_extra_database(inst):
         "extra database was not restored; a declared database must "
         "round-trip through backup and restore:\n%s" % restored
     )
+
+    print("Removing the database from the backups...")
+    inst.run_ok("backup", "databases", "remove", "-i", inst.id,
+                "main_cargo")
+    after = inst.run_quiet("backup", "databases", "list", "-i", inst.id)
+    assert "main_cargo" not in after, after
 
     shutil.rmtree(backup_dir, ignore_errors=True)
 
@@ -1855,6 +1910,32 @@ def test_gitops_join(inst):
         assert "hosta" in names, (
             "re-attach dropped the other host 'hosta'; got: %r" % names
         )
+
+        def remote_hosts():
+            a_path = inst.instance_path()
+            rc, _ = _git(a_path, "fetch", "-q", "origin")
+            assert rc == 0, "git fetch failed in A"
+            rc, text = _git(a_path, "cat-file", "--filters",
+                            "origin/main:hosts/hosts.yaml")
+            assert rc == 0, "cannot read the remote's hosts.yaml"
+            return {h.get("name"): h.get("role", "both")
+                    for h in yaml.safe_load(text).get("hosts", [])}
+
+        print("Making B a sink from A...")
+        inst.run_ok("gitops", "set-role", "-i", inst.id,
+                    "--host-name", "hostb", "--role", "sink")
+        assert remote_hosts().get("hostb") == "sink", remote_hosts()
+
+        print("A host cannot remove itself...")
+        _, rc = inst.run("gitops", "remove-host", "-i", inst.id,
+                         "--host-name", "hosta")
+        assert rc != 0, "remove-host removed the host it ran on"
+
+        print("Removing B from the repository from A...")
+        inst.run_ok("gitops", "remove-host", "-i", inst.id,
+                    "--host-name", "hostb")
+        hosts = remote_hosts()
+        assert "hostb" not in hosts and "hosta" in hosts, hosts
     finally:
         inst_b.cleanup()
 
@@ -2152,6 +2233,11 @@ def test_wiki_farm(inst):
 
     print("Verifying main wiki still accessible after add...")
     wait_for_wiki(inst.http_port, timeout=120)
+
+    print("Checking both wikis with wiki-check...")
+    output = inst.run_quiet("wiki-check", "-i", inst.id)
+    for wiki_id in ("main", "docs"):
+        assert "Wiki '%s' is reachable" % wiki_id in output, output
 
     print("Removing docs wiki...")
     inst.run_ok("remove", "-i", inst.id, "-w", "docs", "-y")
@@ -2698,6 +2784,13 @@ def test_maintenance(inst):
         "maintenance", "script", "-i", inst.id, "-w", "main",
         "showSiteStats.php",
     )
+
+    print("Listing extensions with maintenance scripts...")
+    output = inst.run_quiet("maintenance", "extension", "-i", inst.id)
+    assert "CirrusSearch" in output, output
+    _, rc = inst.run("maintenance", "extension", "-i", inst.id, "-w", "main",
+                     "Cite;id")
+    assert rc != 0, "an invalid extension script name was accepted"
 
 
 def _instance_crontab_lines(inst):
@@ -3636,6 +3729,18 @@ def test_crowdsec(inst):
     assert "172.18.0.250" not in out and "172.18.0.251" not in out, (
         "individual stale duplicate rows must not be listed"
     )
+
+    print("Checking the scenarios, metrics and alerts reports...")
+    out = inst.run_quiet("crowdsec", "scenarios", "-i", inst.id)
+    assert "crowdsecurity/" in out, "no scenarios listed:\n%s" % out
+    inst.run_ok("crowdsec", "metrics", "-i", inst.id)
+    inst.run_ok("crowdsec", "alerts", "-i", inst.id)
+
+    print("Reloading the engine; the bouncer must come back active...")
+    inst.run_ok("crowdsec", "reload", "-i", inst.id)
+    _wait_for_crowdsec_lapi(inst)
+    out = inst.run_quiet("crowdsec", "status", "-i", inst.id)
+    assert "canasta-caddy — active" in out, out
 
 
 def test_config_refresh_template(inst):
@@ -4581,6 +4686,135 @@ def test_multi_instance(inst):
             raise AssertionError("teardown of %s failed" % inst_b.id)
 
 
+def _registry_entry(inst):
+    with open(os.path.join(inst.config_dir, "conf.json")) as f:
+        return json.load(f)["Instances"][inst.id]
+
+
+def test_devmode(inst):
+    """devmode enable -> live code and an Xdebug image -> disable restores."""
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir,
+        "-e", inst.env_file,
+    )
+    wait_for_wiki(inst.http_port)
+    path = inst.instance_path()
+
+    print("Enabling development mode...")
+    inst.run_ok("devmode", "enable", "-i", inst.id)
+    assert _registry_entry(inst).get("devMode") is True, _registry_entry(inst)
+    assert os.path.isfile(os.path.join(path, "mediawiki-code", "index.php")), (
+        "the MediaWiki code was not extracted into mediawiki-code/")
+    for name in ("extensions", "skins"):
+        assert os.path.islink(os.path.join(path, name)), (
+            "%s/ should point into mediawiki-code/ in dev mode" % name)
+    assert "DEV_CODE_PATH" in read_env(inst.env_path())
+    wait_for_wiki(inst.http_port)
+
+    print("Enabling it again is refused...")
+    _, rc = inst.run("devmode", "enable", "-i", inst.id)
+    assert rc != 0, "devmode enable ran on an instance already in dev mode"
+
+    print("Disabling development mode...")
+    inst.run_ok("devmode", "disable", "-i", inst.id)
+    assert not _registry_entry(inst).get("devMode"), _registry_entry(inst)
+    for name in ("extensions", "skins"):
+        target = os.path.join(path, name)
+        assert os.path.isdir(target) and not os.path.islink(target), (
+            "%s/ was not restored to a real directory" % name)
+    wait_for_wiki(inst.http_port)
+
+
+def test_gitops_resolve(inst):
+    """A pull that conflicts with a local edit stops for gitops resolve.
+
+    Another host's change arrives through a plain clone of the repo. The
+    first conflict is resolved by keeping the remote's version and
+    finishing the pull; the second is abandoned with --abort, which must
+    put the local edit back.
+    """
+    if shutil.which("git-crypt") is None:
+        raise SkipTest("git-crypt not installed")
+
+    print("Creating instance...")
+    inst.run_ok(
+        "create", "-i", inst.id, "-w", "main",
+        "-n", "localhost", "-p", inst.work_dir, "-e", inst.env_file,
+    )
+    bare_repo = os.path.join(inst.work_dir, "gitops-remote.git")
+    subprocess.run(["git", "init", "--bare", bare_repo],
+                   capture_output=True, check=True)
+    key_file = os.path.join(inst.work_dir, "gitops-test.key")
+    inst.run_ok(
+        "gitops", "init", "-i", inst.id, "-n", "testhost",
+        "--repo", bare_repo, "--key", key_file,
+    )
+
+    rel = os.path.join("config", "settings", "global", "ResolveTest.php")
+    local_file = os.path.join(inst.instance_path(), rel)
+
+    def write(path, value):
+        with open(path, "w") as f:
+            f.write("<?php\n$wgResolveTest = '%s';\n" % value)
+
+    def read(path):
+        with open(path) as f:
+            return f.read()
+
+    os.makedirs(os.path.dirname(local_file), exist_ok=True)
+    write(local_file, "base")
+    inst.run_ok("gitops", "add", "-i", inst.id, rel)
+    inst.run_ok("gitops", "push", "-i", inst.id)
+
+    other = os.path.join(inst.work_dir, "other-host")
+    rc, _ = _git(inst.work_dir, "clone", "-q", "-b", "main", bare_repo, other)
+    assert rc == 0, "could not clone the gitops repo"
+
+    def change_remotely(value):
+        _git(other, "pull", "-q", "--rebase")
+        write(os.path.join(other, rel), value)
+        for args in (("commit", "-q", "-am", "Set %s" % value),
+                     ("push", "-q", "origin", "main")):
+            rc, _ = _git(other, *args)
+            assert rc == 0, "git %s failed in the other clone" % args[0]
+
+    def rebasing():
+        git_dir = os.path.join(inst.instance_path(), ".git")
+        return any(os.path.isdir(os.path.join(git_dir, d))
+                   for d in ("rebase-merge", "rebase-apply"))
+
+    print("Conflicting a local edit with another host's change...")
+    change_remotely("remote")
+    write(local_file, "local")
+    output, _ = inst.run("gitops", "resolve", "-i", inst.id)
+    assert rebasing(), "resolve did not stop at the conflict:\n%s" % output
+    assert "ResolveTest.php" in output, (
+        "resolve did not name the conflicting file:\n%s" % output)
+
+    print("Finishing is refused while conflict markers remain...")
+    _, rc = inst.run("gitops", "resolve", "-i", inst.id, "--continue")
+    assert rc != 0, "--continue finished with conflict markers in place"
+    assert rebasing(), "a refused --continue left the resolution"
+
+    print("Keeping the remote's version and finishing the pull...")
+    inst.run_ok("gitops", "resolve", "-i", inst.id, "--keep", "remote", rel)
+    inst.run_ok("gitops", "resolve", "-i", inst.id, "--continue")
+    assert not rebasing(), "the pull is still being resolved"
+    assert "'remote'" in read(local_file), read(local_file)
+
+    print("Abandoning a second conflict with --abort...")
+    change_remotely("remote2")
+    write(local_file, "local2")
+    inst.run("gitops", "resolve", "-i", inst.id)
+    assert rebasing(), "resolve did not stop at the second conflict"
+    inst.run_ok("gitops", "resolve", "-i", inst.id, "--abort")
+    assert not rebasing(), "--abort left the pull being resolved"
+    assert "'local2'" in read(local_file), (
+        "--abort did not put the local edit back:\n%s" % read(local_file))
+
+
 ALL_TESTS = {
     "lifecycle": test_lifecycle,
     "podman-socket-runtime": test_podman_socket_runtime,
@@ -4637,6 +4871,8 @@ ALL_TESTS = {
     "sidecar-lifecycle": test_sidecar_lifecycle,
     "sidecar-migrate": test_sidecar_migrate,
     "multi-instance": test_multi_instance,
+    "devmode": test_devmode,
+    "gitops-resolve": test_gitops_resolve,
 }
 
 

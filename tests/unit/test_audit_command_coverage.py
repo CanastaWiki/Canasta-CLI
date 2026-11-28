@@ -151,6 +151,17 @@ class TestExtractInvocations:
         finally:
             os.unlink(path)
 
+    def test_hyphenated_top_level_command_normalized(self):
+        path = write_test_file(
+            'def test_x(inst):\n'
+            '    inst.run_ok("wiki-check", "-i", "x")\n'
+        )
+        try:
+            results = list(audit.extract_test_invocations(path, GROUPS))
+            assert results == [("test_x", "wiki_check")]
+        finally:
+            os.unlink(path)
+
     def test_non_string_first_arg_ignored(self):
         # An interpolated command name (e.g. inst.run_ok(cmd, ...))
         # cannot be statically extracted; the audit silently skips it.
