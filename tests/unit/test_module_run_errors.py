@@ -120,9 +120,6 @@ class TestRegistryRunModuleErrors:
         ({"state": "update", "id": "gone", "host": "h"},
          "Instance 'gone' not found in registry"),
         ({"state": "absent"}, "id is required when state=absent"),
-        ({"state": "get_setting"}, "setting_key is required for get_setting"),
-        ({"state": "set_setting", "setting_value": "v"},
-         "setting_key is required for set_setting"),
     ])
     def test_fails_with_message(self, tmp_dir, params, msg):
         self._config(tmp_dir, {"mysite": {"path": "/srv/mysite"}})

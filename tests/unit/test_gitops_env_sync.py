@@ -23,7 +23,7 @@ from canasta_gitops import (  # noqa: E402
 
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 SYNC = os.path.join(TASKS, "sync_env.yml")
-PULL = os.path.join(TASKS, "pull_compose.yml")
+PULL = os.path.join(TASKS, "_pull.yml")
 RECONCILE = os.path.join(REPO_ROOT, "roles", "instance_lifecycle", "tasks",
                          "reconcile.yml")
 
@@ -204,7 +204,7 @@ class TestUrlPlanWithRecord:
         with open(os.path.join(tasks, "sync_env.yml")) as f:
             sync = f.read()
         assert ".gitops-wikis-record" in sync and "_sync_url_record.content" in sync
-        with open(os.path.join(tasks, "pull_compose.yml")) as f:
+        with open(os.path.join(tasks, "_pull.yml")) as f:
             pull = yaml.safe_load(f)
         names = [t.get("name") for t in pull]
         assert names.index("Record what config/wikis.yaml was rendered with") > \
@@ -263,10 +263,11 @@ class TestWiring:
         assert "git add" in tasks[-1]["ansible.builtin.shell"]["cmd"]
 
     def test_reconcile_syncs_then_renders_then_derives_profiles(self):
-        includes = [_include(t) for t in _load(RECONCILE)]
+        tasks = _load(RECONCILE)
+        includes = [_include(t) for t in tasks]
         env_i = next(i for i, x in enumerate(includes) if "sync_env.yml" in x)
-        render_i = next(i for i, x in enumerate(includes)
-                        if "render_gitops_config.yml" in x)
+        render_i = next(i for i, t in enumerate(tasks)
+                        if "render.yml" in str(t.get("ansible.builtin.include_role", "")))
         profiles_i = next(i for i, x in enumerate(includes)
                           if "sync_compose_profiles.yml" in x)
         assert env_i < render_i < profiles_i

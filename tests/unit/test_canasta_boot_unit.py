@@ -222,8 +222,8 @@ def test_the_unit_layers_match_the_start_compose_files():
 
 def test_compose_start_enables_the_unit_last():
     tasks = _tasks("roles/orchestrator/tasks/start.yml")
-    compose = next(t for t in tasks if t["name"] == "Start (Docker Compose)")
-    last = compose["block"][-1]
+    last = [t for t in tasks
+            if t["name"] != "Fail on the edge configuration error"][-1]
     assert last["canasta_boot_unit"]["state"] == "enabled"
 
 

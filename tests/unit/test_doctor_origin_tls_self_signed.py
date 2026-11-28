@@ -15,21 +15,19 @@ D = doctor._helpers._SENTINEL
 
 LE = "C=US, O=Let's Encrypt, CN=R11"
 STAGING = "C=US, O=(STAGING) Let's Encrypt, CN=(STAGING) Artificial Amaranth YE1"
-CADDY_LOCAL = "CN=Caddy Local Authority - ECC Intermediate"
+EDGE_CA = "CN=Canasta edge CA"
 SELF = "CN=wiki.example.org"
 
 
-def _probe(issuer, subject, name="wiki.example.org", tls_internal=""):
-    return (
-        "%sTLSINTERNAL:%s\n"
-        "%sNAME:%s\nsubject=%s\nissuer=%s\nnotAfter=%s\n"
-        % (D, tls_internal, D, name, subject, issuer, LATER))
+def _probe(issuer, subject, name="wiki.example.org"):
+    return ("%sNAME:%s\nsubject=%s\nissuer=%s\nnotAfter=%s\n"
+            % (D, name, subject, issuer, LATER))
 
 
-def _report(stdout):
+def _report(stdout, internal_names=None):
     return "\n".join(doctor._origin_tls_lines_from_entries(
         "site", doctor._parse_origin_tls(stdout), NOW,
-        tls_internal=doctor._parse_tls_internal(stdout)))
+        internal_names=internal_names))
 
 
 class TestProbe:
@@ -46,7 +44,7 @@ class TestSelfSigned:
         out = _report(_probe(SELF, SELF))
         assert "WARN — self-signed certificate" in out
         assert "OK" not in out
-        assert "Caddyfile.site" in out
+        assert "TLS_CERT" in out
 
     def test_self_signed_on_a_local_name_is_exempt(self):
         out = _report(_probe(
@@ -66,7 +64,7 @@ class TestUnchanged:
         assert "self-signed" not in out
 
     def test_tls_internal_stays_ok(self):
-        out = _report(_probe(
-            CADDY_LOCAL, "", tls_internal="/srv/site/config/Caddyfile.site"))
-        assert "'tls internal' is configured" in out
+        out = _report(_probe(EDGE_CA, ""),
+                      {"wiki.example.org": "TLS_MODE=internal"})
+        assert "TLS_MODE=internal is configured" in out
         assert "WARN" not in out

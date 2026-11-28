@@ -321,7 +321,7 @@ class TestListCheckWikis:
     def test_table_shows_verdict(self, capsys):
         direct_commands._helpers._print_table([{
             "id": "mysite", "host": "localhost", "path": "/srv/mysite",
-            "orchestrator": "COMPOSE", "status": "RUNNING",
+            "runtime": "Docker", "status": "RUNNING",
             "wikis": [{
                 "id": "main", "url": "mysite.example.com/",
                 "liveness": direct_commands._helpers.WIKI_UNREACHABLE,
@@ -414,16 +414,6 @@ class TestSshRunResolvesCanastaHostName:
         assert captured["cmd"][-2] == "admin@cp.example.com"
 
 
-class TestCheckDirExists:
-    def test_local_exists(self, tmp_path):
-        d = tmp_path / "exists"
-        d.mkdir()
-        assert direct_commands._check_dir_exists(str(d), "localhost")
-
-    def test_local_missing(self, tmp_path):
-        assert not direct_commands._check_dir_exists(str(tmp_path / "nope"), "localhost")
-
-
 class TestCheckRunningCompose:
     def test_running(self, monkeypatch, tmp_path):
         monkeypatch.setattr(
@@ -457,7 +447,7 @@ class TestPrintTable:
             "id": "mysite",
             "host": "localhost",
             "path": "/srv/canasta/mysite",
-            "orchestrator": "COMPOSE",
+            "runtime": "Docker",
             "status": "RUNNING",
             "wikis": [
                 {"id": "main", "url": "example.com"},
@@ -470,11 +460,11 @@ class TestPrintTable:
         assert "Canasta ID" in lines[0]
         assert "Host" in lines[0]
         assert "Instance Path" in lines[0]
-        assert "Orchestrator" in lines[1]
+        assert "Runtime" in lines[1]
         assert "Wiki ID" in lines[2]
         assert "\u2500" in lines[3]
         assert "mysite" in lines[4]
-        assert "COMPOSE" in lines[5]
+        assert "Docker" in lines[5]
         assert "RUNNING" in lines[5]
         assert "example.com/" in lines[6]
         assert "example.com/docs" in lines[7]
@@ -484,7 +474,7 @@ class TestPrintTable:
             "id": "s",
             "host": "localhost",
             "path": "/p",
-            "orchestrator": "COMPOSE",
+            "runtime": "Docker",
             "status": "STOPPED",
             "wikis": [{"id": "main", "url": "example.com"}],
         }]
@@ -497,7 +487,7 @@ class TestPrintTable:
             "id": "s",
             "host": "localhost",
             "path": "/p",
-            "orchestrator": "COMPOSE",
+            "runtime": "Docker",
             "status": "STOPPED",
             "wikis": [{"id": "docs", "url": "example.com/docs"}],
         }]
@@ -511,7 +501,7 @@ class TestPrintTable:
             "id": "s",
             "host": "localhost",
             "path": "/p",
-            "orchestrator": "COMPOSE",
+            "runtime": "Docker",
             "status": "NOT FOUND",
             "wikis": [],
         }]
@@ -523,11 +513,11 @@ class TestPrintTable:
         details = [
             {
                 "id": "a", "host": "localhost", "path": "/a",
-                "orchestrator": "COMPOSE", "status": "RUNNING", "wikis": [],
+                "runtime": "Docker", "status": "RUNNING", "wikis": [],
             },
             {
                 "id": "b", "host": "localhost", "path": "/b",
-                "orchestrator": "COMPOSE", "status": "STOPPED", "wikis": [],
+                "runtime": "Docker", "status": "STOPPED", "wikis": [],
             },
         ]
         direct_commands._print_table(details)
@@ -543,7 +533,7 @@ class TestPrintTable:
             "id": "s",
             "host": "very-long-hostname.example.com",
             "path": "/p",
-            "orchestrator": "COMPOSE",
+            "runtime": "Docker",
             "status": "RUNNING",
             "wikis": [],
         }]
@@ -824,7 +814,7 @@ class TestGatherAllInstances:
     def test_parallel_execution(self, monkeypatch):
         monkeypatch.setattr(direct_commands._helpers, "_gather_instance_info",
             lambda iid, inst: direct_commands._make_detail(
-                iid, "localhost", inst["path"], "compose", "STOPPED", [],
+                iid, "localhost", inst["path"], "Docker", "STOPPED", [],
             ),
         )
         instances = {
@@ -839,7 +829,7 @@ class TestGatherAllInstances:
     def test_preserves_order(self, monkeypatch):
         monkeypatch.setattr(direct_commands._helpers, "_gather_instance_info",
             lambda iid, inst: direct_commands._make_detail(
-                iid, "localhost", "/p", "compose", "STOPPED", [],
+                iid, "localhost", "/p", "Docker", "STOPPED", [],
             ),
         )
         instances = {
@@ -855,7 +845,7 @@ class TestGatherAllInstances:
             if iid == "bad":
                 raise RuntimeError("boom")
             return direct_commands._make_detail(
-                iid, "localhost", "/p", "compose", "STOPPED", [],
+                iid, "localhost", "/p", "Docker", "STOPPED", [],
             )
 
         monkeypatch.setattr(direct_commands._helpers, "_gather_instance_info", flaky,
@@ -920,7 +910,7 @@ class TestCmdList:
                 iid,
                 inst.get("host") or "localhost",
                 inst.get("path", ""),
-                inst.get("orchestrator", "compose"),
+                "Docker",
                 "STOPPED",
                 [],
             ),
@@ -4598,3 +4588,17 @@ class TestMaintenanceStreamRetriesOnSshReset:
         rc = direct_commands._helpers._stream_in_container("x", inst, "cmd")
         assert rc == 255
         assert calls["n"] == 1, "localhost must not retry on 255"
+
+
+class TestRuntimeLabel:
+    def test_docker_by_default(self):
+        assert direct_commands._helpers._runtime_label(
+            {"host": "h.example.com", "path": "/p"}) == "Docker"
+
+    def test_podman_from_the_registry(self):
+        assert direct_commands._helpers._runtime_label(
+            {"host": "h.example.com", "path": "/p",
+             "inspectCommand": "/usr/bin/podman"}) == "Podman"
+        assert direct_commands._helpers._runtime_label(
+            {"host": "h.example.com", "path": "/p",
+             "composeCommand": "podman-compose"}) == "Podman"

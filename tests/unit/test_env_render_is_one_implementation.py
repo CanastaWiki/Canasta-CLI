@@ -1,6 +1,6 @@
 """.env must be rendered by one implementation, not a copy per call site.
 
-render_compose.yml omitted a placeholder with no value; pull_compose.yml had
+render.yml omitted a placeholder with no value; _pull.yml had
 its own copy that did not, and wrote the `KEY=` the first exists to prevent.
 Pull is the path every host that is not the source takes, so the copy without
 the guard was the one that ran most.
@@ -55,8 +55,8 @@ def test_only_the_shared_file_writes_env():
 
 
 def test_both_call_sites_include_it():
-    for caller, fact in (("render_compose.yml", "_render_vars"),
-                         ("pull_compose.yml", "_pull_vars")):
+    for caller, fact in (("render.yml", "_render_vars"),
+                         ("_pull.yml", "_pull_vars")):
         task = _render_task(os.path.join(GITOPS_TASKS, caller))
         assert task, "%s no longer renders .env" % caller
         assert task["ansible.builtin.include_tasks"] == "_render_env.yml"

@@ -14,7 +14,7 @@ import pytest
 import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-PULL = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "pull_compose.yml")
+PULL = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "_pull.yml")
 REFRESH = os.path.join(REPO_ROOT, "roles", "config", "tasks",
                        "refresh_template.yml")
 

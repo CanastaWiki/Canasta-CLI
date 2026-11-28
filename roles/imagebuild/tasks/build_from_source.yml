@@ -2,9 +2,8 @@
 # Build Canasta image from local source.
 #
 # Input:
-#   build_from (path to workspace containing Canasta/ and optionally CanastaBase/;
-#     a Canasta/ checkout that has Dockerfile.canasta also holds the base image's
-#     source, so it builds both images and CanastaBase/ is not used)
+#   build_from (path to a workspace containing Canasta/: a Canasta checkout,
+#     which holds both images' source, or an overlay on the Canasta image)
 #   canasta_default_image (the Canasta image an overlay builds on by default)
 #   build_arg  (optional list of "KEY=VALUE" strings forwarded to the builds)
 #   build_base_only (optional bool: build canasta-base alone under the output tag)
@@ -68,31 +67,31 @@
 
 # A Canasta checkout with Dockerfile.canasta holds both images' source:
 # canasta-base builds from its Dockerfile and canasta from Dockerfile.canasta.
-# Otherwise canasta-base comes from a CanastaBase/ checkout, if there is one.
+# Anything else under Canasta/ is an overlay on the full Canasta image.
 - name: Check whether the Canasta source holds both images
   ansible.builtin.stat:
     path: "{{ build_from }}/Canasta/Dockerfile.canasta"
   register: _canasta_two_images
 
-- name: Check for CanastaBase source
+# contents.yaml without Dockerfile.canasta is a Canasta checkout from before
+# it built canasta-base too, whose base came from a separate repository.
+- name: Check for a Canasta checkout without the canasta-base source
   ansible.builtin.stat:
-    path: "{{ build_from }}/CanastaBase/Dockerfile"
-  register: _canastabase_dockerfile
+    path: "{{ build_from }}/Canasta/contents.yaml"
+  register: _canasta_contents
 
-- name: Report the CanastaBase source that is not used
-  ansible.builtin.debug:
+- name: Fail on a Canasta checkout without the canasta-base source
+  ansible.builtin.fail:
     msg: >-
-      Warning: {{ build_from }}/CanastaBase is not used; canasta-base is
-      built from {{ build_from }}/Canasta, which contains its source.
+      {{ build_from }}/Canasta has no Dockerfile.canasta. Update it to a
+      current Canasta checkout, which builds both canasta-base and canasta.
   when:
-    - _canasta_two_images.stat.exists
-    - _canastabase_dockerfile.stat.exists
+    - _canasta_contents.stat.exists
+    - not _canasta_two_images.stat.exists
 
 - name: Choose the canasta-base source
   ansible.builtin.set_fact:
-    _base_source_dir: >-
-      {{ 'Canasta' if _canasta_two_images.stat.exists
-         else ('CanastaBase' if _canastabase_dockerfile.stat.exists else '') }}
+    _base_source_dir: "{{ 'Canasta' if _canasta_two_images.stat.exists else '' }}"
     _build_base_only: "{{ build_base_only | default(false) | bool }}"
     _user_base_image: >-
       {{ build_arg | default([]) | select('match', '^BASE_IMAGE=')
@@ -103,8 +102,8 @@
   ansible.builtin.fail:
     msg: >-
       --canasta-base with --build-from builds canasta-base alone, but
-      {{ build_from }} has neither a Canasta/ checkout with
-      Dockerfile.canasta nor a CanastaBase/ checkout.
+      {{ build_from }}/Canasta is not a Canasta checkout with
+      Dockerfile.canasta.
   when:
     - _build_base_only | bool
     - _base_source_dir == ''
@@ -138,14 +137,6 @@
     - _base_source_dir != ''
     - _user_base_image == ''
 
-# Canasta source without Dockerfile.canasta (it carries contents.yaml) builds
-# on canasta-base. Anything else under Canasta/ is an overlay on the full
-# Canasta image.
-- name: Check whether the Canasta source is the Canasta repository
-  ansible.builtin.stat:
-    path: "{{ build_from }}/Canasta/contents.yaml"
-  register: _canasta_contents
-
 # The effective base is a user-supplied BASE_IMAGE, else the built-in one.
 # A canasta-base build alone has no base to record.
 - name: Resolve effective BASE_IMAGE
@@ -156,9 +147,7 @@
   vars:
     _builtin_base: >-
       {{ _local_base_image if _base_source_dir != ''
-         else ('ghcr.io/canastawiki/canasta-base:latest'
-               if _canasta_contents.stat.exists
-               else canasta_default_image) }}
+         else canasta_default_image }}
 
 # If the effective base resolves to the output tag, the overlay would build
 # FROM its own output — overwriting the base and, on a repeat build,

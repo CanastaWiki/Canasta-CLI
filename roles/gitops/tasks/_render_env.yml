@@ -1,7 +1,7 @@
 ---
 # Render .env from env.template + the host's merged vars.
 #
-# Shared by render_compose.yml and pull_compose.yml, which each had their own
+# Shared by render.yml and _pull.yml, which each had their own
 # copy: only one omitted a placeholder with no value, and pull — the path
 # every host that is not the source takes — was the one that did not.
 #

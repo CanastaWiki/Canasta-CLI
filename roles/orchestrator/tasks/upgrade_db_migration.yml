@@ -1,7 +1,0 @@
----
-# Run the upgrade DB migrations: the MySQL-to-MariaDB migration.
-# Input: instance_path, instance_id
-
-- name: MySQL-to-MariaDB migration (Compose only)
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/upgrade/tasks/migrations/mysql_to_mariadb.yml

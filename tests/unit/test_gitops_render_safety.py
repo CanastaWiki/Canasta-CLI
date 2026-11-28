@@ -9,7 +9,7 @@ Two structural invariants:
     COMPOSE_PROFILES line, so without the reconcile the render drops the
     profiles and a later down/up won't start the database / feature containers.
 
-  * render_compose.yml must refuse to overwrite the live config/wikis.yaml when
+  * render.yml must refuse to overwrite the live config/wikis.yaml when
     a wiki url rendered empty (a missing wiki_url_<id> var) — a blank url makes
     MediaWiki's FarmConfigLoader fatal on every request.
 """
@@ -22,7 +22,7 @@ REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 RECONCILE = os.path.join(REPO_ROOT, "roles", "instance_lifecycle", "tasks",
                          "reconcile.yml")
 RENDER_COMPOSE = os.path.join(
-    REPO_ROOT, "roles", "gitops", "tasks", "render_compose.yml")
+    REPO_ROOT, "roles", "gitops", "tasks", "render.yml")
 
 
 def _load(path):
@@ -50,7 +50,7 @@ class TestReconcileProfiles:
         render_i = sync_i = -1
         for i, t in enumerate(tasks):
             inc = _include(t)
-            if "render_gitops_config" in inc:
+            if "render.yml" in str(t.get("ansible.builtin.include_role", "")):
                 render_i = i
             if "sync_compose_profiles" in inc:
                 sync_i = i
@@ -70,7 +70,7 @@ class TestRenderRefusesEmptyUrl:
             and "rejectattr('url')" in yaml.safe_dump(t)
         ]
         assert guards, (
-            "render_compose.yml must fail (before writing config/wikis.yaml) "
+            "render.yml must fail (before writing config/wikis.yaml) "
             "when a wiki url rendered empty — rejectattr('url') on the rendered "
             "wikis list")
 
@@ -79,6 +79,6 @@ class TestRenderRefusesEmptyUrl:
         # template loop straight to disk (which can't be checked first).
         text = open(RENDER_COMPOSE).read()
         assert "_render_wikis_content" in text, (
-            "render_compose.yml must render wikis.yaml into a fact "
+            "render.yml must render wikis.yaml into a fact "
             "(_render_wikis_content) so it can be validated before it replaces "
             "the live file")

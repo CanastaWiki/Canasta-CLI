@@ -14,8 +14,6 @@
 # moments when the key is the only way back.
 #
 # Input: _exported_key_path, _exported_key_label
-# Optional: _exported_key_remedy, the advice that follows "was not
-#   written to <path>." (defaults to the git-crypt key advice below)
 
 - name: Stat the exported key
   ansible.builtin.stat:
@@ -28,9 +26,6 @@
     msg: >-
       The {{ _exported_key_label }} was not written to
       {{ _exported_key_path }}.
-      {{ _exported_key_remedy | default(_exported_key_gitcrypt_remedy) }}
-  vars:
-    _exported_key_gitcrypt_remedy: >-
       Under canasta-docker the file is written inside the CLI container,
       which is discarded when the command exits, so a path outside a
       mounted directory is lost. Re-run with --key under your

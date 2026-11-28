@@ -41,7 +41,7 @@ def _named(tasks, name):
 
 class TestInitGpgMode:
     def test_add_gpg_user_uses_only_valid_options(self):
-        task = _named(_load("init_compose.yml"),
+        task = _named(_load("_init.yml"),
                       "Add GPG recipient to git-crypt (GPG mode)")
         argv = task["ansible.builtin.command"]["argv"]
         assert argv[:2] == ["git-crypt", "add-gpg-user"]
@@ -49,12 +49,12 @@ class TestInitGpgMode:
         assert not [a for a in argv if a.startswith("-")]
 
     def test_add_gpg_user_commits_with_the_gitops_identity(self):
-        task = _named(_load("init_compose.yml"),
+        task = _named(_load("_init.yml"),
                       "Add GPG recipient to git-crypt (GPG mode)")
         assert task.get("environment") == "{{ gitops_git_env }}"
 
     def test_key_file_check_is_skipped_in_gpg_mode(self):
-        task = _named(_load("init_compose.yml"),
+        task = _named(_load("_init.yml"),
                       "Verify the git-crypt key reached the requested path")
         assert "git_crypt_gpg_user" in task["when"]
 

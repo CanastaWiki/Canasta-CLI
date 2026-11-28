@@ -66,7 +66,7 @@
 - name: Run gitops init (restoring .git if it fails)
   block:
     - name: Run gitops init
-      ansible.builtin.include_tasks: "init_compose.yml"
+      ansible.builtin.include_tasks: "_init.yml"
 
     - name: Reinit — discard the .git backup after a successful re-init
       ansible.builtin.file:

@@ -16,7 +16,7 @@ import yaml
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SET_VERSION = os.path.join(
     REPO_ROOT, "roles", "extensions_skins", "tasks", "set_version.yml")
-PUSH_COMPOSE = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "push_compose.yml")
+PUSH_COMPOSE = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "_push.yml")
 RAW = "non-zero return code"
 
 

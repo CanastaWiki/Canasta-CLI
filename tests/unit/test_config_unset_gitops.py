@@ -17,9 +17,6 @@ UNSET_CONFIG = os.path.join(
 REMOVE_VAR = os.path.join(
     REPO_ROOT, "roles", "config", "tasks", "_remove_gitops_var.yml"
 )
-DISPATCH = os.path.join(
-    REPO_ROOT, "roles", "orchestrator", "tasks", "config_remove_gitops_vars.yml"
-)
 
 
 def _load(path):
@@ -66,22 +63,13 @@ def test_unset_checks_for_gitops_instance():
     assert st.get("path", "").endswith(".gitops-host")
 
 
-def test_unset_dispatches_to_orchestrator_role():
+def test_unset_removes_the_gitops_vars():
     tasks = _load(UNSET_CONFIG)
-    dispatch = _find(tasks, "Remove gitops vars for unset keys")
-    assert dispatch is not None, "unset must dispatch gitops removal"
-    inc = str(dispatch.get("ansible.builtin.include_tasks", ""))
-    assert inc.endswith("config_remove_gitops_vars.yml"), (
-        "must remove the vars through the orchestrator role")
-    assert "_config_gitops_stat.stat.exists" in _when(dispatch)
-
-
-def test_compose_branch_removes_vars():
-    tasks = _load(DISPATCH)
-    compose = [t for t in tasks
-               if str(t.get("ansible.builtin.include_tasks", ""))
-               .endswith("_remove_gitops_vars.yml")]
-    assert compose, "Compose must remove vars from the gitops source"
+    remove = _find(tasks, "Remove gitops vars for unset keys")
+    assert remove is not None, "unset must remove the gitops vars"
+    inc = str(remove.get("ansible.builtin.include_tasks", ""))
+    assert inc.strip().endswith("roles/config/tasks/_remove_gitops_vars.yml")
+    assert "_config_gitops_stat.stat.exists" in _when(remove)
 
 
 # --- Compose removal: placeholder -> vars.yaml + env.template line ----------

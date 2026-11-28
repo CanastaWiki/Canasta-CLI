@@ -10,8 +10,7 @@
 # materializes .gitattributes first so git-crypt filters decrypt encrypted
 # paths on checkout.
 #
-# Input: instance_path, _join_blocked_remedy (what the failure message
-# tells the operator to do about files that could not be replaced).
+# Input: instance_path. Optional: id.
 
 - name: Find tracked files whose content differs from the repo
   ansible.builtin.command:
@@ -44,7 +43,15 @@
         {{ f }}
       {% endfor %}
 
-      {{ _join_blocked_remedy }}
+      They are likely owned by the container user (bind-mounted files
+      under config/, such as Caddyfile.global, Caddyfile.site, or
+      composer.local.json), so your account cannot overwrite them. Stop
+      the instance and make the instance directory writable by your
+      user, then retry with --reinit:
+
+        canasta stop -i {{ id | default('<id>') }}
+        sudo chown -R "$(id -un):$(id -gn)" {{ instance_path }}
+        canasta gitops join ... --reinit
   when: _join_blocked | length > 0
 
 # Match what `canasta gitops pull` does (git pull --rebase), so an operator

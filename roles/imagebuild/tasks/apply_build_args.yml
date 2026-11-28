@@ -73,9 +73,9 @@
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
   when: _build_args_changed | bool
 
-- name: Publish the rebuilt image for the orchestrator
+- name: Compare the rebuilt image with the running one
   ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/upgrade_publish_rebuilt_image.yml
+    {{ canasta_root }}/roles/orchestrator/tasks/compare_rebuilt_image.yml
   when: _build_args_rebuild | bool
 
 - name: Restart onto the rebuilt image

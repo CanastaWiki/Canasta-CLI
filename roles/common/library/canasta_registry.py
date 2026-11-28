@@ -16,7 +16,6 @@ module: canasta_registry
 short_description: Manage the Canasta instance registry
 description:
   - Read, add, update, and remove Canasta instances from the local registry (conf.json).
-  - Also manages registry-level settings (key/value) via set_setting / get_setting states.
   - Operates on the conf.json registry format.
 options:
   state:
@@ -35,8 +34,6 @@ options:
       - query
       - query_all
       - query_by_path
-      - set_setting
-      - get_setting
     default: query
   id:
     description: Canasta instance ID.
@@ -71,14 +68,6 @@ options:
   filter_host:
     description: With state=query_all, return only instances whose host matches this value.
     type: str
-  setting_key:
-    description: Settings key to read or write (with state=get_setting or state=set_setting).
-    type: str
-  setting_value:
-    description: >-
-      Value to write for setting_key (with state=set_setting). Omit or pass null
-      to delete the setting.
-    type: str
   config_dir:
     description: Override the config directory (instead of auto-detection).
     type: str
@@ -111,7 +100,6 @@ from ansible.module_utils.canasta_config import (
     get_config_dir,
     is_root,
     locked,
-    normalize_orchestrator,
     read_config,
     write_config,
 )
@@ -192,15 +180,6 @@ def preserved_on_present():
     return tuple(k for k in probe if k not in _ALWAYS_WRITTEN)
 
 
-def _as_read(instance):
-    """A copy of a stored record with its orchestrator normalized, so
-    readers never see the `k8s` alias."""
-    result = dict(instance)
-    if "orchestrator" in result:
-        result["orchestrator"] = normalize_orchestrator(result["orchestrator"])
-    return result
-
-
 def _save_instances(module, config_dir, data, instances):
     if not module.check_mode:
         data["Instances"] = instances
@@ -218,7 +197,7 @@ def _state_query(module, config_dir, data, instances):
     if inst_id not in instances:
         module.fail_json(msg="Instance '%s' not found in registry" % inst_id)
         return None
-    instance = _as_read(instances[inst_id])
+    instance = dict(instances[inst_id])
     instance["id"] = inst_id
     return {"changed": False, "instance": instance}
 
@@ -233,11 +212,11 @@ def _state_query_all(module, config_dir, data, instances):
             return bare == target or stored == target
 
         selected = {
-            k: _as_read(v) for k, v in instances.items()
+            k: dict(v) for k, v in instances.items()
             if host_matches(v.get("host", "localhost"), filter_host)
         }
     else:
-        selected = {k: _as_read(v) for k, v in instances.items()}
+        selected = {k: dict(v) for k, v in instances.items()}
     return {"changed": False, "instances": selected}
 
 
@@ -250,7 +229,7 @@ def _state_query_by_path(module, config_dir, data, instances):
     if not found_id:
         module.fail_json(msg="No instance found for path '%s'" % inst_path)
         return None
-    instance = _as_read(found_inst)
+    instance = dict(found_inst)
     instance["id"] = found_id
     return {"changed": False, "instance": instance}
 
@@ -347,36 +326,6 @@ def _state_absent(module, config_dir, data, instances):
     return {"changed": changed}
 
 
-def _state_get_setting(module, config_dir, data, instances):
-    setting_key = module.params.get("setting_key")
-    if not setting_key:
-        module.fail_json(msg="setting_key is required for get_setting")
-        return None
-    settings = data.get("Settings", {})
-    return {"changed": False, "value": settings.get(setting_key)}
-
-
-def _state_set_setting(module, config_dir, data, instances):
-    setting_key = module.params.get("setting_key")
-    setting_value = module.params.get("setting_value")
-    if not setting_key:
-        module.fail_json(msg="setting_key is required for set_setting")
-        return None
-    settings = data.get("Settings", {})
-    old_value = settings.get(setting_key)
-    changed = False
-    if old_value != setting_value:
-        changed = True
-        if not module.check_mode:
-            if setting_value is None:
-                settings.pop(setting_key, None)
-            else:
-                settings[setting_key] = setting_value
-            data["Settings"] = settings
-            write_config(config_dir, data)
-    return {"changed": changed}
-
-
 STATE_HANDLERS = {
     "query": _state_query,
     "query_all": _state_query_all,
@@ -384,8 +333,6 @@ STATE_HANDLERS = {
     "present": _state_present,
     "update": _state_update,
     "absent": _state_absent,
-    "get_setting": _state_get_setting,
-    "set_setting": _state_set_setting,
 }
 
 
@@ -393,10 +340,7 @@ def run_module():
     module_args = dict(
         state=dict(type="str", default="query",
                    choices=["present", "update", "absent", "query",
-                            "query_all", "query_by_path",
-                            "set_setting", "get_setting"]),
-        setting_key=dict(type="str", required=False),
-        setting_value=dict(type="str", required=False),
+                            "query_all", "query_by_path"]),
         id=dict(type="str", required=False),
         path=dict(type="str", required=False),
         # No argument defaults on these two: state=update distinguishes

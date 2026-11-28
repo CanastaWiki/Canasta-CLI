@@ -11,595 +11,593 @@
 #        _resolved_snapshot, _restore_dbpass, snapshot, skip_safety_backup,
 #        _restore_incomplete
 
-- name: Restore
+- name: Take safety backup before restore
+  when: not (skip_safety_backup | default(false) | bool)
   block:
-    - name: Take safety backup before restore
-      when: not (skip_safety_backup | default(false) | bool)
-      block:
-        - name: Read wiki IDs for safety DB dump
-          canasta_wikis_yaml:
-            instance_path: "{{ instance_path }}"
-            state: read
-          register: _safety_wikis
-
-        # A wiki listed in wikis.yaml may have no database (dropped or corrupted
-        # — the very disaster a restore recovers from). Dumping a missing DB
-        # fails mariadb-dump and would abort the whole restore, so dump only the
-        # wikis whose database is present and warn about the rest.
-        - name: Find where database administration runs
-          ansible.builtin.include_tasks: db_admin.yml
-
-        - name: List existing databases for the safety backup
-          ansible.builtin.include_tasks: exec.yml
-          vars:
-            exec_service: "{{ _db_admin_service }}"
-            exec_dotenv: "{{ _db_admin_dotenv }}"
-            exec_command: >-
-              {{ _db_admin_pwd }} mariadb {{ _db_admin_args }}
-              -N -e "SHOW DATABASES"
-
-        - name: Record the databases that exist
-          ansible.builtin.set_fact:
-            _safety_existing_dbs: "{{ exec_result.stdout_lines | default([]) }}"
-
-        - name: Partition wikis into present and missing databases
-          ansible.builtin.set_fact:
-            _safety_present_wikis: >-
-              {{ _safety_wikis.wiki_ids | intersect(_safety_existing_dbs) }}
-            _safety_missing_wikis: >-
-              {{ _safety_wikis.wiki_ids | difference(_safety_existing_dbs) }}
-
-        # An extra database can be missing for the same reasons a wiki
-        # database can. Dropping it from the group keeps the safety backup
-        # possible; naming it keeps the gap from being silent, since the
-        # snapshot this produces is what a failed restore falls back to.
-        - name: Build safety dump groups from the databases that exist
-          ansible.builtin.set_fact:
-            _safety_present_groups: >-
-              {{ (_safety_present_groups | default([])) + [{
-                   'wiki': item.wiki,
-                   'databases': item.databases | select('in', _safety_existing_dbs) | list,
-                 }] }}
-            _safety_missing_extras: >-
-              {{ (_safety_missing_extras | default([]))
-                 + (item.databases[1:] | reject('in', _safety_existing_dbs) | list) }}
-          loop: "{{ _safety_wikis.db_groups }}"
-          when: item.wiki in _safety_present_wikis
-          loop_control:
-            label: "{{ item.wiki }}"
-
-        - name: Warn about extra databases skipped from the safety backup
-          ansible.builtin.debug:
-            msg: >-
-              Skipping extra database(s)
-              {{ _safety_missing_extras | join(', ') }} from the safety
-              backup: not present on the server.
-          when: (_safety_missing_extras | default([])) | length > 0
-
-        - name: Warn about wikis skipped from the safety backup
-          ansible.builtin.debug:
-            msg: >-
-              Skipping the pre-restore safety backup for wiki(s)
-              {{ _safety_missing_wikis | join(', ') }}: no database present.
-          when: _safety_missing_wikis | length > 0
-
-        # A database that exists but cannot be dumped (a broken view, a
-        # corrupted table) is left out of the safety snapshot rather than
-        # stopping the restore that would repair it.
-        - name: Dump each present wiki's database group for safety backup
-          ansible.builtin.include_tasks: backup_stage_db_dumps.yml
-          vars:
-            _backup_wikis:
-              db_groups: "{{ _safety_present_groups | default([]) }}"
-
-        - name: Tag the safety snapshot
-          ansible.builtin.set_fact:
-            _safety_tag: >-
-              {{ (['safety-before-restore']
-                  + ((['INCOMPLETE']
-                      + (_backup_dump_failures
-                         | map('regex_replace', ':.*$', '')
-                         | map('split') | flatten
-                         | map('regex_replace', '^', 'missing-db:') | list))
-                     if _backup_dump_failures | length > 0 else []))
-                 | join(',') }}
-
-        - name: Build safety backup volume map
-          ansible.builtin.set_fact:
-            _safety_volumes: >-
-              {{ {
-                instance_path + '/config': '/currentsnapshot/config',
-                instance_path + '/extensions': '/currentsnapshot/extensions',
-                instance_path + '/images': '/currentsnapshot/images',
-                instance_path + '/skins': '/currentsnapshot/skins',
-                instance_path + '/public_assets': '/currentsnapshot/public_assets',
-                instance_path + '/.env': '/currentsnapshot/.env'
-              } }}
-
-        - name: Check for optional files (safety)
-          ansible.builtin.stat:
-            path: "{{ instance_path }}/{{ item }}"
-          register: _safety_opt_files
-          loop:
-            - docker-compose.override.yml
-            - my.cnf
-            - sidecars
-
-        - name: Add optional files to safety staging
-          ansible.builtin.set_fact:
-            _safety_volumes: >-
-              {{ _safety_volumes | combine(
-                 {instance_path + '/' + item.item:
-                  '/currentsnapshot/' + item.item}) }}
-          loop: "{{ _safety_opt_files.results }}"
-          when: item.stat.exists
-          loop_control:
-            label: "{{ item.item }}"
-
-        - name: Discover custom Docker build inputs for safety backup
-          ansible.builtin.include_tasks: backup_discover_build_paths.yml
-
-        - name: Add custom build inputs to safety staging
-          ansible.builtin.set_fact:
-            _safety_volumes: "{{ _safety_volumes | combine(_build_staging_map) }}"
-
-        - name: Run safety backup with staged files
-          ansible.builtin.include_tasks: run_backup.yml
-          vars:
-            backup_args:
-              - "--host"
-              - "{{ instance_id }}"
-              - "--tag"
-              - "{{ _safety_tag }}"
-              - "backup"
-              - "/currentsnapshot"
-            backup_volumes: "{{ _safety_volumes }}"
-      # The dumps are full database copies in the instance directory; a
-      # failed safety backup must not leave them there.
-      always:
-        - name: Clean up safety DB dump directory
-          ansible.builtin.include_tasks: backup_cleanup_db_dumps.yml
-
-    - name: Report the restore phase
-      ansible.builtin.debug:
-        msg: "Clearing the staging volume, then restoring the snapshot..."
-
-    # `restic restore` does not prune its target, so anything an earlier
-    # restore left in this volume would survive and be copied back to the
-    # host — a restore that doesn't fully revert. Clear it first so it
-    # holds only the snapshot. Runs for full and single-wiki restores.
-    - name: Clear backup volume before restore
-      ansible.builtin.command:
-        cmd: >-
-          {{ inspect_command }} run --rm
-          -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot"
-          docker.io/library/alpine sh -c 'rm -rf /currentsnapshot/* /currentsnapshot/.[!.]* 2>/dev/null || true'
-      changed_when: true
-
-    - name: Restore snapshot into backup volume
-      ansible.builtin.include_tasks: run_backup.yml
-      vars:
-        backup_args:
-          - "restore"
-          - "{{ _resolved_snapshot }}"
-          - "--target"
-          - "/"
-
-    # Whether this snapshot came from another host decides two things below:
-    # which my.cnf survives, and how loudly the result is reported. Read it
-    # from the snapshot before the copy overwrites the .env being compared
-    # against. A prior identity that matches is an in-place rollback — the
-    # genuinely safe case, which must stay quiet.
-    - name: Read the site identity held in the snapshot
-      when: wiki is not defined
-      ansible.builtin.shell:
-        cmd: >-
-          {{ inspect_command }} run --rm
-          -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro"
-          docker.io/library/alpine
-          sh -c 'sed -n "s/^MW_SITE_FQDN=//p" /currentsnapshot/.env 2>/dev/null'
-      register: _restore_snapshot_fqdn
-      changed_when: false
-      failed_when: false
-
-    - name: Note whether this restore crossed hosts
-      ansible.builtin.set_fact:
-        _restore_source_fqdn: "{{ _restore_snapshot_fqdn.stdout | default('', true) | trim }}"
-        _restore_crossed_hosts: >-
-          {{ (_restore_prior_fqdn.value | default('', true)) != ''
-             and (_restore_snapshot_fqdn.stdout | default('', true) | trim) != ''
-             and (_restore_prior_fqdn.value | default('', true))
-                 != (_restore_snapshot_fqdn.stdout | default('', true) | trim) }}
-      when: wiki is not defined
-
-    - name: Check a snapshot an older major release took
-      ansible.builtin.include_tasks: restore_older_release_check.yml
-
-    - name: Report the copy phase
-      ansible.builtin.debug:
-        msg: "Copying the restored files onto the host..."
-      when: wiki is not defined
-
-    - name: Confirm the target wiki is present in the snapshot
-      when: wiki is defined
-      ansible.builtin.shell:
-        cmd: >-
-          {{ inspect_command }} run --rm
-          -e W={{ wiki | quote }}
-          -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro"
-          docker.io/library/alpine sh -c 'test -f "/currentsnapshot/config/backup/db_$W.sql"'
-      register: _restore_wiki_in_snapshot
-      changed_when: false
-      failed_when: false
-
-    - name: Fail when the target wiki is absent from the snapshot
-      when:
-        - wiki is defined
-        - _restore_wiki_in_snapshot.rc != 0
-      ansible.builtin.fail:
-        msg: >-
-          Snapshot {{ _resolved_snapshot }} contains no backup for wiki
-          '{{ wiki }}' (no db_{{ wiki }}.sql). Nothing to restore.
-
-    - name: Mark the files phase
-      ansible.builtin.include_tasks: >-
-        {{ canasta_root }}/roles/backup/tasks/_restore_marker.yml
-      vars:
-        restore_marker_phase: files
-
-    # The standard MediaWiki dirs are replaced wholesale (rm -rf then copy) so a
-    # restore doesn't leave stale files behind. Everything else the snapshot holds
-    # - .env, docker-compose.override.yml, my.cnf, the sidecars/ build contexts,
-    # and any custom build inputs (Dockerfile, build context dirs) staged by
-    # backup_discover_build_paths.yml - is copied back generically, so the
-    # restore round-trips whatever was captured. A directory the snapshot lacks
-    # is left as it is on the host.
-    #
-    # cp -a preserves the snapshot's NUMERIC uids, which on a cross-host
-    # restore need not map to a real user here. Files the CLI user does not
-    # own are unreadable to it (.env is mode 0600), unchmodable, and refused
-    # outright by git's safe.directory check — so the whole restored tree is
-    # given to the instance directory's owner, mirroring 'gitops join'. The
-    # container side needs no numeric uid: the web entrypoint's
-    # make_dir_writable chgrps to www-data and sets g=rwX, which is how
-    # MediaWiki keeps write access to content it does not own.
-    #
-    # set -e makes a failed copy fail the task, since by then the target
-    # directories have already been emptied. The glob rm stays best-effort.
-    #
-    # my.cnf is the one file that is tuning for a host rather than state of an
-    # instance: innodb_buffer_pool_size is chosen against the host's RAM, and
-    # a pool the destination cannot allocate makes mariadbd exit 1. Across
-    # hosts this host's own is kept. In place it is restored like everything
-    # else, since there the two hosts are the same host.
-    - name: Copy files from volume to host
-      when: wiki is not defined
-      ansible.builtin.shell:
-        cmd: |
-          {{ inspect_command }} run --rm \
-            -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro" \
-            -v "{{ instance_path }}:/install" \
-            docker.io/library/alpine sh -c '
-            set -e;
-            std="config extensions images skins public_assets";
-            keep_mycnf={{ (_restore_crossed_hosts | default(false)) | ternary(1, 0) }};
-            set --;
-            for d in $std; do
-              if [ -d /currentsnapshot/$d ]; then
-                mkdir -p /install/$d;
-                rm -rf /install/$d/* /install/$d/.[!.]* 2>/dev/null || true;
-                cp -a /currentsnapshot/$d/. /install/$d/;
-                set -- "$@" "/install/$d";
-              fi;
-            done;
-            for e in /currentsnapshot/* /currentsnapshot/.[!.]*; do
-              [ -e "$e" ] || continue;
-              name=$(basename "$e");
-              skip=0;
-              for d in $std; do if [ "$name" = "$d" ]; then skip=1; fi; done;
-              if [ "$name" = "my.cnf" ] && [ "$keep_mycnf" = "1" ] \
-                 && [ -e /install/my.cnf ]; then skip=1; fi;
-              if [ "$skip" = "1" ]; then continue; fi;
-              if [ -d "$e" ]; then rm -rf "/install/$name"; fi;
-              cp -a "$e" "/install/$name";
-              set -- "$@" "/install/$name";
-            done;
-            [ "$#" -eq 0 ] || chown -R "$(stat -c "%u:%g" /install)" "$@"'
-      changed_when: true
-
-    - name: Report that this host's my.cnf was kept
-      ansible.builtin.debug:
-        msg: >-
-          Kept this host's my.cnf rather than the snapshot's. Its
-          innodb_buffer_pool_size was sized for
-          {{ _restore_source_fqdn | default('the source host', true) }}, and a
-          pool this host cannot allocate makes MariaDB exit 1 with an empty log.
-      when:
-        - wiki is not defined
-        - _restore_crossed_hosts | default(false)
-
-    # Single-wiki restore (-w) brings back only the target wiki's per-wiki
-    # files (settings, images, public assets) and its DB dump. Shared state —
-    # global config, extensions, skins, .env, and other wikis' data — is left
-    # untouched. The wiki id reaches the container via -e (env), never spliced
-    # into the single-quoted sh -c payload.
-    - name: Copy single wiki's files from volume to host
-      when: wiki is defined
-      ansible.builtin.shell:
-        cmd: |
-          {{ inspect_command }} run --rm \
-            -e W={{ wiki | quote }} \
-            -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro" \
-            -v "{{ instance_path }}:/install" \
-            docker.io/library/alpine sh -c '
-            set -e;
-            for rel in "config/settings/wikis/$W" "images/$W" "public_assets/$W"; do
-              if [ -d "/currentsnapshot/$rel" ]; then
-                mkdir -p "/install/$rel";
-                rm -rf "/install/$rel"/* "/install/$rel"/.[!.]* 2>/dev/null || true;
-                cp -a "/currentsnapshot/$rel/." "/install/$rel/";
-              fi;
-            done;
-            mkdir -p /install/config/backup;
-            cp -a "/currentsnapshot/config/backup/db_$W.sql" /install/config/backup/db_$W.sql;
-            own=$(stat -c "%u:%g" /install);
-            for rel in "config/settings/wikis/$W" "images/$W" "public_assets/$W" "config/backup/db_$W.sql"; do
-              [ -e "/install/$rel" ] || continue;
-              chown -R "$own" "/install/$rel";
-            done'
-      changed_when: true
-
-    - name: Report the ownership normalization
-      ansible.builtin.debug:
-        msg: >-
-          Restored files have been given to the owner of
-          {{ instance_path }}. A snapshot carries the numeric uids of the
-          host it was taken on, so a restore from another host remaps them;
-          the web container re-establishes www-data's group write access at
-          the next start.
-
-    # Full restore round-trips the source host's .env; single-wiki leaves the
-    # running instance's .env (and its DB password) untouched.
-    - name: Preserve DB password in restored .env
-      when: wiki is not defined
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: set
-        key: MYSQL_PASSWORD
-        value: "{{ _restore_dbpass.value }}"
-      no_log: true
-
-    - name: Preserve MediaWiki's database account in restored .env
-      when:
-        - wiki is not defined
-        - (_restore_wiki_account.variables[item] | default('')) != ''
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: set
-        key: "{{ item }}"
-        value: "{{ _restore_wiki_account.variables[item] }}"
-      loop:
-        - WIKI_DB_USER
-        - WIKI_DB_PASSWORD
-      no_log: true
-
-    - name: Bring an older major release's files up to this release
-      ansible.builtin.include_tasks: restore_older_release_refresh.yml
-      when:
-        - wiki is not defined
-        - _restore_older_release | bool
-
-    - name: Read wiki IDs for DB restore
-      when: wiki is not defined
+    - name: Read wiki IDs for safety DB dump
       canasta_wikis_yaml:
         instance_path: "{{ instance_path }}"
         state: read
-      register: _restore_wikis
+      register: _safety_wikis
 
-    - name: Report the database-import phase
-      ansible.builtin.debug:
-        msg: "Importing the restored databases..."
-
-    - name: Mark the databases phase
-      ansible.builtin.include_tasks: >-
-        {{ canasta_root }}/roles/backup/tasks/_restore_marker.yml
-      vars:
-        restore_marker_phase: databases
-
-    # The dump carries DROP TABLE + CREATE TABLE per table, so tables it
-    # contains are replaced wholesale. Tables created after the snapshot
-    # are absent from it and survive the import — a restore rewinds the
-    # snapshot's tables, it does not reset the database.
-    # An INCOMPLETE snapshot has no dump for a wiki whose databases failed
-    # to dump; those wikis are skipped instead of failing the import.
-    - name: Find the database dumps an INCOMPLETE snapshot carries
-      when:
-        - wiki is not defined
-        - _restore_incomplete | default(false) | bool
-      ansible.builtin.find:
-        paths: "{{ instance_path }}/config/backup"
-        patterns: "db_*.sql"
-      register: _restore_dump_files
-
-    - name: Choose the wikis whose databases to import
-      when: wiki is not defined
-      ansible.builtin.set_fact:
-        _restore_import_wikis: >-
-          {{ _restore_wikis.wiki_ids
-             if not (_restore_incomplete | default(false) | bool)
-             else _restore_wikis.wiki_ids | select('in',
-               _restore_dump_files.files | map(attribute='path')
-               | map('basename')
-               | map('regex_replace', '^db_', '')
-               | map('regex_replace', '[.]sql$', '') | list)
-             | list }}
-
-    # The dumps name their databases (CREATE DATABASE / USE), so the import
-    # runs with database administration rights, fed from the host copy.
+    # A wiki listed in wikis.yaml may have no database (dropped or corrupted
+    # — the very disaster a restore recovers from). Dumping a missing DB
+    # fails mariadb-dump and would abort the whole restore, so dump only the
+    # wikis whose database is present and warn about the rest.
     - name: Find where database administration runs
       ansible.builtin.include_tasks: db_admin.yml
 
-    - name: Find how long each database import may run
-      ansible.builtin.include_tasks: backup_time_limit.yml
-
-    - name: Import each wiki database dump
-      ansible.builtin.include_tasks: resilient_exec.yml
+    - name: List existing databases for the safety backup
+      ansible.builtin.include_tasks: exec.yml
       vars:
-        rx_name: "import {{ item }}"
-        rx_cmd: >-
-          {{ _db_admin_exec }} sh -c
-          '{{ _db_admin_pwd }} exec mariadb {{ _db_admin_args }}'
-          < {{ (instance_path ~ '/config/backup/db_' ~ item ~ '.sql') | quote }}
-        rx_chdir: "{{ instance_path }}"
-        rx_async: "{{ _backup_time_limit }}"
-        rx_retries: "{{ ((_backup_time_limit | int) / 10) | int }}"
-        rx_timeout_hint: "{{ _backup_time_limit_hint }}"
-      loop: >-
-        {{ [wiki] if wiki is defined else _restore_import_wikis }}
+        exec_service: "{{ _db_admin_service }}"
+        exec_dotenv: "{{ _db_admin_dotenv }}"
+        exec_command: >-
+          {{ _db_admin_pwd }} mariadb {{ _db_admin_args }}
+          -N -e "SHOW DATABASES"
 
-    - name: Clean up backup dump directory
-      ansible.builtin.include_tasks: backup_cleanup_db_dumps.yml
-
-    # When the instance is under gitops, the snapshot just restored contains
-    # the SOURCE host's rendered files (.env, wikis.yaml, Caddyfile). On this
-    # host those need to be re-rendered from the templates + current host
-    # vars, otherwise Caddy tries to issue a cert for the source host's FQDN,
-    # MediaWiki serves URLs pointing at the wrong host, etc.
-    - name: Detect gitops instance
-      ansible.builtin.stat:
-        path: "{{ instance_path }}/.gitops-host"
-      register: _restore_gitops_stat
-
-    # git-crypt's key and filters live in .git, which backup does not capture,
-    # so a restored/migrated checkout can come back locked: hosts/**/vars.yaml
-    # are ciphertext and the re-render below (which parses them) would crash.
-    # Detect the lock via the magic header (od, no decode) and warn+skip rather
-    # than fail the whole restore, which already succeeded.
-    - name: Check git-crypt lock state
-      ansible.builtin.shell:
-        cmd: "set -o pipefail; head -c 10 hosts/hosts.yaml 2>/dev/null | od -An -tx1 | tr -d ' \\n'"
-      args:
-        chdir: "{{ instance_path }}"
-        executable: /bin/bash
-      register: _restore_gitcrypt_hdr
-      changed_when: false
-      failed_when: false
-      when:
-        - wiki is not defined
-        - _restore_gitops_stat.stat.exists | default(false)
-
-    - name: Set git-crypt locked fact
+    - name: Record the databases that exist
       ansible.builtin.set_fact:
-        _restore_gitcrypt_locked: >-
-          {{ (_restore_gitcrypt_hdr.stdout | default('')) == '00474954435259505400' }}
+        _safety_existing_dbs: "{{ exec_result.stdout_lines | default([]) }}"
 
-    - name: Warn that git-crypt is locked (re-render skipped)
-      ansible.builtin.debug:
-        msg: |-
-          WARNING: git-crypt is locked in this checkout, so hosts/**/vars.yaml
-          are still encrypted and the gitops config was NOT re-rendered for
-          this host. The data restore itself completed. Unlock and re-render:
-
-            git-crypt unlock /path/to/gitops.key
-            canasta gitops pull -i {{ instance_id }}
-      when: _restore_gitcrypt_locked | default(false)
-
-    # Single-wiki restore does not touch shared rendered files (.env,
-    # wikis.yaml, Caddyfile), so there is nothing to re-render.
-    - name: Re-render gitops templates against this host's vars
-      ansible.builtin.include_role:
-        name: gitops
-        tasks_from: render_compose.yml
-      when:
-        - wiki is not defined
-        - _restore_gitops_stat.stat.exists | default(false)
-        - not (_restore_gitcrypt_locked | default(false))
-
-    - name: Regenerate orchestrator config (e.g. Caddyfile)
-      ansible.builtin.include_role:
-        name: orchestrator
-        tasks_from: update_config.yml
-      when:
-        - wiki is not defined
-        - _restore_gitops_stat.stat.exists | default(false)
-        - not (_restore_gitcrypt_locked | default(false))
-
-    - name: Read the backup repository the restore installed
-      when: wiki is not defined
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: read
-        key: RESTIC_REPOSITORY
-      register: _restore_new_repo
-
-    # The re-render above is the only thing that replaces the snapshot's
-    # host-specific values, and it is reachable only on a gitops instance
-    # whose checkout is unlocked. `clone onto a fresh host` is therefore
-    # precisely the case that got no remediation, and no warning either.
-    - name: Note whether host-specific files were re-rendered
+    - name: Partition wikis into present and missing databases
       ansible.builtin.set_fact:
-        _restore_rerendered: >-
-          {{ (_restore_gitops_stat.stat.exists | default(false))
-             and not (_restore_gitcrypt_locked | default(false)) }}
+        _safety_present_wikis: >-
+          {{ _safety_wikis.wiki_ids | intersect(_safety_existing_dbs) }}
+        _safety_missing_wikis: >-
+          {{ _safety_wikis.wiki_ids | difference(_safety_existing_dbs) }}
 
-    - name: Report the re-render of a cross-host restore
+    # An extra database can be missing for the same reasons a wiki
+    # database can. Dropping it from the group keeps the safety backup
+    # possible; naming it keeps the gap from being silent, since the
+    # snapshot this produces is what a failed restore falls back to.
+    - name: Build safety dump groups from the databases that exist
+      ansible.builtin.set_fact:
+        _safety_present_groups: >-
+          {{ (_safety_present_groups | default([])) + [{
+               'wiki': item.wiki,
+               'databases': item.databases | select('in', _safety_existing_dbs) | list,
+             }] }}
+        _safety_missing_extras: >-
+          {{ (_safety_missing_extras | default([]))
+             + (item.databases[1:] | reject('in', _safety_existing_dbs) | list) }}
+      loop: "{{ _safety_wikis.db_groups }}"
+      when: item.wiki in _safety_present_wikis
+      loop_control:
+        label: "{{ item.wiki }}"
+
+    - name: Warn about extra databases skipped from the safety backup
       ansible.builtin.debug:
         msg: >-
-          This snapshot came from {{ _restore_source_fqdn }}.
-          Its host-specific values were re-rendered from this host's gitops
-          vars, so .env, config/wikis.yaml and the Caddyfile address this host.
-      when:
-        - wiki is not defined
-        - _restore_crossed_hosts | default(false)
-        - _restore_rerendered | bool
+          Skipping extra database(s)
+          {{ _safety_missing_extras | join(', ') }} from the safety
+          backup: not present on the server.
+      when: (_safety_missing_extras | default([])) | length > 0
 
-    # Named individually because each is live the moment the instance starts,
-    # and restore starts it as part of its own run.
-    # Built as facts so the message below is plain lines: an expression that
-    # expands mid-sentence wraps against the source's line breaks, not the
-    # rendered text's, and the result reads as ragged as it looks here.
-    - name: Compose the cross-host warning
+    - name: Warn about wikis skipped from the safety backup
+      ansible.builtin.debug:
+        msg: >-
+          Skipping the pre-restore safety backup for wiki(s)
+          {{ _safety_missing_wikis | join(', ') }}: no database present.
+      when: _safety_missing_wikis | length > 0
+
+    # A database that exists but cannot be dumped (a broken view, a
+    # corrupted table) is left out of the safety snapshot rather than
+    # stopping the restore that would repair it.
+    - name: Dump each present wiki's database group for safety backup
+      ansible.builtin.include_tasks: backup_stage_db_dumps.yml
+      vars:
+        _backup_wikis:
+          db_groups: "{{ _safety_present_groups | default([]) }}"
+
+    - name: Tag the safety snapshot
       ansible.builtin.set_fact:
-        _restore_no_rerender_reason: >-
-          {{ 'git-crypt is locked in this checkout, see above'
-             if (_restore_gitcrypt_locked | default(false))
-             else 'this instance is not gitops-managed' }}
+        _safety_tag: >-
+          {{ (['safety-before-restore']
+              + ((['INCOMPLETE']
+                  + (_backup_dump_failures
+                     | map('regex_replace', ':.*$', '')
+                     | map('split') | flatten
+                     | map('regex_replace', '^', 'missing-db:') | list))
+                 if _backup_dump_failures | length > 0 else []))
+             | join(',') }}
 
-    - name: Warn that a cross-host restore kept the source host's identity
-      ansible.builtin.debug:
-        msg: |-
-          WARNING: this snapshot was taken on {{ _restore_source_fqdn }}, and
-          nothing re-rendered its host-specific files for this host
-          ({{ _restore_no_rerender_reason }}). This instance is now serving as
-          {{ _restore_source_fqdn }}, not {{ _restore_prior_fqdn.value }}.
+    - name: Build safety backup volume map
+      ansible.builtin.set_fact:
+        _safety_volumes: >-
+          {{ {
+            instance_path + '/config': '/currentsnapshot/config',
+            instance_path + '/extensions': '/currentsnapshot/extensions',
+            instance_path + '/images': '/currentsnapshot/images',
+            instance_path + '/skins': '/currentsnapshot/skins',
+            instance_path + '/public_assets': '/currentsnapshot/public_assets',
+            instance_path + '/.env': '/currentsnapshot/.env'
+          } }}
 
-          RESTIC_REPOSITORY is {{ _restore_new_repo.value | default('(unset)', true) }}
-          — the source instance's backup repository. This restore also
-          re-materialized the backup schedule, so a scheduled run on this host
-          would write into it. Point it at this host's own before the next run:
+    - name: Check for optional files (safety)
+      ansible.builtin.stat:
+        path: "{{ instance_path }}/{{ item }}"
+      register: _safety_opt_files
+      loop:
+        - docker-compose.override.yml
+        - my.cnf
+        - sidecars
 
-            canasta config set RESTIC_REPOSITORY=... -i {{ instance_id }}
+    - name: Add optional files to safety staging
+      ansible.builtin.set_fact:
+        _safety_volumes: >-
+          {{ _safety_volumes | combine(
+             {instance_path + '/' + item.item:
+              '/currentsnapshot/' + item.item}) }}
+      loop: "{{ _safety_opt_files.results }}"
+      when: item.stat.exists
+      loop_control:
+        label: "{{ item.item }}"
 
-          Media bucket names in config/settings and the Caddy site blocks are
-          the source's too. This host's my.cnf was kept.
-      when:
-        - wiki is not defined
-        - _restore_crossed_hosts | default(false)
-        - not (_restore_rerendered | bool)
+    - name: Discover custom Docker build inputs for safety backup
+      ansible.builtin.include_tasks: backup_discover_build_paths.yml
 
-    # Matching identities mean an in-place rollback, which needs no review.
-    - name: Warn that host-specific config came from the snapshot
-      ansible.builtin.debug:
-        msg: |-
-          WARNING: this instance is not gitops-managed, so nothing re-rendered
-          its host-specific files for this host, and the snapshot's origin
-          could not be confirmed as this host. .env, config/wikis.yaml and
-          config/Caddyfile.* are as captured in the snapshot. Review them
-          before the instance serves traffic.
-      when:
-        - wiki is not defined
-        - not (_restore_gitops_stat.stat.exists | default(false))
-        - not (_restore_crossed_hosts | default(false))
-        - >-
-          (_restore_prior_fqdn.value | default('', true)) == ''
-          or (_restore_source_fqdn | default('', true)) == ''
+    - name: Add custom build inputs to safety staging
+      ansible.builtin.set_fact:
+        _safety_volumes: "{{ _safety_volumes | combine(_build_staging_map) }}"
+
+    - name: Run safety backup with staged files
+      ansible.builtin.include_tasks: run_backup.yml
+      vars:
+        backup_args:
+          - "--host"
+          - "{{ instance_id }}"
+          - "--tag"
+          - "{{ _safety_tag }}"
+          - "backup"
+          - "/currentsnapshot"
+        backup_volumes: "{{ _safety_volumes }}"
+  # The dumps are full database copies in the instance directory; a
+  # failed safety backup must not leave them there.
+  always:
+    - name: Clean up safety DB dump directory
+      ansible.builtin.include_tasks: backup_cleanup_db_dumps.yml
+
+- name: Report the restore phase
+  ansible.builtin.debug:
+    msg: "Clearing the staging volume, then restoring the snapshot..."
+
+# `restic restore` does not prune its target, so anything an earlier
+# restore left in this volume would survive and be copied back to the
+# host — a restore that doesn't fully revert. Clear it first so it
+# holds only the snapshot. Runs for full and single-wiki restores.
+- name: Clear backup volume before restore
+  ansible.builtin.command:
+    cmd: >-
+      {{ inspect_command }} run --rm
+      -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot"
+      docker.io/library/alpine sh -c 'rm -rf /currentsnapshot/* /currentsnapshot/.[!.]* 2>/dev/null || true'
+  changed_when: true
+
+- name: Restore snapshot into backup volume
+  ansible.builtin.include_tasks: run_backup.yml
+  vars:
+    backup_args:
+      - "restore"
+      - "{{ _resolved_snapshot }}"
+      - "--target"
+      - "/"
+
+# Whether this snapshot came from another host decides two things below:
+# which my.cnf survives, and how loudly the result is reported. Read it
+# from the snapshot before the copy overwrites the .env being compared
+# against. A prior identity that matches is an in-place rollback — the
+# genuinely safe case, which must stay quiet.
+- name: Read the site identity held in the snapshot
+  when: wiki is not defined
+  ansible.builtin.shell:
+    cmd: >-
+      {{ inspect_command }} run --rm
+      -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro"
+      docker.io/library/alpine
+      sh -c 'sed -n "s/^MW_SITE_FQDN=//p" /currentsnapshot/.env 2>/dev/null'
+  register: _restore_snapshot_fqdn
+  changed_when: false
+  failed_when: false
+
+- name: Note whether this restore crossed hosts
+  ansible.builtin.set_fact:
+    _restore_source_fqdn: "{{ _restore_snapshot_fqdn.stdout | default('', true) | trim }}"
+    _restore_crossed_hosts: >-
+      {{ (_restore_prior_fqdn.value | default('', true)) != ''
+         and (_restore_snapshot_fqdn.stdout | default('', true) | trim) != ''
+         and (_restore_prior_fqdn.value | default('', true))
+             != (_restore_snapshot_fqdn.stdout | default('', true) | trim) }}
+  when: wiki is not defined
+
+- name: Check a snapshot an older major release took
+  ansible.builtin.include_tasks: restore_older_release_check.yml
+
+- name: Report the copy phase
+  ansible.builtin.debug:
+    msg: "Copying the restored files onto the host..."
+  when: wiki is not defined
+
+- name: Confirm the target wiki is present in the snapshot
+  when: wiki is defined
+  ansible.builtin.shell:
+    cmd: >-
+      {{ inspect_command }} run --rm
+      -e W={{ wiki | quote }}
+      -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro"
+      docker.io/library/alpine sh -c 'test -f "/currentsnapshot/config/backup/db_$W.sql"'
+  register: _restore_wiki_in_snapshot
+  changed_when: false
+  failed_when: false
+
+- name: Fail when the target wiki is absent from the snapshot
+  when:
+    - wiki is defined
+    - _restore_wiki_in_snapshot.rc != 0
+  ansible.builtin.fail:
+    msg: >-
+      Snapshot {{ _resolved_snapshot }} contains no backup for wiki
+      '{{ wiki }}' (no db_{{ wiki }}.sql). Nothing to restore.
+
+- name: Mark the files phase
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/backup/tasks/_restore_marker.yml
+  vars:
+    restore_marker_phase: files
+
+# The standard MediaWiki dirs are replaced wholesale (rm -rf then copy) so a
+# restore doesn't leave stale files behind. Everything else the snapshot holds
+# - .env, docker-compose.override.yml, my.cnf, the sidecars/ build contexts,
+# and any custom build inputs (Dockerfile, build context dirs) staged by
+# backup_discover_build_paths.yml - is copied back generically, so the
+# restore round-trips whatever was captured. A directory the snapshot lacks
+# is left as it is on the host.
+#
+# cp -a preserves the snapshot's NUMERIC uids, which on a cross-host
+# restore need not map to a real user here. Files the CLI user does not
+# own are unreadable to it (.env is mode 0600), unchmodable, and refused
+# outright by git's safe.directory check — so the whole restored tree is
+# given to the instance directory's owner, mirroring 'gitops join'. The
+# container side needs no numeric uid: the web entrypoint's
+# make_dir_writable chgrps to www-data and sets g=rwX, which is how
+# MediaWiki keeps write access to content it does not own.
+#
+# set -e makes a failed copy fail the task, since by then the target
+# directories have already been emptied. The glob rm stays best-effort.
+#
+# my.cnf is the one file that is tuning for a host rather than state of an
+# instance: innodb_buffer_pool_size is chosen against the host's RAM, and
+# a pool the destination cannot allocate makes mariadbd exit 1. Across
+# hosts this host's own is kept. In place it is restored like everything
+# else, since there the two hosts are the same host.
+- name: Copy files from volume to host
+  when: wiki is not defined
+  ansible.builtin.shell:
+    cmd: |
+      {{ inspect_command }} run --rm \
+        -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro" \
+        -v "{{ instance_path }}:/install" \
+        docker.io/library/alpine sh -c '
+        set -e;
+        std="config extensions images skins public_assets";
+        keep_mycnf={{ (_restore_crossed_hosts | default(false)) | ternary(1, 0) }};
+        set --;
+        for d in $std; do
+          if [ -d /currentsnapshot/$d ]; then
+            mkdir -p /install/$d;
+            rm -rf /install/$d/* /install/$d/.[!.]* 2>/dev/null || true;
+            cp -a /currentsnapshot/$d/. /install/$d/;
+            set -- "$@" "/install/$d";
+          fi;
+        done;
+        for e in /currentsnapshot/* /currentsnapshot/.[!.]*; do
+          [ -e "$e" ] || continue;
+          name=$(basename "$e");
+          skip=0;
+          for d in $std; do if [ "$name" = "$d" ]; then skip=1; fi; done;
+          if [ "$name" = "my.cnf" ] && [ "$keep_mycnf" = "1" ] \
+             && [ -e /install/my.cnf ]; then skip=1; fi;
+          if [ "$skip" = "1" ]; then continue; fi;
+          if [ -d "$e" ]; then rm -rf "/install/$name"; fi;
+          cp -a "$e" "/install/$name";
+          set -- "$@" "/install/$name";
+        done;
+        [ "$#" -eq 0 ] || chown -R "$(stat -c "%u:%g" /install)" "$@"'
+  changed_when: true
+
+- name: Report that this host's my.cnf was kept
+  ansible.builtin.debug:
+    msg: >-
+      Kept this host's my.cnf rather than the snapshot's. Its
+      innodb_buffer_pool_size was sized for
+      {{ _restore_source_fqdn | default('the source host', true) }}, and a
+      pool this host cannot allocate makes MariaDB exit 1 with an empty log.
+  when:
+    - wiki is not defined
+    - _restore_crossed_hosts | default(false)
+
+# Single-wiki restore (-w) brings back only the target wiki's per-wiki
+# files (settings, images, public assets) and its DB dump. Shared state —
+# global config, extensions, skins, .env, and other wikis' data — is left
+# untouched. The wiki id reaches the container via -e (env), never spliced
+# into the single-quoted sh -c payload.
+- name: Copy single wiki's files from volume to host
+  when: wiki is defined
+  ansible.builtin.shell:
+    cmd: |
+      {{ inspect_command }} run --rm \
+        -e W={{ wiki | quote }} \
+        -v "canasta-backup-{{ instance_path | basename }}:/currentsnapshot:ro" \
+        -v "{{ instance_path }}:/install" \
+        docker.io/library/alpine sh -c '
+        set -e;
+        for rel in "config/settings/wikis/$W" "images/$W" "public_assets/$W"; do
+          if [ -d "/currentsnapshot/$rel" ]; then
+            mkdir -p "/install/$rel";
+            rm -rf "/install/$rel"/* "/install/$rel"/.[!.]* 2>/dev/null || true;
+            cp -a "/currentsnapshot/$rel/." "/install/$rel/";
+          fi;
+        done;
+        mkdir -p /install/config/backup;
+        cp -a "/currentsnapshot/config/backup/db_$W.sql" /install/config/backup/db_$W.sql;
+        own=$(stat -c "%u:%g" /install);
+        for rel in "config/settings/wikis/$W" "images/$W" "public_assets/$W" "config/backup/db_$W.sql"; do
+          [ -e "/install/$rel" ] || continue;
+          chown -R "$own" "/install/$rel";
+        done'
+  changed_when: true
+
+- name: Report the ownership normalization
+  ansible.builtin.debug:
+    msg: >-
+      Restored files have been given to the owner of
+      {{ instance_path }}. A snapshot carries the numeric uids of the
+      host it was taken on, so a restore from another host remaps them;
+      the web container re-establishes www-data's group write access at
+      the next start.
+
+# Full restore round-trips the source host's .env; single-wiki leaves the
+# running instance's .env (and its DB password) untouched.
+- name: Preserve DB password in restored .env
+  when: wiki is not defined
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: MYSQL_PASSWORD
+    value: "{{ _restore_dbpass.value }}"
+  no_log: true
+
+- name: Preserve MediaWiki's database account in restored .env
+  when:
+    - wiki is not defined
+    - (_restore_wiki_account.variables[item] | default('')) != ''
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: set
+    key: "{{ item }}"
+    value: "{{ _restore_wiki_account.variables[item] }}"
+  loop:
+    - WIKI_DB_USER
+    - WIKI_DB_PASSWORD
+  no_log: true
+
+- name: Bring an older major release's files up to this release
+  ansible.builtin.include_tasks: restore_older_release_refresh.yml
+  when:
+    - wiki is not defined
+    - _restore_older_release | bool
+
+- name: Read wiki IDs for DB restore
+  when: wiki is not defined
+  canasta_wikis_yaml:
+    instance_path: "{{ instance_path }}"
+    state: read
+  register: _restore_wikis
+
+- name: Report the database-import phase
+  ansible.builtin.debug:
+    msg: "Importing the restored databases..."
+
+- name: Mark the databases phase
+  ansible.builtin.include_tasks: >-
+    {{ canasta_root }}/roles/backup/tasks/_restore_marker.yml
+  vars:
+    restore_marker_phase: databases
+
+# The dump carries DROP TABLE + CREATE TABLE per table, so tables it
+# contains are replaced wholesale. Tables created after the snapshot
+# are absent from it and survive the import — a restore rewinds the
+# snapshot's tables, it does not reset the database.
+# An INCOMPLETE snapshot has no dump for a wiki whose databases failed
+# to dump; those wikis are skipped instead of failing the import.
+- name: Find the database dumps an INCOMPLETE snapshot carries
+  when:
+    - wiki is not defined
+    - _restore_incomplete | default(false) | bool
+  ansible.builtin.find:
+    paths: "{{ instance_path }}/config/backup"
+    patterns: "db_*.sql"
+  register: _restore_dump_files
+
+- name: Choose the wikis whose databases to import
+  when: wiki is not defined
+  ansible.builtin.set_fact:
+    _restore_import_wikis: >-
+      {{ _restore_wikis.wiki_ids
+         if not (_restore_incomplete | default(false) | bool)
+         else _restore_wikis.wiki_ids | select('in',
+           _restore_dump_files.files | map(attribute='path')
+           | map('basename')
+           | map('regex_replace', '^db_', '')
+           | map('regex_replace', '[.]sql$', '') | list)
+         | list }}
+
+# The dumps name their databases (CREATE DATABASE / USE), so the import
+# runs with database administration rights, fed from the host copy.
+- name: Find where database administration runs
+  ansible.builtin.include_tasks: db_admin.yml
+
+- name: Find how long each database import may run
+  ansible.builtin.include_tasks: backup_time_limit.yml
+
+- name: Import each wiki database dump
+  ansible.builtin.include_tasks: resilient_exec.yml
+  vars:
+    rx_name: "import {{ item }}"
+    rx_cmd: >-
+      {{ _db_admin_exec }} sh -c
+      '{{ _db_admin_pwd }} exec mariadb {{ _db_admin_args }}'
+      < {{ (instance_path ~ '/config/backup/db_' ~ item ~ '.sql') | quote }}
+    rx_chdir: "{{ instance_path }}"
+    rx_async: "{{ _backup_time_limit }}"
+    rx_retries: "{{ ((_backup_time_limit | int) / 10) | int }}"
+    rx_timeout_hint: "{{ _backup_time_limit_hint }}"
+  loop: >-
+    {{ [wiki] if wiki is defined else _restore_import_wikis }}
+
+- name: Clean up backup dump directory
+  ansible.builtin.include_tasks: backup_cleanup_db_dumps.yml
+
+# When the instance is under gitops, the snapshot just restored contains
+# the SOURCE host's rendered files (.env, wikis.yaml, Caddyfile). On this
+# host those need to be re-rendered from the templates + current host
+# vars, otherwise Caddy tries to issue a cert for the source host's FQDN,
+# MediaWiki serves URLs pointing at the wrong host, etc.
+- name: Detect gitops instance
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/.gitops-host"
+  register: _restore_gitops_stat
+
+# git-crypt's key and filters live in .git, which backup does not capture,
+# so a restored/migrated checkout can come back locked: hosts/**/vars.yaml
+# are ciphertext and the re-render below (which parses them) would crash.
+# Detect the lock via the magic header (od, no decode) and warn+skip rather
+# than fail the whole restore, which already succeeded.
+- name: Check git-crypt lock state
+  ansible.builtin.shell:
+    cmd: "set -o pipefail; head -c 10 hosts/hosts.yaml 2>/dev/null | od -An -tx1 | tr -d ' \\n'"
+  args:
+    chdir: "{{ instance_path }}"
+    executable: /bin/bash
+  register: _restore_gitcrypt_hdr
+  changed_when: false
+  failed_when: false
+  when:
+    - wiki is not defined
+    - _restore_gitops_stat.stat.exists | default(false)
+
+- name: Set git-crypt locked fact
+  ansible.builtin.set_fact:
+    _restore_gitcrypt_locked: >-
+      {{ (_restore_gitcrypt_hdr.stdout | default('')) == '00474954435259505400' }}
+
+- name: Warn that git-crypt is locked (re-render skipped)
+  ansible.builtin.debug:
+    msg: |-
+      WARNING: git-crypt is locked in this checkout, so hosts/**/vars.yaml
+      are still encrypted and the gitops config was NOT re-rendered for
+      this host. The data restore itself completed. Unlock and re-render:
+
+        git-crypt unlock /path/to/gitops.key
+        canasta gitops pull -i {{ instance_id }}
+  when: _restore_gitcrypt_locked | default(false)
+
+# Single-wiki restore does not touch shared rendered files (.env,
+# wikis.yaml, Caddyfile), so there is nothing to re-render.
+- name: Re-render gitops templates against this host's vars
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: render.yml
+  when:
+    - wiki is not defined
+    - _restore_gitops_stat.stat.exists | default(false)
+    - not (_restore_gitcrypt_locked | default(false))
+
+- name: Regenerate orchestrator config (e.g. Caddyfile)
+  ansible.builtin.include_role:
+    name: orchestrator
+    tasks_from: update_config.yml
+  when:
+    - wiki is not defined
+    - _restore_gitops_stat.stat.exists | default(false)
+    - not (_restore_gitcrypt_locked | default(false))
+
+- name: Read the backup repository the restore installed
+  when: wiki is not defined
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read
+    key: RESTIC_REPOSITORY
+  register: _restore_new_repo
+
+# The re-render above is the only thing that replaces the snapshot's
+# host-specific values, and it is reachable only on a gitops instance
+# whose checkout is unlocked. `clone onto a fresh host` is therefore
+# precisely the case that got no remediation, and no warning either.
+- name: Note whether host-specific files were re-rendered
+  ansible.builtin.set_fact:
+    _restore_rerendered: >-
+      {{ (_restore_gitops_stat.stat.exists | default(false))
+         and not (_restore_gitcrypt_locked | default(false)) }}
+
+- name: Report the re-render of a cross-host restore
+  ansible.builtin.debug:
+    msg: >-
+      This snapshot came from {{ _restore_source_fqdn }}.
+      Its host-specific values were re-rendered from this host's gitops
+      vars, so .env, config/wikis.yaml and the Caddyfile address this host.
+  when:
+    - wiki is not defined
+    - _restore_crossed_hosts | default(false)
+    - _restore_rerendered | bool
+
+# Named individually because each is live the moment the instance starts,
+# and restore starts it as part of its own run.
+# Built as facts so the message below is plain lines: an expression that
+# expands mid-sentence wraps against the source's line breaks, not the
+# rendered text's, and the result reads as ragged as it looks here.
+- name: Compose the cross-host warning
+  ansible.builtin.set_fact:
+    _restore_no_rerender_reason: >-
+      {{ 'git-crypt is locked in this checkout, see above'
+         if (_restore_gitcrypt_locked | default(false))
+         else 'this instance is not gitops-managed' }}
+
+- name: Warn that a cross-host restore kept the source host's identity
+  ansible.builtin.debug:
+    msg: |-
+      WARNING: this snapshot was taken on {{ _restore_source_fqdn }}, and
+      nothing re-rendered its host-specific files for this host
+      ({{ _restore_no_rerender_reason }}). This instance is now serving as
+      {{ _restore_source_fqdn }}, not {{ _restore_prior_fqdn.value }}.
+
+      RESTIC_REPOSITORY is {{ _restore_new_repo.value | default('(unset)', true) }}
+      — the source instance's backup repository. This restore also
+      re-materialized the backup schedule, so a scheduled run on this host
+      would write into it. Point it at this host's own before the next run:
+
+        canasta config set RESTIC_REPOSITORY=... -i {{ instance_id }}
+
+      Media bucket names in config/settings and the Caddy site blocks are
+      the source's too. This host's my.cnf was kept.
+  when:
+    - wiki is not defined
+    - _restore_crossed_hosts | default(false)
+    - not (_restore_rerendered | bool)
+
+# Matching identities mean an in-place rollback, which needs no review.
+- name: Warn that host-specific config came from the snapshot
+  ansible.builtin.debug:
+    msg: |-
+      WARNING: this instance is not gitops-managed, so nothing re-rendered
+      its host-specific files for this host, and the snapshot's origin
+      could not be confirmed as this host. .env, config/wikis.yaml and
+      config/Caddyfile.* are as captured in the snapshot. Review them
+      before the instance serves traffic.
+  when:
+    - wiki is not defined
+    - not (_restore_gitops_stat.stat.exists | default(false))
+    - not (_restore_crossed_hosts | default(false))
+    - >-
+      (_restore_prior_fqdn.value | default('', true)) == ''
+      or (_restore_source_fqdn | default('', true)) == ''

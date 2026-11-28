@@ -26,7 +26,7 @@ def _index(tasks, name):
     return names.index(name)
 
 
-@pytest.mark.parametrize("flow", ["init_compose.yml", "join.yml"])
+@pytest.mark.parametrize("flow", ["_init.yml", "join.yml"])
 def test_applied_commit_is_recorded_after_the_push(flow):
     tasks = _tasks(flow)
     record = tasks[_index(tasks, "Record HEAD as the applied commit")]

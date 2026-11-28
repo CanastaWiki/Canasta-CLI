@@ -350,7 +350,7 @@ def test_bridge_ignored_on_compose_only():
     assert BRIDGE not in _read(os.path.join(GITOPS, "files",
                                             "gitignore.default"))
     assert "gitignore.compose" in _read(
-        os.path.join(GITOPS, "tasks", "init_compose.yml"))
+        os.path.join(GITOPS, "tasks", "_init.yml"))
 
 
 def test_sidecars_layer_ignored_on_compose_only():
@@ -377,12 +377,12 @@ def test_refresh_untracks_sidecars_layer_on_compose(tmp_path):
 
 
 def test_pull_flags_restart_when_sidecars_layer_removed():
-    body = _read(os.path.join(GITOPS, "tasks", "pull_compose.yml"))
+    body = _read(os.path.join(GITOPS, "tasks", "_pull.yml"))
     assert "_pull_sidecars.stat.exists" in body
     assert "'docker-compose.sidecars.yml'" in body
 
 
 def test_pull_flags_restart_when_bridge_removed():
-    body = _read(os.path.join(GITOPS, "tasks", "pull_compose.yml"))
+    body = _read(os.path.join(GITOPS, "tasks", "_pull.yml"))
     assert "00-canasta-sidecar-env.php" in body
     assert "_pull_bridge.stat.exists" in body

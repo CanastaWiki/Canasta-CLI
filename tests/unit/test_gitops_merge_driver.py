@@ -102,14 +102,14 @@ def test_every_host_registers_the_driver_locally():
 def test_the_driver_is_registered_everywhere_it_is_needed():
     # init and join cover new hosts; pull and push let a repo that predates
     # the driver self-heal without an operator visiting each host.
-    for flow in ("init_compose.yml", "join.yml", "pull_compose.yml",
-                 "push_compose.yml"):
+    for flow in ("_init.yml", "join.yml", "_pull.yml",
+                 "_push.yml"):
         body = _read(os.path.join(GITOPS, "tasks", flow))
         assert "_ensure_merge_driver.yml" in body, "%s never registers it" % flow
 
 
 def test_registration_precedes_the_pull_and_touches_no_tracked_file():
-    body = _read(os.path.join(GITOPS, "tasks", "pull_compose.yml"))
+    body = _read(os.path.join(GITOPS, "tasks", "_pull.yml"))
     assert body.index("_ensure_merge_driver.yml") < body.index("git -c commit.gpgsign=false pull"), (
         "registering after the pull would not help that pull"
     )
@@ -131,5 +131,5 @@ def test_the_attribute_is_named_host_locally_not_committed():
     assert "merge={{ gitops_merge_driver }}" in body
     # Committing it instead would have two hosts editing one tracked line
     # from divergent bases — a conflict over the fix for conflicts.
-    push = _read(os.path.join(GITOPS, "tasks", "push_compose.yml"))
+    push = _read(os.path.join(GITOPS, "tasks", "_push.yml"))
     assert "git add -- .gitattributes" not in push

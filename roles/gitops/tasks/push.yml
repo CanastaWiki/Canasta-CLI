@@ -13,4 +13,4 @@
   ansible.builtin.include_tasks: "_detect_settings_secrets.yml"
 
 - name: Run gitops push
-  ansible.builtin.include_tasks: "push_compose.yml"
+  ansible.builtin.include_tasks: "_push.yml"

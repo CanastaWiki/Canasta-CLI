@@ -28,7 +28,7 @@ def _tasks(name):
 
 
 def test_pull_and_join_pass_the_git_env_to_submodule_updates():
-    for name in ("pull_compose.yml", "join.yml"):
+    for name in ("_pull.yml", "join.yml"):
         includes = [t for t in _tasks(name)
                     if "_update_submodules.yml"
                     in str(t.get("ansible.builtin.include_tasks", ""))]

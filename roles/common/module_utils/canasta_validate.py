@@ -52,11 +52,12 @@ def validate_wiki_id(value):
 # Sidecar names that collide with the stack's own services. A sidecar
 # becomes a Compose service and a DNS hostname, so a clash with one of
 # these would override / collide with a core component (catastrophic, not
-# a benign clash).
+# a benign clash). elasticsearch was a service before OpenSearch, and an
+# upgraded instance can still hold its container.
 RESERVED_SIDECAR_NAMES = [
-    "web", "db", "caddy", "varnish", "crowdsec", "elasticsearch",
-    "logstash", "opensearch", "opensearch-dashboards",
-    "observable-init", "mediawiki", "registry", "redis",
+    "web", "db", "caddy", "varnish", "crowdsec", "crowdsec-spoa",
+    "elasticsearch", "logstash", "opensearch", "opensearch-dashboards",
+    "observable-init", "redis",
 ]
 
 # Reserved for new sidecars, but a sidecar declared before its name was

@@ -6,6 +6,8 @@ it directly so a change to the reserved-name list or the validation
 rules is caught at the source.
 """
 
+import os
+
 import canasta_validate
 
 
@@ -76,3 +78,20 @@ class TestValidateWikiId:
         assert canasta_validate.RESERVED_WIKI_IDS == [
             "settings", "images", "w", "wiki", "wikis",
         ]
+
+
+class TestSidecarNames:
+    def test_every_compose_service_is_reserved(self):
+        import yaml
+        compose = os.path.join(
+            os.path.dirname(__file__), "..", "..", "roles", "orchestrator",
+            "files", "compose", "docker-compose.yml")
+        with open(compose) as f:
+            services = yaml.safe_load(f)["services"]
+        for name in list(services) + ["crowdsec-spoa"]:
+            assert "reserved" in (canasta_validate.validate_sidecar_name(name)
+                                  or ""), name
+
+    def test_names_the_stack_does_not_use_are_allowed(self):
+        for name in ("mediawiki", "registry"):
+            assert canasta_validate.validate_sidecar_name(name) is None

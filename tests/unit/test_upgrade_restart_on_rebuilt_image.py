@@ -18,7 +18,7 @@ from ansible.template import Templar, trust_as_template
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 PUBLISH = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks",
-    "upgrade_publish_rebuilt_image.yml")
+    "compare_rebuilt_image.yml")
 MAIN = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "main.yml")
 
 OLD = "sha256:" + "a" * 64

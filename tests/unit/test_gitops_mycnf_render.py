@@ -9,7 +9,7 @@ shared.
 These tests pin the three properties that make that safe:
 
   * my.cnf is ignored, so a repo never tracks one host's value again;
-  * both render paths (render_compose and pull_compose) render it, so a
+  * both render paths (render.yml and _pull.yml) render it, so a
     pull and a post-restore re-render agree;
   * an absent value leaves the existing file alone rather than writing
     one without the setting, which would silently drop the server to the
@@ -80,10 +80,10 @@ class TestMycnfIsIgnored:
 
 
 class TestBothRenderPathsRenderMycnf:
-    """render_compose and pull_compose each render independently.
+    """render.yml and _pull.yml each render independently.
 
-    pull_compose does not delegate to render_compose, so a change made in
-    one silently misses the other. render_compose is also what runs after
+    _pull.yml does not delegate to render.yml, so a change made in
+    one silently misses the other. render.yml is also what runs after
     'canasta backup restore', which is how a cross-host restore gets a
     my.cnf sized for the destination.
     """
@@ -97,11 +97,11 @@ class TestBothRenderPathsRenderMycnf:
         return False
 
     def test_render_compose_renders_my_cnf(self):
-        path = os.path.join(GITOPS_TASKS, "render_compose.yml")
+        path = os.path.join(GITOPS_TASKS, "render.yml")
         assert self._includes_mycnf(path)
 
     def test_pull_compose_renders_my_cnf(self):
-        path = os.path.join(GITOPS_TASKS, "pull_compose.yml")
+        path = os.path.join(GITOPS_TASKS, "_pull.yml")
         assert self._includes_mycnf(path)
 
 

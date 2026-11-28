@@ -25,7 +25,7 @@ STAT = "Check that the recorded build-from source still exists"
 DECIDE = "Decide whether the image can be rebuilt from source"
 WARN = "Warn that the recorded build-from source is gone"
 REBUILD = "Rebuild image from source"
-PUBLISH = "Publish rebuilt image for the orchestrator"
+PUBLISH = "Compare the rebuilt image with the running one"
 
 
 def _tasks(path):

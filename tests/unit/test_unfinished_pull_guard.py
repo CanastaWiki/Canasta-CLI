@@ -135,7 +135,7 @@ class TestTheFastPath:
         assert _helpers._unfinished_pull("/srv/x", "remote1") is None
 
     def test_list_flags_the_instance(self):
-        detail = _helpers._make_detail("demo", "h", "/p", "compose", "RUNNING", [],
+        detail = _helpers._make_detail("demo", "h", "/p", "Docker", "RUNNING", [],
                                        False, True)
         assert detail["status"] == "RUNNING  [GITOPS PULL UNFINISHED]"
 

@@ -53,7 +53,7 @@
 # --- DB migrations (MySQL->MariaDB) ---
 - name: Run DB migrations
   ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/upgrade_db_migration.yml
+    {{ canasta_root }}/roles/upgrade/tasks/migrations/mysql_to_mariadb.yml
 
 # --- Rebuild custom image if instance was built from source ---
 - name: Check for BuildFrom in registry
@@ -158,9 +158,9 @@
           (was {{ (_upgrade_inst.instance.buildArgs
           | select('match', '^BASE_IMAGE=') | list | last)[11:] }}).
 
-- name: Publish rebuilt image for the orchestrator
+- name: Compare the rebuilt image with the running one
   ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/upgrade_publish_rebuilt_image.yml
+    {{ canasta_root }}/roles/orchestrator/tasks/compare_rebuilt_image.yml
   when: _upgrade_rebuild | bool
 
 # --- Refresh config ---

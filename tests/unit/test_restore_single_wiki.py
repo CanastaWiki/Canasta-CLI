@@ -80,17 +80,16 @@ def test_compose_db_import_is_scoped():
     assert "[wiki] if wiki is defined else _restore_import_wikis" in task["loop"]
 
 
-def _env_password_preserves(block_name):
-    """The .env password-preserve tasks inside a top-level block of
-    restore_instance.yml."""
+def _env_password_preserves():
+    """The .env password-preserve tasks in restore_instance.yml."""
     with open(COMPOSE) as f:
-        block = next(t for t in yaml.safe_load(f) if t.get("name") == block_name)
-    return [t for t in _flatten([block])
+        tasks = yaml.safe_load(f)
+    return [t for t in _flatten(tasks)
             if t.get("name") == "Preserve DB password in restored .env"]
 
 
 def test_compose_env_password_preserve_gated_off_for_single_wiki():
-    preserves = _env_password_preserves("Restore")
+    preserves = _env_password_preserves()
     assert len(preserves) == 1
     assert all("wiki is not defined" in _when(t) for t in preserves), (
         "single-wiki restore must not rewrite the shared .env")

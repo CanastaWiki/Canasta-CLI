@@ -163,7 +163,7 @@ class TestInit:
     @staticmethod
     def _capture(env):
         task = next(t for t in _load("roles", "gitops", "tasks",
-                                     "init_compose.yml")
+                                     "_init.yml")
                     if t.get("name") == "Generate env.template with placeholder syntax")
         jenv = jinja2.Environment(trim_blocks=True)
         jenv.filters.update(FilterModule().filters())
