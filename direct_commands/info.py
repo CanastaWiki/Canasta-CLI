@@ -6,9 +6,13 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import canasta_image_pin
 
 from . import _helpers
 from ._helpers import register
+
+_RELEASE_VERSION = "^" + canasta_image_pin.VERSION_PATTERN + "$"
+_RELEASE_TAG = "^v" + canasta_image_pin.VERSION_PATTERN + "$"
 
 
 def _gather_all_instances(instances):
@@ -266,12 +270,13 @@ def _detect_dev_build(script_dir, mode):
     version' shows 'dev' instead of a possibly-wrong number in that case.
     """
     if mode == "docker":
-        # The canasta-docker wrapper passes the resolved image tag: a bare
-        # semver is a release, 'latest' (or any other tag) is a dev build.
+        # The canasta-docker wrapper passes the resolved image tag: a
+        # version (5.0.0, 5.0.0-rc.1) is a release, 'latest' (or any other
+        # tag) is a dev build.
         tag = os.environ.get("CANASTA_CLI_IMAGE_TAG")
         if not tag:
             return None
-        return not re.match(r"^\d+\.\d+\.\d+$", tag)
+        return not re.match(_RELEASE_VERSION, tag)
     # Native install: a release is a detached checkout whose HEAD carries a
     # vX.Y.Z tag (done by 'canasta upgrade'); anything else is a dev build.
     try:
@@ -284,7 +289,7 @@ def _detect_dev_build(script_dir, mode):
     if result.returncode != 0:
         return None
     return not any(
-        re.match(r"^v\d+\.\d+\.\d+$", t) for t in result.stdout.split()
+        re.match(_RELEASE_TAG, t) for t in result.stdout.split()
     )
 
 
