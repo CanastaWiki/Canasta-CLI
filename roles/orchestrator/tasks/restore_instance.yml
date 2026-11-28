@@ -212,6 +212,9 @@
                  != (_restore_snapshot_fqdn.stdout | default('', true) | trim) }}
       when: wiki is not defined
 
+    - name: Check a snapshot an older major release took
+      ansible.builtin.include_tasks: restore_older_release_check.yml
+
     - name: Report the copy phase
       ansible.builtin.debug:
         msg: "Copying the restored files onto the host..."
@@ -379,6 +382,12 @@
         - WIKI_DB_USER
         - WIKI_DB_PASSWORD
       no_log: true
+
+    - name: Bring an older major release's files up to this release
+      ansible.builtin.include_tasks: restore_older_release_refresh.yml
+      when:
+        - wiki is not defined
+        - _restore_older_release | bool
 
     - name: Read wiki IDs for DB restore
       when: wiki is not defined

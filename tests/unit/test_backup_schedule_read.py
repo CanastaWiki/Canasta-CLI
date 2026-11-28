@@ -20,7 +20,7 @@ READ = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
                     "backup_schedule_read.yml")
 REMATERIALIZE = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks",
                              "backup_schedule_rematerialize.yml")
-UPGRADE_MAIN = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "main.yml")
+UPGRADE_MIGRATIONS = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "run_migrations.yml")
 MIGRATION = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "migrations",
                          "convert_backup_schedule_retention.yml")
 PROBE = os.path.join(REPO_ROOT, "roles", "upgrade", "files",
@@ -140,7 +140,7 @@ class TestWiring:
         assert "purge_older_than" not in text
 
     def test_upgrade_runs_the_migration(self):
-        with open(UPGRADE_MAIN) as f:
+        with open(UPGRADE_MIGRATIONS) as f:
             assert "convert_backup_schedule_retention.yml" in f.read()
         with open(MIGRATION) as f:
             text = f.read()

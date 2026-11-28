@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(
 
 from canasta_image_pin import (  # noqa: E402
     base_image_for,
+    predates_release_major,
     release_image,
     retarget_release_image,
 )
@@ -95,6 +96,7 @@ class FilterModule:
             "canasta_retarget_base_image": canasta_retarget_base_image,
             "canasta_retarget_release_image": retarget_release_image,
             "canasta_base_image_for": base_image_for,
+            "canasta_predates_release_major": predates_release_major,
             "canasta_set_build_args": canasta_set_build_args,
             "canasta_unset_build_args": canasta_unset_build_args,
             "canasta_build_arg_keys": canasta_build_arg_keys,

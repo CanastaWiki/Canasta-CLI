@@ -17,7 +17,7 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 ENV_UPDATE = os.path.join(
     REPO_ROOT, "roles", "create", "tasks", "_env_update.yml")
-UPGRADE_MAIN = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "main.yml")
+UPGRADE_MIGRATIONS = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "run_migrations.yml")
 MIGRATION_NAME = "tighten_env_permissions.yml"
 MIGRATION = os.path.join(
     REPO_ROOT, "roles", "upgrade", "tasks", "migrations", MIGRATION_NAME)
@@ -113,7 +113,7 @@ class TestExistingInstancesAreRepaired:
     def test_the_migration_runs(self):
         """A migration file nothing includes is dead code."""
         task = _find(
-            _tasks(UPGRADE_MAIN),
+            _tasks(UPGRADE_MIGRATIONS),
             lambda t: t.get("name") == "Run migrations",
         )
         assert task is not None, "the migration loop is gone or renamed"
