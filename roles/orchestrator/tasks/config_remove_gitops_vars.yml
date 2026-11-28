@@ -1,9 +1,0 @@
----
-# Propagate config-unset removals into gitops vars: remove the key from
-# vars.yaml and env.template (the gitops source of truth) so the next
-# gitops pull doesn't resurrect it.
-# Input: instance_path, keys, _config_gitops_stat
-
-- name: Remove gitops vars for unset keys
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/config/tasks/_remove_gitops_vars.yml

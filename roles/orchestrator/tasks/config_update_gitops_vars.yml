@@ -1,8 +1,0 @@
----
-# Propagate config-set changes into gitops vars: update vars.yaml (the
-# gitops source of truth) so the change survives the next gitops pull.
-# Input: instance_path, _config_settings, _config_gitops_stat
-
-- name: Update gitops vars for changed keys
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/config/tasks/_update_gitops_vars.yml

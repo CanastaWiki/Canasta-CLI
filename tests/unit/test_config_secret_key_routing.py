@@ -121,7 +121,7 @@ def test_unset_secret_clears_every_file():
 
     env_file = tasks[_index(tasks, "Remove the secrets from .env")]
     assert env_file["ansible.builtin.include_tasks"].strip().endswith(
-        "config_unset_secret.yml")
+        "roles/config/tasks/_remove_secrets.yml")
 
 
 def test_unset_secret_does_not_validate_keys():

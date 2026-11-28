@@ -35,8 +35,9 @@
   register: _reconcile_gitops_host
 
 - name: Render the gitops files from their sources
-  ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/render_gitops_config.yml
+  ansible.builtin.include_role:
+    name: gitops
+    tasks_from: render_compose.yml
   when: _reconcile_gitops_host.stat.exists
 
 # env.template has no COMPOSE_PROFILES line, so the render drops it.

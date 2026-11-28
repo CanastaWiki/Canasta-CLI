@@ -50,7 +50,7 @@ class TestReconcileProfiles:
         render_i = sync_i = -1
         for i, t in enumerate(tasks):
             inc = _include(t)
-            if "render_gitops_config" in inc:
+            if "render_compose.yml" in str(t.get("ansible.builtin.include_role", "")):
                 render_i = i
             if "sync_compose_profiles" in inc:
                 sync_i = i

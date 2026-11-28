@@ -224,7 +224,7 @@ class TestWiring:
         )
         render_idx = next(
             (i for i, t in enumerate(raw)
-             if isinstance(t, dict) and "render_gitops_config.yml" in _include_path(t)),
+             if isinstance(t, dict) and "render_compose.yml" in str(t.get("ansible.builtin.include_role", ""))),
             None,
         )
         assert sync_idx is not None, "reconcile must sync wikis.yaml edits"

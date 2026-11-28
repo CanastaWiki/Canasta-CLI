@@ -1,9 +1,0 @@
----
-# Re-render a gitops instance's .env / wikis.yaml / admin password files
-# from env.template + host vars.
-# Input: instance_path
-
-- name: Re-render gitops templates
-  ansible.builtin.include_role:
-    name: gitops
-    tasks_from: render_compose.yml

@@ -263,10 +263,11 @@ class TestWiring:
         assert "git add" in tasks[-1]["ansible.builtin.shell"]["cmd"]
 
     def test_reconcile_syncs_then_renders_then_derives_profiles(self):
-        includes = [_include(t) for t in _load(RECONCILE)]
+        tasks = _load(RECONCILE)
+        includes = [_include(t) for t in tasks]
         env_i = next(i for i, x in enumerate(includes) if "sync_env.yml" in x)
-        render_i = next(i for i, x in enumerate(includes)
-                        if "render_gitops_config.yml" in x)
+        render_i = next(i for i, t in enumerate(tasks)
+                        if "render_compose.yml" in str(t.get("ansible.builtin.include_role", "")))
         profiles_i = next(i for i, x in enumerate(includes)
                           if "sync_compose_profiles.yml" in x)
         assert env_i < render_i < profiles_i
