@@ -190,6 +190,7 @@
          | rejectattr('value', 'none')
          | rejectattr('value', 'equalto', '')
          | list }}
+  no_log: true  # the vars hold secrets
 
 # Entries already in the shared file under a migrating key, minus the exact
 # pairs being written: what remains is a key whose shared value this push
