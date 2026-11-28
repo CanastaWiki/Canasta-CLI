@@ -38,8 +38,6 @@
 # --- Step 2: Clone repo to temp location ---
 - name: Clone the gitops repository to a temp directory
   ansible.builtin.include_tasks: _join_clone_repo.yml
-  vars:
-    _join_git_env: "{{ gitops_git_env }}"
 
 # --- Step 3: Unlock git-crypt ---
 # --key (the symmetric key) unlocks any git-crypt repo, including one that
@@ -115,8 +113,6 @@
 # --- Step 4: Validate host name not already in config ---
 - name: Read hosts.yaml and refuse a host name already in it
   ansible.builtin.include_tasks: _join_read_hosts.yml
-  vars:
-    _join_host_noun: host
 
 # The clone is all this has touched so far.
 - name: Refuse a CLI older than another host's
@@ -218,17 +214,6 @@
 
 - name: Check out the files that differ from the repo
   ansible.builtin.include_tasks: _join_checkout_differing.yml
-  vars:
-    _join_blocked_remedy: |-
-      They are likely owned by the container user (bind-mounted files
-      under config/, such as Caddyfile.global, Caddyfile.site, or
-      composer.local.json), so your account cannot overwrite them. Stop
-      the instance and make the instance directory writable by your
-      user, then retry with --reinit:
-
-        canasta stop -i {{ id | default('<id>') }}
-        sudo chown -R "$(id -un):$(id -gn)" {{ instance_path }}
-        canasta gitops join ... --reinit
 
 # --- Step 6: Extract vars from current .env ---
 # Classify via the canonical secret classifier so join and init agree — a
@@ -320,9 +305,6 @@
 # --- Step 7: Add host to config and write vars ---
 - name: Register this host in hosts.yaml
   ansible.builtin.include_tasks: _register_host.yml
-  vars:
-    _register_file_mode: "0600"
-    _register_dir_mode: "0700"
 
 # A host's vars.yaml may already carry keys prepared in the repository before
 # this host existed, and not every per-host var is an .env key —
@@ -469,7 +451,6 @@
   ansible.builtin.include_tasks: _join_commit_push.yml
   vars:
     _join_commit_message: "Add host {{ host_name }}"
-    _join_git_env: "{{ gitops_git_env }}"
 
 # The rendered files match HEAD; `gitops pull` diffs against this commit.
 - name: Record HEAD as the applied commit

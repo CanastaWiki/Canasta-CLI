@@ -1,7 +1,7 @@
 ---
 # Make the initial gitops commit from what is staged and push it to main.
 #
-# Input: instance_path, repo, _init_git_env (environment for the push).
+# Input: instance_path, repo, gitops_git_env (environment for the push).
 # Optional: force.
 
 - name: Initial commit
@@ -20,5 +20,5 @@
   ansible.builtin.command:
     cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }} -u origin main"
     chdir: "{{ instance_path }}"
-  environment: "{{ _init_git_env }}"
+  environment: "{{ gitops_git_env }}"
   changed_when: true

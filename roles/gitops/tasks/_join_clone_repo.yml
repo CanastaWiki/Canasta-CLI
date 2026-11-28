@@ -11,7 +11,7 @@
 # The caller removes the temp directory; it holds decrypted files once
 # git-crypt is unlocked.
 #
-# Input: repo, _join_git_env (environment for the clone).
+# Input: repo, gitops_git_env (environment for the clone).
 # Output: _join_tmpdir (the temp clone).
 
 - name: Create temp directory for clone
@@ -24,5 +24,5 @@
   ansible.builtin.command:
     cmd: "git clone -b main {{ repo }} ."
     chdir: "{{ _join_tmpdir.path }}"
-  environment: "{{ _join_git_env }}"
+  environment: "{{ gitops_git_env }}"
   changed_when: true
