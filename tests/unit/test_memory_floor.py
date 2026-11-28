@@ -80,9 +80,9 @@ class TestWiredIntoCreateAndConfigSet:
         assert any("check_host_memory.yml" in inc for inc in _includes(SIDE_EFFECTS)), (
             "config set (_side_effects.yml) must include check_host_memory.yml "
             "when enabling a profile")
-        # The include must be reachable only when enabling ES/observability.
+        # The include must be reachable only when enabling OpenSearch/observability.
         text = open(SIDE_EFFECTS).read()
-        assert "CANASTA_ENABLE_ELASTICSEARCH" in text
+        assert "CANASTA_ENABLE_OPENSEARCH" in text
         assert "CANASTA_ENABLE_OBSERVABILITY" in text
 
 

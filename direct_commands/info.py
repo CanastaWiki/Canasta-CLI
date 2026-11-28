@@ -150,9 +150,10 @@ def cmd_list(args):
         else:
             to_remove = list(missing) + (list(unreachable) if force else [])
             if to_remove:
-                for iid in to_remove:
-                    del instances[iid]
-                _helpers._write_registry(conf_path, instances)
+                def remove(current):
+                    for iid in to_remove:
+                        current.pop(iid, None)
+                _helpers._update_registry(conf_path, remove)
                 print("Removed stale entries: %s" % ", ".join(to_remove))
             if unreachable and not force:
                 plural = "y" if len(unreachable) == 1 else "ies"
@@ -187,8 +188,9 @@ def _describe_unread_version(inst, path, host):
     stopped — the version file is written at startup, so a healthy
     instance can still miss the read.
     """
-    docker_host = inst.get("dockerHost")
-    if _helpers._check_running_compose(path, host, docker_host):
+    if _helpers._check_running_compose(
+            path, host, inst.get("dockerHost"),
+            compose_cmd=_helpers._resolve_compose_cmd(inst)):
         return "(unavailable)"
     return "(not running)"
 
