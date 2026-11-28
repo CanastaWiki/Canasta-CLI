@@ -1813,12 +1813,9 @@ def cmd_doctor(args):
     if probe_timed_out:
         return 1
 
-    parts = stdout.split(_helpers._SENTINEL + "\n")
-    docker = parts[1].strip() if len(parts) > 1 else "MISSING"
-    compose = parts[2].strip() if len(parts) > 2 else "MISSING"
-    daemon = parts[3].strip() if len(parts) > 3 else "NOT_RUNNING"
-    podman_version = parts[22].strip() if len(parts) > 22 else "MISSING"
-    if not _has_container_runtime(docker, compose, daemon, podman_version):
+    probes = _doctor_probes(stdout)
+    if not _has_container_runtime(probes["docker"], probes["compose"],
+                                  probes["daemon"], probes["podman_version"]):
         print("\nMissing core dependencies. Install Docker or Podman and ensure a runtime is running.",
               file=sys.stderr)
         return 1
