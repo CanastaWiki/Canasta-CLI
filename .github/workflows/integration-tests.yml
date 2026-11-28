@@ -58,7 +58,7 @@ jobs:
       matrix:
         leg: ["config-side-effects", "sidecar-lifecycle",
               "upgrade-backfills-mycnf-template", "extension-lifecycle",
-              "backup", "backup-advanced", "gitops-pull-reapplies",
+              "backup", "backup-advanced", "multi-instance",
               "add-extra-database", "backup-restore-safety",
               "backup-extra-database", "backup-custom-dockerfile",
               "crowdsec", "wiki-farm", "config-set-gitops-domain",
@@ -92,13 +92,13 @@ jobs:
             "upgrade-backfills-mycnf-template")
               tests="upgrade-backfills-mycnf-template import sidecar-migrate" ;;
             "extension-lifecycle")
-              tests="extension-lifecycle gitops-push-shared gitops-fix-submodules-no-url" ;;
+              tests="extension-lifecycle gitops-push-shared gitops-fix-submodules-no-url gitops-add-wikis-yaml" ;;
             "backup")
               tests="backup gitops-fix-submodules config-set-gitops" ;;
             "backup-advanced")
               tests="backup-advanced gitops-pull-diff upgrade-backfill-hosts-yaml" ;;
-            "gitops-pull-reapplies")
-              tests="gitops-pull-reapplies gitops-renders-mycnf gitops-add-wikis-yaml maintenance" ;;
+            "multi-instance")
+              tests="multi-instance gitops-pull-reapplies maintenance" ;;
             "add-extra-database")
               tests="add-extra-database gitops upgrade" ;;
             "backup-restore-safety")
@@ -112,7 +112,7 @@ jobs:
             "wiki-farm")
               tests="wiki-farm gitops-add-wiki-tracked upgrade-backfills-wikis-template doctor" ;;
             "config-set-gitops-domain")
-              tests="config-set-gitops-domain extension-skin build-from-overlay" ;;
+              tests="config-set-gitops-domain extension-skin build-from-overlay gitops-renders-mycnf" ;;
             "gitops-join")
               tests="gitops-join lifecycle backup-missing-dockerfile version" ;;
             *) echo "unknown leg: $LEG" >&2; exit 1 ;;

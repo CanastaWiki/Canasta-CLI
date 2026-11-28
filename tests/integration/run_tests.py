@@ -94,10 +94,14 @@ def require_docker():
 
 
 class TestInstance:
-    def __init__(self, test_id):
+    def __init__(self, test_id, config_dir=None):
+        """config_dir shares another instance's registry, and with it the
+        host's edge and OpenSearch cluster, whose state lives there too.
+        The instance that created a config directory removes it."""
         self.id = test_id
         self.work_dir = tempfile.mkdtemp(prefix="canasta-int-work-")
-        self.config_dir = tempfile.mkdtemp(prefix="canasta-int-conf-")
+        self._owns_config_dir = config_dir is None
+        self.config_dir = config_dir or tempfile.mkdtemp(prefix="canasta-int-conf-")
         self.http_port, self.https_port = next_port()
         self.env_file = os.path.join(self.work_dir, "test.env")
         with open(self.env_file, "w") as f:
@@ -221,16 +225,19 @@ class TestInstance:
             ["sudo", "rm", "-rf", self.work_dir],
             capture_output=True,
         )
-        shutil.rmtree(self.config_dir, ignore_errors=True)
+        if self._owns_config_dir:
+            shutil.rmtree(self.config_dir, ignore_errors=True)
         return ok
 
 
-def wait_for_wiki(http_port, timeout=300):
+def wait_for_wiki(http_port, timeout=300, host="localhost"):
     """Poll MediaWiki API until responsive or timeout."""
-    return wait_for_wiki_at_path(http_port, "/w/api.php", timeout=timeout)
+    return wait_for_wiki_at_path(http_port, "/w/api.php", timeout=timeout,
+                                 host=host)
 
 
-def wait_for_wiki_at_path(http_port, api_path="/w/api.php", timeout=300):
+def wait_for_wiki_at_path(http_port, api_path="/w/api.php", timeout=300,
+                          host="localhost"):
     """Poll MediaWiki API at an arbitrary path until responsive or timeout."""
     api_url = (
         "http://127.0.0.1:%s%s"
@@ -250,8 +257,8 @@ def wait_for_wiki_at_path(http_port, api_path="/w/api.php", timeout=300):
             req = urllib.request.Request(api_url)
             # Match the URL stored in wikis.yaml so FarmConfigLoader routes
             # correctly. Tests use non-standard HTTP_PORT with
-            # TLS_MODE=off, so wikis.yaml stores localhost:<port>.
-            req.add_header("Host", "localhost:%s" % http_port)
+            # TLS_MODE=off, so wikis.yaml stores <host>:<port>.
+            req.add_header("Host", "%s:%s" % (host, http_port))
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read())
                 if "query" in data:
@@ -4411,6 +4418,169 @@ def test_sidecar_migrate(inst):
 
 # --- Test runner ---
 
+def _page(http_port, host, path):
+    """GET path from the edge as host. Returns (status, body); status is 0
+    when nothing answered."""
+    req = urllib.request.Request("http://127.0.0.1:%s%s" % (http_port, path))
+    req.add_header("Host", "%s:%s" % (host, http_port))
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.status, resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+    except (urllib.error.URLError, OSError) as e:
+        return 0, str(e)
+
+
+def _assert_serves(http_port, host, wiki_id):
+    """The edge sends host to the wiki wiki_id, served under host. Read from
+    ResourceLoader's mediawiki.base module, which carries the wiki's
+    identity and is served even by a private wiki."""
+    status, body = _page(http_port, host,
+                         "/w/load.php?modules=mediawiki.base&only=scripts")
+    assert status == 200, (
+        "%s did not answer (HTTP %s):\n%s" % (host, status, body[:500]))
+    body = body.replace("\\/", "/")
+    server = re.search(r'"wgServer":"([^"]*)"', body)
+    wiki = re.search(r'"wgWikiID":"([^"]*)"', body)
+    assert server and wiki, "no wgServer or wgWikiID in mediawiki.base"
+    assert server.group(1).endswith("//%s:%s" % (host, http_port)), (
+        "%s is served as %s" % (host, server.group(1)))
+    assert wiki.group(1).startswith(wiki_id), (
+        "%s is served by wiki %s, not %s" % (host, wiki.group(1), wiki_id))
+
+
+_OPENSEARCH = "canasta-opensearch"
+_OPENSEARCH_CONF = "/usr/share/opensearch/config/canasta"
+_OPENSEARCH_CA = _OPENSEARCH_CONF + "/ca.pem"
+
+
+def _opensearch_admin(path):
+    """GET path from the host's OpenSearch with Canasta's admin certificate."""
+    result = subprocess.run(
+        [container_runtime(), "exec", _OPENSEARCH, "curl", "-s",
+         "--cacert", _OPENSEARCH_CA,
+         "--cert", _OPENSEARCH_CONF + "/admin.pem",
+         "--key", _OPENSEARCH_CONF + "/admin.key",
+         "https://localhost:9200" + path],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, (
+        "curl in %s failed: %s" % (_OPENSEARCH, result.stderr))
+    return result.stdout
+
+
+def _opensearch_as(inst, method, path):
+    """HTTP status of a request to the host's OpenSearch as inst's own
+    user. The credentials go to curl on stdin, never on a command line."""
+    env = read_env(inst.env_path())
+    config = 'user = "%s:%s"\n' % (env["CANASTA_OPENSEARCH_TOKEN"],
+                                   env["CANASTA_OPENSEARCH_PASSWORD"])
+    result = subprocess.run(
+        [container_runtime(), "exec", "-i", _OPENSEARCH, "curl", "-s",
+         "-K", "-", "-o", "/dev/null", "-w", "%{http_code}",
+         "--cacert", _OPENSEARCH_CA, "-X", method,
+         "https://localhost:9200" + path],
+        input=config, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, (
+        "curl in %s failed: %s" % (_OPENSEARCH, result.stderr))
+    return int(result.stdout.strip() or 0)
+
+
+def test_multi_instance(inst):
+    """Two instances on one host, behind the shared edge and OpenSearch.
+
+    Both serve the same port under their own hostnames, and each has its
+    own OpenSearch user, with rights on its own index prefix only.
+    Stopping or deleting one leaves the other serving, and deleting one
+    removes its user and indexes from the cluster.
+    """
+    host_a, host_b = "wiki-a.example.test", "wiki-b.example.test"
+    inst_b = TestInstance("inttest-multi-instance-b", config_dir=inst.config_dir)
+    for i in (inst, inst_b):
+        with open(i.env_file, "w") as f:
+            f.write("HTTP_PORT=%s\nHTTPS_PORT=%s\nTLS_MODE=off\n"
+                    "CANASTA_ENABLE_OPENSEARCH=true\n"
+                    % (inst.http_port, inst.https_port))
+    inst_b.http_port, inst_b.https_port = inst.http_port, inst.https_port
+    port = inst.http_port
+    try:
+        print("Creating instances A and B on port %s..." % port)
+        inst.run_ok(
+            "create", "-i", inst.id, "-w", "alpha", "-n", host_a,
+            "-p", inst.work_dir, "-e", inst.env_file,
+        )
+        inst_b.run_ok(
+            "create", "-i", inst_b.id, "-w", "beta", "-n", host_b,
+            "-p", inst_b.work_dir, "-e", inst_b.env_file,
+        )
+        wait_for_wiki(port, host=host_a)
+        wait_for_wiki(port, host=host_b)
+
+        print("Verifying each hostname reaches its own instance...")
+        _assert_serves(port, host_a, "alpha")
+        _assert_serves(port, host_b, "beta")
+        for i in (inst, inst_b):
+            output = inst.run_quiet("status", "-i", i.id)
+            assert "Status:       RUNNING" in output, (
+                "%s is not RUNNING:\n%s" % (i.id, output))
+
+        print("Verifying each OpenSearch user is confined to its prefix...")
+        token_a = read_env(inst.env_path())["CANASTA_OPENSEARCH_TOKEN"]
+        token_b = read_env(inst_b.env_path())["CANASTA_OPENSEARCH_TOKEN"]
+        assert token_a and token_b and token_a != token_b, (
+            "instances need distinct OpenSearch tokens: %r, %r"
+            % (token_a, token_b))
+        for i, own, other in ((inst, token_a, token_b),
+                              (inst_b, token_b, token_a)):
+            code = _opensearch_as(i, "PUT", "/%s_probe" % own)
+            assert code == 200, (
+                "%s could not create an index under its own prefix: HTTP %d"
+                % (i.id, code))
+            for method, path in (("PUT", "/%s_intruder" % other),
+                                 ("GET", "/%s_probe/_search" % other)):
+                code = _opensearch_as(i, method, path)
+                assert code == 403, (
+                    "%s %s as %s: HTTP %d, expected 403"
+                    % (method, path, i.id, code))
+
+        print("Stopping A; B must keep serving...")
+        inst.run_ok("stop", "-i", inst.id)
+        _assert_serves(port, host_b, "beta")
+        status, _ = _page(port, host_a, "/w/index.php?title=Special:UserLogin")
+        assert status != 200, "%s still answers with A stopped" % host_a
+        code = _opensearch_as(inst_b, "GET", "/%s_probe/_search" % token_b)
+        assert code == 200, (
+            "B's OpenSearch search failed with A stopped: HTTP %d" % code)
+
+        print("Starting A again...")
+        inst.run_ok("start", "-i", inst.id)
+        wait_for_wiki(port, host=host_a)
+        _assert_serves(port, host_a, "alpha")
+        _assert_serves(port, host_b, "beta")
+
+        print("Deleting A; B must keep serving and keep its indexes...")
+        inst.run_ok("delete", "-i", inst.id, "--yes")
+        _assert_serves(port, host_b, "beta")
+        code = _opensearch_as(inst_b, "GET", "/%s_probe/_search" % token_b)
+        assert code == 200, (
+            "B's index is gone after deleting A: HTTP %d" % code)
+        indexes = _opensearch_admin("/_cat/indices?h=index").split()
+        users = _opensearch_admin("/_plugins/_security/api/internalusers")
+        assert not [x for x in indexes if x.startswith(token_a + "_")], (
+            "A's indexes survived its delete: %s" % indexes)
+        assert "%s_probe" % token_b in indexes, (
+            "B's index is missing: %s" % indexes)
+        assert '"%s"' % token_a not in users, (
+            "A's OpenSearch user survived its delete")
+        assert '"%s"' % token_b in users, "B's OpenSearch user is missing"
+    finally:
+        # A failure of the test itself is the one to report.
+        if not inst_b.cleanup() and sys.exc_info()[0] is None:
+            raise AssertionError("teardown of %s failed" % inst_b.id)
+
+
 ALL_TESTS = {
     "lifecycle": test_lifecycle,
     "podman-socket-runtime": test_podman_socket_runtime,
@@ -4466,6 +4636,7 @@ ALL_TESTS = {
     "crowdsec": test_crowdsec,
     "sidecar-lifecycle": test_sidecar_lifecycle,
     "sidecar-migrate": test_sidecar_migrate,
+    "multi-instance": test_multi_instance,
 }
 
 
