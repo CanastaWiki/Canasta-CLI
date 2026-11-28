@@ -110,6 +110,7 @@ from ansible.module_utils.canasta_config import (
     find_by_path,
     get_config_dir,
     is_root,
+    locked,
     normalize_orchestrator,
     read_config,
     write_config,
@@ -422,15 +423,16 @@ def run_module():
 
     config_dir = get_config_dir(module.params.get("config_dir"))
 
-    try:
-        data = read_config(config_dir)
-    except (ValueError, IOError) as e:
-        module.fail_json(msg="Failed to read config: %s" % str(e))
-        return
+    with locked(config_dir):
+        try:
+            data = read_config(config_dir)
+        except (ValueError, IOError) as e:
+            module.fail_json(msg="Failed to read config: %s" % str(e))
+            return
 
-    instances = data.get("Instances", {})
-    result = STATE_HANDLERS[module.params["state"]](
-        module, config_dir, data, instances)
+        instances = data.get("Instances", {})
+        result = STATE_HANDLERS[module.params["state"]](
+            module, config_dir, data, instances)
     if result is None:
         return
     module.exit_json(**result)

@@ -149,16 +149,8 @@ def _resolve_instance_by_cwd(args):
     instances = _read_registry(conf_path)
     if inst_id:
         return _resolved(inst_id, instances.get(inst_id))
-    search = os.path.abspath(os.environ.get("CANASTA_HOST_PWD") or os.getcwd())
-    while True:
-        for iid, inst in instances.items():
-            if os.path.abspath(inst.get("path", "")) == search:
-                return _resolved(iid, inst)
-        parent = os.path.dirname(search)
-        if parent == search:
-            break
-        search = parent
-    return (None, None)
+    return _resolved(*canasta_config.find_by_path(
+        instances, os.environ.get("CANASTA_HOST_PWD") or os.getcwd()))
 
 
 def _read_instance_file(path, host, relpath):
@@ -1336,22 +1328,29 @@ def _maint_run_command(tokens, wiki):
 
 
 def _read_registry(conf_path):
-    if not os.path.isfile(conf_path):
-        return {}
-    with open(conf_path) as f:
-        data = json.load(f)
-    instances = data.get("Instances", data.get("Installations", {}))
-    return instances
+    try:
+        return canasta_config.read_config_file(conf_path)["Instances"]
+    except ValueError as e:
+        print("Error: cannot read the registry %s: %s" % (conf_path, e),
+              file=sys.stderr)
+        sys.exit(1)
+
+
+def _update_registry(conf_path, update):
+    """Apply update(instances) to the registry under its lock, reading it
+    afresh so a change another command made meanwhile is kept."""
+    config_dir = os.path.dirname(conf_path)
+    with canasta_config.locked(config_dir):
+        data = canasta_config.read_config_file(conf_path)
+        update(data["Instances"])
+        canasta_config.write_config(config_dir, data)
 
 
 def _write_registry(conf_path, instances):
-    if os.path.isfile(conf_path):
-        with open(conf_path) as f:
-            data = json.load(f)
-    else:
-        data = {}
-    data["Instances"] = instances
-    canasta_config.write_config(os.path.dirname(conf_path), data)
+    def replace(current):
+        current.clear()
+        current.update(instances)
+    _update_registry(conf_path, replace)
 
 
 def _host_matches(stored, target):

@@ -78,7 +78,8 @@ def test_the_probe_script_runs(tmp_path, monkeypatch):
     (edge / "conf" / "hosts.map").write_text(
         "example.com@80 one/wiki\nexample.com@443 one/wiki\n"
         "img.example.com@443 one/media\n@443 two/wiki\nother.org@443 two/wiki\n")
-    script = doctor._EDGE_SCRIPT % {"delim": S, "inspect": str(fake), "project": "one"}
+    script = doctor._EDGE_SCRIPT % {"delim": S, "inspect": str(fake), "project": "one",
+                                    "confdir": "''"}
     env = dict(os.environ, XDG_CONFIG_HOME=str(tmp_path / "config"))
     out = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
                          env=env).stdout
@@ -88,6 +89,49 @@ def test_the_probe_script_runs(tmp_path, monkeypatch):
     assert "example.com: Let's Encrypt production" in lines
     assert doctor._parse_edge_probe(out)["hosts"] == {
         "one": ["example.com", "img.example.com"], "two": ["other.org"]}
+
+
+def _captured_script(monkeypatch, inst, local):
+    seen = []
+    monkeypatch.setattr(doctor._helpers, "_is_localhost", lambda host: local)
+    monkeypatch.setattr(doctor.subprocess, "run",
+                        lambda cmd, **k: seen.append(cmd[2]) or type("R", (), {"stdout": ""})())
+    monkeypatch.setattr(doctor._helpers, "_ssh_run",
+                        lambda host, script: seen.append(script) or (0, ""))
+    monkeypatch.setattr(doctor._helpers, "_read_env_for", lambda inst, key: None)
+    doctor._edge_lines(dict({"id": "one", "path": "/srv/one", "orchestrator": "compose"}, **inst))
+    return seen[0]
+
+
+def test_a_local_probe_reads_this_cli_s_config_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor._helpers, "_get_config_dir", lambda: str(tmp_path / "conf dir"))
+    script = _captured_script(monkeypatch, {}, local=True)
+    assert script.startswith("\nd=%s\n" % _helpers._shell_quote(str(tmp_path / "conf dir")))
+
+
+def test_a_remote_probe_works_out_its_host_s_config_dir(monkeypatch):
+    monkeypatch.setattr(doctor._helpers, "_get_config_dir", lambda: "/controller/only")
+    script = _captured_script(monkeypatch, {"host": "prod1"}, local=False)
+    assert "/controller/only" not in script
+    assert script.startswith("\nd=''\n")
+
+
+def test_the_probe_uses_the_instance_s_container_command(monkeypatch):
+    monkeypatch.setattr(doctor._helpers, "_resolve_inspect_cmd", lambda inst: "podman")
+    script = _captured_script(monkeypatch, {}, local=True)
+    assert "'podman' ps" in script and "docker" not in script.replace("docker.compose", "")
+
+
+def test_the_probe_script_honors_a_given_config_dir(tmp_path):
+    import subprocess
+    edge = tmp_path / "elsewhere" / "edge"
+    edge.mkdir(parents=True)
+    (edge / "members.yaml").write_text("members:\n- id: one\n  path: /srv/one\n")
+    script = doctor._EDGE_SCRIPT % {"delim": S, "inspect": "true", "project": "one",
+                                    "confdir": _helpers._shell_quote(str(tmp_path / "elsewhere"))}
+    env = dict(os.environ, XDG_CONFIG_HOME=str(tmp_path / "unused"))
+    out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env).stdout
+    assert doctor._parse_edge_probe(out)["members"] == ["one"]
 
 
 def test_every_name_the_edge_serves_gets_a_certificate_line(monkeypatch):

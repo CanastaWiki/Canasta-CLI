@@ -1,6 +1,7 @@
 """CANASTA_OPENSEARCH_HEAP sizes OpenSearch. CANASTA_ELASTICSEARCH_HEAP stays a
 known, host-specific key because an upgrade carries its value over to
-CANASTA_OPENSEARCH_HEAP; both are validated the same way.
+CANASTA_OPENSEARCH_HEAP; setting it is refused as unsupported, whatever its
+format.
 """
 
 import os
@@ -17,7 +18,8 @@ VALIDATE_VALUE = os.path.join(REPO_ROOT, "roles", "config", "tasks", "_validate_
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
 
 KEY = "CANASTA_ELASTICSEARCH_HEAP"
-HEAP_KEYS = [KEY, "CANASTA_OPENSEARCH_HEAP"]
+OPENSEARCH_KEY = "CANASTA_OPENSEARCH_HEAP"
+ES_KEYS = [KEY, "CANASTA_ENABLE_ELASTICSEARCH", "CANASTA_ELASTICSEARCH_IMAGE"]
 
 
 def _read(*parts):
@@ -62,10 +64,30 @@ class TestKey:
 
 def _validate_task():
     return next(t for t in _load(VALIDATE_VALUE)
-                if t.get("name") == "Validate the Elasticsearch and OpenSearch heap sizes")
+                if t.get("name") == "Validate the OpenSearch heap size")
 
 
-@pytest.mark.parametrize("key", HEAP_KEYS)
+def _validate_tasks():
+    return [t for t in _load(VALIDATE_VALUE) if not t.get("ansible.builtin.include_tasks")]
+
+
+@pytest.mark.parametrize("key", ES_KEYS)
+@pytest.mark.parametrize("value", ["4g", "4gb", "true", ""])
+def test_an_elasticsearch_key_is_refused_as_unsupported(tmp_path, key, value):
+    code, out = _run_play(tmp_path, _validate_tasks(),
+                          {"_config_key": key, "_config_value": value})
+    assert code != 0, out
+    assert key + " is not supported. Canasta searches with OpenSearch" in out, out
+    assert "must be a whole number" not in out, out
+
+
+@pytest.mark.parametrize("key", ES_KEYS)
+def test_an_elasticsearch_key_can_be_unset(tmp_path, key):
+    code, out = _run_play(tmp_path, _validate_tasks(), {"_config_key": key})
+    assert code == 0, out
+
+
+@pytest.mark.parametrize("key", [OPENSEARCH_KEY])
 class TestValidation:
     @pytest.mark.parametrize("value", ["512m", "768M", "4g", "16G"])
     def test_accepted(self, tmp_path, key, value):
