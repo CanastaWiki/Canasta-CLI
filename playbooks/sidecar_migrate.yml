@@ -31,8 +31,11 @@
   ansible.builtin.debug:
     msg: "{{ _unmigrated_lines }}"
   vars:
-    _unmigrated_lines: "{{ ['Left in docker-compose.override.yml (could not fully model):']
-      + [_s.name ~ ' — ' ~ (_s.reasons | join(', ')) for _s in _migrate.unmigrated] }}"
+    _unmigrated_lines: >-
+      {{ ['Left in docker-compose.override.yml (could not fully model):']
+         + (_migrate.unmigrated | map(attribute='name')
+            | zip(_migrate.unmigrated | map(attribute='reasons') | map('join', ', '))
+            | map('join', ' — ') | list) }}
   when: _migrate.unmigrated | length > 0
 
 - name: Report nothing to migrate
