@@ -21,6 +21,7 @@ import canasta_compose_profiles
 import canasta_config
 import canasta_edge_render
 import canasta_env_keys
+import canasta_env_lines
 import canasta_env_quote
 import canasta_web_cause
 import yaml
@@ -207,79 +208,10 @@ def _instance_has_sidecars(inst):
     return bool(data.get("sidecars"))
 
 
-def _lint_env_content(content):
-    """True if .env uses CRLF line endings, which reach `docker --env-file`
-    literally. Mirrors canasta_env.lint_env_file() in the Ansible module."""
-    return "\r" in content
-
-
-def _parse_env_entries(content):
-    """Parse .env content into ordered (key, value, is_comment) tuples.
-
-    Values are unquoted the way Compose reads them. Mirrors
-    canasta_env.parse_env_file() in the Ansible module.
-    """
-    entries = []
-    for line in content.split("\n"):
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            entries.append((None, line, True))
-            continue
-        parts = stripped.split("=", 1)
-        if len(parts) == 2:
-            key = parts[0].strip()
-            entries.append(
-                (key, canasta_env_quote.unquote_value(parts[1]), False))
-        else:
-            entries.append((None, line, True))
-    return entries
-
-
-def _env_key_of(line):
-    """Key defined by a raw .env line, or None for comments, blanks, and
-    malformed lines. Tolerates a trailing CR. Mirrors canasta_env._key_of()."""
-    stripped = line.rstrip("\r").strip()
-    if not stripped or stripped.startswith("#"):
-        return None
-    parts = stripped.split("=", 1)
-    if len(parts) != 2:
-        return None
-    return parts[0].strip()
-
-
-def _set_env_lines(lines, key, value):
-    """Rewrite the first line defining `key` as 'key=value', the value
-    quoted only if Compose would otherwise change it, dropping later
-    duplicates and appending if absent. Untouched lines are kept verbatim so
-    their quoting (and any inline '#') survives. Mirrors
-    canasta_env.set_line(), including its ValueErrors."""
-    if "\n" in value or "\r" in value:
-        raise ValueError(
-            "The value of %s contains a line break; .env values must be "
-            "a single line." % key)
-    try:
-        value = canasta_env_quote.quote_value(value)
-    except ValueError as e:
-        raise ValueError("The value of %s cannot be stored in .env: %s."
-                         % (key, e))
-    found = False
-    new_lines = []
-    for line in lines:
-        if _env_key_of(line) == key:
-            if not found:
-                new_lines.append("%s=%s" % (key, value))
-                found = True
-            # Drop duplicate definitions of the same key.
-        else:
-            new_lines.append(line)
-    if not found:
-        # A trailing "" is the file's final newline; the new line goes
-        # before it.
-        at = len(new_lines)
-        if at and new_lines[-1] == "":
-            at -= 1
-        new_lines.insert(at, "%s=%s" % (key, value))
-    return new_lines
+_lint_env_content = canasta_env_lines.lint_env_file
+_parse_env_entries = canasta_env_lines.parse_env_file
+_env_key_of = canasta_env_lines._key_of
+_set_env_lines = canasta_env_lines.set_line
 
 
 def _write_env_content(path, host, content):
