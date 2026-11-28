@@ -493,21 +493,24 @@ class TestCrowdsecBundledFiles:
         assert "ghcr.io/canastawiki/canasta-caddy" in content
 
     def test_image_tag_matches_caddy_version_everywhere(self):
-        # The image is tagged by its Caddy version. The Dockerfile's
-        # CADDY_VERSION, the tag the workflow publishes and the tag
-        # instances run (canasta_caddy_plugin_image) must agree, or
-        # instances pull a tag that was never built.
+        # The image is tagged by its Caddy version, with a -<n> revision
+        # when the plugin set changes on the same Caddy version. The tag the
+        # workflow publishes and the tag instances run
+        # (canasta_caddy_plugin_image) must agree, or instances pull a tag
+        # that was never built.
         dockerfile = _read(os.path.join(
             REPO_ROOT, "images", "caddy", "Dockerfile"))
         caddy = re.search(r"^ARG CADDY_VERSION=(\S+)$", dockerfile, re.M)
         assert caddy, "Dockerfile must pin ARG CADDY_VERSION"
-        version = caddy.group(1)
         workflow = _read(os.path.join(
             REPO_ROOT, ".github", "workflows", "docker-caddy.yml"))
-        assert "type=raw,value=%s\n" % version in workflow
+        tags = re.findall(r"type=raw,value=(\d\S*)\n", workflow)
+        assert len(tags) == 1, tags
+        tag = tags[0]
+        assert re.fullmatch(re.escape(caddy.group(1)) + r"(-\d+)?", tag), tag
         images = _read(os.path.join(REPO_ROOT, "vars", "images.yml"))
         assert ('canasta_caddy_plugin_image: '
-                '"ghcr.io/canastawiki/canasta-caddy:%s"' % version) in images
+                '"ghcr.io/canastawiki/canasta-caddy:%s"' % tag) in images
 
 
 class TestCrowdsecCommands:
