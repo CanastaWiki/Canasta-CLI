@@ -2534,11 +2534,25 @@ class TestParseGitopsStatus:
         assert "Up to date with remote." in result
 
     def test_with_hosts_yaml(self):
-        hosts_yaml = "hosts:\n  - role: production\n    pull_requests: true"
+        hosts_yaml = "hosts:\n  - name: myhost\n    role: production\n    pull_requests: true"
         out = self._make_output(hosts_yaml=hosts_yaml)
         result = direct_commands._parse_gitops_status(out, "mysite")
         assert "Role:           production" in result
         assert "Pull requests:  True" in result
+
+    def test_reports_this_hosts_entry_not_the_first(self):
+        hosts_yaml = ("hosts:\n  - name: source\n    role: source\n    pull_requests: true\n"
+                      "  - name: myhost\n    role: sink\n")
+        out = self._make_output(hosts_yaml=hosts_yaml)
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Role:           sink" in result
+        assert "Pull requests:  False" in result
+
+    def test_a_host_missing_from_hosts_yaml_has_no_role(self):
+        hosts_yaml = "hosts:\n  - name: other\n    role: both\n"
+        out = self._make_output(hosts_yaml=hosts_yaml)
+        result = direct_commands._parse_gitops_status(out, "mysite")
+        assert "Role:           unknown" in result
 
     def test_missing_host_file(self):
         out = self._make_output(hostname="MISSING")
