@@ -39,14 +39,17 @@ def _task(tasks, name):
 
 class TestCanastaReleaseVersion:
     def test_parses_release(self):
-        assert canasta_release_version(TARGET) == (3, 5, 29)
+        assert canasta_release_version(TARGET) == (3, 5, 29, (1,))
+
+    def test_parses_pre_release(self):
+        assert canasta_release_version(
+            "ghcr.io/canastawiki/canasta:3.5.29-rc1") < canasta_release_version(TARGET)
 
     def test_rejects_non_releases(self):
         for ref in (
             "ghcr.io/canastawiki/canasta:latest",
             "ghcr.io/canastawiki/canasta-base:1.3.24",
             "ghcr.io/canastawiki/canasta@sha256:abcd",
-            "ghcr.io/canastawiki/canasta:3.5.29-rc1",
             "example.com/canasta:3.5.28",
             "canasta:local",
             "",
