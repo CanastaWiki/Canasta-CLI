@@ -62,7 +62,7 @@ gitops_git_env:
 # these so stray files elsewhere in the instance directory never reach the
 # remote. Within them, adds, modifications, and deletions are all staged. Anything else is committed only through
 # 'canasta gitops add'.
-gitops_compose_tracked_paths:
+gitops_tracked_paths:
   - .gitignore
   - .gitattributes
   - .gitmodules

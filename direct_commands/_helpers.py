@@ -1153,11 +1153,14 @@ def _resolve_compose_cmd(inst):
     return ["docker", "compose"]
 
 
+def _is_podman(inst):
+    """Whether the instance's container runtime is Podman."""
+    return "podman" in os.path.basename(_resolve_inspect_cmd(inst))
+
+
 def _runtime_label(inst):
     """Docker or Podman: the container runtime the instance runs on."""
-    if "podman" in os.path.basename(_resolve_inspect_cmd(inst)):
-        return "Podman"
-    return "Docker"
+    return "Podman" if _is_podman(inst) else "Docker"
 
 
 def _resolve_inspect_cmd(inst):
@@ -1308,7 +1311,7 @@ def _compose_paused_services(inst):
     """Sorted names of the instance's paused Compose services, [] when
     none are paused or the runtime cannot be asked."""
     runtime = _resolve_inspect_cmd(inst)
-    kind = "podman" if "podman" in os.path.basename(runtime) else "docker"
+    kind = "podman" if _is_podman(inst) else "docker"
     rc, out = _runtime_capture(inst, [
         runtime, "ps", "--filter", "status=paused",
         "--filter", "label=com.docker.compose.project=%s"

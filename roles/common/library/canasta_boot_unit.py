@@ -51,10 +51,11 @@ options:
 import os
 import shlex
 import shutil
-import tempfile
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.canasta_atomic_write import write_if_changed
 from ansible.module_utils.canasta_env_keys import modernize_values
+from ansible.module_utils.canasta_env_lines import read_env_file
 
 # Layer order matches the compose file arguments of
 # roles/orchestrator/tasks/start.yml.
@@ -107,38 +108,10 @@ def systemctl(run, *args):
     return run(["systemctl", "--user"] + list(args), env=_user_env())
 
 
-def _read(path):
-    try:
-        with open(path) as handle:
-            return handle.read()
-    except (IOError, OSError):
-        return None
-
-
-def _write_if_changed(path, content):
-    if _read(path) == content:
-        return False
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".tmp-")
-    with os.fdopen(fd, "w") as handle:
-        handle.write(content)
-    os.chmod(tmp, 0o644)
-    os.rename(tmp, path)
-    return True
-
-
 def read_profiles(instance_path):
     """COMPOSE_PROFILES from the instance's .env, which podman-compose
     does not read itself."""
-    env = {}
-    for line in (_read(os.path.join(instance_path, ".env")) or "").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        env[key.strip()] = value
+    env = read_env_file(os.path.join(instance_path, ".env"))
     raw = modernize_values(env).get("COMPOSE_PROFILES", "")
     return [p.strip() for p in raw.split(",") if p.strip()]
 
@@ -187,7 +160,7 @@ def enable(run, instance_id, instance_path, compose_command, devmode=False):
     text = render(instance_id, instance_path,
                   compose_argv(compose_command, instance_path, devmode),
                   os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"))
-    changed = _write_if_changed(os.path.join(directory, unit), text)
+    changed = write_if_changed(os.path.join(directory, unit), text)
     if changed:
         systemctl(run, "daemon-reload")
     if systemctl(run, "is-enabled", "--quiet", unit)[0] != 0:

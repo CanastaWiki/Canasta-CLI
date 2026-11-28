@@ -37,6 +37,7 @@ import os
 import re
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.canasta_env_lines import read_env_file
 
 # Each list file, with the `config set` flags that add a key to it.
 LIST_FILES = (
@@ -76,18 +77,8 @@ def read_keys(instance_path, list_file):
 
 
 def read_env(instance_path):
-    """Names defined in the instance .env, mapped to their raw values."""
-    path = os.path.join(instance_path, ".env")
-    values = {}
-    if not os.path.exists(path):
-        return values
-    with open(path) as handle:
-        for line in handle:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                name, value = line.split("=", 1)
-                values[name.strip()] = value.strip().strip("'\"")
-    return values
+    """Names defined in the instance .env, mapped to their values."""
+    return read_env_file(os.path.join(instance_path, ".env"))
 
 
 def render(keys):
