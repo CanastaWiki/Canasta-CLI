@@ -17,27 +17,27 @@ from mock_ansible import run_module_with_params
 
 class TestTranslateService:
     def test_simple_image_and_ports(self):
-        sc, reasons, _ = m.translate_service(
+        sc, reasons = m.translate_service(
             "cache", {"image": "redis:7-alpine", "expose": ["6379"]})
         assert reasons == []
         assert sc == {"name": "cache", "image": "redis:7-alpine",
                       "ports": [6379]}
 
     def test_ports_extracts_container_side(self):
-        sc, _, _ = m.translate_service(
+        sc, _ = m.translate_service(
             "x", {"image": "i", "ports": ["127.0.0.1:8080:1970"]})
         assert sc["ports"] == [1970]
 
     def test_environment_list_and_map(self):
-        a, _, _ = m.translate_service(
+        a, _ = m.translate_service(
             "x", {"image": "i", "environment": ["K=v", "FLAG"]})
-        b, _, _ = m.translate_service(
+        b, _ = m.translate_service(
             "y", {"image": "i", "environment": {"K": "v", "N": 5}})
         assert a["env"] == {"K": "v", "FLAG": ""}
         assert b["env"] == {"K": "v", "N": "5"}
 
     def test_bind_mount_becomes_files(self):
-        sc, _, _ = m.translate_service("x", {
+        sc, _ = m.translate_service("x", {
             "image": "i",
             "volumes": ["./config/app.yaml:/srv/app.yaml:ro"]})
         assert sc["files"] == [{"source": "config/app.yaml",
@@ -45,97 +45,96 @@ class TestTranslateService:
         assert "volumes" not in sc
 
     def test_dotfile_bind_mount_keeps_leading_dot(self):
-        sc, reasons, _ = m.translate_service("x", {
+        sc, reasons = m.translate_service("x", {
             "image": "i", "volumes": ["./.env:/srv/.env:ro"]})
         assert reasons == []
         assert sc["files"] == [{"source": ".env", "mountPath": "/srv/.env",
                                 "readOnly": True}]
 
     def test_absolute_bind_mount_skips(self):
-        sc, reasons, _ = m.translate_service("x", {
+        sc, reasons = m.translate_service("x", {
             "image": "i", "volumes": ["/etc/ssl/certs/a.pem:/srv/a.pem:ro"]})
         assert sc is None
         assert any("outside the instance directory" in r for r in reasons)
 
     def test_parent_bind_mount_skips(self):
-        sc, reasons, _ = m.translate_service("x", {
+        sc, reasons = m.translate_service("x", {
             "image": "i", "volumes": ["../shared/data:/data"]})
         assert sc is None
         assert any("outside the instance directory" in r for r in reasons)
 
     def test_home_bind_mount_skips(self):
-        sc, reasons, _ = m.translate_service("x", {
+        sc, reasons = m.translate_service("x", {
             "image": "i", "volumes": ["~/certs:/certs"]})
         assert sc is None
         assert any("outside the instance directory" in r for r in reasons)
 
     def test_bare_dot_bind_mount_skips(self):
-        sc, reasons, _ = m.translate_service("x", {
+        sc, reasons = m.translate_service("x", {
             "image": "i", "volumes": [".:/srv/app"]})
         assert sc is None
         assert any("outside the instance directory" in r for r in reasons)
 
-    def test_named_volume_becomes_persistent_with_assumption(self):
-        sc, _, notes = m.translate_service("cache", {
+    def test_named_volume_becomes_persistent(self):
+        sc, _ = m.translate_service("cache", {
             "image": "i", "volumes": ["data:/data"]})
         assert sc["volumes"] == [{"name": "data", "mountPath": "/data",
-                                  "persistent": True, "size": "1Gi"}]
-        assert any("assumed size" in n for n in notes)
+                                  "persistent": True}]
 
     def test_healthcheck_cmd_and_shell(self):
-        a, _, _ = m.translate_service("x", {
+        a, _ = m.translate_service("x", {
             "image": "i", "healthcheck": {"test": ["CMD", "redis-cli", "ping"]}})
-        b, _, _ = m.translate_service("y", {
+        b, _ = m.translate_service("y", {
             "image": "i", "healthcheck": {"test": ["CMD-SHELL", "curl -f x"]}})
         assert a["healthcheck"] == {"command": ["redis-cli", "ping"]}
         assert b["healthcheck"] == {"command": ["sh", "-c", "curl -f x"]}
 
     def test_deploy_resources(self):
-        sc, _, _ = m.translate_service("x", {
+        sc, _ = m.translate_service("x", {
             "image": "i",
             "deploy": {"resources": {"limits": {"memory": "512Mi",
                                                 "cpus": "0.5"}}}})
         assert sc["resources"] == {"memory": "512Mi", "cpu": "0.5"}
 
     def test_depends_on_list_and_map(self):
-        a, _, _ = m.translate_service(
+        a, _ = m.translate_service(
             "x", {"image": "i", "depends_on": ["translator"]})
-        b, _, _ = m.translate_service(
+        b, _ = m.translate_service(
             "y", {"image": "i",
                   "depends_on": {"translator": {"condition": "started"}}})
         assert a["depends_on"] == ["translator"]
         assert b["depends_on"] == ["translator"]
 
     def test_build_context(self):
-        sc, _, _ = m.translate_service("x", {"build": "./svc"})
+        sc, _ = m.translate_service("x", {"build": "./svc"})
         assert sc == {"name": "x", "build": "./svc"}
 
     def test_unsupported_field_blocks(self):
-        sc, reasons, _ = m.translate_service(
+        sc, reasons = m.translate_service(
             "x", {"image": "i", "networks": ["mynet"]})
         assert sc is None
         assert any("networks" in r for r in reasons)
 
     def test_custom_dockerfile_blocks(self):
-        sc, reasons, _ = m.translate_service(
+        sc, reasons = m.translate_service(
             "x", {"build": {"context": ".", "dockerfile": "Custom.df"}})
         assert sc is None
         assert any("dockerfile" in r for r in reasons)
 
     def test_deploy_non_resources_blocks(self):
-        sc, reasons, _ = m.translate_service(
+        sc, reasons = m.translate_service(
             "x", {"image": "i", "deploy": {"replicas": 3}})
         assert sc is None
         assert any("deploy.replicas" in r for r in reasons)
 
     def test_port_range_skips_instead_of_crashing(self):
-        sc, reasons, _ = m.translate_service(
+        sc, reasons = m.translate_service(
             "x", {"image": "i", "ports": ["8000-8005"]})
         assert sc is None
         assert any("unparseable port" in r for r in reasons)
 
     def test_unparseable_expose_port_skips(self):
-        sc, reasons, _ = m.translate_service(
+        sc, reasons = m.translate_service(
             "x", {"image": "i", "expose": ["${PORT}"]})
         assert sc is None
         assert any("unparseable expose port" in r for r in reasons)

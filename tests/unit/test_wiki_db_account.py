@@ -21,7 +21,6 @@ sys.path.insert(0, REPO_ROOT)
 
 from direct_commands import _helpers  # noqa: E402
 
-from _orchestrator import TEMPLAR_VARS
 
 SCRIPT = os.path.join(REPO_ROOT, "roles", "orchestrator", "files", "scripts",
                       "ensure_wiki_db_account.sh")
@@ -200,20 +199,19 @@ class TestWiring:
         assert "--protocol=tcp -h 127.0.0.1" in (
             ping["ansible.builtin.command"]["cmd"])
 
-    @pytest.mark.parametrize("env, orch, needed", [
-        ({"WIKI_DB_USER": "mediawiki"}, "compose", True),
-        ({"WIKI_DB_USER": "root"}, "compose", False),
-        ({}, "compose", False),
-        ({"WIKI_DB_USER": "mediawiki_site", **EXTERNAL}, "compose", True),
-        ({"WIKI_DB_USER": "op", **EXTERNAL}, "compose", False),
+    @pytest.mark.parametrize("env, needed", [
+        ({"WIKI_DB_USER": "mediawiki"}, True),
+        ({"WIKI_DB_USER": "root"}, False),
+        ({}, False),
+        ({"WIKI_DB_USER": "mediawiki_site", **EXTERNAL}, True),
+        ({"WIKI_DB_USER": "op", **EXTERNAL}, False),
     ])
     def test_skipped_for_the_administrator_account(
-            self, env, orch, needed):
+            self, env, needed):
         templar = Templar(loader=DataLoader(), variables={
-            "_ensure_env": {"variables": env},
-            "instance_orchestrator": orch, **TEMPLAR_VARS})
+            "_ensure_env": {"variables": env}})
         assert templar.template(trust_as_template(_ensure_needed_expr())) is needed, (
-            env, orch)
+            env)
 
     def test_web_gets_the_wiki_account_and_db_can_set_it(self):
         with open(COMPOSE) as f:
@@ -232,7 +230,7 @@ class TestWiring:
     ])
     def test_create_defaults_to_the_mediawiki_account(self, given, orch, expected):
         templar = Templar(loader=DataLoader(), variables={
-            "wikidbuser": given, "orchestrator": orch, **TEMPLAR_VARS})
+            "wikidbuser": given, "orchestrator": orch})
         assert templar.template(trust_as_template(_wiki_db_user_expr())) == expected
 
 

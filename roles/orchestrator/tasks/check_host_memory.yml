@@ -1,5 +1,5 @@
 ---
-# Profile-aware host memory floor (Compose). OpenSearch and the
+# Profile-aware host memory floor. OpenSearch and the
 # observability stack each raise the memory a Canasta instance needs, so the
 # minimum depends on which are enabled:
 #   neither    -> ~2 GiB
@@ -7,9 +7,7 @@
 #   both       -> ~8 GiB
 # Thresholds sit below the marketed size because a host reports less to the
 # kernel after firmware/hypervisor reserves (a "4 GiB" host reports ~3700-3900
-# MiB), so 1600/3500/7000 accept a real 2/4/8 GiB host respectively. The K8s
-# per-node capacity check (k8s_preflight.yml) is separate — the host-memory
-# numbers here do not transfer to per-node cluster capacity.
+# MiB), so 1600/3500/7000 accept a real 2/4/8 GiB host respectively.
 #
 # Input: _mem_search_enabled (bool), _mem_obs_enabled (bool)
 

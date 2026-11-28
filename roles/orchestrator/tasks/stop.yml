@@ -1,6 +1,6 @@
 ---
 # Stop containers for an instance.
-# Input: instance_path, instance_devmode (bool), instance_orchestrator
+# Input: instance_path, instance_devmode (bool)
 # Output: _stop_was_running (bool; true when the answer is unreadable)
 
 # The start that follows a stop syncs the edge; refuse while the instance
@@ -10,7 +10,6 @@
     state: writable
     instance_path: "{{ instance_path }}"
   when:
-    - not (instance_is_k8s | bool)
     - stop_check_edge | default(true) | bool
 
 - name: Check for running containers (Docker Compose)
@@ -26,35 +25,20 @@
   register: _stop_compose_ps
   changed_when: false
   failed_when: false
-  when: not (instance_is_k8s | bool)
-
-- name: Check for scaled-up workloads (Kubernetes)
-  ansible.builtin.command:
-    cmd: >-
-      kubectl get deployment,statefulset -n canasta-{{ instance_id }}
-      -o jsonpath={.items[*].spec.replicas}
-  register: _stop_k8s_replicas
-  changed_when: false
-  failed_when: false
-  when: instance_is_k8s | bool
 
 - name: Record whether the instance was running
   ansible.builtin.set_fact:
     _stop_was_running: >-
-      {{ (_stop_k8s_replicas.rc != 0
-          or _stop_k8s_replicas.stdout.split() | reject('equalto', '0') | list | length > 0)
-         if (instance_is_k8s | bool) else
-         (_stop_compose_ps.rc != 0 or _stop_compose_ps.stdout | trim | length > 0) }}
+      {{ _stop_compose_ps.rc != 0 or _stop_compose_ps.stdout | trim | length > 0 }}
 
-# Announced before the orchestrator dispatch so both Compose and K8s report
-# it, and every caller (stop, restart, config set) gets the message once.
+# Announced here so every caller (stop, restart, config set) gets the
+# message once.
 - name: Report stopping containers
   ansible.builtin.debug:
     msg: "Stopping containers..."
   when: _stop_was_running | bool
 
 - name: Stop (Docker Compose)
-  when: not (instance_is_k8s | bool)
   block:
     # Reconcile COMPOSE_PROFILES before `down`: docker compose down only tears
     # down services in the active profiles, so a drifted profile set would
@@ -94,53 +78,3 @@
         cmd: "{{ compose_command }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} down"
         chdir: "{{ instance_path }}"
       changed_when: true
-
-- name: Stop (Kubernetes)
-  when: instance_is_k8s | bool
-  block:
-    - name: Set K8s namespace
-      ansible.builtin.set_fact:
-        _k8s_namespace: "canasta-{{ instance_id }}"
-
-    # Suspend Argo CD auto-sync before scaling to zero. If we don't,
-    # selfHeal detects the scale-to-zero as drift and immediately
-    # reverts it by re-creating the pods.
-    - name: Check if Argo CD Application exists for this instance
-      ansible.builtin.command:
-        cmd: >-
-          kubectl get application canasta-{{ instance_id }}
-          -n {{ argocd_namespace | default('argocd') }}
-          -o jsonpath={.metadata.name}
-      register: _stop_argocd_app
-      changed_when: false
-      ignore_errors: true  # OK if no Argo CD app exists
-
-    - name: Suspend Argo CD auto-sync
-      ansible.builtin.command:
-        cmd: >-
-          kubectl patch application canasta-{{ instance_id }}
-          -n {{ argocd_namespace | default('argocd') }}
-          --type merge -p '{"spec":{"syncPolicy":null}}'
-      changed_when: true
-      when: _stop_argocd_app.rc == 0
-
-    - name: Scale down all deployments
-      ansible.builtin.command:
-        cmd: "kubectl scale deployment --all --replicas=0 -n {{ _k8s_namespace }}"
-      changed_when: true
-
-    # When the instance uses an external DB (db.enabled: false) and
-    # Elasticsearch is disabled, the namespace has zero StatefulSets
-    # and 'kubectl scale --all' errors with "no objects passed to
-    # scale". Check first and skip the scale step in that case.
-    - name: Check for statefulsets before scaling
-      ansible.builtin.command:
-        cmd: "kubectl get statefulset -n {{ _k8s_namespace }} -o name"
-      register: _stop_sts_list
-      changed_when: false
-
-    - name: Scale down all statefulsets
-      ansible.builtin.command:
-        cmd: "kubectl scale statefulset --all --replicas=0 -n {{ _k8s_namespace }}"
-      changed_when: true
-      when: _stop_sts_list.stdout_lines | length > 0

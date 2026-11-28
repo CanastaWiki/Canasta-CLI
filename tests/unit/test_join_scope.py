@@ -1,4 +1,4 @@
-"""Regression guard: `gitops join` (Compose) must not push the fresh
+"""Regression guard: `gitops join` must not push the fresh
 instance's create-time default settings back into the shared repo.
 
 A fresh `canasta create` generates Canasta's default config/settings/global/*.php

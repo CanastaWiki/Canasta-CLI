@@ -15,19 +15,16 @@
     state: current
     instance_id: "{{ instance_id }}"
     instance_path: "{{ instance_path }}"
-  when: not (instance_is_k8s | bool)
 
 # Make config/wikis.yaml and wikis.yaml.template agree before anything reads
 # wikis.yaml, whichever of the two was edited. Compose gitops only.
 - name: Sync wikis.yaml with its gitops template
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/sync_wikis_yaml.yml
-  when: not (instance_is_k8s | bool)
 
 - name: Write .env edits into the gitops sources
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/sync_env.yml
-  when: not (instance_is_k8s | bool)
 
 # With every edit now in the sources, render .env, wikis.yaml, my.cnf,
 # media-hosts.yaml and the admin password files from them, so an edit made
@@ -48,7 +45,6 @@
     {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
   when:
     - _reconcile_gitops_host.stat.exists
-    - not (instance_is_k8s | bool)
 
 # Regenerate rendered config (e.g. the Caddyfile from the current wikis.yaml)
 # so the converge below picks up drift between sources and rendered state.
@@ -96,7 +92,6 @@
 - name: Warn about wiki databases missing on this host
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/warn_missing_wiki_databases.yml
-  when: not (instance_is_k8s | bool)
 
 - name: Report reconciled
   ansible.builtin.debug:

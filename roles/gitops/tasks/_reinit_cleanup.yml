@@ -7,18 +7,16 @@
 # "GitOps already initialized", and `join` refused for the same
 # reason.
 #
-# We only delete files that gitops itself creates (or, in the K8s
-# case, copies in from the chart). Files that pre-exist canasta
-# create — .env, config/, the wiki tree, and on K8s values.yaml
-# (which init *merges into* in place) — are left alone.
+# We only delete files that gitops itself creates. Files that
+# pre-exist canasta create — .env, config/, the wiki tree — are left
+# alone.
 #
-# Submodule conversion (Compose: extensions/<X>/.git becomes a
-# gitlink under .git/modules/) cannot be cleanly reversed once the
-# parent .git/ is gone; on a re-init the submodule conversion task
-# will see the stale gitlinks and skip those directories. The
-# resulting repo will not have submodule structure for any extension
-# whose conversion completed before the failure. This is documented
-# in the --reinit help text.
+# Submodule conversion (extensions/<X>/.git becomes a gitlink under
+# .git/modules/) cannot be cleanly reversed once the parent .git/ is
+# gone; on a re-init the submodule conversion task will see the stale
+# gitlinks and skip those directories. The resulting repo will not have
+# submodule structure for any extension whose conversion completed
+# before the failure. This is documented in the --reinit help text.
 
 - name: Reinit cleanup — common gitops files
   ansible.builtin.file:
@@ -33,26 +31,3 @@
     - env.template
     - wikis.yaml.template
     - hosts
-
-# Intrinsically K8s: removes the K8s-only gitops files (Chart.yaml,
-# values.template.yaml, argocd, ...) that Compose instances never have.
-# Kept in place by design (no Compose-equivalent cleanup to dispatch to).
-- name: Reinit cleanup — Kubernetes-only gitops files
-  ansible.builtin.file:
-    path: "{{ instance_path }}/{{ item }}"
-    state: absent
-  loop:
-    - Chart.yaml
-    - chart-defaults.yaml
-    - templates
-    - files
-    - values.template.yaml
-    - values-configdata.yaml
-    - values-sidecars.yaml
-    - argocd
-    # The SOPS marker must go too: gitops_sops_secrets comes only from the CLI
-    # flag, so a surviving .sops.yaml would keep push encrypting Secrets while a
-    # re-init without --encrypt-secrets regenerates a plain-helm Application
-    # that never renders them.
-    - .sops.yaml
-  when: instance_is_k8s | bool

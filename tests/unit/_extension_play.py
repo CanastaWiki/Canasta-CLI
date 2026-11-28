@@ -1,7 +1,6 @@
 """Run the tail of the extensions_skins role's enable.yml or disable.yml (from
 the gitops settings commit on) as a localhost play against stubs: the settings
-commit, the config apply, update.php and the running check only log what they
-were asked to do."""
+commit and update.php only log what they were asked to do."""
 
 import os
 import subprocess
@@ -9,7 +8,6 @@ import sys
 
 import yaml
 
-from _orchestrator import INSTANCE_IS_K8S_VARS
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
@@ -25,15 +23,10 @@ def _log(log, line):
             "environment": {"L": line}}
 
 
-def _stub_root(tmp_path, running):
+def _stub_root(tmp_path):
     log = tmp_path / "log"
     root = tmp_path / "root"
     stubs = {
-        "orchestrator": {
-            "apply_config.yml": [_log(log, "APPLY")],
-            "check_running.yml": [{"ansible.builtin.set_fact": {
-                "_container_running": running}}],
-        },
         "extensions_skins": {
             "_commit_settings.yml": [_log(log, "COMMIT {{ _settings_action }}")],
         },
@@ -58,9 +51,8 @@ def _tail(which):
     return tasks[names.index(first):]
 
 
-def _run(tmp_path, which, *, k8s=True, gitops=True, running=True,
-         changed=True, **play_vars):
-    root, log = _stub_root(tmp_path, running)
+def _run(tmp_path, which, *, gitops=True, changed=True, **play_vars):
+    root, log = _stub_root(tmp_path)
     inst = tmp_path / "inst"
     inst.mkdir()
     if gitops:
@@ -70,9 +62,7 @@ def _run(tmp_path, which, *, k8s=True, gitops=True, running=True,
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": dict(INSTANCE_IS_K8S_VARS,
-                     instance_orchestrator="kubernetes" if k8s else "compose",
-                     canasta_root=str(root), instance_path=str(inst),
+        "vars": dict(canasta_root=str(root), instance_path=str(inst),
                      instance_id="inst", _item_type="extensions",
                      _names="Cite,Foo", _settings_change={"changed": changed},
                      ansible_python_interpreter=sys.executable, **play_vars),

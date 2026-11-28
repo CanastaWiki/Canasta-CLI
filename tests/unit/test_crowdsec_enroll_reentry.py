@@ -46,19 +46,7 @@ STUB_CONFIG_SET = """\
 """
 
 
-def _commit_render(inst, caddyfile):
-    host = inst / "hosts" / "prod"
-    host.mkdir(parents=True)
-    (host / "rendered-values.yaml").write_text(yaml.safe_dump(
-        {"configData": {"caddy": {"Caddyfile": caddyfile}}}))
-    git = ["git", "-C", str(inst), "-c", "user.name=t", "-c", "user.email=t@t"]
-    subprocess.run(git + ["init", "-q"], check=True)
-    subprocess.run(git + ["add", "-A"], check=True)
-    subprocess.run(git + ["commit", "-q", "-m", "render"], check=True)
-
-
-def _run(tmp_path, env_text, k8s=False, gitops=False, committed_caddy=None,
-         sops=False):
+def _run(tmp_path, env_text, gitops=False):
     roles = tmp_path / "roles"
     cs = roles / "crowdsec" / "tasks"
     cs.mkdir(parents=True)
@@ -79,17 +67,12 @@ def _run(tmp_path, env_text, k8s=False, gitops=False, committed_caddy=None,
     (inst / ".env").write_text(env_text)
     if gitops:
         (inst / ".gitops-host").write_text("prod\n")
-        if sops:
-            (inst / ".sops.yaml").write_text("creation_rules: []\n")
-        if committed_caddy is not None:
-            _commit_render(inst, committed_caddy)
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
         "vars": {"instance_path": str(inst), "instance_id": "demo",
-                 "instance_is_k8s": k8s,
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_role": {
             "name": "crowdsec", "tasks_from": "bouncer_enroll.yml"},

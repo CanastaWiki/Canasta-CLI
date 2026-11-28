@@ -16,24 +16,20 @@ D = doctor._helpers._SENTINEL
 LE = "C=US, O=Let's Encrypt, CN=R11"
 STAGING = "C=US, O=(STAGING) Let's Encrypt, CN=(STAGING) Artificial Amaranth YE1"
 CADDY_LOCAL = "CN=Caddy Local Authority - ECC Intermediate"
-TRAEFIK = "CN=TRAEFIK DEFAULT CERT"
 SELF = "CN=wiki.example.org"
 
 
-def _probe(issuer, subject, name="wiki.example.org", tls_internal="",
-           values=None):
-    values_seg = "" if values is None else "%sVALUES:\n%s" % (D, values)
+def _probe(issuer, subject, name="wiki.example.org", tls_internal=""):
     return (
-        "%sTLSINTERNAL:%s\n%s"
+        "%sTLSINTERNAL:%s\n"
         "%sNAME:%s\nsubject=%s\nissuer=%s\nnotAfter=%s\n"
-        % (D, tls_internal, values_seg, D, name, subject, issuer, LATER))
+        % (D, tls_internal, D, name, subject, issuer, LATER))
 
 
-def _report(stdout, k8s=False):
+def _report(stdout):
     return "\n".join(doctor._origin_tls_lines_from_entries(
         "site", doctor._parse_origin_tls(stdout), NOW,
-        tls_internal=doctor._parse_tls_internal(stdout), k8s=k8s,
-        cert_manager=doctor._parse_cert_manager(stdout) if k8s else None))
+        tls_internal=doctor._parse_tls_internal(stdout)))
 
 
 class TestProbe:
@@ -53,7 +49,8 @@ class TestSelfSigned:
         assert "Caddyfile.site" in out
 
     def test_self_signed_on_a_local_name_is_exempt(self):
-        out = _report(_probe(TRAEFIK, TRAEFIK, name="wiki.localhost"))
+        out = _report(_probe(
+            "CN=wiki.localhost", "CN=wiki.localhost", name="wiki.localhost"))
         assert "WARN" not in out
 
 

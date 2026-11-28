@@ -4261,11 +4261,8 @@ def _sidecar_volume_exists(inst, volume):
 
 def test_sidecar_lifecycle(inst):
     """add (from file) -> list -> restart -> the sidecar runs and is
-    reachable from web by service name -> remove -> restart -> it is gone.
-
-    Regression guard for sidecar bugs that previously surfaced only in
-    manual e2e: the orphan container left behind after removal, and the
-    stop/restart wedge from k8s-notation resources.
+    reachable from web by service name -> remove -> restart -> it is gone,
+    with no orphan container left behind.
     """
     # Queries sidecar containers and volumes through the Docker CLI.
     require_docker()

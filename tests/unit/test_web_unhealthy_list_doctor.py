@@ -1,10 +1,8 @@
 """list and doctor notice a web container that is crash-looping or unhealthy.
 
-A crash-looping Compose web container is still listed by `ps`, and a
-crash-looping pod is intermittently ready, so list read such an instance as
-RUNNING (or flipped between RUNNING and STOPPED on Kubernetes), and doctor
-said nothing about it. list now shows UNHEALTHY from the same single query
-it already made; doctor names the state and restart count and, from web's
+A crash-looping web container is still listed by `ps`, so list must not read
+such an instance as RUNNING. list shows UNHEALTHY from the same single query
+it already makes; doctor names the state and restart count and, from web's
 log, the startup error and its fix.
 """
 
@@ -230,11 +228,6 @@ class TestListOutput:
         assert "UNHEALTHY" in capsys.readouterr().out
 
 
-def _pod(name, ready, restarts, reason="", exit_code=""):
-    return "%s|%s|%d|%s|%s" % (
-        name, "true" if ready else "false", restarts, reason, exit_code)
-
-
 COMPOSE_INST = {"id": "mysite", "path": "/srv/mysite", "host": "localhost",
                 "orchestrator": "compose"}
 
@@ -309,10 +302,6 @@ class TestDoctorCompose:
         lines, fetched = _compose_doctor(monkeypatch, "", cid="")
         assert lines == []
         assert fetched == []
-
-
-K8S_INST = {"id": "mysite", "path": "/srv/mysite", "host": "node1",
-            "orchestrator": "kubernetes"}
 
 
 class TestDoctorWiring:

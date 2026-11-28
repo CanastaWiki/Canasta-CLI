@@ -71,7 +71,7 @@ def test_config_set_syncs_profiles():
     tasks = _load(SIDE_EFFECTS)
     sync = next(t for t in tasks
                 if t.get("name") == "Sync COMPOSE_PROFILES / caddy image when feature flags change")
-    assert "'CANASTA_ENABLE_REDIS'" in sync["when"][1]
+    assert "'CANASTA_ENABLE_REDIS'" in sync["when"][0]
 
 
 def test_upgrade_enables_redis_for_the_instances_own_redis_service():

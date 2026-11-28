@@ -191,25 +191,6 @@ def cmd_page_title(internal_name):
     return PAGE_PREFIX + "canasta " + cmd_display_name(internal_name)
 
 
-# Orchestrator-column labels. Params without an `orchestrator_only`
-# field apply to both orchestrators; params with the field are scoped
-# to just one. The column is rendered on every flag table per the
-# docs-wiki audit so readers don't have to infer scope from the flag's
-# description.
-_ORCHESTRATOR_LABELS = {
-    "compose": "Compose",
-    "kubernetes": "Kubernetes",
-    "k8s": "Kubernetes",
-}
-
-
-def _orchestrator_label(value):
-    """Map a param's orchestrator_only value to a table label."""
-    if not value:
-        return "Both"
-    return _ORCHESTRATOR_LABELS.get(value, value)
-
-
 def _flag_name(p):
     """Displayed long flag name for a param. The CLI honors the `long:`
     override when building argparse options (e.g. host add's `host_name`
@@ -347,7 +328,6 @@ def _global_flags_section(global_flags):
         "! Flag !! Shorthand !! Description "
         "!! style=\"text-align:center\" | Default "
         "!! style=\"text-align:center\" | Required "
-        "!! style=\"text-align:center\" | Orchestrator"
     )
     for p in sorted(global_flags, key=_flag_name):
         flag = "<code>--%s</code>" % _flag_name(p)
@@ -361,14 +341,12 @@ def _global_flags_section(global_flags):
         required = ""
         if p.get("required"):
             required = "✓"
-        orch = _orchestrator_label(p.get("orchestrator_only"))
         lines.append("|-")
         lines.append(
             "| %s || %s || %s "
             '|| style="text-align:center" | %s '
-            '|| style="text-align:center" | %s '
             '|| style="text-align:center" | %s'
-            % (flag, short, desc, default, required, orch)
+            % (flag, short, desc, default, required)
         )
     lines.append("|}")
     lines.append("")
@@ -485,7 +463,6 @@ def gen_wikitext(cmd, global_flags=None, cmd_index=None):
             "! Argument !! Description "
             "!! style=\"text-align:center\" | Default "
             "!! style=\"text-align:center\" | Required "
-            "!! style=\"text-align:center\" | Orchestrator"
         )
         for p in positionals:
             arg = "<code>%s</code>" % p["name"].upper()
@@ -494,14 +471,12 @@ def gen_wikitext(cmd, global_flags=None, cmd_index=None):
             if p.get("default") not in (None, "", False, 0):
                 default = "<code>%s</code>" % p["default"]
             required = "✓" if p.get("required") else ""
-            orch = _orchestrator_label(p.get("orchestrator_only"))
             lines.append("|-")
             lines.append(
                 "| %s || %s "
                 '|| style="text-align:center" | %s '
-                '|| style="text-align:center" | %s '
                 '|| style="text-align:center" | %s'
-                % (arg, desc, default, required, orch)
+                % (arg, desc, default, required)
             )
         lines.append("|}")
         lines.append("")
@@ -518,7 +493,6 @@ def gen_wikitext(cmd, global_flags=None, cmd_index=None):
             "! Flag !! Shorthand !! Description "
             "!! style=\"text-align:center\" | Default "
             "!! style=\"text-align:center\" | Required "
-            "!! style=\"text-align:center\" | Orchestrator"
         )
         # Non-required -i flags that simply select an instance get an
         # asterisk in the Default column pointing to a footnote about
@@ -549,14 +523,12 @@ def gen_wikitext(cmd, global_flags=None, cmd_index=None):
             if p.get("short") == "i" and not p.get("required"):
                 default = (default + "*") if default else "*"
                 show_cwd_note = True
-            orch = _orchestrator_label(p.get("orchestrator_only"))
             lines.append("|-")
             lines.append(
                 "| %s || %s || %s "
                 '|| style="text-align:center" | %s '
-                '|| style="text-align:center" | %s '
                 '|| style="text-align:center" | %s'
-                % (flag, short, desc, default, required, orch)
+                % (flag, short, desc, default, required)
             )
         lines.append("|}")
         if show_cwd_note:

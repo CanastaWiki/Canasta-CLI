@@ -99,7 +99,7 @@ def test_a_skipped_rebuild_does_not_repoint_the_instance_at_a_stock_image():
     # image for a stock ghcr tag the instance was never built on.
     with open(UPGRADE_TAG) as f:
         txt = f.read()
-    assert txt.count("buildFrom | default('') == ''") == 2
+    assert txt.count("buildFrom | default('') == ''") == 1
 
 
 def test_create_still_fails_hard_on_a_missing_source():

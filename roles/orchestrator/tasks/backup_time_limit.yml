@@ -1,5 +1,5 @@
 ---
-# How long one database dump or import may run (Compose).
+# How long one database dump or import may run.
 #
 # Input: instance_path
 # Output: _backup_time_limit - seconds

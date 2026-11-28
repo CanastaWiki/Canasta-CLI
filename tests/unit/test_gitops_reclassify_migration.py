@@ -51,3 +51,7 @@ def test_migration_value_bearing_tasks_are_no_log():
             flagged += 1
             assert t.get("no_log") is True, "%r must be no_log" % name
     assert flagged >= 3, "expected the value-bearing tasks to be guarded"
+
+
+def test_migration_replaceholder_is_case_insensitive():
+    assert "(?i)^{{ item }}=" in _read(MIG)

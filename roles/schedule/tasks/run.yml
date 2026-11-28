@@ -78,7 +78,7 @@
       when:
         - _schedule_result != 'skipped'
         - exec_result.stdout | default('') | length > 0
-  # Reached only when the command could not be started (no running pod).
+  # Reached only when the command could not be started (no running container).
   rescue:
     - name: Record the result
       ansible.builtin.set_fact:

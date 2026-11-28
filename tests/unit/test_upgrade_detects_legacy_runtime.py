@@ -68,18 +68,12 @@ class TestUpgradeChecksTheRecordedRuntime:
         assert task["ansible.builtin.include_tasks"].endswith(
             "roles/common/tasks/detect_runtime.yml")
 
-    def test_it_runs_for_every_compose_instance(self):
-        # Gating on "nothing recorded" only caught pre-field instances.
-        # A record holding the wrong runtime is the case that actually
-        # fails today, and it never re-probed.
-        cond = _named(SINGLE, "Confirm the recorded runtime")["when"]
-        conds = cond if isinstance(cond, list) else [cond]
-        assert not any("composeCommand" in str(c) for c in conds), (
+    def test_it_runs_for_every_instance(self):
+        # Gating on "nothing recorded" would catch only pre-field instances;
+        # a record holding the wrong runtime would never be re-probed.
+        assert "when" not in _named(SINGLE, "Confirm the recorded runtime"), (
             "re-probing only when composeCommand is absent leaves an "
             "instance that recorded the wrong runtime unrepairable"
-        )
-        assert "not (instance_is_k8s | bool)" in conds, (
-            "Kubernetes instances have no compose runtime to probe"
         )
 
     def test_it_runs_after_the_connection_switch(self):

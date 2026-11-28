@@ -202,6 +202,6 @@ class TestHelperBehavior:
         repo = str(tmp_path)
         self._git(repo, "init", "-q", "-b", "main")
         self._write(repo, "stray.txt")
-        subprocess.run(["sh", "-c", _render_helper(["config", "values.yaml"])],
+        subprocess.run(["sh", "-c", _render_helper(["config", "env.template"])],
                        cwd=repo, check=True, capture_output=True, text=True)
         assert self._git(repo, "diff", "--cached", "--name-only") == ""

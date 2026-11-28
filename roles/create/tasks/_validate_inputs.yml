@@ -1,10 +1,8 @@
 ---
 # Input + stale-state validation for `canasta create`. A bad --id,
-# an instance ID that already exists, or any orchestrator-state
-# leftover from a prior failed create caught here saves a network
-# round-trip to the cluster (and on a fresh cluster, several
-# minutes of Argo CD install) that would otherwise happen before
-# the input was checked.
+# an instance ID that already exists, or Docker volumes left by a
+# prior failed create are caught here, before anything is pulled or
+# written.
 
 - name: Report validating inputs
   ansible.builtin.debug:
@@ -132,13 +130,12 @@
 
 # --- Stale-state check ---
 # Even when the registry has no entry for this instance, a prior
-# 'canasta create' that failed mid-flight may have left orchestrator
-# state behind (Docker volumes for Compose, a namespace + PVCs for K8s).
+# 'canasta create' that failed mid-flight may have left its Docker
+# volumes behind.
 # Re-running create would generate fresh DB passwords that do not match
 # the existing volume contents, producing an unrecoverable auth mismatch.
 # Refuse upfront with a clear recovery hint.
-- name: Check for stale Compose volumes from prior failed create
-  when: not (instance_is_k8s | bool)
+- name: Check for stale volumes from prior failed create
   block:
     - name: Probe for existing docker volumes
       ansible.builtin.command:

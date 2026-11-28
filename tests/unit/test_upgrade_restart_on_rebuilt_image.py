@@ -3,7 +3,7 @@
 Every upgrade rebuilds a build_from instance's image, and the restart that
 followed was unconditional, so an unchanged rebuild still cost a couple of
 minutes of 502/503. The publish step now compares the rebuilt image with the
-one the web containers run, with docker and kubectl stubbed here.
+one the web containers run, with docker stubbed here.
 """
 
 import os
@@ -27,8 +27,6 @@ NEW = "sha256:" + "b" * 64
 DOCKER = """#!/bin/sh
 echo "$*" >> "$STUB_LOG"
 case "$1" in
-  push) printf 'The push refers to repository [localhost:5000/canasta]\\n'
-        printf 'local: digest: %s size: 1234\\n' "$STUB_PUSHED" ;;
   ps) [ -n "$STUB_CONTAINERS" ] && printf '%s\\n' $STUB_CONTAINERS ;;
   inspect) for _ in $STUB_CONTAINERS; do echo "$STUB_RUNNING"; done ;;
   image) echo "$STUB_BUILT" ;;
@@ -36,23 +34,17 @@ esac
 exit 0
 """
 
-KUBECTL = """#!/bin/sh
-echo "kubectl $*" >> "$STUB_LOG"
-printf '%s' "$STUB_PODS"
-"""
-
 
 def _stubs(tmp_path):
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    for name, body in (("docker", DOCKER), ("kubectl", KUBECTL)):
-        path = bindir / name
-        path.write_text(body)
-        path.chmod(0o755)
+    path = bindir / "docker"
+    path.write_text(DOCKER)
+    path.chmod(0o755)
     return bindir
 
 
-def _publish(tmp_path, k8s, **stub):
+def _publish(tmp_path, **stub):
     bindir = _stubs(tmp_path)
     log = tmp_path / "calls.log"
     play = tmp_path / "play.yml"
@@ -60,7 +52,7 @@ def _publish(tmp_path, k8s, **stub):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": {"instance_is_k8s": k8s, "instance_id": "site",
+        "vars": {"instance_id": "site",
                  "instance_path": str(tmp_path / "site"),
                  "inspect_command": "docker", "_built_image": "canasta:local",
                  "ansible_python_interpreter": sys.executable},
@@ -84,23 +76,23 @@ def _publish(tmp_path, k8s, **stub):
     return False
 
 
-class TestCompose:
+class TestPublish:
     def test_an_unchanged_rebuild_does_not_restart(self, tmp_path):
-        assert _publish(tmp_path, False, containers="c1", running=NEW,
+        assert _publish(tmp_path, containers="c1", running=NEW,
                         built=NEW) is False
 
     def test_a_changed_rebuild_restarts(self, tmp_path):
-        assert _publish(tmp_path, False, containers="c1", running=OLD,
+        assert _publish(tmp_path, containers="c1", running=OLD,
                         built=NEW) is True
 
     def test_no_running_container_counts_as_changed(self, tmp_path):
-        assert _publish(tmp_path, False, containers="", running="",
+        assert _publish(tmp_path, containers="", running="",
                         built=NEW) is True
 
     def test_nothing_is_pushed(self, tmp_path):
-        _publish(tmp_path, False, containers="c1", running=NEW, built=NEW)
+        _publish(tmp_path, containers="c1", running=NEW, built=NEW)
         calls = (tmp_path / "calls.log").read_text()
-        assert "push" not in calls and "kubectl" not in calls
+        assert "push" not in calls
 
 
 def _restart_needed(**overrides):
@@ -108,7 +100,7 @@ def _restart_needed(**overrides):
     expr = next(t for t in tasks if t.get("name") ==
                 "Decide whether a restart is needed")[
         "ansible.builtin.set_fact"]["_restart_needed"]
-    variables = {"_images_updated": False, "_k8s_chart_changed": False,
+    variables = {"_images_updated": False,
                  "_upgrade_rebuild": True,
                  "_upgrade_rebuilt_image_changed": False,
                  "_upgrade_build_failed_services": []}

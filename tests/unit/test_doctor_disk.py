@@ -33,7 +33,7 @@ def test_podman_system_df_is_read_like_dockers():
                  "Containers|0B (0%)\n"
                  "Local Volumes|1.1GB (100%)")
     assert _parse_system_df(podman_df) == ("3.2GB", "0B")
-    assert _reclaimable_line(podman_df, "MISSING") == (
+    assert _reclaimable_line(podman_df) == (
         "  Reclaimable:     3.2GB images, 0B build cache — reclaim images "
         "with 'canasta image prune'")
 

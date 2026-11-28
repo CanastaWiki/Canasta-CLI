@@ -1,7 +1,7 @@
 ---
 # Validate a TRUSTED_PROXIES value at set time, so a typo like 'cloudfalre'
 # fails here rather than in the edge render or Caddy on the next start.
-# Input: _config_value (str), instance_is_k8s (bool)
+# Input: _config_value (str)
 
 - name: Validate TRUSTED_PROXIES value
   ansible.builtin.fail:
@@ -22,15 +22,3 @@
       (_tp_entries | length == 0)
       or (_tp_entries | select('match', '^[0-9A-Fa-f:.]+(/[0-9]+)?$') | list | length)
       != (_tp_entries | length)
-
-# The <cdn>@<CIDRs> form is the HAProxy edge's: it checks the peer before
-# believing the header. Caddy behind the Ingress sees only the Ingress as
-# its peer, so it could not tell the listed proxies from anyone else.
-- name: Refuse the CDN-behind-proxy form on Kubernetes
-  ansible.builtin.fail:
-    msg: >-
-      TRUSTED_PROXIES='{{ _config_value }}' is supported on Docker Compose
-      only. On Kubernetes, use 'cloudflare', 'imperva', or a CIDR list.
-  when:
-    - instance_is_k8s | bool
-    - "'@' in (_config_value | default(''))"

@@ -1,5 +1,5 @@
 ---
-# GitOps push — dispatches to Compose or Kubernetes variant.
+# GitOps push.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
@@ -7,10 +7,10 @@
 - name: Remember or recall the gitops SSH key
   ansible.builtin.include_tasks: _ssh_key.yml
 
-# Nudge inline Settings.php secrets toward `config set --secret` (both
-# orchestrators). Warn-only unless gitops_strict_secrets is set.
+# Nudge inline Settings.php secrets toward `config set --secret`.
+# Warn-only unless gitops_strict_secrets is set.
 - name: Detect inline Settings.php secrets
   ansible.builtin.include_tasks: "_detect_settings_secrets.yml"
 
-- name: Dispatch gitops push
-  ansible.builtin.include_tasks: "push_{{ instance_orchestrator | default('compose') }}.yml"
+- name: Run gitops push
+  ansible.builtin.include_tasks: "push_compose.yml"

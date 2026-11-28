@@ -43,7 +43,7 @@ For wiki-specific settings, add files to:
 
 Per-wiki settings are loaded AFTER global settings and can override them.
 
-## Host-Local Overrides (GitOps, Docker Compose)
+## Host-Local Overrides (GitOps)
 
 On a GitOps-managed instance every file here is shared with the other hosts in
 the repo. For settings that must apply on THIS host only — a staging clone
@@ -60,10 +60,6 @@ Loading is still lexicographic, and the suffix alone does not sort last
 (Extensions.local.php loads BEFORE Extensions.php). To override a setting from
 a shared file, give the local file a name that sorts after it — the zz- prefix
 above is the simplest way.
-
-On Kubernetes this whole directory is delivered to the pods through the shared
-repo, so a *.local.php file there is not host-local — use it on Docker Compose
-instances only.
 
 ## Notes
 

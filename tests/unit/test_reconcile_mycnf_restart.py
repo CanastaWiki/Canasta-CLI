@@ -96,7 +96,7 @@ def _run(tmp_path, mtime, started, cid="abc123", mycnf=True,
         "connection": "local",
         "gather_facts": False,
         "vars": {"instance_path": str(inst), "canasta_root": REPO_ROOT,
-                 "instance_is_k8s": False, "inspect_command": str(docker),
+                 "inspect_command": str(docker),
                  "compose_command": str(compose),
                  "ansible_python_interpreter": sys.executable},
         "tasks": [

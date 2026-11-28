@@ -290,7 +290,6 @@ def _run_enable(tmp_path, update_fails):
     log = tmp_path / "log"
     root = tmp_path / "root"
     stubs = {
-        "orchestrator": {"apply_config.yml": [_log(log, "APPLY")]},
         "extensions_skins": {"_commit_settings.yml": [_log(
             log, "COMMIT {{ _settings_action }} "
                  "{{ _commit_settings_names | default(_names) }} "
@@ -313,7 +312,7 @@ def _run_enable(tmp_path, update_fails):
     play.write_text(yaml.safe_dump([{
         "hosts": "localhost", "connection": "local", "gather_facts": False,
         "vars": {"canasta_root": str(root), "instance_path": str(inst),
-                 "instance_id": "inst", "instance_is_k8s": False,
+                 "instance_id": "inst",
                  "_item_type": "extensions", "_names": "Cite,VEForAll",
                  "ansible_python_interpreter": sys.executable},
         "tasks": tasks[names.index("Enable {{ _item_type }}"):],
@@ -335,8 +334,8 @@ class TestEnableRollback:
     def test_a_failed_update_disables_what_was_enabled(self, tmp_path):
         proc, lines, settings = _run_enable(tmp_path, update_fails=True)
         assert proc.returncode != 0
-        assert lines == ["COMMIT Enable Cite,VEForAll True", "APPLY", "UPDATE",
-                         "COMMIT Disable VEForAll True", "APPLY"]
+        assert lines == ["COMMIT Enable Cite,VEForAll True", "UPDATE",
+                         "COMMIT Disable VEForAll True"]
         # Cite was enabled before this run and stays.
         assert settings == {"extensions": ["Cite"]}
         out = proc.stdout + proc.stderr
@@ -348,5 +347,5 @@ class TestEnableRollback:
     def test_a_successful_update_keeps_it_enabled(self, tmp_path):
         proc, lines, settings = _run_enable(tmp_path, update_fails=False)
         assert proc.returncode == 0, proc.stdout + proc.stderr
-        assert lines == ["COMMIT Enable Cite,VEForAll True", "APPLY", "UPDATE"]
+        assert lines == ["COMMIT Enable Cite,VEForAll True", "UPDATE"]
         assert settings == {"extensions": ["Cite", "VEForAll"]}

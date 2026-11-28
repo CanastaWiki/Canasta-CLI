@@ -6,7 +6,6 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import canasta_config
 
 from . import _helpers
 from ._helpers import register
@@ -74,7 +73,7 @@ def _classify_for_cleanup(inst_id, inst):
 def _annotate_wiki_liveness(details, instances):
     """Record a liveness verdict on each wiki of every RUNNING instance.
 
-    Only RUNNING instances are probed: for anything else the orchestrator
+    Only RUNNING instances are probed: for anything else the container runtime
     has already given a definitive answer, and probing a stopped instance
     just waits out connection timeouts.
     """
@@ -179,26 +178,26 @@ def cmd_list(args):
     return 0
 
 
-def _describe_unread_version(inst_id, inst, path, orchestrator, host):
+def _describe_unread_version(inst, path, host):
     """Why the running version could not be read.
 
-    Asks the orchestrator the same question `canasta list` asks, so the
+    Asks the container runtime the same question `canasta list` asks, so the
     two commands cannot disagree about whether an instance is up. A
     container that is running but did not answer is unavailable, not
     stopped — the version file is written at startup, so a healthy
     instance can still miss the read.
     """
     docker_host = inst.get("dockerHost")
-    if _helpers._check_running(inst_id, path, orchestrator, host, docker_host):
+    if _helpers._check_running_compose(path, host, docker_host):
         return "(unavailable)"
     return "(not running)"
 
 
-def _read_instance_image(inst_id, inst):
+def _read_instance_image(inst):
     """Return 'CANASTA_IMAGE (running: X)' for a single instance entry.
 
     'running' comes from /tmp/canasta-version inside the web container.
-    When that read fails the orchestrator decides which of three answers
+    When that read fails the container runtime decides which of three answers
     to give — the instance is down, it is up but the version could not be
     read, or its host could not be reached — so a failed read is never
     reported as a stopped instance. Never raises.
@@ -209,30 +208,15 @@ def _read_instance_image(inst_id, inst):
     image = env_vars.get("CANASTA_IMAGE", "(unset)")
 
     # Running Canasta version — line 2 of /tmp/canasta-version inside the web
-    # container/pod. The probe depends on the orchestrator: Compose execs the
-    # web service, K8s execs the Running web pod (mirroring `canasta exec`).
+    # container.
     running = None
-    orchestrator = (inst.get("orchestrator") or "compose").lower()
-    if canasta_config.is_k8s_orchestrator(orchestrator):
-        ns = "canasta-%s" % inst_id
-        probe_cmd = (
-            "pod=\"$(kubectl get pods -n %s "
-            "-l app.kubernetes.io/component=web "
-            "--field-selector=status.phase=Running "
-            "-o '%s' 2>/dev/null | %s)\"; "
-            "[ -n \"$pod\" ] && kubectl exec \"$pod\" -n %s -c web -- "
-            "sh -c 'sed -n 2p /tmp/canasta-version' 2>/dev/null"
-            % (_helpers._shell_quote(ns), _helpers.K8S_POD_JSONPATH,
-               _helpers.K8S_POD_PICK_SHELL, _helpers._shell_quote(ns))
-        )
-    else:
-        compose_cmd = _helpers._resolve_compose_cmd(inst)
-        compose_str = " ".join(compose_cmd)
-        probe_cmd = (
-            "cd %s && %s exec -T web sh -c "
-            "\"cat /tmp/canasta-version 2>/dev/null | sed -n '2p'\" 2>/dev/null"
-            % (_helpers._shell_quote(path), compose_str)
-        )
+    compose_cmd = _helpers._resolve_compose_cmd(inst)
+    compose_str = " ".join(compose_cmd)
+    probe_cmd = (
+        "cd %s && %s exec -T web sh -c "
+        "\"cat /tmp/canasta-version 2>/dev/null | sed -n '2p'\" 2>/dev/null"
+        % (_helpers._shell_quote(path), compose_str)
+    )
 
     if _helpers._is_localhost(host):
         try:
@@ -254,7 +238,7 @@ def _read_instance_image(inst_id, inst):
             return image, "(host unreachable)"
 
     if running is None:
-        running = _describe_unread_version(inst_id, inst, path, orchestrator, host)
+        running = _describe_unread_version(inst, path, host)
 
     return image, running
 
@@ -375,7 +359,7 @@ def cmd_version(args):
     if inst_id:
         # Explicit -i: full-fidelity report (image tag + running runtime).
         inst_id, inst = _helpers._resolve_instance(args)
-        image, running = _read_instance_image(inst_id, inst)
+        image, running = _read_instance_image(inst)
         print("Instance '%s': %s (running: %s)"
               % (inst_id, _image_label(image, inst), running))
         return 0
@@ -384,7 +368,7 @@ def cmd_version(args):
     # give the same full-fidelity report as -i.
     iid, inst = _helpers._resolve_instance_by_cwd(args)
     if inst:
-        image, running = _read_instance_image(iid, inst)
+        image, running = _read_instance_image(inst)
         print("Instance '%s': %s (running: %s)"
               % (iid, _image_label(image, inst), running))
         return 0
@@ -418,32 +402,6 @@ def _resolve_status_instance(args):
     (None, None) on no match. See _helpers._resolve_instance_by_cwd.
     """
     return _helpers._resolve_instance_by_cwd(args)
-
-
-def _kubectl_section(host, ns, cmd_args, label):
-    """Run a kubectl get (locally or via SSH) and return formatted output.
-
-    Always runs against namespace `ns`. Returns a (label, body) tuple
-    suitable for printing.
-    """
-    cmd = "kubectl get %s -n %s" % (cmd_args, ns)
-    if _helpers._is_localhost(host):
-        try:
-            r = subprocess.run(
-                cmd.split(), capture_output=True, text=True, timeout=15,
-            )
-            rc, out = r.returncode, r.stdout
-        except (subprocess.TimeoutExpired, OSError):
-            return (label, "(query failed)")
-    else:
-        rc, out = _helpers._ssh_run(host, cmd)
-    if rc != 0:
-        if "not found" in out.lower() or "no resources found" in out.lower():
-            return (label, "(none)")
-        return (label, "(query failed)")
-    if not out.strip():
-        return (label, "(none)")
-    return (label, out.rstrip())
 
 
 def _print_restore_marker(marker):
@@ -500,28 +458,6 @@ def cmd_status(args):
     print("Host:         %s" % host)
     print("Orchestrator: %s" % orchestrator.upper())
 
-    if _helpers._is_k8s(inst):
-        running = _helpers._check_running_k8s(inst_id, host)
-        print("Status:       %s" % ("RUNNING" if running else "STOPPED"))
-        _print_restore_marker(_helpers._read_restore_marker(path, host))
-        _print_unfinished_pull(inst_id, path, host)
-        ns = "canasta-%s" % inst_id
-        sections = [
-            ("Pods", "pods -o wide"),
-            ("Volumes", "pvc"),
-            ("Services", "svc"),
-            ("Ingress", "ingress"),
-            ("Certificate", "certificate"),
-        ]
-        for label, cmd_args in sections:
-            tag, body = _kubectl_section(host, ns, cmd_args, label)
-            print()
-            print("%s:" % tag)
-            for line in body.splitlines():
-                print("  %s" % line)
-        return 0
-
-    # Compose
     compose_cmd = _helpers._resolve_compose_cmd(inst)
     running = _helpers._check_running_compose(
         path, host, compose_cmd=compose_cmd)

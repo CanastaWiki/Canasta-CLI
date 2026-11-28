@@ -1,6 +1,5 @@
 """gitops status, gitops diff commands."""
 
-import json
 import re
 import subprocess
 import sys
@@ -22,9 +21,8 @@ def _git_ssh_env_prefix(ssh_key):
     to the forge, which push (running under gitops_git_env) survives.
 
     Key precedence mirrors the Ansible flows: an explicit --ssh-key, else the
-    key path a gitops command recorded in .gitops-ssh-key, else the
-    instance's staged .gitops-deploy-key (Kubernetes), else ambient ssh (the
-    operator's forwarded agent on Compose). The fallbacks are relative paths,
+    key path a gitops command recorded in .gitops-ssh-key, else ambient ssh
+    (the operator's forwarded agent). The fallbacks are relative paths,
     so callers must have cd'd into the instance path first.
     """
     opts = ("-o StrictHostKeyChecking=accept-new "
@@ -35,14 +33,12 @@ def _git_ssh_env_prefix(ssh_key):
     return (
         'if [ -s .gitops-ssh-key ]; then '
         'export GIT_SSH_COMMAND="ssh -i $(cat .gitops-ssh-key) %(o)s"; '
-        'elif [ -f .gitops-deploy-key ]; then '
-        'export GIT_SSH_COMMAND="ssh -i .gitops-deploy-key %(o)s"; '
         'else export GIT_SSH_COMMAND="ssh %(o)s"; fi; '
         % {"o": opts}
     )
 
 
-def _gitops_status_script(path, ssh_key=None, k8s=False):
+def _gitops_status_script(path, ssh_key=None):
     """Build a batched shell script that gathers all gitops status info."""
     d = _helpers._SENTINEL
     qp = _helpers._shell_quote(path)
@@ -84,16 +80,7 @@ def _gitops_status_script(path, ssh_key=None, k8s=False):
         # dirs whose contents are all ignored and mishandles submodules) so
         # it matches what `git status` shows exactly.
         "git status --porcelain 2>/dev/null"
-        "%(render)s"
-    ) % {"p": qp, "d": d, "ssh": _git_ssh_env_prefix(ssh_key),
-         "render": _k8s_render_inputs_script() if k8s else ""}
-
-
-def _k8s_render_inputs_script():
-    """Status-script section emitting the files a Kubernetes push renders
-    from, plus the values file that holds their last render."""
-    return "; echo '%s'; %s" % (
-        _helpers._SENTINEL, canasta_gitops_pending.k8s_render_inputs_probe())
+    ) % {"p": qp, "d": d, "ssh": _git_ssh_env_prefix(ssh_key)}
 
 
 _URL_LINE_RE = re.compile(r"^[ \t]*url:.*$", re.MULTILINE)
@@ -116,7 +103,7 @@ def _wikis_uncaptured_edit(live_raw, tmpl_raw):
     the template), so the advisory fires only on a genuine uncaptured edit.
     Returns False when either file is absent or unparseable (e.g. a
     non-gitops instance, or one whose wikis.yaml.template has not been
-    created/backfilled yet). Applies to both Compose and K8s gitops.
+    created/backfilled yet).
     """
     if not (live_raw or "").strip() or not (tmpl_raw or "").strip():
         return False
@@ -143,8 +130,7 @@ def _wikis_uncaptured_edit(live_raw, tmpl_raw):
 
 def _parse_working_tree_changes(parts):
     """Extract (staged, unstaged, untracked, wikis_drift) from the shared
-    status-probe output (see _gitops_status_script). Used by both the Compose
-    and K8s formatters so their working-tree advisories can't diverge."""
+    status-probe output (see _gitops_status_script)."""
     staged_raw = parts[4].strip() if len(parts) > 4 else ""
     unstaged_raw = parts[5].strip() if len(parts) > 5 else ""
     # (label, path) pairs from git diff --name-status, so deletions render
@@ -161,33 +147,6 @@ def _parse_working_tree_changes(parts):
     status_raw = parts[9].strip() if len(parts) > 9 else ""
     untracked = [ln[3:] for ln in status_raw.split("\n") if ln.startswith("?? ")]
     return staged, unstaged, untracked, wikis_drift
-
-
-def _env_line_secret_re():
-    """vars/secret_classification.yml's canasta_secret_key_regex, which
-    k8s_sync_config.yml matches against each .env line."""
-    pattern, prefixes, explicit = _helpers._secret_classification()
-    return re.compile(
-        "^([^=]*%s|%s)" % (pattern, "|".join(prefixes + explicit)))
-
-
-def _pending_k8s_render(section, already_listed=()):
-    """Inputs the next Kubernetes 'gitops push' will render and commit."""
-    return canasta_gitops_pending.pending_k8s_render(
-        section, _env_line_secret_re(), already_listed)
-
-
-def _pending_render_lines(pending):
-    """Advisory lines for inputs the next Kubernetes push will render."""
-    if not pending:
-        return []
-    lines = ["Changes the next push will render (%d files):" % len(pending)]
-    lines.extend("  %s" % p for p in pending)
-    lines.append(
-        "  'canasta gitops push' renders them into the deployed values "
-        "and commits the result.")
-    lines.append("")
-    return lines
 
 
 def _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift):
@@ -399,150 +358,6 @@ def _parse_gitops_status(stdout, instance_id):
     return "\n".join(lines)
 
 
-# Argo condition / operation messages that indicate the repo-server CMP could
-# not SOPS-decrypt Secrets (operator age key missing or not matching
-# .sops.yaml). Lowercased substrings; 'age' alone is too broad to match on.
-_SOPS_DECRYPT_MARKERS = (
-    "sops",
-    "no identity matched",
-    "failed to decrypt",
-    "cannot decrypt",
-)
-
-
-def _sops_decrypt_hint(status):
-    """Advisory string when Argo reports a SOPS/age decryption failure, else None.
-
-    Scans the Application's conditions and last operation message for decrypt
-    markers so 'gitops status' can point at the operator age key instead of
-    showing a bare OutOfSync.
-    """
-    conditions = status.get("conditions") or []
-    messages = [c.get("message", "") for c in conditions if isinstance(c, dict)]
-    op = status.get("operationState") or {}
-    messages.append(op.get("message") or "")
-    blob = " ".join(messages).lower()
-    if any(m in blob for m in _SOPS_DECRYPT_MARKERS):
-        return (
-            "Argo CD reported a SOPS/age decryption error. The operator age "
-            "key (the 'sops-age' Secret in the argocd namespace) may be missing "
-            "or may not match this repo's .sops.yaml recipient. Re-provision it "
-            "from the controller key, or re-run 'canasta gitops join --key "
-            "<path>' with the repo's operator key."
-        )
-    return None
-
-
-def _gitops_argocd_status(instance_id, host="localhost"):
-    """Query Argo CD Application for this instance; return parsed status.
-
-    Returns a tuple (sync_status, health, last_sync, revision, sops_hint).
-    sops_hint is a short advisory when Argo reports a SOPS/age decryption
-    failure (missing/mismatched operator key), else None. Falls back to
-    'Not registered' / 'N/A' sentinels when Argo CD isn't installed or no
-    Application exists — matches the Ansible path's behavior for K8s instances
-    without Argo CD.
-
-    For remote hosts, SSH and run kubectl on the host — its kubeconfig
-    points at the cluster it's part of. Running kubectl on the laptop
-    would query whatever the laptop's kubeconfig points at, reporting
-    'Not registered' for instances that are actually Synced.
-    """
-    if _helpers._is_localhost(host):
-        try:
-            result = subprocess.run(
-                ["kubectl", "get", "application", "canasta-%s" % instance_id,
-                 "-n", "argocd", "-o", "json"],
-                capture_output=True, text=True, timeout=10,
-            )
-            rc, stdout = result.returncode, result.stdout
-        except (subprocess.TimeoutExpired, OSError):
-            return ("Not registered", "N/A", "never", "unknown", None)
-    else:
-        rc, stdout = _helpers._ssh_run(
-            host,
-            "kubectl get application canasta-%s -n argocd -o json"
-            % instance_id,
-        )
-    if rc != 0:
-        return ("Not registered", "N/A", "never", "unknown", None)
-    try:
-        app = json.loads(stdout)
-    except ValueError:
-        return ("Unknown", "Unknown", "never", "unknown", None)
-    status = app.get("status") or {}
-    sync = status.get("sync") or {}
-    health = status.get("health") or {}
-    op = status.get("operationState") or {}
-    revision = sync.get("revision") or "unknown"
-    return (
-        sync.get("status") or "Unknown",
-        health.get("status") or "Unknown",
-        op.get("finishedAt") or "never",
-        revision[:7],
-        _sops_decrypt_hint(status),
-    )
-
-
-def _parse_gitops_status_k8s(stdout, instance_id, argocd):
-    """Format K8s gitops status output (gitops status is direct-only)."""
-    parts = stdout.split(_helpers._SENTINEL + "\n")
-    hostname = parts[0].strip() if len(parts) > 0 else "unknown"
-    if hostname == "MISSING":
-        hostname = "unknown"
-    commit = parts[2].strip() if len(parts) > 2 else "none"
-    if commit == "NOCOMMIT":
-        return _unfinished_setup_message(instance_id, "Canasta ID:       ")
-    ahead, behind, remote_state = _parse_remote_sync(
-        parts[6] if len(parts) > 6 else "")
-
-    sync_status, health, last_sync, revision = argocd[:4]
-    sops_hint = argocd[4] if len(argocd) > 4 else None
-
-    # Uncommitted/untracked working-tree changes and uncaptured config/wikis.yaml
-    # edits apply to K8s gitops too (e.g. an upgrade backfilling
-    # wikis.yaml.template), so surface the same advisories as the Compose path.
-    staged, unstaged, untracked, wikis_drift = _parse_working_tree_changes(parts)
-    listed = {p for _, p in staged} | {p for _, p in unstaged} | set(untracked)
-    pending_render = _pending_k8s_render(
-        parts[10] if len(parts) > 10 else "", listed)
-
-    lines = [
-        "Host:             %s" % hostname,
-        "Canasta ID:       %s" % instance_id,
-        "Current commit:   %s" % commit,
-    ]
-    if remote_state == "ok":
-        lines.append("Ahead of remote:  %d" % ahead)
-        lines.append("Behind remote:    %d" % behind)
-    else:
-        reason = ("could not fetch from the remote"
-                  if remote_state == "fetch_failed"
-                  else "no upstream tracking configured")
-        lines.append("Remote status:    unknown (%s)" % reason)
-        if remote_state == "fetch_failed":
-            lines.append(_FETCH_FAILED_HINT)
-    lines.append("")
-    lines.extend(
-        _working_tree_advisory_lines(staged, unstaged, untracked, wikis_drift)
-    )
-    lines.extend(_pending_render_lines(pending_render))
-    lines.extend([
-        "Argo CD:",
-        "  Sync status:    %s" % sync_status,
-        "  Health status:  %s" % health,
-        "  Last sync:      %s" % last_sync,
-        "  Applied rev:    %s" % revision,
-    ])
-    if sync_status == "OutOfSync":
-        lines.append("")
-        lines.append("Note: Run 'canasta gitops sync' to apply pending changes immediately.")
-    if sops_hint:
-        lines.append("")
-        lines.append("Note: " + sops_hint)
-    return "\n".join(lines)
-
-
 def _gitops_gitcrypt_locked(path, host, ssh_key=None):
     """True when the gitops checkout's git-crypt files are still ciphertext.
 
@@ -595,10 +410,8 @@ def cmd_gitops_status(args):
 
     # A locked git-crypt checkout has hosts/hosts.yaml on disk as ciphertext;
     # the status script cats it, and decoding those bytes would crash. Report
-    # the lock clearly instead. (Compose-only: K8s gitops does not git-crypt.)
-    if not _helpers._is_k8s(inst) and _gitops_gitcrypt_locked(
-        path, host, getattr(args, "ssh_key", None)
-    ):
+    # the lock clearly instead.
+    if _gitops_gitcrypt_locked(path, host, getattr(args, "ssh_key", None)):
         _gc_mode = _gitops_gitcrypt_mode(path, host)
         if _gc_mode == "gpg":
             _gc_hint = (
@@ -622,8 +435,7 @@ def cmd_gitops_status(args):
         print(_helpers._unfinished_pull_message(inst_id, path, verb))
         return 1
 
-    script = _gitops_status_script(path, ssh_key=getattr(args, "ssh_key", None),
-                                   k8s=_helpers._is_k8s(inst))
+    script = _gitops_status_script(path, ssh_key=getattr(args, "ssh_key", None))
 
     if _helpers._is_localhost(host):
         try:
@@ -641,11 +453,7 @@ def cmd_gitops_status(args):
             print("Error: failed to connect to %s" % host, file=sys.stderr)
             return 1
 
-    if _helpers._is_k8s(inst):
-        argocd = _gitops_argocd_status(inst_id, host)
-        print(_parse_gitops_status_k8s(stdout, inst_id, argocd))
-    else:
-        print(_parse_gitops_status(stdout, inst_id))
+    print(_parse_gitops_status(stdout, inst_id))
     return 0
 
 
@@ -745,10 +553,7 @@ def _parse_gitops_diff(stdout):
 
 @register("gitops_diff")
 def cmd_gitops_diff(args):
-    inst_id, inst = _helpers._resolve_instance(args)
-    if _helpers._is_k8s(inst):
-        return _helpers.FALLBACK
-
+    _, inst = _helpers._resolve_instance(args)
     host = inst.get("host") or "localhost"
     path = inst.get("path", "")
     script = _gitops_diff_script(

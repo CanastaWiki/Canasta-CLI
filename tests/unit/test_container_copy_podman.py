@@ -73,7 +73,7 @@ class TestCopyTasksHandlePodman:
             assert "_copy_podman_ps.stdout_lines[0]" in facts["_copy_target"], rel
             assert "copy_service" in facts["_copy_target"], rel
 
-            copy = self._task(rel, "container (Compose)")
+            copy = self._task(rel, "Copy file ")
             cmd = copy["ansible.builtin.command"]["cmd"]
             assert cmd.startswith("{{ _copy_cli }} cp "), rel
             assert "_copy_target + ':'" in cmd, rel

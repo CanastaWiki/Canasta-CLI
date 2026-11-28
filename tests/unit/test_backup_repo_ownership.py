@@ -6,10 +6,8 @@ reading the metadata needs sudo. The operator then cannot prune or
 remove their own backups, and a torn-down instance leaves an
 undeletable directory behind.
 
-K8s already reclaims ownership. This holds the Compose path to
-the same contract, and checks it happens in `always` — a repo left
-root-owned after a *failed* run is precisely when someone needs to get
-into it.
+Ownership is reclaimed in `always`: a repo left root-owned after a
+*failed* run is precisely when someone needs to get into it.
 """
 
 import os
@@ -54,9 +52,8 @@ def _reclaim_task():
 class TestComposeReclaimsOwnership:
     def test_a_reclaim_task_exists(self):
         assert _reclaim_task(), (
-            "the Compose backup path never chowns a local-path repo, so it "
-            "stays root-owned and the operator cannot manage their backups "
-            "(K8s fixed this in #1205)"
+            "the backup path never chowns a local-path repo, so it "
+            "stays root-owned and the operator cannot manage their backups"
         )
 
     def test_it_chowns_to_the_parent_directory_owner(self):

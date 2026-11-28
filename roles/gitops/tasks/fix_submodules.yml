@@ -21,10 +21,8 @@
   failed_when: false  # HEAD may legitimately have no .gitmodules
   when: not _fixsub_gitmodules.stat.exists
 
-# Applies to both orchestrators. extensions/ and skins/ are tracked in the
-# gitops repo on Compose and on K8s (where they are also the source of truth
-# for the user-extensions / user-skins PVCs), so loose git checkouts must be
-# promoted to submodules on either.
+# extensions/ and skins/ are tracked in the gitops repo, so loose git
+# checkouts must be promoted to submodules.
 
 # --- Step 1: Convert any loose git repos in extensions/ and skins/ to submodules ---
 # This mirrors the logic gitops init runs, so extensions added after init

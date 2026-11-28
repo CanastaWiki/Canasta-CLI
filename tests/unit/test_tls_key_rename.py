@@ -182,7 +182,7 @@ def test_the_migration_renames_the_keys(tmp_path):
     (inst / ".env").write_text(OLD_ENV + "CADDY_AUTO_HTTPS=on\n")
     proc = _playbook(tmp_path, [{"ansible.builtin.include_tasks": os.path.join(
         ROOT, "roles", "upgrade", "tasks", "migrations", "rename_tls_keys.yml")}],
-        {"instance_path": str(inst), "instance_is_k8s": False})
+        {"instance_path": str(inst)})
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert (inst / ".env").read_text() == (
         "MW_SITE_SERVER=https://example.com\nTLS_MODE=internal\n"

@@ -1,6 +1,6 @@
 ---
 # Import a SQL dump into a wiki database.
-# Input: instance_path, instance_orchestrator, instance_id,
+# Input: instance_path, instance_id,
 #        import_wiki_id, import_database_path
 #
 # The load runs where db_admin.yml says database administration runs (the
@@ -71,8 +71,6 @@
         ansible_remote_tmp: "{{ _import_host_tmp.path }}"
       when: not _import_local
 
-    # The orchestrator owns how a file lands in a container (docker
-    # compose cp vs kubectl cp); dispatch.
     - name: Copy database dump into the database administration container
       ansible.builtin.include_tasks: >-
         {{ canasta_root }}/roles/orchestrator/tasks/copy_into_container.yml

@@ -54,7 +54,7 @@
         extra_dbs_discover: true
         extra_dbs_groups: "{{ _create_wikis.db_groups }}"
 
-    # On Compose, the start that follows gives MediaWiki's database account
+    # The start that follows gives MediaWiki's database account
     # access to the databases wikis.yaml declares.
     - name: Declare the imported extra databases for the wiki
       canasta_wikis_yaml:

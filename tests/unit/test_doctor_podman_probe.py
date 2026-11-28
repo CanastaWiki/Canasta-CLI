@@ -25,10 +25,9 @@ from direct_commands import _helpers  # noqa: E402
 
 D = _helpers._SENTINEL
 
-# Field order in _DOCTOR_SCRIPT; podman is field 22 and podman-compose
-# is field 25 (both appended last).
-_PODMAN_IDX = 22
-_COMPOSE_IDX = 25
+_FIELD_NAMES = [name for name, _ in doctor._PROBE_FIELDS]
+_PODMAN_IDX = _FIELD_NAMES.index("podman_version")
+_COMPOSE_IDX = _FIELD_NAMES.index("podman_compose_version")
 
 
 def _stdout(docker="Docker version 27.0.0", compose="Docker Compose v2.29.0",

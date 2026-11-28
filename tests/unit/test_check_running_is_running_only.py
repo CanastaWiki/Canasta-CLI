@@ -1,12 +1,9 @@
 """`_container_running` must mean running, not merely present.
 
 check_running.yml is shared. Widening its probe to `ps -a` to help the
-start path would change two other callers:
-
-  roles/upgrade/tasks/main.yml       reads it into _was_running, which
-                                     decides whether upgrade restarts the
-                                     instance afterward
-  roles/orchestrator/tasks/delete_cleanup_files.yml
+start path would change its other callers, among them
+roles/upgrade/tasks/main.yml, which reads it into _was_running to decide
+whether upgrade restarts the instance afterward.
 
 With `-a` a stopped container satisfies the non-empty test, so upgrade
 would start an instance that was deliberately down.
@@ -46,7 +43,7 @@ def _compose_probe_cmd():
 class TestTheSharedProbeIsRunningOnly:
     def test_the_probe_does_not_list_all_containers(self):
         assert " ps -a " not in _compose_probe_cmd(), (
-            "check_running.yml is shared with upgrade and delete; listing "
+            "check_running.yml is shared with upgrade; listing "
             "stopped containers makes a deliberately-stopped instance look "
             "running, and upgrade would restart it"
         )
@@ -76,10 +73,4 @@ class TestTheStartFallbacksAgree:
 class TestTheOtherCallersStillExist:
     def test_upgrade_reads_the_shared_probe(self):
         path = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks", "main.yml")
-        assert "check_running.yml" in _text(path)
-
-    def test_delete_reads_the_shared_probe(self):
-        path = os.path.join(
-            REPO_ROOT, "roles", "orchestrator", "tasks",
-            "delete_cleanup_files.yml")
         assert "check_running.yml" in _text(path)

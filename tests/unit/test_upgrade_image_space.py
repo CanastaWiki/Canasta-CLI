@@ -249,9 +249,8 @@ class TestTheUpgradeSkipsTheInstance:
         assert names.index("Check that the image pull fits on the disk") < (
             names.index("Run upgrade role (migrations + refresh + restart)"))
 
-    def test_the_check_is_compose_only_and_skips_measuring_source_builds(self):
+    def test_the_check_skips_measuring_source_builds(self):
         task = self._named("Check that the image pull fits on the disk")
-        assert "instance_is_k8s" in " ".join(task["when"])
         assert "buildFrom" not in " ".join(task["when"])
         assert "buildFrom" in task["vars"]["space_measure_image"]
 

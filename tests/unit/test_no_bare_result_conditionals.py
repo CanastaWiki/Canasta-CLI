@@ -5,9 +5,6 @@ evaluates `changed_when` / `failed_when`. The result dict still carries
 `stdout`, but `"'Untagged' in stdout"` raises "'stdout' is undefined" — and
 a conditional that fails to evaluate fails the task even under
 `failed_when: false`, so the play aborts partway through its work.
-
-`canasta image prune` removed images and then died on exactly this, leaving
-the Kubernetes half of the reclaim unrun.
 """
 
 import os

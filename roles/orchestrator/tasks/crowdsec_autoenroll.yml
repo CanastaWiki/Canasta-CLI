@@ -1,9 +1,6 @@
 ---
 # Register CAPI + auto-enroll the CrowdSec bouncer, when CrowdSec is
-# enabled but no bouncer key is stored yet. Orchestrator-agnostic: the
-# crowdsec role tasks dispatch Compose vs k8s internally via
-# crowdsec_cscli_prefix, so only the K8s local API readiness wait is guarded
-# here.
+# enabled but no bouncer key is stored yet.
 #
 # Shared by the orchestrator start path and the create first-start path so
 # every entry point brings up a fully-enforcing CrowdSec (engine +
@@ -12,15 +9,13 @@
 # bouncer_enroll is idempotent: it re-enrolls when forced, when the engine
 # has no bouncer registered, or when no key is stored, and is a silent
 # no-op otherwise (bouncer_enroll_auto suppresses its interactive hint).
-# It must run unconditionally (not gated on a stored key): on K8s,
-# disabling CrowdSec prunes the engine PVC and wipes the bouncer
-# registration while the key persists in .env, so re-enabling needs a
-# re-enroll even though a key is present. bouncer_enroll stores the new key
-# before its own restart, so the re-entrant start sees the bouncer already
-# registered and no-ops — no recursion.
+# It must run unconditionally (not gated on a stored key): the engine can
+# lose its bouncer registration while the key persists in .env, so a
+# re-enroll can be needed even though a key is present. bouncer_enroll
+# stores the new key before its own restart, so the re-entrant start sees
+# the bouncer already registered and no-ops — no recursion.
 #
-# Inputs: instance_id, instance_path, instance_orchestrator. On K8s the
-# namespace is derived from instance_id.
+# Inputs: instance_id, instance_path
 
 - name: Read CrowdSec enablement and bouncer key for auto-enroll
   canasta_env:
@@ -32,17 +27,6 @@
 - name: Register CAPI and enroll the CrowdSec bouncer when enabled
   when: _autoenroll_env.variables.CANASTA_ENABLE_CROWDSEC | default('false', true) | lower == 'true'
   block:
-    # Wait for the K8s local API pod to be Ready before exec-ing cscli into
-    # it (helm --wait usually covers it, but the first-deploy /
-    # scale-from-stopped paths can outrun it). Compose starts the crowdsec
-    # service synchronously, so no wait needed.
-    - name: Wait for the CrowdSec local API readiness before enroll
-      ansible.builtin.command:
-        cmd: >-
-          kubectl rollout status deployment/canasta-{{ instance_id }}-crowdsec
-          -n canasta-{{ instance_id }} --timeout=300s
-      changed_when: false
-      when: instance_is_k8s | bool
 
     - name: Ensure CrowdSec is registered with the Central API
       ansible.builtin.include_role:
@@ -60,4 +44,3 @@
       ansible.builtin.include_role:
         name: crowdsec
         tasks_from: spoa_enroll.yml
-      when: not (instance_is_k8s | bool)

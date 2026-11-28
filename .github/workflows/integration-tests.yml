@@ -63,17 +63,6 @@ jobs:
           sudo apt-get update && sudo apt-get install -y git-crypt
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
-          .venv/bin/pip install kubernetes
-          # Retry to ride out transient Ansible Galaxy CDN timeouts.
-          for attempt in 1 2 3 4; do
-            .venv/bin/ansible-galaxy collection install kubernetes.core && break
-            if [ "$attempt" -eq 4 ]; then
-              echo "ansible-galaxy install failed after 4 attempts" >&2
-              exit 1
-            fi
-            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
-            sleep $((attempt * 10))
-          done
           git config --global user.name "CI"
           git config --global user.email "ci@canasta.wiki"
       - name: Run core tests (${{ matrix.leg }})
@@ -329,17 +318,6 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
-          .venv/bin/pip install kubernetes
-          # Retry to ride out transient Ansible Galaxy CDN timeouts.
-          for attempt in 1 2 3 4; do
-            .venv/bin/ansible-galaxy collection install kubernetes.core && break
-            if [ "$attempt" -eq 4 ]; then
-              echo "ansible-galaxy install failed after 4 attempts" >&2
-              exit 1
-            fi
-            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
-            sleep $((attempt * 10))
-          done
           git config --global user.name "CI"
           git config --global user.email "ci@canasta.wiki"
 
@@ -435,17 +413,6 @@ jobs:
           sudo apt-get update && sudo apt-get install -y git-crypt
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
-          .venv/bin/pip install kubernetes
-          # Retry to ride out transient Ansible Galaxy CDN timeouts.
-          for attempt in 1 2 3 4; do
-            .venv/bin/ansible-galaxy collection install kubernetes.core && break
-            if [ "$attempt" -eq 4 ]; then
-              echo "ansible-galaxy install failed after 4 attempts" >&2
-              exit 1
-            fi
-            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
-            sleep $((attempt * 10))
-          done
           git config --global user.name "CI"
           git config --global user.email "ci@canasta.wiki"
       - name: Run feature tests (${{ matrix.leg }})
@@ -487,17 +454,6 @@ jobs:
           sudo apt-get update && sudo apt-get install -y git-crypt
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
-          .venv/bin/pip install kubernetes
-          # Retry to ride out transient Ansible Galaxy CDN timeouts.
-          for attempt in 1 2 3 4; do
-            .venv/bin/ansible-galaxy collection install kubernetes.core && break
-            if [ "$attempt" -eq 4 ]; then
-              echo "ansible-galaxy install failed after 4 attempts" >&2
-              exit 1
-            fi
-            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
-            sleep $((attempt * 10))
-          done
           git config --global user.name "CI"
           git config --global user.email "ci@canasta.wiki"
       - name: Run two-image build tests
@@ -532,17 +488,6 @@ jobs:
           sudo usermod -aG www-data "$(whoami)"
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
-          .venv/bin/pip install kubernetes
-          # Retry to ride out transient Ansible Galaxy CDN timeouts.
-          for attempt in 1 2 3 4; do
-            .venv/bin/ansible-galaxy collection install kubernetes.core && break
-            if [ "$attempt" -eq 4 ]; then
-              echo "ansible-galaxy install failed after 4 attempts" >&2
-              exit 1
-            fi
-            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
-            sleep $((attempt * 10))
-          done
           git config --global user.name "CI"
           git config --global user.email "ci@canasta.wiki"
       - name: Run gitops tests (${{ matrix.leg }})
@@ -591,17 +536,6 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/pip install -r requirements.txt
-          .venv/bin/pip install kubernetes
-          # Retry to ride out transient Ansible Galaxy CDN timeouts.
-          for attempt in 1 2 3 4; do
-            .venv/bin/ansible-galaxy collection install kubernetes.core && break
-            if [ "$attempt" -eq 4 ]; then
-              echo "ansible-galaxy install failed after 4 attempts" >&2
-              exit 1
-            fi
-            echo "ansible-galaxy install attempt $attempt failed; retrying in $((attempt * 10))s..." >&2
-            sleep $((attempt * 10))
-          done
 
       - name: Run remote integration tests
         run: tests/integration/remote/run_tests.sh ${{ matrix.part }}

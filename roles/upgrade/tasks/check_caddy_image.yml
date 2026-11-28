@@ -2,14 +2,13 @@
 # Detect that the instance runs an older tag of the managed Caddy plugin
 # image (canasta_caddy_plugin_image), so the upgrade restarts it onto the
 # current one. The image pull only compares the Canasta image, and a restart
-# is what reconciles the Caddy image (sync_compose_profiles.yml on Compose,
-# k8s_reconcile_caddy.yml on Kubernetes), so without this an instance keeps
-# the old Caddy until its next start.
+# is what reconciles the Caddy image (sync_compose_profiles.yml), so without
+# this an instance keeps the old Caddy until its next start.
 #
-# Only a managed tag counts: an operator's own CANASTA_CADDY_IMAGE or
-# caddy.image is left alone, as the reconciles leave it.
-# Input: instance_path, _was_running, _upgrade_caddy_env_before (Compose:
-#   CANASTA_CADDY_IMAGE as read before the stack files were rewritten)
+# Only a managed tag counts: an operator's own CANASTA_CADDY_IMAGE is left
+# alone, as the profile sync leaves it.
+# Input: instance_path, _was_running, _upgrade_caddy_env_before
+#   (CANASTA_CADDY_IMAGE as read before the stack files were rewritten)
 # Output: _upgrade_caddy_image_changed (bool)
 
 - name: Reset the Caddy image change signal for this instance
@@ -18,8 +17,7 @@
     _upgrade_caddy_managed_prefix: >-
       {{ canasta_caddy_plugin_image | regex_replace(':[^:]*$', ':') }}
 
-- name: Check the Caddy image (Compose)
-  when: not (instance_is_k8s | bool)
+- name: Check the Caddy image
   block:
     - name: Read CANASTA_CADDY_IMAGE from .env
       canasta_env:
@@ -57,7 +55,7 @@
       failed_when: false
       when: _was_running | bool
 
-    - name: Note whether the Caddy image changes (Compose)
+    - name: Note whether the Caddy image changes
       ansible.builtin.set_fact:
         _upgrade_caddy_image_changed: >-
           {{ (_upgrade_caddy_env_set is changed)

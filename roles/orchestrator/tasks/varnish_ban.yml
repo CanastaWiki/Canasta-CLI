@@ -3,7 +3,7 @@
 # configuration change stop being served. A ban is lazy: each object is
 # fetched again on its next request, with no restart and no outage.
 #
-# Input: instance_path, instance_id, instance_orchestrator
+# Input: instance_path, instance_id
 
 - name: Read the Varnish flag for the cache ban
   canasta_env:
@@ -11,22 +11,11 @@
     state: read
     key: CANASTA_ENABLE_VARNISH
   register: _ban_varnish_flag
-  when: not (instance_is_k8s | bool)
-
-- name: Read values.yaml for the cache ban
-  ansible.builtin.slurp:
-    src: "{{ instance_path }}/values.yaml"
-  register: _ban_values_raw
-  failed_when: false
-  when: instance_is_k8s | bool
 
 - name: Decide whether Varnish is in use
   ansible.builtin.set_fact:
     _ban_varnish_enabled: >-
-      {{ (_ban_varnish_flag.value | default('true', true) | lower == 'true')
-         if not (instance_is_k8s | bool)
-         else ((_ban_values_raw.content | default('') | b64decode | from_yaml
-                or {}).varnish | default({})).enabled | default(false) | bool }}
+      {{ _ban_varnish_flag.value | default('true', true) | lower == 'true' }}
 
 - name: Ban everything Varnish has cached
   block:

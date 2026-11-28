@@ -3,9 +3,8 @@ container.
 
 The value stays a plain .env setting (an env.template literal on a gitops
 instance, shown by `config get`), and the key is listed in the tracked
-config/env-keys-web. Compose renders that list into
-docker-compose.web-env.yml; Kubernetes adds it to the web pods' env
-ConfigMap. `config unset` takes the key off the list.
+config/env-keys-web, which renders into docker-compose.web-env.yml.
+`config unset` takes the key off the list.
 """
 
 import os
@@ -60,9 +59,8 @@ def _play(tmp_path, inst, tasks, extra=None):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": dict({"instance_path": str(inst), "canasta_root": REPO_ROOT,
-                      "instance_orchestrator": "compose",
-                      "instance_is_k8s": False}, **(extra or {})),
+        "vars": dict({"instance_path": str(inst), "canasta_root": REPO_ROOT},
+                     **(extra or {})),
         "tasks": [
             {"ansible.builtin.include_vars": {"file": CONFIG_DEFAULTS}},
             {"ansible.builtin.include_vars": {"file": CLASSIFICATION}},
@@ -145,12 +143,10 @@ class TestSetChecks:
         assert "abc" not in proc.stdout + proc.stderr
 
     def test_keys_set_with_secret_are_refused(self, tmp_path):
-        for lists in ({"config/secret-keys": "APP_MODE\n"},
-                      {"config/secrets.env": "APP_MODE=hidden-value\n"}):
-            proc = self._check(tmp_path, ["APP_MODE=on"], lists=lists)
-            assert proc.returncode != 0, lists
-            assert "config unset --secret APP_MODE" in proc.stdout + proc.stderr
-            assert "hidden-value" not in proc.stdout + proc.stderr
+        proc = self._check(tmp_path, ["APP_MODE=on"],
+                           lists={"config/secret-keys": "APP_MODE\n"})
+        assert proc.returncode != 0
+        assert "config unset --secret APP_MODE" in proc.stdout + proc.stderr
 
     def test_invalid_names_are_refused(self, tmp_path):
         proc = self._check(tmp_path, ["bad-name=1"])

@@ -133,27 +133,6 @@ class TestRenderedReportText:
             "(kept built images: an instance compose project could not be "
             "read); no dangling layers")
 
-    def test_containerd_report_reads_as_one_sentence(self):
-        msg = _debug_messages()["Report containerd reclaim"]
-        out = _render(
-            msg,
-            _reclaim_crictl_removed={"results": [
-                {"rc": 0}, {"rc": 0}, {"rc": 1},
-            ]},
-        )
-        assert out == "containerd: 2 image(s) removed."
-
-    def test_containerd_failure_report_reads_as_one_sentence(self):
-        msg = _debug_messages()["Report a containerd reclaim that could not run"]
-        out = _render(
-            msg,
-            _reclaim_crictl_candidates={
-                "rc": 1, "stderr_lines": ["connection refused"]},
-        )
-        assert out == (
-            "containerd reclaim failed (rc=1); no images were removed. "
-            "connection refused")
-
 
 class TestBuildCache:
     def test_it_is_reported_with_its_prune_command(self):

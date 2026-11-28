@@ -5,9 +5,6 @@
 # the override that declares `build:` but not the Dockerfile/context it points
 # at, and a restore onto a fresh host fails to start.
 #
-# Compose-only: K8s custom images are pushed to the in-cluster registry rather
-# than built from a local context, so there is nothing on disk to capture.
-#
 # Output: _build_staging_map - dict of {host_path: '/currentsnapshot/<rel>'},
 #         ready to combine into a backup volume map. Empty when the instance
 #         has no buildable services.
@@ -35,8 +32,7 @@
     _build_staging_map: {}
     _build_staging_paths: []
 
-- name: Discover custom build inputs (Compose)
-  when: not (instance_is_k8s | bool)
+- name: Discover custom build inputs
   block:
     # `docker compose config` reports build.context as a physical path (symlinks
     # resolved). Resolve the instance dir the same way so the two are comparable

@@ -167,8 +167,7 @@ def _doctor(selfupdate):
     parts = [
         "Python 3.12.0", "Docker version 27.0.0",
         "Docker Compose version v2.30.0", "OK",
-        "user docker www-data canasta", "OK", "v3.15.0", "k3s version v1.30.0",
-        "REACHABLE", "INSTALLED", "git version 2.45.0", "OK", "OK",
+        "user docker www-data canasta", "git version 2.45.0", "OK", "OK",
         "Linux", "16 GB", "50G", "1024", "", "OK", selfupdate,
     ]
     d = _helpers._SENTINEL

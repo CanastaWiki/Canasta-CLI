@@ -21,10 +21,6 @@ try:
 except ImportError:  # unit tests add module_utils to sys.path directly
     from canasta_validate import RESERVED_SIDECAR_NAMES
 
-# A named Compose volume carries no size; the agnostic persistent volume needs
-# one for the k8s PVC, so migration assumes this and reports it.
-DEFAULT_VOLUME_SIZE = "1Gi"
-
 # Service keys the translation understands. Anything else makes the service
 # unmodellable (left in the override), except the benign keys below.
 _HANDLED = {
@@ -71,7 +67,7 @@ def _ports_to_list(svc, reasons):
     return out
 
 
-def _volumes(svc, reasons, assumptions, name):
+def _volumes(svc, reasons):
     out = []
     files = []
     for entry in svc.get("volumes", []) or []:
@@ -97,12 +93,9 @@ def _volumes(svc, reasons, assumptions, name):
                 continue
             files.append({"source": rel, "mountPath": mount,
                           "readOnly": "ro" in mode})
-        else:  # named volume -> persistent (size assumed)
+        else:  # named volume -> persistent
             out.append({"name": source, "mountPath": mount,
-                        "persistent": True, "size": DEFAULT_VOLUME_SIZE})
-            assumptions.append(
-                "%s: assumed size %s for volume '%s'"
-                % (name, DEFAULT_VOLUME_SIZE, source))
+                        "persistent": True})
     return out, files
 
 
@@ -139,10 +132,9 @@ def _build(svc, reasons):
 def translate_service(name, svc):
     """Translate one Compose service into a sidecar dict.
 
-    Returns (sidecar | None, reasons, assumptions). sidecar is None when the
+    Returns (sidecar | None, reasons). sidecar is None when the
     service can't be fully modelled (reasons explains why)."""
     reasons = []
-    assumptions = []
     svc = svc or {}
 
     for key in svc:
@@ -171,7 +163,7 @@ def translate_service(name, svc):
     ports = _ports_to_list(svc, reasons)
     if ports:
         sidecar["ports"] = ports
-    volumes, files = _volumes(svc, reasons, assumptions, name)
+    volumes, files = _volumes(svc, reasons)
     if volumes:
         sidecar["volumes"] = volumes
     if files:
@@ -194,8 +186,8 @@ def translate_service(name, svc):
         sidecar["resources"] = resources
 
     if reasons:
-        return None, reasons, assumptions
-    return sidecar, reasons, assumptions
+        return None, reasons
+    return sidecar, reasons
 
 
 def plan_migration(override, existing_names=None):
@@ -204,7 +196,7 @@ def plan_migration(override, existing_names=None):
     `existing_names` are sidecars already in config/sidecars.yaml; a service
     that collides with one is skipped (left in the override) rather than
     silently overwriting. Returns a dict: sidecars (migratable list), migrated
-    (names), skipped ([{name, reasons}]), assumptions ([str]), and
+    (names), skipped ([{name, reasons}]), and
     remaining_override (the override with migrated services — and their
     now-unreferenced top-level volumes — removed)."""
     existing_names = set(existing_names or [])
@@ -212,7 +204,6 @@ def plan_migration(override, existing_names=None):
     sidecars = []
     migrated = []
     skipped = []
-    assumptions = []
     for name, svc in services.items():
         if name in RESERVED_SIDECAR_NAMES:
             continue  # a core-stack override, not a sidecar
@@ -220,13 +211,12 @@ def plan_migration(override, existing_names=None):
             skipped.append({"name": name,
                             "reasons": ["already declared in config/sidecars.yaml"]})
             continue
-        sidecar, reasons, notes = translate_service(name, svc)
+        sidecar, reasons = translate_service(name, svc)
         if sidecar is None:
             skipped.append({"name": name, "reasons": reasons})
         else:
             sidecars.append(sidecar)
             migrated.append(name)
-            assumptions.extend(notes)
 
     remaining = dict(override or {})
     if migrated:
@@ -254,6 +244,5 @@ def plan_migration(override, existing_names=None):
         "sidecars": sidecars,
         "migrated": migrated,
         "skipped": skipped,
-        "assumptions": assumptions,
         "remaining_override": remaining,
     }

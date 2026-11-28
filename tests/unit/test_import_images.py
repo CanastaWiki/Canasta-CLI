@@ -2,9 +2,9 @@
 
 `--images` extracts a wiki's hashed-directory image tree into its per-wiki
 uploads dir (images/<wiki-id>/) as www-data. The File: page rows come from
-`--database`; this only places the files (not importImages). One code path
-serves both orchestrators via the web service (bind mount on Compose, PVC on
-k8s). These tests lock the wiring; runtime behavior is covered by the e2e.
+`--database`; this only places the files (not importImages), through the web
+service's images bind mount. These tests lock the wiring; runtime behavior is
+covered by the e2e.
 """
 
 import os

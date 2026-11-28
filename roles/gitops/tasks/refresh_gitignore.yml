@@ -1,15 +1,14 @@
 ---
 # Ensure the instance .gitignore carries the current shipped ignore rules
-# (roles/gitops/files/gitignore.default, plus gitignore.compose or
-# gitignore.kubernetes for the orchestrator). New rules added in later
-# releases are appended; user-added lines and existing ordering are
-# preserved (idempotent). Only the rule lines are reconciled — comments
+# (roles/gitops/files/gitignore.default plus gitignore.compose). New rules
+# added in later releases are appended; user-added lines and existing
+# ordering are preserved (idempotent). Only the rule lines are reconciled — comments
 # and blank lines in gitignore.default are layout, not rules.
 #
 # Gitops-only: .gitignore is written by 'gitops init', so this no-ops when
 # the gitops marker or the .gitignore is absent.
 #
-# Input: instance_path, canasta_root, instance_orchestrator.
+# Input: instance_path, canasta_root.
 
 - name: Stat gitops marker and .gitignore
   ansible.builtin.stat:
@@ -18,10 +17,6 @@
     - .gitops-host
     - .gitignore
   register: _gi_stats
-
-- name: Note whether this is a Compose instance
-  ansible.builtin.set_fact:
-    _gi_compose: "{{ not (instance_is_k8s | bool) }}"
 
 - name: Refresh managed ignore rules
   when:
@@ -35,26 +30,24 @@
     - name: Read the shipped ignore files
       ansible.builtin.set_fact:
         _gi_default_lines: "{{ lookup('file', canasta_root ~ '/roles/gitops/files/gitignore.default').splitlines() }}"
-        _gi_orch_lines: >-
-          {{ lookup('file', canasta_root ~ '/roles/gitops/files/gitignore.'
-                    ~ ('compose' if _gi_compose | bool else 'kubernetes')).splitlines() }}
+        _gi_compose_lines: "{{ lookup('file', canasta_root ~ '/roles/gitops/files/gitignore.compose').splitlines() }}"
 
     - name: Read the shipped ignore rules
       ansible.builtin.set_fact:
         _gi_shipped_rules: >-
-          {{ (_gi_default_lines + _gi_orch_lines)
+          {{ (_gi_default_lines + _gi_compose_lines)
              | map('trim')
              | reject('match', '^#')
              | reject('equalto', '')
              | list }}
 
     # Earlier upgrades appended the last default rule and the first line of
-    # the orchestrator file as one line joined by a literal backslash-n.
+    # gitignore.compose as one line joined by a literal backslash-n.
     - name: Remove the merged rule line earlier upgrades appended
       ansible.builtin.lineinfile:
         path: "{{ instance_path }}/.gitignore"
         regexp: >-
-          ^{{ _gi_default_lines[-1] | trim | regex_escape }}\\n({{ _gi_orch_lines[0] | default('') | trim | regex_escape }})?$
+          ^{{ _gi_default_lines[-1] | trim | regex_escape }}\\n({{ _gi_compose_lines[0] | default('') | trim | regex_escape }})?$
         state: absent
 
     - name: Ensure each shipped ignore rule is present
@@ -72,23 +65,6 @@
         regexp: "^images/$"
         state: absent
 
-    # Remove obsolete K8s ignore lines that wrongly excluded source-of-truth
-    # dirs from the gitops repo (extensions/, skins/, public_assets/ feed the
-    # PVCs; the unanchored `wikis/` also matched config/settings/wikis/). Older
-    # K8s repos carry these; drop them so the next `gitops push` tracks the
-    # files. No-op on Compose, which never wrote them. The base default still
-    # ignores public_assets/*/sitemap/, so generated sitemaps stay excluded.
-    - name: Remove obsolete K8s source-dir ignore lines
-      ansible.builtin.lineinfile:
-        path: "{{ instance_path }}/.gitignore"
-        regexp: "^{{ item }}/$"
-        state: absent
-      loop:
-        - extensions
-        - skins
-        - public_assets
-        - wikis
-
     # A file that is tracked stays tracked after it is ignored. Untrack the
     # files each host renders for itself; --cached keeps this host's copies.
     # Staged with the new rules so one push publishes both.
@@ -98,11 +74,9 @@
         chdir: "{{ instance_path }}"
       register: _gi_renders_tracked
       changed_when: false
-      when: _gi_compose | bool
 
     - name: Untrack per-host renders
       when:
-        - _gi_compose | bool
         - (_gi_renders_tracked.stdout_lines | default([])) | length > 0
       block:
         - name: Remove per-host renders from the index
@@ -126,37 +100,3 @@
               {{ 'is' if _gi_renders_tracked.stdout_lines | length == 1 else 'are' }}
               rendered on each host and no longer tracked. The change is
               staged; publish it with 'canasta gitops push'.
-
-    # Repos initialized while init staged everything also track the direct
-    # deploy's chart copy, so every release's chart change left them dirty.
-    - name: Check whether the direct deploy's chart copy is tracked
-      ansible.builtin.command:
-        cmd: "git ls-files -- _chart"
-        chdir: "{{ instance_path }}"
-      register: _gi_chart_tracked
-      changed_when: false
-      when: not _gi_compose | bool
-
-    - name: Untrack the direct deploy's chart copy
-      when:
-        - not _gi_compose | bool
-        - (_gi_chart_tracked.stdout | default('')) | length > 0
-      block:
-        - name: Remove the chart copy from the index
-          ansible.builtin.command:
-            cmd: "git rm -r --cached -q -- _chart"
-            chdir: "{{ instance_path }}"
-          changed_when: true
-
-        - name: Stage the updated .gitignore
-          ansible.builtin.command:
-            cmd: "git add -- .gitignore"
-            chdir: "{{ instance_path }}"
-          changed_when: true
-
-        - name: Report the chart copy untrack
-          ansible.builtin.debug:
-            msg: >-
-              _chart/ is regenerated by every deploy and is no longer
-              tracked. The change is staged; publish it with
-              'canasta gitops push'.

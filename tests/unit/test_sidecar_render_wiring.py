@@ -1,8 +1,8 @@
 """Structural guards for wiring the sidecar render into start/stop/delete.
 
 These lock in the integration points that the renderer depends on but that a
-unit test of the render logic can't see: start renders the sidecars for
-Compose, the generated Compose layer is added as an `-f` (before the user
+unit test of the render logic can't see: start renders the sidecars, the
+generated Compose layer is added as an `-f` (before the user
 override), and stop and delete load it too.
 """
 
@@ -21,10 +21,8 @@ def _text(path):
         return handle.read()
 
 
-def test_start_renders_sidecars_for_compose():
-    body = _text(START)
-    assert "canasta_render_sidecars" in body
-    assert "orchestrator: compose" in body
+def test_start_renders_sidecars():
+    assert "canasta_render_sidecars:" in _text(START)
 
 
 def test_compose_layer_added_before_user_override():

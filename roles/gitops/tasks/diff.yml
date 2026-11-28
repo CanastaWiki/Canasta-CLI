@@ -1,6 +1,6 @@
 ---
-# GitOps diff for Kubernetes. The Compose diff runs in direct_commands
-# and never reaches Ansible.
+# The gitops diff runs in direct_commands and never reaches Ansible; this
+# playbook path is reached only under CANASTA_FORCE_ANSIBLE.
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
@@ -8,9 +8,8 @@
 - name: Remember or recall the gitops SSH key
   ansible.builtin.include_tasks: _ssh_key.yml
 
-- name: Require a Kubernetes instance
+- name: Refuse to run gitops diff under Ansible
   ansible.builtin.fail:
     msg: >-
-      gitops diff for Compose instances does not run under
+      gitops diff does not run under
       CANASTA_FORCE_ANSIBLE; unset it and run the command again.
-  when: not (instance_is_k8s | bool)

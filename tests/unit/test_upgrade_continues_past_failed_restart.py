@@ -2,8 +2,8 @@
 
 The restart and the steps after it are taken from the real
 roles/upgrade/tasks/main.yml and run for two instances on localhost, with
-the orchestrator's stop/start (and kubectl, for the gitops rollout restart)
-stubbed so the first instance's restart fails. The second instance must
+the orchestrator's stop/start stubbed so the first instance's restart
+fails. The second instance must
 still be restarted, the first must be left out of the post-restart steps,
 and the real summary tasks from playbooks/upgrade.yml must name the failure
 and fail the play.
@@ -28,15 +28,6 @@ HEALTH_FAILURE = (
     "The image's healthcheck probes /server-status.\n"
     "--- web logs (last 60) ---\n"
     "PHP Fatal error: something broke\n")
-
-KUBECTL = """#!/bin/sh
-case "$*" in
-  *"rollout status deployment/canasta-first-web"*)
-    echo 'error: deployment "canasta-first-web" exceeded its progress deadline' >&2
-    exit 1 ;;
-esac
-echo "kubectl $*" >> "$MARKS/kubectl"
-"""
 
 
 def _load(path):
@@ -86,15 +77,9 @@ def _harness(tmp_path):
     if os.path.exists(RECORD):
         shutil.copy(RECORD, upgrade / "record_restart_failure.yml")
 
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    kubectl = bin_dir / "kubectl"
-    kubectl.write_text(KUBECTL)
-    kubectl.chmod(0o755)
-
     marks = tmp_path / "marks"
     marks.mkdir()
-    return root, upgrade, bin_dir, marks
+    return root, upgrade, marks
 
 
 def _summary_tasks():
@@ -104,8 +89,8 @@ def _summary_tasks():
     return [t for t in block if t.get("name") in wanted]
 
 
-def _run(tmp_path, stage_only):
-    root, upgrade, bin_dir, marks = _harness(tmp_path)
+def _run(tmp_path):
+    root, upgrade, marks = _harness(tmp_path)
     inst = tmp_path / "inst"
     inst.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=inst, check=True)
@@ -118,7 +103,6 @@ def _run(tmp_path, stage_only):
             "ansible_python_interpreter": sys.executable,
             "canasta_root": str(root),
             "instance_path": str(inst),
-            "instance_is_k8s": stage_only,
             "_upgrade_instances": {"instances": {"first": {}, "second": {}}},
         },
         "tasks": [
@@ -128,9 +112,8 @@ def _run(tmp_path, stage_only):
              "loop_control": {"loop_var": "instance_id"},
              "vars": {
                  "_images_updated": True,
-                 "_upgrade_rebuilt_image_changed": stage_only,
+                 "_upgrade_rebuilt_image_changed": False,
                  "_was_running": True,
-                 "_upgrade_stage_only": stage_only,
                  "_upgrade_build_failed_services": [],
              }},
             *_summary_tasks(),
@@ -139,8 +122,10 @@ def _run(tmp_path, stage_only):
     env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
                ANSIBLE_ROLES_PATH=str(root / "roles"),
                ANSIBLE_FILTER_PLUGINS=os.path.join(REPO_ROOT, "filter_plugins"),
-               MARKS=str(marks),
-               PATH=str(bin_dir) + os.pathsep + os.environ.get("PATH", ""))
+               ANSIBLE_LIBRARY=os.path.join(REPO_ROOT, "roles", "common", "library"),
+               ANSIBLE_MODULE_UTILS=os.path.join(
+                   REPO_ROOT, "roles", "common", "module_utils"),
+               MARKS=str(marks))
     playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
     proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
                           capture_output=True, text=True, env=env,
@@ -153,21 +138,21 @@ def _marked(marks, name):
     return path.read_text().split() if path.exists() else []
 
 
-class TestComposeRestartFailure:
+class TestRestartFailure:
     def test_the_next_instance_still_upgrades(self, tmp_path):
-        proc, marks = _run(tmp_path, stage_only=False)
+        proc, marks = _run(tmp_path)
         out = proc.stdout + proc.stderr
         assert _marked(marks, "started") == ["second"], out
         assert _marked(marks, "stopped") == ["first", "second"], out
 
     def test_the_failed_instance_skips_the_post_restart_steps(self, tmp_path):
-        proc, marks = _run(tmp_path, stage_only=False)
+        proc, marks = _run(tmp_path)
         out = proc.stdout + proc.stderr
         assert _marked(marks, "db_account") == ["second"], out
         assert _marked(marks, "tidy") == ["second"], out
 
     def test_the_summary_names_the_failure_and_the_play_fails(self, tmp_path):
-        proc, _ = _run(tmp_path, stage_only=False)
+        proc, _ = _run(tmp_path)
         out = proc.stdout + proc.stderr
         assert proc.returncode != 0, out
         assert "Upgraded 1 instance(s)." in out, out
@@ -179,6 +164,6 @@ class TestComposeRestartFailure:
             "failed to upgrade", 1)[1], out
 
     def test_success_is_not_claimed_for_the_failed_instance(self, tmp_path):
-        proc, _ = _run(tmp_path, stage_only=False)
+        proc, _ = _run(tmp_path)
         out = proc.stdout + proc.stderr
         assert out.count("Canasta upgraded successfully!") == 1, out
