@@ -22,7 +22,6 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
 
-import direct_commands
 import direct_commands._helpers
 import direct_commands.info
 
@@ -63,7 +62,7 @@ class TestTheRemoteCommandIsAString:
         sent = []
         _stub_common(monkeypatch, REMOTE, sent)
 
-        direct_commands.cmd_status(type("Args", (), {"id": "wiki"})())
+        direct_commands.info.cmd_status(type("Args", (), {"id": "wiki"})())
         capsys.readouterr()
 
         assert sent, "no remote command was sent"
@@ -79,7 +78,7 @@ class TestTheRemoteCommandIsAString:
         sent = []
         _stub_common(monkeypatch, REMOTE, sent)
 
-        direct_commands.cmd_status(type("Args", (), {"id": "wiki"})())
+        direct_commands.info.cmd_status(type("Args", (), {"id": "wiki"})())
         capsys.readouterr()
 
         assert "podman-compose ps" in _ps_call(sent)
@@ -88,7 +87,7 @@ class TestTheRemoteCommandIsAString:
         sent = []
         _stub_common(monkeypatch, REMOTE, sent)
 
-        direct_commands.cmd_status(type("Args", (), {"id": "wiki"})())
+        direct_commands.info.cmd_status(type("Args", (), {"id": "wiki"})())
         capsys.readouterr()
 
         cmd = _ps_call(sent)
@@ -104,7 +103,7 @@ class TestTheRemoteCommandIsAString:
         sent = []
         _stub_common(monkeypatch, inst, sent)
 
-        direct_commands.cmd_status(type("Args", (), {"id": "wiki"})())
+        direct_commands.info.cmd_status(type("Args", (), {"id": "wiki"})())
         capsys.readouterr()
 
         assert "docker compose ps" in _ps_call(sent)
@@ -129,7 +128,7 @@ class TestTheLocalPathStillPassesAList:
                             "_check_running_compose", lambda *a, **kw: True)
         monkeypatch.setattr(direct_commands.info.subprocess, "run", fake_run)
 
-        direct_commands.cmd_status(type("Args", (), {"id": "wiki"})())
+        direct_commands.info.cmd_status(type("Args", (), {"id": "wiki"})())
         capsys.readouterr()
 
         assert isinstance(captured["cmd"], list)

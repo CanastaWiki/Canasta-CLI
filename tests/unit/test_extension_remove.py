@@ -111,12 +111,10 @@ class TestComposerBackout:
             "removed items' composer.json entries must be unregistered from "
             "config/composer.local.json")
 
-    def test_runs_composer_update_no_dev(self):
-        exec_cmds = [(t.get("vars") or {}).get("exec_command", "")
-                     for t in _walk(_load(REMOVE))
-                     if (t.get("vars") or {}).get("exec_command")]
-        assert any("composer update --no-dev" in c for c in exec_cmds), (
-            "vendor must be refreshed after unregistering requirements")
+    def test_refreshes_vendor_after_unregistering(self):
+        includes = [t.get("ansible.builtin.include_tasks", "")
+                    for t in _walk(_load(REMOVE))]
+        assert any(i.endswith("/_composer_update.yml") for i in includes)
 
 
 class TestGitopsCommit:

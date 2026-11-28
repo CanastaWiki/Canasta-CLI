@@ -299,7 +299,7 @@ def _patch_rebuild(monkeypatch, path, calls):
 def test_rebuild_refuses_a_pre_edge_instance_before_building(tmp_path, monkeypatch, capsys):
     calls = []
     _patch_rebuild(monkeypatch, _instance(tmp_path), calls)
-    assert direct_commands.cmd_rebuild(_args()) == 1
+    assert direct_commands.rebuild.cmd_rebuild(_args()) == 1
     assert calls == []
     assert capsys.readouterr().err.strip() == "Error: " + REFUSAL
 
@@ -307,7 +307,7 @@ def test_rebuild_refuses_a_pre_edge_instance_before_building(tmp_path, monkeypat
 def test_rebuild_without_a_restart_still_builds_a_pre_edge_instance(tmp_path, monkeypatch):
     calls = []
     _patch_rebuild(monkeypatch, _instance(tmp_path), calls)
-    assert direct_commands.cmd_rebuild(_args(no_restart=True)) == 0
+    assert direct_commands.rebuild.cmd_rebuild(_args(no_restart=True)) == 0
     assert calls == [["build", "web"]]
 
 

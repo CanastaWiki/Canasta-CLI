@@ -274,33 +274,7 @@
   when:
     - _composer_paths | length > 0
     - _container_running | bool
-  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/exec.yml"
-  vars:
-    exec_service: web
-    # An image with /update-composer-deps.sh keeps the bundled include list
-    # itself and treats config/composer.local.json as the operator's additions
-    # only; the script merges the two and records a failure in
-    # composer-update.failed.
-    exec_command: >-
-      if [ -x /update-composer-deps.sh ]; then
-      /update-composer-deps.sh; rc=$?;
-      if [ -f /mediawiki/config/persistent/composer-update.failed ]; then
-      echo "composer-update.failed: $(head -n 1 /mediawiki/config/persistent/composer-update.failed)" >&2;
-      [ $rc -ne 0 ] || rc=1;
-      fi;
-      exit $rc;
-      else
-      if [ -f /mediawiki/config/composer.local.json ]; then
-      cp /mediawiki/config/composer.local.json /var/www/mediawiki/w/composer.local.json; fi;
-      cd /var/www/mediawiki/w &&
-      composer update --no-dev --no-interaction;
-      fi
-    exec_long: true
-    # Best-effort: a composer dependency conflict must not abort the whole
-    # command. rx_fail only applies while exec_long is true (the command then
-    # runs through resilient_exec.yml, which honors it and still records
-    # exec_result so the caller can revert + warn).
-    rx_fail: false
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/extensions_skins/tasks/_composer_update.yml"
 
 - name: "Warn if composer refresh failed after removal"
   when:

@@ -25,7 +25,7 @@ def docker_mode(monkeypatch, tmp_path):
         d.mkdir()
     monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setattr(canasta, "get_config_dir", lambda: str(conf))
+    monkeypatch.setenv("CANASTA_CONFIG_DIR", str(conf))
     monkeypatch.chdir(work)
     return {"home": home, "conf": conf, "work": work, "tmp": tmp_path}
 

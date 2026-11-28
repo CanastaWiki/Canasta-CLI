@@ -20,15 +20,11 @@ Layout:
   image.py          — image build-args
   wiki_check.py     — wiki-check
 
-Test code that does `monkeypatch.setattr(direct_commands, "_ssh_run", …)`
-should patch `direct_commands._helpers._ssh_run` instead — the helper
-modules look up shared helpers through the `_helpers` module so a patch
-on the package alone wouldn't propagate.
+Handler modules look up shared helpers through the `_helpers` module, so
+a test patches a helper there (`direct_commands._helpers._ssh_run`).
 """
 
-# Public API + helper-module symbols. canasta.py uses the public API;
-# test code reaches into direct_commands for private symbols (e.g.
-# _ssh_run, _read_env_file, _resolve_instance).
+# The API canasta.py uses.
 from ._helpers import (  # noqa: F401
     DIRECT_COMMANDS,
     FALLBACK,
@@ -37,37 +33,9 @@ from ._helpers import (  # noqa: F401
     register,
     run_direct_command,
 )
-from ._helpers import *  # noqa: F403
 
-# Underscore-prefixed names aren't pulled by `*`. Import the ones test
-# code references as `direct_commands._foo`.
-from ._helpers import (  # noqa: F401
-    _SENTINEL,
-    _MAINT_PATH_RE,
-    _check_running_compose,
-    _compose_file_args,
-    _exec_in_container,
-    _filter_by_host,
-    _gather_instance_info,
-    _host_matches,
-    _lint_env_content,
-    _make_detail,
-    _parse_env_entries,
-    _print_table,
-    _read_env_file,
-    _read_registry,
-    _read_wikis,
-    _resolve_instance,
-    _script_arg_tokens,
-    _shell_quote,
-    _ssh_run,
-    _sync_compose_profiles,
-    _write_env_content,
-    _write_registry,
-)
-
-# Side-effect imports — each handler module registers its commands at
-# import time via the @register decorator from _helpers.
+# Each handler module registers its commands at import time via the
+# @register decorator from _helpers.
 from . import info        # noqa: F401
 from . import config      # noqa: F401
 from . import lifecycle   # noqa: F401
@@ -80,36 +48,3 @@ from . import doctor      # noqa: F401
 from . import rebuild     # noqa: F401
 from . import image       # noqa: F401
 from . import wiki_check  # noqa: F401
-
-# Per-handler symbols re-exported so test code can reach
-# direct_commands.cmd_list, direct_commands.cmd_doctor, etc.
-from .info import (  # noqa: F401
-    cmd_list,
-    cmd_version,
-    cmd_status,
-    _gather_all_instances,
-)
-from .config import cmd_config_get  # noqa: F401
-from .lifecycle import cmd_stop  # noqa: F401
-from .maintenance import (  # noqa: F401
-    cmd_maintenance_script,
-    cmd_maintenance_extension,
-    cmd_maintenance_update,
-)
-from .host import cmd_host_list, cmd_host_add, cmd_host_remove  # noqa: F401
-from .gitops import (  # noqa: F401
-    cmd_gitops_status,
-    cmd_gitops_diff,
-    _git_ssh_env_prefix,
-    _gitops_diff_script,
-    _gitops_status_script,
-    _parse_gitops_diff,
-    _parse_gitops_status,
-    _parse_remote_sync,
-)
-from .extension_skin import cmd_extension_list, cmd_skin_list  # noqa: F401
-from .backup import cmd_backup_list  # noqa: F401
-from .doctor import cmd_doctor, _parse_doctor  # noqa: F401
-from .rebuild import cmd_rebuild, _list_buildable_services  # noqa: F401
-from .image import cmd_image_build_args  # noqa: F401
-from .wiki_check import cmd_wiki_check  # noqa: F401

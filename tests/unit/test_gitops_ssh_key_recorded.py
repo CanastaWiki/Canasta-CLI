@@ -82,7 +82,7 @@ class TestEveryRemoteFlowUsesIt:
 
 
 def _git_ssh_command(cwd, ssh_key=None):
-    script = direct_commands._git_ssh_env_prefix(ssh_key) + \
+    script = direct_commands.gitops._git_ssh_env_prefix(ssh_key) + \
         'printf %s "$GIT_SSH_COMMAND"'
     return subprocess.run(["sh", "-c", script], cwd=cwd, capture_output=True,
                           text=True, check=True).stdout
