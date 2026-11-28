@@ -8,8 +8,8 @@ import types
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from direct_commands import _helpers, gitops, maintenance, rebuild  # noqa: E402
-from direct_commands import wiki_check  # noqa: E402
+from direct_commands import _helpers, gitops, maintenance, rebuild
+from direct_commands import wiki_check
 
 
 @pytest.fixture(autouse=True)

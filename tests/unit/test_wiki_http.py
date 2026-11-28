@@ -19,9 +19,9 @@ SCRIPTS_DIR = os.path.abspath(
 )
 sys.path.insert(0, SCRIPTS_DIR)
 
-import wiki_http  # noqa: E402
-import wiki_publish  # noqa: E402
-import validate_wiki_examples  # noqa: E402
+import wiki_http
+import wiki_publish
+import validate_wiki_examples
 
 
 class _Response:

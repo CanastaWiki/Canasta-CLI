@@ -18,7 +18,7 @@ SCRIPTS_DIR = os.path.abspath(
 )
 sys.path.insert(0, SCRIPTS_DIR)
 
-import validate_wiki_examples as v  # noqa: E402
+import validate_wiki_examples as v
 
 
 DEFINITIONS = {

@@ -29,8 +29,8 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
 
-import canasta  # noqa: E402
-from direct_commands import _helpers  # noqa: E402
+import canasta
+from direct_commands import _helpers
 
 REPO_ROOT = os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))

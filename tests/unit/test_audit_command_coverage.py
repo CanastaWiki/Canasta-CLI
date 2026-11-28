@@ -10,7 +10,7 @@ SCRIPTS_DIR = os.path.abspath(
 )
 sys.path.insert(0, SCRIPTS_DIR)
 
-import audit_command_coverage as audit  # noqa: E402
+import audit_command_coverage as audit
 
 
 GROUPS = {"backup", "config", "extension", "skin", "gitops", "host",

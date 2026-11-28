@@ -17,7 +17,7 @@ REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 PLAYBOOKS = os.path.join(REPO_ROOT, "playbooks")
 sys.path.insert(0, os.path.join(REPO_ROOT, "roles", "common", "module_utils"))
 
-from canasta_validate import validate_wiki_id  # noqa: E402
+from canasta_validate import validate_wiki_id
 
 EXISTS_CHECK = "Require an existing wiki that is not the last one"
 

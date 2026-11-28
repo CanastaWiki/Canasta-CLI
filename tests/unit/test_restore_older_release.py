@@ -14,8 +14,8 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO_ROOT, "roles", "common", "module_utils"))
 sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
 
-from canasta_image_pin import predates_release_major  # noqa: E402
-from canasta_images import FilterModule  # noqa: E402
+from canasta_image_pin import predates_release_major
+from canasta_images import FilterModule
 
 TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 RESTORE_INSTANCE = os.path.join(TASKS, "restore_instance.yml")

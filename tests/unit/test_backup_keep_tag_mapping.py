@@ -21,7 +21,7 @@ PURGE = os.path.join(BACKUP_TASKS, "purge.yml")
 CREATE = os.path.join(BACKUP_TASKS, "create.yml")
 
 sys.path.insert(0, FILTER_DIR)
-from canasta_backup import backup_stored_tag, backup_tag_match  # noqa: E402
+from canasta_backup import backup_stored_tag, backup_tag_match
 
 
 class TestMapping:

@@ -629,7 +629,8 @@ def _fetch(url):
             data = json.loads(body)
             return "\n".join(data.get("ipRanges", []) + data.get("ipv6Ranges", []))
         return open_url(url, timeout=5).read().decode()
-    except Exception:  # noqa: BLE001 - any failure falls back to a known list
+    # Any failure falls back to the last list fetched.
+    except Exception:
         return None
 
 

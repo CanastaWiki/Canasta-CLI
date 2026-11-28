@@ -19,7 +19,7 @@ import yaml
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
-from canasta_databases import canasta_extra_dump_plan  # noqa: E402
+from canasta_databases import canasta_extra_dump_plan
 
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
 ADD = os.path.join(REPO_ROOT, "playbooks", "add.yml")

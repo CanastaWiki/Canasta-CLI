@@ -18,8 +18,8 @@ from mock_ansible import run_module_with_params
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
 
-import direct_commands  # noqa: E402
-from direct_commands import doctor  # noqa: E402
+import direct_commands
+from direct_commands import doctor
 
 
 def _tasks(*parts):

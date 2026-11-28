@@ -24,8 +24,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(ROOT, "filter_plugins"))
 sys.path.insert(0, ROOT)
 
-import canasta_gitops  # noqa: E402
-from direct_commands import _helpers  # noqa: E402
+import canasta_gitops
+from direct_commands import _helpers
 
 OLD_ENV = (
     "MW_SITE_SERVER=https://example.com\n"

@@ -22,9 +22,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
 
-import direct_commands  # noqa: E402
-import direct_commands._helpers  # noqa: E402
-import direct_commands.info  # noqa: E402
+import direct_commands
+import direct_commands._helpers
+import direct_commands.info
 
 
 def _stub_common(monkeypatch, inst, sent):

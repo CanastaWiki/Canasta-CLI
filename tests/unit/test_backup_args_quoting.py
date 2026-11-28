@@ -12,7 +12,7 @@ from ansible.template import Templar, trust_as_template
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
 
-import canasta  # noqa: E402
+import canasta
 
 ORCH = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 ARGS = ["--host", "mysite", "--tag", "before upgrade;touch /x", "backup",

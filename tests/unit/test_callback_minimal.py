@@ -22,7 +22,7 @@ import sys
 sys.path.insert(
     0, os.path.join(os.path.dirname(__file__), "..", "..", "callback_plugins")
 )
-import canasta_minimal  # noqa: E402
+import canasta_minimal
 
 
 class _FakeDisplay:

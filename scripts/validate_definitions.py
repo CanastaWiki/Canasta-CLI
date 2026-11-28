@@ -19,7 +19,7 @@ import sys
 import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import cli_examples  # noqa: E402
+import cli_examples
 
 
 VALID_TYPES = {"string", "path", "bool", "choice", "integer"}

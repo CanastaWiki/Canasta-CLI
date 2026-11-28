@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
 
-from direct_commands import doctor  # noqa: E402
+from direct_commands import doctor
 
 SNAPSHOTTER = '[["driver-type","io.containerd.snapshotter.v1"]]'
 

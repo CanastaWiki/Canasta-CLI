@@ -19,9 +19,9 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
 
-import canasta  # noqa: E402
-import direct_commands  # noqa: E402
-from canasta_images import (  # noqa: E402
+import canasta
+import direct_commands
+from canasta_images import (
     canasta_build_arg_keys,
     canasta_set_build_args,
     canasta_unset_build_args,

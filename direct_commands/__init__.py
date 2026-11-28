@@ -37,7 +37,7 @@ from ._helpers import (  # noqa: F401
     register,
     run_direct_command,
 )
-from ._helpers import *  # noqa: F401, F403
+from ._helpers import *  # noqa: F403
 
 # Underscore-prefixed names aren't pulled by `*`. Import the ones test
 # code references as `direct_commands._foo`.

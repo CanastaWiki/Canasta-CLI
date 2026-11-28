@@ -29,7 +29,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 sys.path.insert(0, REPO_ROOT)
 
-import canasta  # noqa: E402
+import canasta
 
 PODMAN = {"composeCommand": "podman-compose", "inspectCommand": "podman"}
 

@@ -6,7 +6,7 @@ import sys
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, ROOT)
 
-from direct_commands import _helpers, doctor  # noqa: E402
+from direct_commands import _helpers, doctor
 
 S = _helpers._SENTINEL
 

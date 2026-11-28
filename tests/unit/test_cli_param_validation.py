@@ -18,7 +18,7 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
 
-import canasta  # noqa: E402
+import canasta
 
 
 def _args(**kw):

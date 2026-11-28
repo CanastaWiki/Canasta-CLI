@@ -7,7 +7,7 @@ import sys
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
 
-from direct_commands import _helpers  # noqa: E402
+from direct_commands import _helpers
 
 
 DOCKER = {"path": "/srv/test", "orchestrator": "compose"}
