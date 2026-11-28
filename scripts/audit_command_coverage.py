@@ -97,7 +97,7 @@ def resolve_command(args, subcommand_groups, known_commands=None):
         return None
     first = tokens[0]
     if first not in subcommand_groups or len(tokens) < 2:
-        return first
+        return first.replace("-", "_")
 
     def key(n):
         return "_".join(tokens[:n]).replace("-", "_")
