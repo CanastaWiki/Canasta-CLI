@@ -58,7 +58,7 @@ def _build(tmp_path, files, build_arg=(), base_only=False, expect_rc=0):
                           capture_output=True, text=True, env=env, cwd=tmp_path)
     assert proc.returncode == expect_rc, proc.stdout + proc.stderr
     builds = [line.split() for line in log.read_text().splitlines()]
-    return builds, proc.stdout
+    return builds, proc.stdout + proc.stderr
 
 
 def test_two_image_checkout_builds_base_then_canasta(tmp_path):
@@ -80,7 +80,7 @@ def test_canasta_checkout_without_the_base_source_is_refused(tmp_path):
                                     "Canasta/contents.yaml",
                                     "CanastaBase/Dockerfile"], expect_rc=2)
     assert builds == []
-    assert "has no Dockerfile.canasta" in out
+    assert "has no Dockerfile.canasta" in out, out
 
 
 def test_overlay_builds_on_the_canasta_release(tmp_path):
