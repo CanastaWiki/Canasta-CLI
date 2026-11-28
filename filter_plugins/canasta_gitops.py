@@ -30,6 +30,7 @@ from canasta_image_pin import (
     is_cli_image_pin,
     release_image,
     retarget_release_image,
+    version_key,
 )
 
 ENCRYPTION_FILTER = "git-crypt"
@@ -488,11 +489,16 @@ def canasta_env_sync_plan(live, template, env_vars, base_template=None,
 
 
 def _cli_version_key(text):
+    # A release or pre-release orders as semver; anything else by its
+    # leading numbers, as a release of them.
+    key = version_key(re.sub(r"^\s*v", "", str(text or "")))
+    if key:
+        return key
     match = re.match(r"^\s*v?(\d+(?:\.\d+)*)", str(text or ""))
     if not match:
         return None
-    parts = [int(p) for p in match.group(1).split(".")]
-    return tuple(parts + [0] * max(0, 3 - len(parts)))
+    parts = [int(p) for p in match.group(1).split(".")][:3]
+    return tuple(parts + [0] * (3 - len(parts))) + ((1,),)
 
 
 # hosts.yaml roles that may run 'gitops push'; a host with no role has

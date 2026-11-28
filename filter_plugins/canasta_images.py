@@ -3,7 +3,6 @@
 # Loaded via the `filter_plugins` path in ansible.cfg (see canasta_crowdsec.py).
 
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.join(
@@ -11,24 +10,22 @@ sys.path.insert(0, os.path.join(
     "..", "roles", "common", "module_utils"))
 
 from canasta_image_pin import (
+    CANASTA_REPOSITORY,
     base_image_for,
     predates_release_major,
     release_image,
     retarget_release_image,
 )
 
-_CANASTA_RELEASE = re.compile(
-    r"^ghcr\.io/canastawiki/canasta:(\d+)\.(\d+)\.(\d+)$")
-
 
 def canasta_release_version(image):
-    """The (major, minor, patch) of a released Canasta image reference, or
-    None for anything else: a custom repository, canasta-base, a named tag
-    such as latest, or a digest."""
-    match = _CANASTA_RELEASE.match(str(image or ""))
-    if not match:
+    """The version key (see canasta_image_pin.version_key) of a released
+    Canasta image reference, or None for anything else: a custom
+    repository, canasta-base, a named tag such as latest, or a digest."""
+    pin = release_image(image)
+    if pin is None or pin[0] != CANASTA_REPOSITORY:
         return None
-    return tuple(int(part) for part in match.groups())
+    return pin[1]
 
 
 def canasta_retarget_base_image(build_args, target_image):

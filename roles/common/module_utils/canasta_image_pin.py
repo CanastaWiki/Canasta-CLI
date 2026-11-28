@@ -10,6 +10,10 @@ A release pin names either the canasta image, the CLI's default, or the
 canasta-base image an operator chose instead. Both follow the CLI's
 version and keep their repository. canasta-base tags older than 3.6.0
 come from the separate CanastaBase release line and are not pins.
+
+A release version is X.Y.Z or a pre-release of it, X.Y.Z-<id>[.<id>...]
+such as 5.0.0-rc.1, and versions order as semver orders them: a
+pre-release comes before its release.
 """
 
 from __future__ import absolute_import, division, print_function
@@ -19,14 +23,15 @@ import re
 __metaclass__ = type
 
 CLI_IMAGE_KEY = "CANASTA_IMAGE"
-CLI_IMAGE_PIN_PATTERN = r"^ghcr\.io/canastawiki/canasta:[0-9]+\.[0-9]+\.[0-9]+$"
+VERSION_PATTERN = r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?"
+CLI_IMAGE_PIN_PATTERN = r"^ghcr\.io/canastawiki/canasta:" + VERSION_PATTERN + "$"
 _CLI_IMAGE_PIN = re.compile(CLI_IMAGE_PIN_PATTERN)
+_VERSION = re.compile(r"^" + VERSION_PATTERN + "$")
 
 CANASTA_REPOSITORY = "ghcr.io/canastawiki/canasta"
 BASE_REPOSITORY = "ghcr.io/canastawiki/canasta-base"
 _RELEASE = re.compile(
-    r"^(ghcr\.io/canastawiki/canasta(?:-base)?):(\d+)\.(\d+)\.(\d+)$")
-_FIRST_SHARED_BASE_RELEASE = (3, 6, 0)
+    r"^(ghcr\.io/canastawiki/canasta(?:-base)?):(" + VERSION_PATTERN + ")$")
 
 
 def _unquote(value):
@@ -34,6 +39,29 @@ def _unquote(value):
     if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
         text = text[1:-1]
     return text
+
+
+def version_key(version):
+    """A sortable key for a release version, or None for anything else.
+
+    The key is (major, minor, patch, pre). pre is (1,) for a release, and
+    for a pre-release (0, ...) followed by one entry per identifier, with
+    numeric identifiers before alphanumeric ones, so that 5.0.0-rc.1 <
+    5.0.0-rc.2 < 5.0.0 < 5.0.1.
+    """
+    text = str(version or "").strip()
+    if not _VERSION.match(text):
+        return None
+    core, _, pre = text.partition("-")
+    major, minor, patch = (int(part) for part in core.split("."))
+    if not pre:
+        return (major, minor, patch, (1,))
+    ids = tuple((0, int(i), "") if i.isdigit() else (1, 0, i)
+                for i in pre.split("."))
+    return (major, minor, patch, (0,) + ids)
+
+
+_FIRST_SHARED_BASE_RELEASE = version_key("3.6.0")
 
 
 def is_cli_image_pin(value):
@@ -48,7 +76,7 @@ def release_image(value):
     if not match:
         return None
     repository = match.group(1)
-    version = tuple(int(part) for part in match.groups()[1:])
+    version = version_key(match.group(2))
     if repository == BASE_REPOSITORY and version < _FIRST_SHARED_BASE_RELEASE:
         return None
     return repository, version

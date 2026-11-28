@@ -67,6 +67,14 @@ class TestCompare:
         assert out["ahead"] == []
         assert check("R b 4.10.1\n", "a", "4.10")["ahead"]
 
+    def test_a_pre_release_is_behind_its_release(self):
+        out = check("R b 5.0.0-rc.1\nR c 5.0.0-rc.2\n", "a", "5.0.0-rc.2")
+        assert out["behind"] == [{"host": "b", "version": "5.0.0-rc.1"}]
+        assert check("R b 5.0.0\n", "a", "5.0.0-rc.2")["ahead"] == [
+            {"host": "b", "version": "5.0.0"}]
+        assert check("R b 5.0.0-rc.2\n", "a", "4.34.1")["ahead"]
+        assert check("R b 5.0.0\n", "a", "5.0")["behind"] == []
+
     def test_a_registered_host_with_no_record_is_unknown(self):
         probe = "R a 4.30.0\n" + _hosts_yaml("a", "b", "c")
         out = check(probe, "a", "4.30.0")

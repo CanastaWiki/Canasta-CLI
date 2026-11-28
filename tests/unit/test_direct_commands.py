@@ -1014,6 +1014,29 @@ class TestCmdVersion:
         out = capsys.readouterr().out
         assert "v4.0.0" in out
 
+    def test_docker_pre_release_tag_shows_version(self, tmp_path, monkeypatch, capsys):
+        (tmp_path / "VERSION").write_text("5.0.0-rc.1\n")
+        monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
+        monkeypatch.setenv("CANASTA_CLI_IMAGE_TAG", "5.0.0-rc.1")
+        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
+        rc = direct_commands.info.cmd_version(None)
+        assert rc == 0
+        assert "v5.0.0-rc.1" in capsys.readouterr().out
+
+    def test_native_pre_release_tag_shows_version(self, tmp_path, monkeypatch, capsys):
+        (tmp_path / "VERSION").write_text("5.0.0-rc.1\n")
+        monkeypatch.delenv("CANASTA_RUN_MODE", raising=False)
+        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
+
+        def fake_run(*a, **kw):
+            stdout = "v5.0.0-rc.1\n" if "tag" in a[0] else "abc1234\n"
+            return type("R", (), {"returncode": 0, "stdout": stdout})()
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        rc = direct_commands.info.cmd_version(None)
+        assert rc == 0
+        assert "v5.0.0-rc.1" in capsys.readouterr().out
+
     def test_docker_latest_tag_shows_dev(self, tmp_path, monkeypatch, capsys):
         (tmp_path / "VERSION").write_text("4.0.0\n")
         (tmp_path / "BUILD_COMMIT").write_text("def5678\n")
