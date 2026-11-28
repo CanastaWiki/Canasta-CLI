@@ -88,7 +88,7 @@ jobs:
             "config-side-effects")
               tests="config-side-effects upgrade-rebuilds-buildable reconcile" ;;
             "sidecar-lifecycle")
-              tests="sidecar-lifecycle config-set-gitops-port canasta-base" ;;
+              tests="sidecar-lifecycle config-set-gitops-port canasta-base devmode" ;;
             "upgrade-backfills-mycnf-template")
               tests="upgrade-backfills-mycnf-template import sidecar-migrate" ;;
             "extension-lifecycle")
@@ -122,7 +122,8 @@ jobs:
 
   # Podman is a supported container runtime, but every other integration job
   # runs on Docker — so a Podman-only regression ships with a green suite.
-  # This lane runs the core lifecycle tests on podman-compose.
+  # This lane runs the core lifecycle tests on podman-compose, plus the
+  # extension, gitops and sidecar lifecycles.
   #
   # Docker is taken away rather than left idle: a hardcoded `docker` call has
   # to fail here instead of quietly reaching a live daemon.
@@ -172,7 +173,7 @@ jobs:
     name: "Integration: Podman"
     needs: integration-podman-matrix
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 34
     strategy:
       fail-fast: false
       # Two runners take both push legs at once.
@@ -419,13 +420,13 @@ jobs:
           LEG: ${{ matrix.leg }}
         run: |
           case "$LEG" in
-            "lifecycle & socket") tests=(lifecycle upgrade doctor podman-socket-runtime) ;;
-            "rebuilds")           tests=(rebuild upgrade-rebuilds-buildable) ;;
+            "lifecycle & socket") tests=(lifecycle upgrade doctor podman-socket-runtime gitops sidecar-lifecycle) ;;
+            "rebuilds")           tests=(rebuild upgrade-rebuilds-buildable extension-lifecycle) ;;
             "backup")             tests=(backup-advanced) ;;
             *) echo "unknown podman leg: $LEG" >&2; exit 1 ;;
           esac
           .venv/bin/python tests/integration/run_tests.py --no-skip "${tests[@]}"
-        timeout-minutes: 18
+        timeout-minutes: 24
 
   # Building both images from Canasta's main branch takes far longer than a
   # push leg allows, so it runs weekly and on request.
