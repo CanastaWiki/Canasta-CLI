@@ -39,7 +39,8 @@ def test_self_update_reexec_flushes_pending_output(tmp_path):
         os.execv = lambda path, argv: real_execv(%r, ["true"])
         print("Updated Canasta CLI from 1.0.0 (aaa) to 1.1.0 (bbb).")
         print("dep warning", file=sys.stderr)
-        canasta._self_update_reexec()
+        import canasta_self_update
+        canasta_self_update._self_update_reexec()
     """ % TRUE, tmp_path)
     assert result.returncode == 0, result.stderr
     assert "Updated Canasta CLI from 1.0.0 (aaa) to 1.1.0 (bbb)." \

@@ -91,7 +91,7 @@ class TestComposeWebState:
         monkeypatch.setattr(_helpers.subprocess, "run", fake_run)
         inst = {"id": "mysite", "path": str(tmp_path),
                 "orchestrator": "compose"}
-        detail = direct_commands._gather_instance_info("mysite", inst)
+        detail = direct_commands._helpers._gather_instance_info("mysite", inst)
         assert detail["status"] == "UNHEALTHY"
         assert len(calls) == 1
         assert calls[0][1] == "ps"
@@ -112,7 +112,7 @@ class TestComposeWebState:
         monkeypatch.setattr(_helpers.subprocess, "run", fake_run)
         inst = {"id": "mysite", "path": str(tmp_path),
                 "orchestrator": "compose"}
-        detail = direct_commands._gather_instance_info("mysite", inst)
+        detail = direct_commands._helpers._gather_instance_info("mysite", inst)
         assert detail["status"] == state
         assert [c[1] for c in calls] == ["ps", "inspect"]
         assert calls[1][-3:] == ["--format", "{{.RestartCount}}", "abc123"]
@@ -131,7 +131,7 @@ class TestComposeWebState:
         monkeypatch.setattr(_helpers, "_ssh_run", fake_ssh)
         inst = {"id": "site", "path": "/srv/site", "orchestrator": "compose",
                 "host": "remote"}
-        detail = direct_commands._gather_instance_info("site", inst)
+        detail = direct_commands._helpers._gather_instance_info("site", inst)
         assert detail["status"] == "UNHEALTHY"
         assert len(calls) == 1
         # The format's pipes must reach ps, not the shell.
@@ -174,7 +174,7 @@ class TestRemoteListScript:
         monkeypatch.setattr(_helpers, "_ssh_run", fake_ssh)
         inst = {"id": "site", "path": str(site), "orchestrator": "compose",
                 "host": "remote"}
-        detail = direct_commands._gather_instance_info("site", inst)
+        detail = direct_commands._helpers._gather_instance_info("site", inst)
         calls = (tmp_path / "calls").read_text().splitlines()
         return detail["status"], calls
 
@@ -224,7 +224,7 @@ class TestListOutput:
             lambda argv, **kw: subprocess.CompletedProcess(
                 argv, 0, RESTARTING + "\n", ""))
         args = type("Args", (), {"cleanup": False, "host": None})()
-        assert direct_commands.cmd_list(args) == 0
+        assert direct_commands.info.cmd_list(args) == 0
         assert "UNHEALTHY" in capsys.readouterr().out
 
 

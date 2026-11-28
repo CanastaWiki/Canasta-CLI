@@ -44,7 +44,9 @@ options:
       obtains, renews and removes Let's Encrypt certificates through
       acme.sh, once the edge is running and answering challenges. plan
       decides which of a host's instances move behind the edge; import
-      moves an instance's Caddy certificates to the edge. current fails
+      moves an instance's Caddy certificates to the edge. prune removes the
+      anonymous volumes earlier CrowdSec bouncer containers left behind.
+      current fails
       when the instance's docker-compose.yml predates the edge, which only
       upgrade replaces. check fails as current does, and when the
       instance's Caddyfile.site or Caddyfile.global has a tls directive,
@@ -57,7 +59,7 @@ options:
       in line when they changed. probe requests each of the instance's wikis
       through the edge on this host and returns those that do not answer.
     type: str
-    choices: [sync, start, stop, issue, plan, import, current, check, writable, learn, probe]
+    choices: [sync, start, stop, issue, plan, import, prune, current, check, writable, learn, probe]
     default: sync
   instance_id:
     description: >-
@@ -151,21 +153,30 @@ import yaml
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.canasta_config import get_config_dir
-from ansible.module_utils.canasta_env_keys import modernize_values
 from ansible.module_utils.canasta_edge_render import (
     ACME_IMAGE, ALLOW_CIDR_FILE, ALLOW_UA_FILE, CERT_DIR, CONFIG_DIR, DENY_CIDR_FILE,
     DENY_UA_FILE, EdgeError, HAPROXY_IMAGE, NO_SITE, SPOA_IMAGE, acme_hostnames,
-    cdn_providers, certificates, check_together, compose_predates_edge, crowdsec_enforced, frontends, host_tls_mode,
-    dynamic_patterns, instance_from_config, predates_edge_problem, rates_set, render,
+    cdn_providers, certificates, check_together, crowdsec_enforced, frontends, host_tls_mode,
+    dynamic_patterns, instance_from_config, predates_edge_problem, render,
     special_names,
 )
 from ansible.module_utils.canasta_caddyfile import (
-    instance_tls_directives, site_hostnames, tls_directives_problem,
+    site_hostnames, tls_directives_problem,
 )
 from ansible.module_utils.canasta_edge_writable import (
     LAYER_FILE, SNIPPET_FILE, check_writable,
 )
 from ansible.module_utils.urls import open_url
+from ansible.module_utils.canasta_atomic_write import read_text as _read
+from ansible.module_utils.canasta_edge_acme import (
+    ACME_CA_DIRS, ACME_CA_NAMES, ACME_CONTAINER, ACME_DEPLOY_ENV, ACME_SERVERS,
+    RETRIED_PROBLEMS, _acme, _domain_conf, _tail, acme_failure, acme_hint, acme_listed,
+    deploy_failure, issued_method, pem_holds_issued, refresh_dns_credentials, served,
+    stats_socket_ready,
+)
+from ansible.module_utils.canasta_edge_conversion import (
+    daemon_rootless, plan_conversion, predates_edge, read_env, tls_directives,
+)
 
 NETWORK = "canasta-edge"
 CONTAINER = "canasta-edge"
@@ -174,21 +185,6 @@ LABEL_ID = "canasta.edge.instance"
 LABEL_PATH = "canasta.edge.path"
 CONF_FILES = ("haproxy.cfg", "crt-list", "hosts.map")
 INTERNAL_CERT_DAYS = 825
-ACME_CONTAINER = "canasta-edge-acme"
-ACME_SERVERS = {False: "letsencrypt", True: "letsencrypt_test"}
-# As acme.sh --list names the CA that issued a certificate.
-ACME_CA_NAMES = {False: "LetsEncrypt.org", True: "LetsEncrypt.org_test"}
-# Both Let's Encrypt CAs get the same account key, so one thumbprint answers
-# challenges for staging and production hostnames on the same edge.
-ACME_CA_DIRS = ("acme-v02.api.letsencrypt.org", "acme-staging-v02.api.letsencrypt.org")
-# acme.sh's HAProxy hook replaces a certificate over the stats socket under
-# the path HAProxy loaded it from, so the acme.sh container sees the
-# certificates at HAProxy's path.
-ACME_DEPLOY_ENV = {
-    "DEPLOY_HAPROXY_PEM_PATH": CERT_DIR,
-    "DEPLOY_HAPROXY_HOT_UPDATE": "yes",
-    "DEPLOY_HAPROXY_STATS_SOCKET": "UNIX:/var/run/haproxy/admin.sock",
-}
 
 # Where each CDN publishes its address ranges, and the ranges as of this
 # release, used when the host cannot reach the source and has no earlier copy.
@@ -381,14 +377,6 @@ SPOA_SERVICE = """\
 """
 
 
-def _read(path):
-    try:
-        with open(path) as handle:
-            return handle.read()
-    except (IOError, OSError):
-        return None
-
-
 def _write_if_changed(path, content, mode=0o644):
     """Write content atomically when it differs. Returns True if written."""
     if _read(path) == content:
@@ -400,21 +388,6 @@ def _write_if_changed(path, content, mode=0o644):
     os.chmod(tmp, mode)
     os.rename(tmp, path)
     return True
-
-
-def read_env(instance_path):
-    """The instance's .env as a dict, with surrounding quotes removed."""
-    env = {}
-    for line in (_read(os.path.join(instance_path, ".env")) or "").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        env[key.strip()] = value
-    return modernize_values(env)
 
 
 def write_layer(instance_path, instance_id, present, spoa=False):
@@ -526,12 +499,6 @@ def global_sites(path):
     """(hostnames, skipped) for the site blocks in the instance's
     Caddyfile.global, which its Caddy serves besides the wikis."""
     return site_hostnames(_read(os.path.join(path, "config", "Caddyfile.global")) or "")
-
-
-def tls_directives(path):
-    """'file:line' for each tls directive in the instance's Caddyfile.site
-    and Caddyfile.global."""
-    return instance_tls_directives(lambda rel: _read(os.path.join(path, rel)))
 
 
 def _config_list(instance_id, path, name, key):
@@ -1115,186 +1082,11 @@ def _sync_edge(run, inspect, edge_dir, instance_id, instance_path, member, resul
     return result
 
 
-def _acme(run, inspect, args, env=None):
-    # `-e NAME` takes the value from the exec's own environment, which keeps
-    # tokens off the command line, where any user on the host can read it.
-    argv = [inspect, "exec"]
-    for key in sorted(env or {}):
-        argv += ["-e", key]
-    return run(argv + [ACME_CONTAINER, "acme.sh"] + args, env=env)
-
-
-def acme_listed(run, inspect):
-    """{hostname: (CA, issued)} for the certificates acme.sh knows. A failed
-    first issuance leaves an entry with no creation date."""
-    rc, out, err = _acme(run, inspect, ["--list", "--listraw"])
-    if rc != 0:
-        raise EdgeError("Could not list the edge's certificates: %s"
-                        % (err or out).strip())
-    listed = {}
-    for line in out.splitlines()[1:]:
-        fields = line.split("|")
-        if len(fields) >= 6 and fields[0]:
-            listed[fields[0]] = (fields[4], bool(fields[5].strip()))
-    return listed
-
-
-def _domain_conf(edge_dir, host):
-    return _read(os.path.join(edge_dir, "acme", "%s_ecc" % host, "%s.conf" % host)) or ""
-
-
-def _leaf(pem):
-    """The first certificate in PEM text, without whitespace, or None."""
-    begin, end = "-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----"
-    start = (pem or "").find(begin)
-    stop = (pem or "").find(end, start)
-    if start < 0 or stop < 0:
-        return None
-    return "".join(pem[start:stop + len(end)].split())
-
-
-def pem_holds_issued(edge_dir, host):
-    """Whether HAProxy's PEM for host holds the certificate acme.sh keeps for
-    it; None when acme.sh's copy cannot be read."""
-    leaf = _leaf(_read(os.path.join(edge_dir, "acme", "%s_ecc" % host, "%s.cer" % host)))
-    if leaf is None:
-        return None
-    pem = _read(os.path.join(edge_dir, "conf", "certs", "%s.pem" % host)) or ""
-    return leaf in "".join(pem.split())
-
-
-def served(edge_dir, host):
-    """Whether HAProxy's PEM for host holds the certificate acme.sh keeps for
-    it. True when acme.sh's copy cannot be read, as there is nothing to
-    install then."""
-    return pem_holds_issued(edge_dir, host) is not False
-
-
-def _set_conf(path, key, value):
-    """Set (or, with value None, remove) one KEY='value' line of an acme.sh
-    conf file, as acme.sh's own _setopt writes them. Returns whether it
-    changed."""
-    text = _read(path)
-    if text is None:
-        return False
-    lines = [l for l in text.splitlines() if not l.startswith(key + "=")]
-    if value is not None:
-        lines.append("%s='%s'" % (key, value))
-    new = "\n".join(lines) + "\n"
-    if new == text:
-        return False
-    with open(path, "w") as f:
-        f.write(new)
-    return True
-
-
-def refresh_dns_credentials(edge_dir, host, dns):
-    """Bring the Cloudflare token and zone ID acme.sh saved for host's
-    renewals in line with the instance's, so a rotated token reaches them.
-    acme.sh keeps them with the certificate when a zone ID is set and for
-    the whole account otherwise; the certificate's own copy wins."""
-    conf = os.path.join(edge_dir, "acme", "%s_ecc" % host, "%s.conf" % host)
-    if dns["zone_id"]:
-        changed = _set_conf(conf, "CF_Token", dns["token"])
-        return _set_conf(conf, "CF_Zone_ID", dns["zone_id"]) or changed
-    changed = _set_conf(conf, "CF_Token", None)
-    changed = _set_conf(conf, "CF_Zone_ID", None) or changed
-    account = os.path.join(edge_dir, "acme", "account.conf")
-    return _set_conf(account, "SAVED_CF_Token", dns["token"]) or changed
-
-
-def issued_method(edge_dir, host):
-    """How acme.sh validates host at renewal: 'stateless' (HTTP-01 answered
-    by HAProxy) or a DNS hook such as dns_cf. None when it has no record."""
-    for line in _domain_conf(edge_dir, host).splitlines():
-        if line.startswith("Le_Webroot="):
-            return line.split("=", 1)[1].strip().strip("'\"")
-    return None
-
-
-def _tail(out, err):
-    lines = [l for l in (out + "\n" + err).splitlines() if l.strip()]
-    return lines[-1] if lines else ""
-
-
-# acme.sh ends a failed issuance with these, which name no cause.
-ACME_CLOSING_LINES = ("Please add '--debug' or '--log'", "See: ",
-                      "Please check log file")
-ACME_PROBLEM_TYPE = re.compile(r'"type"\s*:\s*"urn:ietf:params:acme:error:([A-Za-z]+)"')
-ACME_PROBLEM_DETAIL = re.compile(r'"detail"\s*:\s*"((?:[^"\\]|\\.)*)"')
-ACME_TIMESTAMP = re.compile(r"^\[[^\]]*\]\s*")
-# What to check for each kind of ACME problem; any other takes the default.
-# A rate limit's detail already says when Let's Encrypt accepts requests again.
-ACME_PROBLEM_HINTS = {
-    "rateLimited": "",
-    "caa": "Allow letsencrypt.org in the domain's CAA records.",
-    "dns": "Check that %s has a DNS record.",
-}
-ACME_DEFAULT_HINT = "Check that %s resolves to this host and that port 80 reaches it."
-# The problems a first validation can meet while HAProxy takes in the
-# challenge rule; acme.sh names none for a response it found wrong.
-RETRIED_PROBLEMS = (None, "unauthorized", "incorrectResponse")
-
-
-def acme_failure(out, err):
-    """(problem type, reason) for a failed acme.sh run. The reason is Let's
-    Encrypt's own detail when acme.sh printed its response, and otherwise
-    acme.sh's last line before its closing pointers to its documentation.
-    The problem type is None when the output has none."""
-    text = out + "\n" + err
-    kind = ACME_PROBLEM_TYPE.search(text)
-    detail = ACME_PROBLEM_DETAIL.search(text)
-    if detail:
-        return (kind.group(1) if kind else None,
-                detail.group(1).replace('\\"', '"').strip().rstrip("."))
-    lines = [ACME_TIMESTAMP.sub("", l).strip() for l in text.splitlines()]
-    lines = [l for l in lines if l and not l.startswith(ACME_CLOSING_LINES)]
-    return (kind.group(1) if kind else None,
-            lines[-1].rstrip(".") if lines else "")
-
-
-# acme.sh ends a failed deploy with these, after the hook's own error.
-ACME_DEPLOY_CLOSING_LINES = ("Error deploying for domain", "Error encountered while deploying")
-
-
-def deploy_failure(out, err):
-    """The hook's own error from a failed acme.sh deploy."""
-    lines = [ACME_TIMESTAMP.sub("", l).strip() for l in (out + "\n" + err).splitlines()]
-    lines = [l for l in lines if l and not l.startswith(ACME_DEPLOY_CLOSING_LINES)]
-    return lines[-1].rstrip(".") if lines else ""
-
-
-def acme_hint(kind, host):
-    hint = ACME_PROBLEM_HINTS.get(kind, ACME_DEFAULT_HINT)
-    return hint % host if "%s" in hint else hint
-
-
 def issue(run, inspect, edge_dir, retry=False):
     """Obtain, replace and remove certificates to match the members. With
     retry, a stateless issuance whose validation failed is requested once
     more, once HAProxy answers challenges again."""
     return _locked(edge_dir, _issue, run, inspect, edge_dir, retry)
-
-
-# How long to wait for HAProxy to answer on its stats socket, which
-# acme.sh's deploy hook talks to, after the edge has just started.
-STATS_SOCKET_WAIT = 60
-
-
-def stats_socket_ready(run, inspect):
-    """Whether HAProxy answers on its stats socket, polled from the acme.sh
-    container as its deploy hook reaches it, for up to STATS_SOCKET_WAIT
-    seconds."""
-    socket = ACME_DEPLOY_ENV["DEPLOY_HAPROXY_STATS_SOCKET"]
-    deadline = time.monotonic() + STATS_SOCKET_WAIT
-    while True:
-        rc, _, _ = run([inspect, "exec", ACME_CONTAINER, "sh", "-c",
-                        "echo 'show info' | socat %s - >/dev/null" % shlex.quote(socket)])
-        if rc == 0:
-            return True
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(1)
 
 
 # How long to wait for HAProxy to answer challenges after a reload that
@@ -1773,120 +1565,6 @@ def import_caddy_certificates(run, inspect, edge_dir, instance_id, instance_path
         _write_if_changed(os.path.join(certs, "%s.pem" % host), pem + pair["key"], 0o600)
         imported.append(host)
     return imported
-
-
-def _edge_view(instance_id, path, env):
-    """The renderer's view of an instance as it would be behind the edge;
-    raises EdgeError when the edge cannot serve it."""
-    wikis = (yaml.safe_load(_read(os.path.join(path, "config", "wikis.yaml")) or "")
-             or {}).get("wikis") or []
-    media = (yaml.safe_load(_read(os.path.join(path, "config", "media-hosts.yaml")) or "")
-             or {}).get("media_hosts") or []
-    return instance_from_config(instance_id, env, wikis,
-                                [m for m in media if (m.get("hostname") or "").strip()])
-
-
-def _ineligible(instance_id, path, env):
-    """Why an instance cannot move behind the edge, or None if it can."""
-    try:
-        _edge_view(instance_id, path, env)
-    except EdgeError as exc:
-        return str(exc)
-    return None
-
-
-def _writable(path):
-    env_file = os.path.join(path, ".env")
-    return os.access(path, os.W_OK) and (
-        not os.path.exists(env_file) or os.access(env_file, os.W_OK))
-
-
-def daemon_rootless(run, inspect, docker_host=""):
-    """Whether the Docker daemon at docker_host runs rootless. Its port
-    forwarding then replaces client addresses, as rootless Podman's does."""
-    env = {"DOCKER_HOST": docker_host} if docker_host else None
-    rc, out, _ = run([inspect, "info", "--format", "{{json .SecurityOptions}}"], env=env)
-    return rc == 0 and "name=rootless" in out
-
-
-def predates_edge(path):
-    """Whether the instance's docker-compose.yml predates the edge."""
-    return compose_predates_edge(_read(os.path.join(path, "docker-compose.yml")))
-
-
-def behind_edge(path):
-    """Whether an instance is behind the edge already: its edge layer
-    exists, which only the edge sync writes."""
-    return os.path.exists(os.path.join(path, LAYER_FILE))
-
-
-def plan_conversion(instances, rootless=lambda inst: False, podman_ready=lambda: True):
-    """Decide how a host's Compose instances move behind the edge, which is
-    every Compose instance's front door.
-
-    instances: [{id, path, compose_command}]. Every instance not yet behind the edge moves.
-    If any of them cannot, the host is refused as a whole and none of its
-    instances is upgraded, since none could come back without a front door.
-    Returns {convert: [ids], rootless: [ids moving on rootless Docker],
-    rated: [those of them that set the per-client rates], refuse: reason or
-    None, held: [Compose instance ids a refusal holds back]}."""
-    compose = [i for i in instances if os.path.isdir(i["path"])]
-    names = ", ".join("'%s'" % i["id"] for i in compose)
-
-    def refuse(reason):
-        return {"convert": [], "rootless": [], "rated": [], "refuse": reason,
-                "held": [i["id"] for i in compose]}
-
-    families = {"podman" if "podman" in (i.get("compose_command") or "") else "docker"
-                for i in compose}
-    if len(families) > 1:
-        return refuse("its instances use both Docker and Podman, which cannot share one "
-                      "HAProxy edge (%s). Move one runtime's instances to another host, or "
-                      "onto the same runtime, and upgrade again." % names)
-    if families == {"docker"} and len({bool(rootless(i)) for i in compose}) > 1:
-        return refuse("its instances use both rootful and rootless Docker, which cannot "
-                      "share one HAProxy edge (%s). Move one daemon's instances to another "
-                      "host, or onto the same daemon, and upgrade again." % names)
-    convert, on_rootless, rated, problems = [], [], [], []
-    for inst in compose:
-        if behind_edge(inst["path"]):
-            continue
-        env = read_env(inst["path"])
-        podman = "podman" in (inst.get("compose_command") or "")
-        if not _writable(inst["path"]):
-            problems.append("'%s': the CLI cannot write to its directory" % inst["id"])
-        elif podman and not podman_ready():
-            problems.append("'%s': under rootless Podman the edge needs the operator's systemd "
-                            "user session, which is not running; enable lingering for this "
-                            "user ('canasta install podman' does)" % inst["id"])
-        else:
-            reason = _ineligible(inst["id"], inst["path"], env)
-            if reason:
-                problems.append(reason)
-                continue
-            found = tls_directives(inst["path"])
-            if found:
-                problems.append("'%s' %s" % (inst["id"], tls_directives_problem(found)))
-                continue
-            convert.append(inst["id"])
-            # Rootless Podman reports rootless too, but its edge takes its
-            # sockets from systemd and keeps client addresses.
-            if not podman and rootless(inst):
-                on_rootless.append(inst["id"])
-                if rates_set(env):
-                    rated.append(inst["id"])
-    if problems:
-        return refuse("the HAProxy edge cannot serve every instance on it yet: %s. Fix "
-                      "that and upgrade again." % "; ".join(problems))
-    # Each could move on its own; together they must not clash on a port.
-    if convert:
-        try:
-            check_together([_edge_view(i["id"], i["path"], read_env(i["path"]))
-                            for i in compose])
-        except EdgeError as exc:
-            return refuse(str(exc))
-    return {"convert": convert, "rootless": on_rootless, "rated": rated, "refuse": None,
-            "held": []}
 
 
 def run_module():

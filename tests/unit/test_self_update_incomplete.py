@@ -17,6 +17,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 import canasta as canasta_cli
+import canasta_self_update as self_update
 from direct_commands import _helpers, doctor
 
 
@@ -37,11 +38,11 @@ def _git(cwd, *args):
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch):
     monkeypatch.delenv("CANASTA_SELF_UPDATED", raising=False)
-    monkeypatch.setattr(canasta_cli, "_self_update_refresh_deps",
+    monkeypatch.setattr(self_update, "_self_update_refresh_deps",
                         lambda repo, umask=-1: _DEPS_UMASKS.append(umask)
                         or True)
     execv_calls = []
-    monkeypatch.setattr(canasta_cli.os, "execv",
+    monkeypatch.setattr(self_update.os, "execv",
                         lambda *a: execv_calls.append(a))
     yield execv_calls
     os.environ.pop("CANASTA_SELF_UPDATED", None)
@@ -71,7 +72,7 @@ def _install(tmp_path, monkeypatch, managed=True):
     _git(repo, "checkout", "-q", "v4.0.0")
     if managed:
         (repo / "BUILD_COMMIT").write_text("old\n")
-    monkeypatch.setattr(canasta_cli, "SCRIPT_DIR", str(repo))
+    monkeypatch.setattr(self_update, "SCRIPT_DIR", str(repo))
     return repo
 
 
@@ -83,7 +84,7 @@ def test_incomplete_move_is_reported_and_stops(
     plugins.chmod(0o555)
     try:
         with pytest.raises(SystemExit) as exc:
-            canasta_cli.self_update_cli()
+            self_update.self_update_cli()
     finally:
         plugins.chmod(0o755)
     assert exc.value.code == 1
@@ -112,7 +113,7 @@ def test_up_to_date_install_left_incomplete_is_reported(
     finally:
         plugins.chmod(0o755)
     with pytest.raises(SystemExit) as exc:
-        canasta_cli.self_update_cli()
+        self_update.self_update_cli()
     assert exc.value.code == 1
     out, err = capsys.readouterr()
     assert "already up to date" not in out
@@ -122,13 +123,13 @@ def test_up_to_date_install_left_incomplete_is_reported(
     assert "Repair the install, then re-run the command:" in err
 
     _git(repo, "checkout", "--", ".")
-    canasta_cli.self_update_cli()
+    self_update.self_update_cli()
     assert "already up to date" in capsys.readouterr().out
 
 
 def test_complete_move_succeeds(tmp_path, monkeypatch, capsys, _isolate):
     repo = _install(tmp_path, monkeypatch)
-    canasta_cli.self_update_cli()
+    self_update.self_update_cli()
     out = capsys.readouterr().out
     assert "Updated Canasta CLI from 4.0.0" in out
     assert (repo / "filter_plugins" / "new.py").exists()
@@ -140,7 +141,7 @@ def test_developer_clone_with_local_edits_is_not_blocked(
     repo = _install(tmp_path, monkeypatch, managed=False)
     _git(repo, "checkout", "-q", "v4.1.0")
     (repo / "filter_plugins" / "old.py").write_text("EDITED = 1\n")
-    canasta_cli.self_update_cli()
+    self_update.self_update_cli()
     out, err = capsys.readouterr()
     assert "already up to date" in out
     assert "incomplete" not in err
@@ -226,12 +227,12 @@ def test_doctor_install_probe(tmp_path, monkeypatch):
 def test_update_umask_follows_the_install(
         tmp_path, monkeypatch, capsys, shared, group_writable, deps_umask):
     repo = _install(tmp_path, monkeypatch)
-    monkeypatch.setattr(canasta_cli, "_install_group_shared",
+    monkeypatch.setattr(self_update, "_install_group_shared",
                         lambda r: shared)
     _DEPS_UMASKS.clear()
     old = os.umask(0o022)
     try:
-        canasta_cli.self_update_cli()
+        self_update.self_update_cli()
     finally:
         os.umask(old)
     assert "Updated Canasta CLI" in capsys.readouterr().out
@@ -287,7 +288,7 @@ def _other_group():
 def test_root_repair_normalizes_the_shared_install(
         tmp_path, monkeypatch, capsys):
     gid = _other_group()
-    monkeypatch.setattr(canasta_cli.grp, "getgrnam",
+    monkeypatch.setattr(self_update.grp, "getgrnam",
                         lambda name: type("G", (), {"gr_gid": gid})())
     repo = tmp_path / "install"
     (repo / "rootdir").mkdir(parents=True)
@@ -298,7 +299,7 @@ def test_root_repair_normalizes_the_shared_install(
         path.chmod(0o755)
     (repo / "rootdir" / "f.py").chmod(0o644)
 
-    canasta_cli._repair_shared_install(str(repo))
+    self_update._repair_shared_install(str(repo))
     assert capsys.readouterr().out == (
         "Repaired group ownership and permissions of %s.\n" % repo)
     for path in (repo, repo / "rootdir"):
@@ -310,7 +311,7 @@ def test_root_repair_normalizes_the_shared_install(
     venv = (repo / ".venv" / "lib").stat()
     assert venv.st_gid != gid and not venv.st_mode & 0o2020
 
-    canasta_cli._repair_shared_install(str(repo))
+    self_update._repair_shared_install(str(repo))
     assert capsys.readouterr().out == ""
 
 
@@ -318,12 +319,12 @@ def test_root_repair_normalizes_the_shared_install(
 def test_root_repair_leaves_object_and_bytecode_modes_alone(
         tmp_path, monkeypatch, capsys):
     gid = _other_group()
-    monkeypatch.setattr(canasta_cli.grp, "getgrnam",
+    monkeypatch.setattr(self_update.grp, "getgrnam",
                         lambda name: type("G", (), {"gr_gid": gid})())
     repo = tmp_path / "install"
     (repo / ".git" / "objects" / "ab").mkdir(parents=True)
     (repo / "filter_plugins" / "__pycache__").mkdir(parents=True)
-    canasta_cli._repair_shared_install(str(repo))
+    self_update._repair_shared_install(str(repo))
     assert "Repaired" in capsys.readouterr().out
 
     obj = repo / ".git" / "objects" / "ab" / "cdef"
@@ -332,7 +333,7 @@ def test_root_repair_leaves_object_and_bytecode_modes_alone(
     pyc = repo / "filter_plugins" / "__pycache__" / "m.cpython-312.pyc"
     pyc.write_text("")
     pyc.chmod(0o644)
-    canasta_cli._repair_shared_install(str(repo))
+    self_update._repair_shared_install(str(repo))
     assert capsys.readouterr().out == ""
     assert obj.stat().st_mode & 0o777 == 0o444
     assert pyc.stat().st_mode & 0o777 == 0o644
@@ -340,13 +341,13 @@ def test_root_repair_leaves_object_and_bytecode_modes_alone(
 
     # Their directories, and the group of the files, are still repaired.
     (repo / ".git" / "objects" / "ab").chmod(0o755)
-    canasta_cli._repair_shared_install(str(repo))
+    self_update._repair_shared_install(str(repo))
     assert "Repaired" in capsys.readouterr().out
     assert (repo / ".git" / "objects" / "ab").stat().st_mode & 0o2020 == 0o2020
     assert obj.stat().st_mode & 0o777 == 0o444
 
     os.chown(pyc, -1, os.getgid())
-    canasta_cli._repair_shared_install(str(repo))
+    self_update._repair_shared_install(str(repo))
     assert "Repaired" in capsys.readouterr().out
     assert pyc.stat().st_gid == gid
     assert pyc.stat().st_mode & 0o777 == 0o644
@@ -357,18 +358,18 @@ def test_root_repair_runs_only_for_root_on_a_shared_install(
     repo = _install(tmp_path, monkeypatch)
     _git(repo, "checkout", "-q", "v4.1.0")
     repaired = []
-    monkeypatch.setattr(canasta_cli, "_repair_shared_install",
+    monkeypatch.setattr(self_update, "_repair_shared_install",
                         lambda r: repaired.append(r))
-    monkeypatch.setattr(canasta_cli, "_install_group_shared", lambda r: True)
-    monkeypatch.setattr(canasta_cli, "_in_group", lambda name: False)
+    monkeypatch.setattr(self_update, "_install_group_shared", lambda r: True)
+    monkeypatch.setattr(self_update, "_in_group", lambda name: False)
     for euid, expected in ((1000, []), (0, [str(repo)])):
         repaired.clear()
-        monkeypatch.setattr(canasta_cli.os, "geteuid", lambda: euid)
-        canasta_cli.self_update_cli()
+        monkeypatch.setattr(self_update.os, "geteuid", lambda: euid)
+        self_update.self_update_cli()
         assert repaired == expected
-    monkeypatch.setattr(canasta_cli, "_install_group_shared", lambda r: False)
+    monkeypatch.setattr(self_update, "_install_group_shared", lambda r: False)
     repaired.clear()
-    canasta_cli.self_update_cli()
+    self_update.self_update_cli()
     assert repaired == []
 
 
@@ -376,13 +377,13 @@ def test_root_repair_runs_only_for_root_on_a_shared_install(
 def test_member_with_an_unwritable_dir_is_stopped_before_git_moves(
         tmp_path, monkeypatch, capsys):
     repo = _install(tmp_path, monkeypatch)
-    monkeypatch.setattr(canasta_cli, "_install_group_shared", lambda r: True)
-    monkeypatch.setattr(canasta_cli, "_in_group", lambda name: True)
+    monkeypatch.setattr(self_update, "_install_group_shared", lambda r: True)
+    monkeypatch.setattr(self_update, "_in_group", lambda name: True)
     plugins = repo / "filter_plugins"
     plugins.chmod(0o555)
     try:
         with pytest.raises(SystemExit) as exc:
-            canasta_cli.self_update_cli()
+            self_update.self_update_cli()
     finally:
         plugins.chmod(0o755)
     assert exc.value.code == 1
@@ -398,12 +399,12 @@ def test_member_with_an_unwritable_dir_is_stopped_before_git_moves(
 @needs_non_root
 def test_non_member_keeps_the_skip_warning(tmp_path, monkeypatch, capsys):
     repo = _install(tmp_path, monkeypatch)
-    monkeypatch.setattr(canasta_cli, "_install_group_shared", lambda r: True)
-    monkeypatch.setattr(canasta_cli, "_in_group", lambda name: False)
+    monkeypatch.setattr(self_update, "_install_group_shared", lambda r: True)
+    monkeypatch.setattr(self_update, "_in_group", lambda name: False)
     for path in (repo / "filter_plugins", repo / ".git"):
         path.chmod(0o555)
     try:
-        canasta_cli.self_update_cli()
+        self_update.self_update_cli()
     finally:
         for path in (repo / "filter_plugins", repo / ".git"):
             path.chmod(0o755)

@@ -72,8 +72,7 @@ def registry(monkeypatch, tmp_path):
         conf = tmp_path / "conf.json"
         conf.write_text("{}")
         monkeypatch.setenv("CANASTA_RUN_MODE", mode)
-        monkeypatch.setattr(canasta, "get_config_file_path", lambda: str(conf))
-        monkeypatch.setattr(canasta, "get_config_dir", lambda: str(tmp_path))
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
         monkeypatch.setattr(canasta.canasta_config, "read_config",
                             lambda d: {"Instances": instances})
     return _install
@@ -220,9 +219,7 @@ class TestThroughArgparse:
         config_dir = self._local_registry(instances or {})
         args = _parse(argv)
         monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
-        monkeypatch.setattr(canasta, "get_config_file_path",
-                            lambda: os.path.join(config_dir, "conf.json"))
-        monkeypatch.setattr(canasta, "get_config_dir", lambda: config_dir)
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", config_dir)
         return canasta.check_docker_mode_install_target(args)
 
     def test_pre_command_verbose_install_docker_is_refused(self, monkeypatch):
@@ -328,7 +325,7 @@ class TestOneDefinitionOfLocal:
         assert not _helpers._is_localhost("127.0.0.1")
 
     def test_the_guard_does_not_carry_its_own_list(self):
-        with open(os.path.join(REPO_ROOT, "canasta.py")) as f:
+        with open(os.path.join(REPO_ROOT, "canasta_docker_mode.py")) as f:
             source = f.read()
         start = source.index("def check_docker_mode_install_target")
         end = source.index("def _refuse_local_docker_install")

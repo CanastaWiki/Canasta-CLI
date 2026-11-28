@@ -21,6 +21,7 @@ import canasta_compose_profiles
 import canasta_config
 import canasta_edge_render
 import canasta_env_keys
+import canasta_env_lines
 import canasta_env_quote
 import canasta_web_cause
 import yaml
@@ -71,13 +72,56 @@ def run_direct_command(command_name, args):
 # ---------------------------------------------------------------------------
 
 def _get_config_dir():
-    from canasta import get_config_dir
-    return get_config_dir()
+    return canasta_config.get_config_dir()
 
 
 def _get_script_dir():
-    from canasta import SCRIPT_DIR
-    return SCRIPT_DIR
+    """The CLI checkout: the directory canasta.py is in."""
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def resolve_instance(instance_id=None, required=True):
+    """Resolve an instance from the registry by ID or working directory.
+
+    Returns a dict with id, path, orchestrator keys, or exits on error.
+
+    With required=False, a failed lookup returns None instead of
+    reporting and exiting. Best-effort callers must use it: the error
+    text is printed before the exit, so catching SystemExit suppresses
+    the exit but still leaves a spurious "Error:" line on stderr for a
+    command that neither needs nor uses an instance.
+    """
+    def _unresolved(message):
+        if not required:
+            return None
+        print(message, file=sys.stderr)
+        sys.exit(1)
+
+    config_dir = canasta_config.get_config_dir()
+    conf_file = canasta_config.config_path(config_dir)
+    if not os.path.isfile(conf_file):
+        return _unresolved("Error: no registry found at %s" % conf_file)
+    instances = canasta_config.read_config(config_dir).get("Instances", {})
+
+    if instance_id:
+        if instance_id not in instances:
+            return _unresolved(
+                "Error: instance '%s' not found in registry" % instance_id
+            )
+        inst = instances[instance_id]
+        inst["id"] = instance_id
+        return inst
+
+    # Walk up from cwd to find a matching instance path. Honor
+    # CANASTA_HOST_PWD (the dockerized CLI passes the host's working
+    # directory there) before falling back to the process cwd.
+    search = os.environ.get("CANASTA_HOST_PWD") or os.getcwd()
+    iid, inst = canasta_config.find_by_path(instances, search)
+    if iid is not None:
+        inst["id"] = iid
+        return inst
+
+    return _unresolved("Error: no instance found for current directory")
 
 
 def _install_repair_commands(install_dir, group_shared, user="$(id -un)"):
@@ -112,7 +156,6 @@ def _resolve_instance(args):
     `docker compose` subprocess inherits it. Remote SSH-wrapped docker
     calls pick up the same value via _ssh_run's prefix logic.
     """
-    from canasta import resolve_instance
     instance_id = getattr(args, "id", None)
     inst = resolve_instance(instance_id)
     docker_host = inst.get("dockerHost")
@@ -129,7 +172,7 @@ def _resolve_instance_by_cwd(args):
     directory there) before os.getcwd(), and walks up parent directories so
     the instance is detected from any subdirectory — not just its top level.
     Returns (None, None) on no match so callers can emit their own error
-    message, unlike canasta.resolve_instance() which exits. Shared by
+    message, unlike resolve_instance() which exits. Shared by
     `status`, `doctor`, and `version` so they detect instances identically.
 
     Side effect: like _resolve_instance, exports the resolved instance's
@@ -207,79 +250,10 @@ def _instance_has_sidecars(inst):
     return bool(data.get("sidecars"))
 
 
-def _lint_env_content(content):
-    """True if .env uses CRLF line endings, which reach `docker --env-file`
-    literally. Mirrors canasta_env.lint_env_file() in the Ansible module."""
-    return "\r" in content
-
-
-def _parse_env_entries(content):
-    """Parse .env content into ordered (key, value, is_comment) tuples.
-
-    Values are unquoted the way Compose reads them. Mirrors
-    canasta_env.parse_env_file() in the Ansible module.
-    """
-    entries = []
-    for line in content.split("\n"):
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            entries.append((None, line, True))
-            continue
-        parts = stripped.split("=", 1)
-        if len(parts) == 2:
-            key = parts[0].strip()
-            entries.append(
-                (key, canasta_env_quote.unquote_value(parts[1]), False))
-        else:
-            entries.append((None, line, True))
-    return entries
-
-
-def _env_key_of(line):
-    """Key defined by a raw .env line, or None for comments, blanks, and
-    malformed lines. Tolerates a trailing CR. Mirrors canasta_env._key_of()."""
-    stripped = line.rstrip("\r").strip()
-    if not stripped or stripped.startswith("#"):
-        return None
-    parts = stripped.split("=", 1)
-    if len(parts) != 2:
-        return None
-    return parts[0].strip()
-
-
-def _set_env_lines(lines, key, value):
-    """Rewrite the first line defining `key` as 'key=value', the value
-    quoted only if Compose would otherwise change it, dropping later
-    duplicates and appending if absent. Untouched lines are kept verbatim so
-    their quoting (and any inline '#') survives. Mirrors
-    canasta_env.set_line(), including its ValueErrors."""
-    if "\n" in value or "\r" in value:
-        raise ValueError(
-            "The value of %s contains a line break; .env values must be "
-            "a single line." % key)
-    try:
-        value = canasta_env_quote.quote_value(value)
-    except ValueError as e:
-        raise ValueError("The value of %s cannot be stored in .env: %s."
-                         % (key, e))
-    found = False
-    new_lines = []
-    for line in lines:
-        if _env_key_of(line) == key:
-            if not found:
-                new_lines.append("%s=%s" % (key, value))
-                found = True
-            # Drop duplicate definitions of the same key.
-        else:
-            new_lines.append(line)
-    if not found:
-        # A trailing "" is the file's final newline; the new line goes
-        # before it.
-        at = len(new_lines)
-        if at and new_lines[-1] == "":
-            at -= 1
-        new_lines.insert(at, "%s=%s" % (key, value))
-    return new_lines
+_lint_env_content = canasta_env_lines.lint_env_file
+_parse_env_entries = canasta_env_lines.parse_env_file
+_env_key_of = canasta_env_lines._key_of
+_set_env_lines = canasta_env_lines.set_line
 
 
 def _write_env_content(path, host, content):

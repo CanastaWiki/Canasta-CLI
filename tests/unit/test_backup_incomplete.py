@@ -276,7 +276,7 @@ class TestListFastPath:
                                   "stderr": ""})()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        rc = direct_commands.cmd_backup_list(
+        rc = direct_commands.backup.cmd_backup_list(
             type("Args", (), {"id": "test"})())
         return rc, calls
 

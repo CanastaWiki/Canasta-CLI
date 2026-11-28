@@ -119,7 +119,7 @@ class TestDirectCommandsRoundTrip:
         assert "\n".join(lines).strip() == env_path.read_text().strip()
 
     def test_read_env_file(self, env_path):
-        env = direct_commands._read_env_file(str(env_path.parent), "localhost")
+        env = direct_commands._helpers._read_env_file(str(env_path.parent), "localhost")
         assert {k: env[k] for k in VALUES} == VALUES
 
     def test_read_env(self, env_path):

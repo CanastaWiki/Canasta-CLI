@@ -1,9 +1,9 @@
 """The in-container composer refresh run by `extension|skin add|remove`.
 
-An image with /update-composer-deps.sh keeps the bundled include list itself,
-so config/composer.local.json must not be copied over the effective file;
-the script runs instead, and a composer-update.failed file it leaves counts
-as a failure. Older images keep the copy + `composer update`.
+The image's /update-composer-deps.sh keeps the bundled include list itself,
+so config/composer.local.json is never copied over the effective file; the
+script runs, and a composer-update.failed file it leaves counts as a
+failure. add, its revert, and remove all run it through _composer_update.yml.
 
 The rendered commands run under bash with the container paths redirected
 into a temporary directory and `composer` stubbed.
@@ -21,8 +21,9 @@ import yaml
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 TASKS = os.path.join(REPO_ROOT, "roles", "extensions_skins", "tasks")
-ADD = os.path.join(TASKS, "add.yml")
+ADD = os.path.join(TASKS, "_add_composer.yml")
 REMOVE = os.path.join(TASKS, "remove.yml")
+SHARED = os.path.join(TASKS, "_composer_update.yml")
 
 SCRIPT = "/update-composer-deps.sh"
 FAILED = "/mediawiki/config/persistent/composer-update.failed"
@@ -43,13 +44,17 @@ def _tasks(path):
         return list(_walk(yaml.safe_load(f)))
 
 
-def _refresh_command(path):
+def _refresh_command():
     cmds = [(t.get("vars") or {}).get("exec_command", "")
-            for t in _tasks(path)
-            if t.get("name", "").startswith("Install composer")]
-    cmds = [c for c in cmds if "composer update" in c]
+            for t in _tasks(SHARED)]
+    cmds = [c for c in cmds if c]
     assert len(cmds) == 1
     return cmds[0]
+
+
+def _includes_shared(task):
+    return (task.get("ansible.builtin.include_tasks", "")
+            .endswith("/roles/extensions_skins/tasks/_composer_update.yml"))
 
 
 def _warning_reason_expr(path):
@@ -109,18 +114,35 @@ class _Container:
         return calls.read_text().splitlines() if calls.exists() else []
 
 
-def _render(path, **context):
-    return _env().from_string(_refresh_command(path)).render(**context)
+def _render(**context):
+    return _env().from_string(_refresh_command()).render(**context)
 
 
-@pytest.fixture(params=["add", "remove"])
+@pytest.mark.parametrize("path, name, waits", [
+    (ADD, "Install composer requirements (--no-dev)", True),
+    (REMOVE, "Install composer state (--no-dev)", False),
+])
+def test_add_and_remove_run_the_shared_refresh(path, name, waits):
+    task = [t for t in _tasks(path) if t.get("name") == name]
+    assert len(task) == 1 and _includes_shared(task[0])
+    wait = (task[0].get("vars") or {}).get("composer_update_wait")
+    assert wait == ("{{ _composer_paths }}" if waits else None)
+
+
+def test_the_refresh_is_best_effort():
+    task = [t for t in _tasks(SHARED) if (t.get("vars") or {}).get("exec_command")]
+    assert task[0]["vars"]["rx_fail"] is False
+    assert task[0]["vars"]["exec_long"] is True
+
+
+@pytest.fixture(params=["waiting", "direct"])
 def command(request, tmp_path):
     def make(container):
-        if request.param == "add":
+        if request.param == "waiting":
             (container.mw / "extensions/Foo").mkdir(parents=True)
             (container.mw / "extensions/Foo/composer.json").write_text("{}")
-            return _render(ADD, _composer_paths=["extensions/Foo/composer.json"])
-        return _render(REMOVE)
+            return _render(composer_update_wait=["extensions/Foo/composer.json"])
+        return _render()
     return make
 
 
@@ -149,25 +171,21 @@ class TestImageScript:
         assert "more" not in result.stderr
 
 
-class TestOlderImage:
-    def test_copies_and_runs_composer_update(self, tmp_path, command):
+class TestImageWithoutTheScript:
+    def test_fails_without_touching_composer(self, tmp_path, command):
         c = _Container(tmp_path)
         result = c.run(command(c))
-        assert result.returncode == 0, result.stderr
-        assert c.calls() == ["composer update --no-dev --no-interaction"]
+        assert result.returncode == 1
+        assert "upgrade the instance to a current Canasta image" in result.stderr
+        assert c.calls() == []
         assert (c.mw / "composer.local.json").read_text() == (
-            '{"operator": true}')
-
-    def test_composer_failure_is_the_result(self, tmp_path, command):
-        c = _Container(tmp_path)
-        (tmp_path / "bin/composer").write_text("#!/bin/bash\nexit 2\n")
-        assert c.run(command(c)).returncode == 2
+            '{"effective": true}')
 
 
 class TestAddWaitsBeforeTheRefresh:
     def test_missing_include_fails_before_the_script(self, tmp_path):
         c = _Container(tmp_path, f'echo script >> {tmp_path}/calls\n')
-        cmd = _render(ADD, _composer_paths=["extensions/Gone/composer.json"])
+        cmd = _render(composer_update_wait=["extensions/Gone/composer.json"])
         # Skip the 30-second wait.
         cmd = cmd.replace("[ $i -lt 30 ]", "[ $i -lt 0 ]")
         result = c.run(cmd)
@@ -210,12 +228,11 @@ def _revert_block():
     return tasks, i, tasks[i]
 
 
-def _rebuild_command(autoload_missing=()):
-    for t in _revert_block()[2]["block"]:
-        if t.get("name") == "Rebuild composer state from the restored list":
-            return _env().from_string(t["vars"]["exec_command"]).render(
-                _autoload_missing=list(autoload_missing))
-    raise AssertionError("no rebuild task")
+def _rebuild_task():
+    rebuild = [t for t in _revert_block()[2]["block"]
+               if t.get("name") == "Rebuild composer state from the restored list"]
+    assert len(rebuild) == 1
+    return rebuild[0]
 
 
 class TestAddRebuildAfterRevert:
@@ -243,46 +260,10 @@ class TestAddRebuildAfterRevert:
             "_composer_install_result": "{{ exec_result }}"}
         assert install + 1 < i
 
-    def test_rebuild_is_best_effort(self):
-        rebuild = [t for t in _revert_block()[2]["block"]
-                   if t.get("name")
-                   == "Rebuild composer state from the restored list"]
-        assert len(rebuild) == 1
-        assert rebuild[0]["vars"]["rx_fail"] is False
-        assert rebuild[0]["vars"]["exec_long"] is True
-
-    def test_runs_the_script(self, tmp_path):
-        c = _Container(tmp_path, f'echo script >> {tmp_path}/calls\n')
-        result = c.run(_rebuild_command())
-        assert result.returncode == 0, result.stderr
-        assert c.calls() == ["script"]
-
-    def test_failed_file_counts_as_failure(self, tmp_path):
-        c = _Container(tmp_path, (
-            f'echo "Composer update failed at T (exit 2)." '
-            f'> {tmp_path}/mediawiki/config/persistent/'
-            f'composer-update.failed\n'))
-        result = c.run(_rebuild_command())
-        assert result.returncode == 1
-        assert ("composer-update.failed: Composer update failed at T "
-                "(exit 2).") in result.stderr.splitlines()
-
-    def test_noop_without_the_script(self, tmp_path):
-        c = _Container(tmp_path)
-        result = c.run(_rebuild_command())
-        assert result.returncode == 0, result.stderr
-        assert c.calls() == []
-        assert (c.mw / "composer.local.json").read_text() == (
-            '{"effective": true}')
-
-    def test_older_image_rebuilds_after_missing_autoload_files(self, tmp_path):
-        # composer succeeded there, so vendor/ holds the broken autoloader.
-        c = _Container(tmp_path)
-        result = c.run(_rebuild_command(["extensions/Foo/Foo.php"]))
-        assert result.returncode == 0, result.stderr
-        assert c.calls() == ["composer update --no-dev --no-interaction"]
-        assert (c.mw / "composer.local.json").read_text() == (
-            '{"operator": true}')
+    def test_rebuild_runs_the_shared_refresh_without_waiting(self):
+        rebuild = _rebuild_task()
+        assert _includes_shared(rebuild)
+        assert "composer_update_wait" not in (rebuild.get("vars") or {})
 
 
 class TestAddWarningMessage:

@@ -22,6 +22,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 RUNNER = os.path.join(REPO_ROOT, "tests", "integration", "run_tests.py")
 CLI = os.path.join(REPO_ROOT, "canasta.py")
+SELF_UPDATE = os.path.join(REPO_ROOT, "canasta_self_update.py")
 
 
 def _runner():
@@ -55,7 +56,7 @@ class TestTheGuardStillExists:
     """The pin is worthless if the CLI stops honoring the variable."""
 
     def test_self_update_honors_the_env_var(self):
-        with open(CLI) as f:
+        with open(SELF_UPDATE) as f:
             src = f.read()
         assert re.search(
             r'if os\.environ\.get\(\s*["\']CANASTA_SELF_UPDATED["\']\s*\)', src

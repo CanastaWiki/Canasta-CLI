@@ -128,9 +128,9 @@ def test_composer_commit_is_limited_to_composer_local_json(tmp_path):
     (inst / "config" / "composer.local.json").write_text('{"a": 1}\n')
     variables = {"instance_path": str(inst), "_to_add": [{"name": "Foo"}]}
 
-    assert _run("add.yml", "Stage composer.local.json",
+    assert _run("_add_composer.yml", "Stage composer.local.json",
                 variables).returncode == 0
-    assert _run("add.yml", "Commit composer.local.json (gitops)",
+    assert _run("_add_composer.yml", "Commit composer.local.json (gitops)",
                 variables).returncode == 0
 
     assert _committed(inst) == ["config/composer.local.json"]

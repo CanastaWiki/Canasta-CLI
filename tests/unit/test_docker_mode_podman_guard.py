@@ -57,8 +57,7 @@ def registry(monkeypatch, tmp_path):
         conf = tmp_path / "conf.json"
         conf.write_text("{}")
         monkeypatch.setenv("CANASTA_RUN_MODE", mode)
-        monkeypatch.setattr(canasta, "get_config_file_path", lambda: str(conf))
-        monkeypatch.setattr(canasta, "get_config_dir", lambda: str(tmp_path))
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
         monkeypatch.setattr(canasta.canasta_config, "read_config",
                             lambda d: {"Instances": instances})
     return _install
@@ -165,6 +164,5 @@ class TestItDoesNotRefuseAnythingElse:
 
     def test_no_registry_is_not_an_error(self, monkeypatch):
         monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
-        monkeypatch.setattr(canasta, "get_config_file_path",
-                            lambda: "/nonexistent/conf.json")
+        monkeypatch.setenv("CANASTA_CONFIG_DIR", "/nonexistent")
         self._ok(_args(id="pod1"))

@@ -14,7 +14,7 @@ from direct_commands import _helpers
 
 def _resolve_with_docker_host(monkeypatch, docker_host):
     monkeypatch.setattr(
-        "canasta.resolve_instance",
+        "direct_commands._helpers.resolve_instance",
         lambda _id: {"id": "mysite", "dockerHost": docker_host})
     _helpers._resolve_instance(SimpleNamespace(id="mysite"))
 

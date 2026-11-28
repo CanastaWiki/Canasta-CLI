@@ -136,20 +136,20 @@ class TestListBuildArgs:
     def test_prints_each_recorded_arg(self, tmp_path, monkeypatch, capsys):
         _write_registry(tmp_path, monkeypatch, buildFrom="/src",
                         buildArgs=["BASE_IMAGE=x:1", "FOO=bar"])
-        rc = direct_commands.cmd_image_build_args(SimpleNamespace(id="site"))
+        rc = direct_commands.image.cmd_image_build_args(SimpleNamespace(id="site"))
         assert rc == 0
         assert capsys.readouterr().out == "BASE_IMAGE=x:1\nFOO=bar\n"
 
     def test_reports_none_recorded(self, tmp_path, monkeypatch, capsys):
         _write_registry(tmp_path, monkeypatch, buildFrom="/src")
-        rc = direct_commands.cmd_image_build_args(SimpleNamespace(id="site"))
+        rc = direct_commands.image.cmd_image_build_args(SimpleNamespace(id="site"))
         assert rc == 0
         assert "No build arguments recorded for 'site'." in capsys.readouterr().out
 
     def test_refuses_an_instance_not_built_from_source(
             self, tmp_path, monkeypatch, capsys):
         _write_registry(tmp_path, monkeypatch)
-        rc = direct_commands.cmd_image_build_args(SimpleNamespace(id="site"))
+        rc = direct_commands.image.cmd_image_build_args(SimpleNamespace(id="site"))
         assert rc == 1
         assert "not built from source" in capsys.readouterr().err
 
