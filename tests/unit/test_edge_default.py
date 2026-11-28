@@ -72,9 +72,7 @@ def test_upgrade_moves_hosts_before_instances_upgrade():
 def test_instances_get_the_snippet_file_without_clobbering():
     with open(os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks", "init_config.yml")) as f:
         top = yaml.safe_load(f)
-    compose = next(t for t in top if t.get("name") == "Compose-specific init")
-    assert "when" not in compose
-    tasks = {t.get("name"): t for t in compose["block"]}
+    tasks = {t.get("name"): t for t in top}
     copy = tasks["Create haproxy-backend.cfg from template (no-clobber)"]["ansible.builtin.copy"]
     assert copy["dest"] == "{{ instance_path }}/config/haproxy-backend.cfg"
     assert copy["force"] is False

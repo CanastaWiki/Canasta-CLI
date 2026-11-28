@@ -9,7 +9,7 @@ Layout:
                       helpers, public registry decorator)
   info.py           — list, version, status
   config.py         — config get
-  lifecycle.py      — start, stop
+  lifecycle.py      — stop
   maintenance.py    — maintenance script/extension/update
   host.py           — host list/add/remove
   gitops.py         — gitops status/diff

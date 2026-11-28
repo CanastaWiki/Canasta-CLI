@@ -58,7 +58,7 @@ mkdir -p "$CONFIG_DIR"
 # install docker') that a bash scan of "$@" would miss, and the -i
 # lookup reads the real registry (an instance created without --host has
 # no 'host' key at all, which means local). See
-# check_docker_mode_install_target in canasta.py.
+# check_docker_mode_install_target in canasta_docker_mode.py.
 #
 # The trade: the refusal now happens inside the container, so a local
 # `canasta install` pulls and starts the CLI image before printing the
