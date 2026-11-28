@@ -191,7 +191,7 @@ def test_the_migration_renames_the_keys(tmp_path):
 
 
 def test_upgrade_runs_the_migration():
-    with open(os.path.join(ROOT, "roles", "upgrade", "tasks", "main.yml")) as f:
+    with open(os.path.join(ROOT, "roles", "upgrade", "tasks", "run_migrations.yml")) as f:
         assert "- rename_tls_keys.yml" in f.read()
 
 
