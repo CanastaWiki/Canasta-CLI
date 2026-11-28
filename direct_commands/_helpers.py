@@ -72,13 +72,56 @@ def run_direct_command(command_name, args):
 # ---------------------------------------------------------------------------
 
 def _get_config_dir():
-    from canasta import get_config_dir
-    return get_config_dir()
+    return canasta_config.get_config_dir()
 
 
 def _get_script_dir():
-    from canasta import SCRIPT_DIR
-    return SCRIPT_DIR
+    """The CLI checkout: the directory canasta.py is in."""
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def resolve_instance(instance_id=None, required=True):
+    """Resolve an instance from the registry by ID or working directory.
+
+    Returns a dict with id, path, orchestrator keys, or exits on error.
+
+    With required=False, a failed lookup returns None instead of
+    reporting and exiting. Best-effort callers must use it: the error
+    text is printed before the exit, so catching SystemExit suppresses
+    the exit but still leaves a spurious "Error:" line on stderr for a
+    command that neither needs nor uses an instance.
+    """
+    def _unresolved(message):
+        if not required:
+            return None
+        print(message, file=sys.stderr)
+        sys.exit(1)
+
+    config_dir = canasta_config.get_config_dir()
+    conf_file = canasta_config.config_path(config_dir)
+    if not os.path.isfile(conf_file):
+        return _unresolved("Error: no registry found at %s" % conf_file)
+    instances = canasta_config.read_config(config_dir).get("Instances", {})
+
+    if instance_id:
+        if instance_id not in instances:
+            return _unresolved(
+                "Error: instance '%s' not found in registry" % instance_id
+            )
+        inst = instances[instance_id]
+        inst["id"] = instance_id
+        return inst
+
+    # Walk up from cwd to find a matching instance path. Honor
+    # CANASTA_HOST_PWD (the dockerized CLI passes the host's working
+    # directory there) before falling back to the process cwd.
+    search = os.environ.get("CANASTA_HOST_PWD") or os.getcwd()
+    iid, inst = canasta_config.find_by_path(instances, search)
+    if iid is not None:
+        inst["id"] = iid
+        return inst
+
+    return _unresolved("Error: no instance found for current directory")
 
 
 def _install_repair_commands(install_dir, group_shared, user="$(id -un)"):
@@ -113,7 +156,6 @@ def _resolve_instance(args):
     `docker compose` subprocess inherits it. Remote SSH-wrapped docker
     calls pick up the same value via _ssh_run's prefix logic.
     """
-    from canasta import resolve_instance
     instance_id = getattr(args, "id", None)
     inst = resolve_instance(instance_id)
     docker_host = inst.get("dockerHost")
@@ -130,7 +172,7 @@ def _resolve_instance_by_cwd(args):
     directory there) before os.getcwd(), and walks up parent directories so
     the instance is detected from any subdirectory — not just its top level.
     Returns (None, None) on no match so callers can emit their own error
-    message, unlike canasta.resolve_instance() which exits. Shared by
+    message, unlike resolve_instance() which exits. Shared by
     `status`, `doctor`, and `version` so they detect instances identically.
 
     Side effect: like _resolve_instance, exports the resolved instance's

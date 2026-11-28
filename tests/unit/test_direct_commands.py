@@ -4096,7 +4096,7 @@ class TestDockerHostPropagation:
     ):
         monkeypatch.delenv("DOCKER_HOST", raising=False)
         monkeypatch.setattr(
-            "canasta.resolve_instance",
+            "direct_commands._helpers.resolve_instance",
             lambda iid: {
                 "id": "mysite",
                 "path": "/srv/mysite",
@@ -4118,7 +4118,7 @@ class TestDockerHostPropagation:
     ):
         monkeypatch.delenv("DOCKER_HOST", raising=False)
         monkeypatch.setattr(
-            "canasta.resolve_instance",
+            "direct_commands._helpers.resolve_instance",
             lambda iid: {
                 "id": "mysite",
                 "path": "/srv/mysite",

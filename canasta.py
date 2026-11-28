@@ -52,6 +52,7 @@ from direct_commands._helpers import (
     _is_local_target,
     _read_env,
     _resolve_compose_cmd,
+    resolve_instance,
 )
 
 # Ensure Ansible uses the repo's config regardless of working directory
@@ -1180,49 +1181,6 @@ def get_config_dir():
 def get_config_file_path():
     """Return the path to conf.json."""
     return canasta_config.config_path(get_config_dir())
-
-
-def resolve_instance(instance_id=None, required=True):
-    """Resolve an instance from the registry by ID or working directory.
-
-    Returns a dict with id, path, orchestrator keys, or exits on error.
-
-    With required=False, a failed lookup returns None instead of
-    reporting and exiting. Best-effort callers must use it: the error
-    text is printed before the exit, so catching SystemExit suppresses
-    the exit but still leaves a spurious "Error:" line on stderr for a
-    command that neither needs nor uses an instance.
-    """
-    def _unresolved(message):
-        if not required:
-            return None
-        print(message, file=sys.stderr)
-        sys.exit(1)
-
-    conf_file = get_config_file_path()
-    if not os.path.isfile(conf_file):
-        return _unresolved("Error: no registry found at %s" % conf_file)
-    instances = canasta_config.read_config(get_config_dir()).get("Instances", {})
-
-    if instance_id:
-        if instance_id not in instances:
-            return _unresolved(
-                "Error: instance '%s' not found in registry" % instance_id
-            )
-        inst = instances[instance_id]
-        inst["id"] = instance_id
-        return inst
-
-    # Walk up from cwd to find a matching instance path. Honor
-    # CANASTA_HOST_PWD (the dockerized CLI passes the host's working
-    # directory there) before falling back to the process cwd.
-    search = os.environ.get("CANASTA_HOST_PWD") or os.getcwd()
-    iid, inst = canasta_config.find_by_path(instances, search)
-    if iid is not None:
-        inst["id"] = iid
-        return inst
-
-    return _unresolved("Error: no instance found for current directory")
 
 
 # Commands that change an instance wholesale or start and stop it. Each holds
