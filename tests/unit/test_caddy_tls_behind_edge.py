@@ -247,13 +247,7 @@ def test_an_instance_not_behind_the_edge_keeps_its_tls_for_rebuild_and_doctor(
                                     "orchestrator": "compose"}) == []
     calls = []
     _patch_rebuild(monkeypatch, path, calls)
-    monkeypatch.setattr(direct_commands._helpers, "_sync_compose_profiles",
-                        lambda inst: {})
-    monkeypatch.setattr(direct_commands._helpers, "_backfill_db_defaults",
-                        lambda inst: None)
-    monkeypatch.setattr(direct_commands._helpers, "_wait_web_ready",
-                        lambda inst_id, inst: 0)
-    monkeypatch.setattr(direct_commands._helpers, "_rootless_operator_chown",
-                        lambda inst: None)
-    assert direct_commands.cmd_rebuild(_args()) == 0
-    assert calls[0] == ["build", "web"] and ["up", "-d"] in calls
+    result = direct_commands.cmd_rebuild(_args())
+    assert isinstance(result, direct_commands._helpers.AnsibleHandoff)
+    assert result.command == "restart"
+    assert calls == [["build", "web"]]

@@ -72,21 +72,21 @@ def _run(monkeypatch, argv):
 class TestDirectDispatch:
     def test_direct_result_is_the_exit_code(self, harness, monkeypatch):
         harness.direct_result = 4
-        assert _run(monkeypatch, ["start", "-i", "mysite"]) == 4
-        assert [c[0] for c in harness.direct_calls] == ["start"]
+        assert _run(monkeypatch, ["stop", "-i", "mysite"]) == 4
+        assert [c[0] for c in harness.direct_calls] == ["stop"]
         assert harness.ansible_calls == []
 
     def test_fallback_reaches_ansible(self, harness, monkeypatch):
         harness.direct_result = direct_commands.FALLBACK
-        assert _run(monkeypatch, ["start", "-i", "mysite"]) == "exec"
-        assert [c[0] for c in harness.direct_calls] == ["start"]
-        assert [c[0] for c in harness.ansible_calls] == ["start"]
+        assert _run(monkeypatch, ["stop", "-i", "mysite"]) == "exec"
+        assert [c[0] for c in harness.direct_calls] == ["stop"]
+        assert [c[0] for c in harness.ansible_calls] == ["stop"]
 
     def test_force_ansible_skips_fast_path(self, harness, monkeypatch):
         monkeypatch.setenv("CANASTA_FORCE_ANSIBLE", "1")
-        assert _run(monkeypatch, ["start", "-i", "mysite"]) == "exec"
+        assert _run(monkeypatch, ["stop", "-i", "mysite"]) == "exec"
         assert harness.direct_calls == []
-        assert [c[0] for c in harness.ansible_calls] == ["start"]
+        assert [c[0] for c in harness.ansible_calls] == ["stop"]
 
     def test_force_ansible_ignored_for_direct_only(self, harness, monkeypatch):
         monkeypatch.setenv("CANASTA_FORCE_ANSIBLE", "1")

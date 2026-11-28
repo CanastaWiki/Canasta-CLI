@@ -48,7 +48,7 @@ class TestRebuildNoBuildableServices:
 
 
 class TestRebuildBuildAndRestart:
-    def test_default_flow_builds_then_restarts(self, monkeypatch):
+    def test_default_flow_builds_then_hands_the_restart_to_ansible(self, monkeypatch):
         _patch_compose_inst(monkeypatch)
         monkeypatch.setattr(direct_commands.rebuild, "_list_buildable_services",
             lambda inst, include_sidecars=False: ["web"],
@@ -60,20 +60,13 @@ class TestRebuildBuildAndRestart:
             return 0
 
         monkeypatch.setattr(direct_commands._helpers, "_run_compose", fake_run_compose)
-        monkeypatch.setattr(direct_commands._helpers, "_sync_compose_profiles",
-            lambda inst: None,
-        )
-        monkeypatch.setattr(direct_commands._helpers, "_wait_web_ready",
-            lambda i, inst: 0,
-        )
 
-        rc = direct_commands.cmd_rebuild(_args())
-        assert rc == 0
-        # Expect: build web, down, up -d
-        assert calls[0] == ["build", "web"]
-        assert calls[1] == ["down"]
-        assert calls[2] == ["up", "-d"]
-        assert len(calls) == 3
+        args = _args(id=None)
+        result = direct_commands.cmd_rebuild(args)
+        assert isinstance(result, direct_commands._helpers.AnsibleHandoff)
+        assert result.command == "restart"
+        assert args.id == "test"
+        assert calls == [["build", "web"]]
 
     def test_no_cache_flag_passes_through(self, monkeypatch):
         _patch_compose_inst(monkeypatch)
@@ -84,9 +77,6 @@ class TestRebuildBuildAndRestart:
         monkeypatch.setattr(direct_commands._helpers, "_run_compose",
             lambda inst_id, inst, action_args, include_sidecars=False:
                 (calls.append(list(action_args)) or 0),
-        )
-        monkeypatch.setattr(direct_commands._helpers, "_sync_compose_profiles",
-            lambda inst: None,
         )
 
         direct_commands.cmd_rebuild(_args(no_cache=True))
@@ -101,9 +91,6 @@ class TestRebuildBuildAndRestart:
         monkeypatch.setattr(direct_commands._helpers, "_run_compose",
             lambda inst_id, inst, action_args, include_sidecars=False:
                 (calls.append(list(action_args)) or 0),
-        )
-        monkeypatch.setattr(direct_commands._helpers, "_sync_compose_profiles",
-            lambda inst: None,
         )
 
         direct_commands.cmd_rebuild(_args())
@@ -127,44 +114,6 @@ class TestRebuildBuildAndRestart:
         assert "--no-restart" in out
         assert "canasta restart" in out
 
-    def test_waits_for_web_after_the_restart(self, monkeypatch):
-        # A rebuild replaces the image, so the restart it drives is the case
-        # where composer runs longest — returning before web is ready is
-        # exactly when a follow-up command races it.
-        _patch_compose_inst(monkeypatch)
-        monkeypatch.setattr(direct_commands.rebuild, "_list_buildable_services",
-            lambda inst, include_sidecars=False: ["web"],
-        )
-        events = []
-        monkeypatch.setattr(direct_commands._helpers, "_run_compose",
-            lambda inst_id, inst, action, include_sidecars=False:
-                events.append(action[0]) or 0,
-        )
-        monkeypatch.setattr(direct_commands._helpers, "_sync_compose_profiles",
-            lambda inst: None,
-        )
-        monkeypatch.setattr(direct_commands._helpers, "_wait_web_ready",
-            lambda i, inst: events.append("wait") or 1,
-        )
-        assert direct_commands.cmd_rebuild(_args()) == 1
-        assert events == ["build", "down", "up", "wait"]
-
-    def test_no_restart_does_not_wait(self, monkeypatch):
-        _patch_compose_inst(monkeypatch)
-        monkeypatch.setattr(direct_commands.rebuild, "_list_buildable_services",
-            lambda inst, include_sidecars=False: ["web"],
-        )
-        events = []
-        monkeypatch.setattr(direct_commands._helpers, "_run_compose",
-            lambda inst_id, inst, action, include_sidecars=False:
-                events.append(action[0]) or 0,
-        )
-        monkeypatch.setattr(direct_commands._helpers, "_wait_web_ready",
-            lambda i, inst: events.append("wait") or 0,
-        )
-        assert direct_commands.cmd_rebuild(_args(no_restart=True)) == 0
-        assert events == ["build"]
-
     def test_build_failure_skips_restart_and_returns_code(self, monkeypatch):
         _patch_compose_inst(monkeypatch)
         monkeypatch.setattr(direct_commands.rebuild, "_list_buildable_services",
@@ -185,8 +134,7 @@ class TestRebuildBuildAndRestart:
 
 class TestRebuildSidecars:
     """rebuild on a sidecar instance must layer docker-compose.sidecars.yml
-    into every compose call (as the Ansible stop/start path does), or the
-    down/up cycle runs with an incomplete file set and drops the sidecars."""
+    into its compose calls, or the build runs with an incomplete file set."""
 
     def _sidecar_inst(self, tmp_path, sidecars_yaml):
         site = tmp_path / "test"
@@ -219,10 +167,6 @@ class TestRebuildSidecars:
 
         monkeypatch.setattr(
             direct_commands._helpers, "_run_compose", fake_run_compose)
-        monkeypatch.setattr(
-            direct_commands._helpers, "_sync_compose_profiles", lambda inst: None)
-        monkeypatch.setattr(
-            direct_commands._helpers, "_wait_web_ready", lambda i, inst: 0)
         rc = direct_commands.cmd_rebuild(_args())
         return rc, listed, calls
 
@@ -231,13 +175,9 @@ class TestRebuildSidecars:
         site = self._sidecar_inst(
             tmp_path, "sidecars:\n  - name: cache\n    image: redis:7\n")
         rc, listed, calls = self._run(monkeypatch, site)
-        assert rc == 0
+        assert isinstance(rc, direct_commands._helpers.AnsibleHandoff)
         assert listed["include_sidecars"] is True
-        assert calls == [
-            (["build", "web"], True),
-            (["down"], True),
-            (["up", "-d"], True),
-        ]
+        assert calls == [(["build", "web"], True)]
 
     def test_no_sidecars_keeps_layer_off(self, monkeypatch, tmp_path):
         # An empty sidecars list must NOT pull in a lingering rendered
@@ -245,7 +185,7 @@ class TestRebuildSidecars:
         # removed sidecar on `up -d`.
         site = self._sidecar_inst(tmp_path, "sidecars: []\n")
         rc, listed, calls = self._run(monkeypatch, site)
-        assert rc == 0
+        assert isinstance(rc, direct_commands._helpers.AnsibleHandoff)
         assert listed["include_sidecars"] is False
         assert all(flag is False for _args_, flag in calls)
 

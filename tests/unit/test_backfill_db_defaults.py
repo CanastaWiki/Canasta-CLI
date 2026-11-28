@@ -1,8 +1,9 @@
 """Tests for backfilling the bundled-DB MYSQL_* defaults into .env.
 
 podman-compose passes ${MYSQL_HOST:-db} through literally, so an instance
-whose .env predates create pinning these keys hangs on start. Both the
-Ansible start path and the Compose fast path must fill them in.
+whose .env predates create pinning these keys hangs on start. The start
+path's heal_mysql_defaults.yml fills them in, along with MediaWiki's
+database account.
 """
 
 import os
@@ -12,175 +13,85 @@ import sys
 import pytest
 import yaml
 
-REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-sys.path.insert(0, REPO_ROOT)
-
-import direct_commands  # noqa: E402
-from direct_commands import _helpers  # noqa: E402
-
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 HEAL = os.path.join(
     REPO_ROOT, "roles", "orchestrator", "tasks", "heal_mysql_defaults.yml")
 
 
-def _inst(tmp_path):
-    return {"path": str(tmp_path), "host": "localhost",
-            "orchestrator": "compose"}
+def _heal(tmp_path, content):
+    """Run heal_mysql_defaults.yml on an .env holding content; return the
+    file's lines afterwards."""
+    inst = tmp_path / "inst"
+    inst.mkdir()
+    (inst / ".env").write_text(content)
+    play = tmp_path / "play.yml"
+    play.write_text(yaml.safe_dump([{
+        "hosts": "localhost",
+        "connection": "local",
+        "gather_facts": False,
+        "vars_files": [os.path.join(REPO_ROOT, "vars", "mysql_defaults.yml")],
+        "vars": {"instance_path": str(inst),
+                 "ansible_python_interpreter": sys.executable},
+        "tasks": [{"ansible.builtin.include_tasks": HEAL}],
+    }]))
+    common = os.path.join(REPO_ROOT, "roles", "common")
+    env = dict(os.environ, ANSIBLE_NOCOLOR="1", ANSIBLE_LOCALHOST_WARNING="0",
+               ANSIBLE_LIBRARY=os.path.join(common, "library"),
+               ANSIBLE_MODULE_UTILS=os.path.join(common, "module_utils"))
+    playbook = os.path.join(os.path.dirname(sys.executable), "ansible-playbook")
+    proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
+                          capture_output=True, text=True, env=env, cwd=tmp_path)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return (inst / ".env").read_text().split()
 
 
-def _env(tmp_path):
-    return (tmp_path / ".env").read_text()
+FULL = ("MYSQL_HOST=db\nMYSQL_PORT=3306\nMYSQL_USER=root\nMYSQL_SSL=false\n")
 
 
-class TestHelper:
-    def test_missing_keys_are_added(self, tmp_path):
-        (tmp_path / ".env").write_text("MYSQL_PASSWORD=pw\n")
-        _helpers._backfill_db_defaults(_inst(tmp_path))
-        assert _env(tmp_path) == (
-            "MYSQL_PASSWORD=pw\nMYSQL_HOST=db\nMYSQL_PORT=3306\n"
-            "MYSQL_USER=root\nMYSQL_SSL=false\n"
-            "WIKI_DB_USER=root\nWIKI_DB_PASSWORD=pw\n")
-
-    def test_existing_values_are_kept(self, tmp_path):
-        (tmp_path / ".env").write_text(
-            "MYSQL_HOST=otherdb\nMYSQL_PORT=3307\nMYSQL_USER=wiki\n")
-        _helpers._backfill_db_defaults(_inst(tmp_path))
-        text = _env(tmp_path)
-        assert "MYSQL_HOST=otherdb\n" in text
-        assert "MYSQL_PORT=3307\n" in text
-        assert "MYSQL_USER=wiki\n" in text
-        assert "MYSQL_SSL=false\n" in text
-        assert "MYSQL_HOST=db" not in text
-
-    def test_empty_value_is_filled(self, tmp_path):
-        (tmp_path / ".env").write_text(
-            "MYSQL_HOST=\nMYSQL_PORT=3306\nMYSQL_USER=root\nMYSQL_SSL=false\n")
-        _helpers._backfill_db_defaults(_inst(tmp_path))
-        assert _env(tmp_path).startswith("MYSQL_HOST=db\n")
-
-    def test_external_db_gets_only_the_wiki_account_keys(self, tmp_path):
-        content = ("USE_EXTERNAL_DB=true\nMYSQL_HOST=db.example.com\n"
-                   "MYSQL_USER=wikiop\nMYSQL_PASSWORD=extpw\n")
-        (tmp_path / ".env").write_text(content)
-        _helpers._backfill_db_defaults(_inst(tmp_path))
-        assert _env(tmp_path) == (
-            content + "WIKI_DB_USER=wikiop\nWIKI_DB_PASSWORD=extpw\n")
-
-    def test_complete_env_is_not_rewritten(self, tmp_path, monkeypatch):
-        (tmp_path / ".env").write_text(
-            "MYSQL_HOST=db\nMYSQL_PORT=3306\nMYSQL_USER=root\nMYSQL_SSL=false\n"
-            "MYSQL_PASSWORD=pw\nWIKI_DB_USER=root\nWIKI_DB_PASSWORD=pw\n")
-        writes = []
-        monkeypatch.setattr(_helpers, "_write_env_content",
-                            lambda *a: writes.append(a))
-        _helpers._backfill_db_defaults(_inst(tmp_path))
-        assert writes == []
-
-    def test_root_account_password_follows_a_rotation(self, tmp_path):
-        (tmp_path / ".env").write_text(
-            "MYSQL_HOST=db\nMYSQL_PORT=3306\nMYSQL_USER=root\nMYSQL_SSL=false\n"
-            "MYSQL_PASSWORD=new\nWIKI_DB_USER=root\nWIKI_DB_PASSWORD=old\n")
-        _helpers._backfill_db_defaults(_inst(tmp_path))
-        assert "WIKI_DB_PASSWORD=new\n" in _env(tmp_path)
-        assert "WIKI_DB_PASSWORD=old" not in _env(tmp_path)
-
-    def test_own_account_password_is_left_alone(self, tmp_path):
-        content = (
-            "MYSQL_HOST=db\nMYSQL_PORT=3306\nMYSQL_USER=root\nMYSQL_SSL=false\n"
-            "MYSQL_PASSWORD=rootpw\nWIKI_DB_USER=mediawiki\nWIKI_DB_PASSWORD=wikipw\n")
-        (tmp_path / ".env").write_text(content)
-        _helpers._backfill_db_defaults(_inst(tmp_path))
-        assert _env(tmp_path) == content
-
-    def test_no_env_is_not_created(self, tmp_path):
-        _helpers._backfill_db_defaults(_inst(tmp_path))
-        assert not (tmp_path / ".env").exists()
+def test_missing_keys_are_added(tmp_path):
+    assert sorted(_heal(tmp_path, "MYSQL_PASSWORD=pw\n")) == sorted([
+        "MYSQL_PASSWORD=pw", "MYSQL_HOST=db", "MYSQL_PORT=3306",
+        "MYSQL_USER=root", "MYSQL_SSL=false",
+        "WIKI_DB_USER=root", "WIKI_DB_PASSWORD=pw"])
 
 
-class TestFastPathsBackfillBeforeUp:
-    @pytest.fixture
-    def calls(self, monkeypatch):
-        seen = []
-        monkeypatch.setattr(_helpers, "_resolve_instance",
-                            lambda args: ("test", {"path": "/srv/test",
-                                                   "orchestrator": "compose",
-                                                   "host": "localhost"}))
-        monkeypatch.setattr(_helpers, "_instance_has_sidecars",
-                            lambda inst: False)
-        monkeypatch.setattr(_helpers, "_sync_compose_profiles",
-                            lambda inst: {})
-        monkeypatch.setattr(_helpers, "_check_running_compose",
-                            lambda *a: False)
-        monkeypatch.setattr(_helpers, "_missing_db_password",
-                            lambda inst, env: False)
-        monkeypatch.setattr(_helpers, "_wait_web_ready", lambda i, inst: 0)
-        monkeypatch.setattr(_helpers, "_rootless_operator_chown",
-                            lambda inst: None)
-        monkeypatch.setattr(direct_commands.rebuild,
-                            "_list_buildable_services",
-                            lambda inst, include_sidecars=False: ["web"])
-        monkeypatch.setattr(_helpers, "_backfill_db_defaults",
-                            lambda inst: seen.append("backfill"))
-        monkeypatch.setattr(_helpers, "_run_compose",
-                            lambda i, inst, argv, **kw: seen.append(argv[0])
-                            or 0)
-        return seen
-
-    @staticmethod
-    def _args():
-        return type("Args", (), {"id": "test", "no_cache": False,
-                                 "no_restart": False})()
-
-    @pytest.mark.parametrize("cmd", ["cmd_rebuild"])
-    def test_backfill_runs_before_up(self, calls, cmd):
-        assert getattr(direct_commands, cmd)(self._args()) == 0
-        assert "backfill" in calls
-        assert calls.index("backfill") < calls.index("up")
+def test_existing_values_are_kept(tmp_path):
+    lines = _heal(tmp_path, "MYSQL_HOST=otherdb\nMYSQL_PORT=3307\nMYSQL_USER=wiki\n")
+    assert {"MYSQL_HOST=otherdb", "MYSQL_PORT=3307", "MYSQL_USER=wiki",
+            "MYSQL_SSL=false"} <= set(lines)
+    assert "MYSQL_HOST=db" not in lines
 
 
-class TestParityWithAnsible:
-    def test_python_table_comes_from_the_vars_file(self):
-        with open(os.path.join(REPO_ROOT, "vars", "mysql_defaults.yml")) as f:
-            table = yaml.safe_load(f)["canasta_bundled_db_defaults"]
-        assert list(_helpers._BUNDLED_DB_DEFAULTS) == [
-            (d["key"], d["value"]) for d in table]
+def test_empty_value_is_filled(tmp_path):
+    lines = _heal(tmp_path, "MYSQL_HOST=\n" + FULL.split("\n", 1)[1])
+    assert "MYSQL_HOST=db" in lines and "MYSQL_HOST=" not in lines
 
-    @pytest.mark.parametrize("content", [
-        "MYSQL_PASSWORD=pw\n",
-        "MYSQL_HOST=\nMYSQL_PORT=3307\nMYSQL_PASSWORD=pw\n",
-        "USE_EXTERNAL_DB=true\nMYSQL_HOST=db.example.com\nMYSQL_PASSWORD=pw\n",
-    ])
-    def test_ansible_writes_what_the_fast_path_writes(self, tmp_path, content):
-        py_dir = tmp_path / "py"
-        py_dir.mkdir()
-        (py_dir / ".env").write_text(content)
-        _helpers._backfill_db_defaults(_inst(py_dir))
 
-        inst = tmp_path / "inst"
-        inst.mkdir()
-        (inst / ".env").write_text(content)
-        play = tmp_path / "play.yml"
-        play.write_text(yaml.safe_dump([{
-            "hosts": "localhost",
-            "connection": "local",
-            "gather_facts": False,
-            "vars_files": [os.path.join(
-                os.path.abspath(REPO_ROOT), "vars", "mysql_defaults.yml")],
-            "vars": {"instance_path": str(inst),
-                     "ansible_python_interpreter": sys.executable},
-            "tasks": [{"ansible.builtin.include_tasks":
-                       os.path.abspath(HEAL)}],
-        }]))
-        common = os.path.join(os.path.abspath(REPO_ROOT), "roles", "common")
-        env = dict(os.environ, ANSIBLE_NOCOLOR="1",
-                   ANSIBLE_LOCALHOST_WARNING="0",
-                   ANSIBLE_LIBRARY=os.path.join(common, "library"),
-                   ANSIBLE_MODULE_UTILS=os.path.join(common, "module_utils"))
-        playbook = os.path.join(
-            os.path.dirname(sys.executable), "ansible-playbook")
-        proc = subprocess.run([playbook, "-i", "localhost,", str(play)],
-                              capture_output=True, text=True, env=env,
-                              cwd=tmp_path)
-        assert proc.returncode == 0, proc.stdout + proc.stderr
-        # canasta_env and the fast path lay out blank lines differently.
-        assert ((inst / ".env").read_text().split()
-                == _env(py_dir).split())
+def test_external_db_gets_only_the_wiki_account_keys(tmp_path):
+    content = ("USE_EXTERNAL_DB=true\nMYSQL_HOST=db.example.com\n"
+               "MYSQL_USER=wikiop\nMYSQL_PASSWORD=extpw\n")
+    assert sorted(_heal(tmp_path, content)) == sorted(
+        content.split() + ["WIKI_DB_USER=wikiop", "WIKI_DB_PASSWORD=extpw"])
+
+
+def test_root_account_password_follows_a_rotation(tmp_path):
+    lines = _heal(tmp_path, FULL + "MYSQL_PASSWORD=new\nWIKI_DB_USER=root\n"
+                  "WIKI_DB_PASSWORD=old\n")
+    assert "WIKI_DB_PASSWORD=new" in lines
+    assert "WIKI_DB_PASSWORD=old" not in lines
+
+
+def test_own_account_password_is_left_alone(tmp_path):
+    content = FULL + ("MYSQL_PASSWORD=rootpw\nWIKI_DB_USER=mediawiki\n"
+                      "WIKI_DB_PASSWORD=wikipw\n")
+    assert _heal(tmp_path, content) == content.split()
+
+
+@pytest.mark.parametrize("opt_out, expected", [
+    ("CANASTA_DB_ROOT_ACCOUNT=true\n", ["WIKI_DB_USER=root", "WIKI_DB_PASSWORD=rootpw"]),
+    ("", ["WIKI_DB_USER=mediawiki", "WIKI_DB_PASSWORD=wikipw"]),
+])
+def test_opting_out_puts_a_moved_instance_back_on_root(tmp_path, opt_out, expected):
+    lines = _heal(tmp_path, FULL + "MYSQL_PASSWORD=rootpw\nWIKI_DB_USER=mediawiki\n"
+                  "WIKI_DB_PASSWORD=wikipw\n" + opt_out)
+    assert set(expected) <= set(lines)

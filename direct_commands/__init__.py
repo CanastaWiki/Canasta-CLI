@@ -47,7 +47,6 @@ from ._helpers import (  # noqa: F401
     _check_dir_exists,
     _check_running_compose,
     _compose_file_args,
-    _dump_compose_failure,
     _exec_in_container,
     _filter_by_host,
     _gather_instance_info,
@@ -92,7 +91,7 @@ from .info import (  # noqa: F401
     _gather_all_instances,
 )
 from .config import cmd_config_get  # noqa: F401
-from .lifecycle import cmd_start, cmd_stop  # noqa: F401
+from .lifecycle import cmd_stop  # noqa: F401
 from .maintenance import (  # noqa: F401
     cmd_maintenance_script,
     cmd_maintenance_extension,

@@ -22,8 +22,6 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 sys.path.insert(0, REPO_ROOT)
 
-from direct_commands import _helpers  # noqa: E402
-
 
 UPGRADE = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks")
 MIGRATE = os.path.join(UPGRADE, "migrate_wiki_db_account.yml")
@@ -193,18 +191,6 @@ class TestOptOut:
         assert "CANASTA_DB_ROOT_ACCOUNT" in names
         assert "WIKI_DB_PASSWORD" in names
         assert "WIKI_DB_USER" in names
-
-    def test_opting_out_puts_a_moved_instance_back_on_root(self):
-        env = {"MYSQL_USER": "root", "MYSQL_PASSWORD": "rootpw",
-               "WIKI_DB_USER": "mediawiki", "WIKI_DB_PASSWORD": "wikipw",
-               "CANASTA_DB_ROOT_ACCOUNT": "true"}
-        assert _helpers._wiki_db_account_updates(env) == [
-            ("WIKI_DB_USER", "root"), ("WIKI_DB_PASSWORD", "rootpw")]
-
-    def test_without_the_key_a_moved_instance_is_kept(self):
-        env = {"MYSQL_USER": "root", "MYSQL_PASSWORD": "rootpw",
-               "WIKI_DB_USER": "mediawiki", "WIKI_DB_PASSWORD": "wikipw"}
-        assert _helpers._wiki_db_account_updates(env) == []
 
 
 class TestRestoreKeepsThisHostsAccount:

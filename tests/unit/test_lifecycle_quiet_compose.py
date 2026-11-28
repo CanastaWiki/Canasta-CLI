@@ -57,17 +57,9 @@ def external_db_instance(monkeypatch, fake_subprocess):
     monkeypatch.setattr(_helpers, "_instance_has_sidecars", lambda inst: False)
     monkeypatch.setattr(_helpers, "_sync_compose_profiles",
                         lambda inst: dict(EXTERNAL_DB_ENV))
-    monkeypatch.setattr(_helpers, "_backfill_db_defaults", lambda inst: None)
-    monkeypatch.setattr(_helpers, "_crowdsec_setup_pending",
-                        lambda inst, env: False)
     monkeypatch.setattr(_helpers, "_check_running_compose", lambda *a: False)
     monkeypatch.setattr(_helpers, "_compose_containers_up",
                         lambda inst: True)
-    monkeypatch.setattr(_helpers, "_missing_db_password",
-                        lambda inst, env: False)
-    monkeypatch.setattr(_helpers, "_wait_web_ready", lambda i, inst: 0)
-    monkeypatch.setattr(_helpers, "_rootless_operator_chown",
-                        lambda inst: None)
     monkeypatch.setattr(_helpers, "_warn_composer_failure",
                         lambda i, inst: None)
     return fake_subprocess
@@ -102,8 +94,7 @@ BUNDLED_DB_OWN_ACCOUNT_ENV = {"MYSQL_PASSWORD": "pw",
 
 
 class TestBundledDatabase:
-    """Stop takes the fast path for every bundled-database instance; start
-    does too while MediaWiki is on the root account."""
+    """Stop takes the fast path for every bundled-database instance."""
 
     @pytest.mark.parametrize("env", [BUNDLED_DB_ROOT_ENV,
                                      BUNDLED_DB_OWN_ACCOUNT_ENV])
@@ -115,13 +106,6 @@ class TestBundledDatabase:
         out, err = capsys.readouterr()
         assert "Container" not in out + err
         assert out.strip() == "Instance 'test' stopped."
-
-    def test_start_on_own_account_still_hands_over_to_ansible(
-            self, external_db_instance, monkeypatch):
-        monkeypatch.setattr(_helpers, "_sync_compose_profiles",
-                            lambda inst: dict(BUNDLED_DB_OWN_ACCOUNT_ENV))
-        assert direct_commands.cmd_start(ARGS) == _helpers.FALLBACK
-        assert external_db_instance["run"] == []
 
 
 class TestRunComposeQuiet:
