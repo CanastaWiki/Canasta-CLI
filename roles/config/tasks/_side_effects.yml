@@ -320,13 +320,11 @@
         key: MW_SITE_SERVER
         value: "{{ _server_scheme }}{{ _config_value }}"
 
-# Also reconciles CANASTA_CADDY_IMAGE, so TRUSTED_PROXIES (which can
-# require the plugin image) belongs in this trigger list too.
 - name: Sync COMPOSE_PROFILES / caddy image when feature flags change
   when:
     - _config_key in ['CANASTA_ENABLE_VARNISH',
                       'CANASTA_ENABLE_OBSERVABILITY', 'CANASTA_ENABLE_CROWDSEC',
-                      'CANASTA_ENABLE_REDIS', 'TRUSTED_PROXIES']
+                      'CANASTA_ENABLE_REDIS']
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/sync_compose_profiles.yml
 
