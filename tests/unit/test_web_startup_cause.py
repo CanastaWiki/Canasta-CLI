@@ -155,8 +155,7 @@ def _start_health_gate_tasks():
     relative include made absolute."""
     with open(os.path.join(ORCH_TASKS, "start.yml")) as f:
         start = yaml.safe_load(f)
-    compose = next(t for t in start if t["name"] == "Start (Docker Compose)")
-    gate = next(t for t in compose["block"]
+    gate = next(t for t in start
                 if t["name"] == "Fail when web never reported healthy")
     tasks = gate["block"]
     for task in tasks:

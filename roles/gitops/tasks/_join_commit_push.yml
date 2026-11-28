@@ -6,9 +6,8 @@
 # doesn't abort on git's "nothing to commit" exit status. (--quiet exits
 # non-zero when there *are* staged changes.)
 #
-# Input: instance_path, _join_commit_message, _join_git_env (environment
-# for the push). Optional: _join_commit_identity (git -c options naming
-# the committer), force.
+# Input: instance_path, _join_commit_message, gitops_git_env (environment
+# for the push). Optional: force.
 
 - name: Check for staged changes
   ansible.builtin.command:
@@ -21,8 +20,7 @@
 - name: Commit
   ansible.builtin.command:
     cmd: >-
-      git -c commit.gpgsign=false {{ _join_commit_identity | default('') }}
-      commit -m {{ _join_commit_message | quote }}
+      git -c commit.gpgsign=false commit -m {{ _join_commit_message | quote }}
     chdir: "{{ instance_path }}"
   changed_when: true
   when: _join_staged.rc != 0
@@ -31,5 +29,5 @@
   ansible.builtin.command:
     cmd: "git push {{ (force | default(false) | bool) | ternary('--force', '') }}"
     chdir: "{{ instance_path }}"
-  environment: "{{ _join_git_env }}"
+  environment: "{{ gitops_git_env }}"
   changed_when: true

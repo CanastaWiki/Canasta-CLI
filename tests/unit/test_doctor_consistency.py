@@ -74,17 +74,17 @@ class TestConsistencyWarnings:
     def test_env_template_literal_drift_warns(self):
         # Multiple literals differ between env.template and .env.
         env = {"CANASTA_IMAGE": "ghcr.io/canastawiki/canasta:3.5.12",
-               "CANASTA_ENABLE_ELASTICSEARCH": "true",
+               "CANASTA_ENABLE_OPENSEARCH": "true",
                "COMPOSE_PROFILES": "internal-db,varnish"}
         out = doctor._consistency_warnings(
             env, ["internal-db", "varnish"], ["web"], False,
             template_literals={
                 "CANASTA_IMAGE": "ghcr.io/canastawiki/canasta:latest",
-                "CANASTA_ENABLE_ELASTICSEARCH": "false"})
+                "CANASTA_ENABLE_OPENSEARCH": "false"})
         drift = [o for o in out if "env.template disagrees with .env" in o]
         assert len(drift) == 1
         assert "CANASTA_IMAGE" in drift[0]
-        assert "CANASTA_ENABLE_ELASTICSEARCH" in drift[0]
+        assert "CANASTA_ENABLE_OPENSEARCH" in drift[0]
 
     def test_cli_image_pin_in_env_template_is_not_drift(self):
         # The render replaces a CLI's own pin with this host's default, so
@@ -164,7 +164,7 @@ class TestGatherRuntime:
         d = doctor._helpers._SENTINEL
         out = ("web\nvarnish\ndb\n%s\nUSES_CIRRUS\n%s\n"
                "CANASTA_IMAGE=ghcr.io/canastawiki/canasta:3.5.1\n"
-               'CANASTA_ENABLE_ELASTICSEARCH="false"\n' % (d, d))
+               'CANASTA_ENABLE_OPENSEARCH="false"\n' % (d, d))
 
         class _R:
             stdout = out
@@ -176,7 +176,7 @@ class TestGatherRuntime:
         assert cirrus is True
         assert lits["CANASTA_IMAGE"] == "ghcr.io/canastawiki/canasta:3.5.1"
         # surrounding quotes are stripped to match .env parsing
-        assert lits["CANASTA_ENABLE_ELASTICSEARCH"] == "false"
+        assert lits["CANASTA_ENABLE_OPENSEARCH"] == "false"
 
     def test_no_cirrus_no_template(self, monkeypatch):
         d = doctor._helpers._SENTINEL
@@ -201,7 +201,7 @@ class TestInstanceConsistencyLines:
                 "host": "localhost"}
         monkeypatch.setattr(
             doctor._helpers, "_read_env_content",
-            lambda path, host: "CANASTA_ENABLE_ELASTICSEARCH=false\n"
+            lambda path, host: "CANASTA_ENABLE_OPENSEARCH=false\n"
                                "COMPOSE_PROFILES=varnish\n")
         monkeypatch.setattr(
             doctor, "_gather_runtime",

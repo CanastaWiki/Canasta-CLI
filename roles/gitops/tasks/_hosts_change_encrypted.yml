@@ -1,5 +1,5 @@
 ---
-# set-role / remove-host on a Compose gitops instance. hosts/** is
+# set-role / remove-host. hosts/** is
 # git-crypt encrypted, so the checkout must be unlocked to read and
 # rewrite hosts.yaml.
 # Input: instance_path, host_name, _hc_action. Optional: role, key.

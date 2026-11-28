@@ -2,7 +2,6 @@
 direct-command helpers, gitops status/diff and rebuild."""
 
 import os
-import subprocess
 import sys
 import types
 
@@ -300,55 +299,6 @@ class _Completed:
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
-
-
-class TestWriteRemoteOrLocalFile:
-    def test_remote_pipes_content_through_ssh_cat(self, monkeypatch):
-        calls = []
-
-        def fake_run(argv, **kw):
-            calls.append((argv, kw))
-            return _Completed(0)
-        monkeypatch.setattr(_helpers.subprocess, "run", fake_run)
-        ok = _helpers._write_remote_or_local_file(
-            "/srv/my site/.env", "remote1", "A=1\n")
-        assert ok is True
-        argv, kw = calls[0]
-        assert argv == ["ssh", "remote1", "cat > '/srv/my site/.env'"]
-        assert kw["input"] == "A=1\n"
-        assert kw["text"] is True
-
-    def test_remote_uses_hosts_yml_target(self, monkeypatch, tmp_path):
-        cfg = tmp_path / "cfg"
-        cfg.mkdir()
-        (cfg / "hosts.yml").write_text(
-            "all:\n  hosts:\n    node1:\n"
-            "      ansible_host: 10.0.0.5\n      ansible_user: ubuntu\n")
-        calls = []
-        monkeypatch.setattr(
-            _helpers.subprocess, "run",
-            lambda argv, **kw: calls.append(argv) or _Completed(0))
-        assert _helpers._write_remote_or_local_file("/x", "node1", "c")
-        assert calls[0][-2] == "ubuntu@10.0.0.5"
-
-    def test_remote_nonzero_reports_stderr(self, monkeypatch, capsys):
-        monkeypatch.setattr(
-            _helpers.subprocess, "run",
-            lambda argv, **kw: _Completed(1, stderr="Permission denied\n"))
-        assert _helpers._write_remote_or_local_file(
-            "/srv/x", "remote1", "c") is False
-        assert ("Error writing remote /srv/x: Permission denied"
-                in capsys.readouterr().err)
-
-    @pytest.mark.parametrize("exc", [
-        subprocess.TimeoutExpired("ssh", 30), OSError("no ssh")])
-    def test_remote_exception(self, monkeypatch, capsys, exc):
-        def boom(argv, **kw):
-            raise exc
-        monkeypatch.setattr(_helpers.subprocess, "run", boom)
-        assert _helpers._write_remote_or_local_file(
-            "/srv/x", "remote1", "c") is False
-        assert "Error writing remote /srv/x" in capsys.readouterr().err
 
 
 class TestExecInContainerRemote:

@@ -129,11 +129,11 @@ class TestUpgradeMovesOffTheSharedTag:
         stage = _task(IMAGE_TAG, "Stage the updated env.template")
         assert stage["ansible.builtin.command"]["cmd"] == "git add env.template"
 
-    def test_runs_after_the_rebuild_is_published(self):
+    def test_runs_after_the_rebuild_is_compared(self):
         with open(os.path.join(REPO_ROOT, "roles", "upgrade", "tasks",
                                "main.yml")) as f:
             names = [t.get("name") for t in yaml.safe_load(f)]
-        assert names.index("Publish rebuilt image for the orchestrator") < (
+        assert names.index("Compare the rebuilt image with the running one") < (
             names.index("Update configured image tag"))
 
 

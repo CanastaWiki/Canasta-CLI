@@ -20,7 +20,7 @@ from canasta_gitops import canasta_gitops_hosts_after as after  # noqa: E402
 
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 CHANGE = os.path.join(TASKS, "_hosts_change.yml")
-COMPOSE = os.path.join(TASKS, "hosts_change_compose.yml")
+COMPOSE = os.path.join(TASKS, "_hosts_change_encrypted.yml")
 CHECK = os.path.join(TASKS, "_check_cli_versions.yml")
 GITCRYPT_HEADER = b"\x00GITCRYPT\x00"
 
@@ -248,12 +248,12 @@ class TestTheStuckHost:
 
 class TestWiring:
     @pytest.mark.parametrize("flow", ["set_role.yml", "remove_host.yml"])
-    def test_commands_dispatch_to_the_compose_flow(self, flow):
+    def test_commands_go_through_the_shared_entry(self, flow):
         task = _load(os.path.join(TASKS, flow))[0]
-        assert task["ansible.builtin.include_tasks"] == "_hosts_change_dispatch.yml"
-        dispatch = _load(os.path.join(TASKS, "_hosts_change_dispatch.yml"))
+        assert task["ansible.builtin.include_tasks"] == "_hosts_change_entry.yml"
+        dispatch = _load(os.path.join(TASKS, "_hosts_change_entry.yml"))
         assert dispatch[-1]["ansible.builtin.include_tasks"] == (
-            "hosts_change_compose.yml")
+            "_hosts_change_encrypted.yml")
 
     def test_compose_refuses_a_locked_checkout_first(self):
         tasks = _load(COMPOSE)
@@ -261,8 +261,8 @@ class TestWiring:
         assert tasks[1]["vars"]["_hc_encrypted"] is True
 
     def test_no_version_check(self):
-        for name in ("set_role.yml", "remove_host.yml", "_hosts_change_dispatch.yml",
-                     "hosts_change_compose.yml", "_hosts_change.yml",
+        for name in ("set_role.yml", "remove_host.yml", "_hosts_change_entry.yml",
+                     "_hosts_change_encrypted.yml", "_hosts_change.yml",
                      "_hosts_change_attempt.yml"):
             with open(os.path.join(TASKS, name)) as f:
                 assert "_check_cli_versions.yml" not in f.read(), name

@@ -425,7 +425,7 @@ def _includes_sync(task):
 
 
 def test_pull_compose_resyncs_when_the_file_changed():
-    hits = [t for t in _tasks("roles", "gitops", "tasks", "pull_compose.yml")
+    hits = [t for t in _tasks("roles", "gitops", "tasks", "_pull.yml")
             if _includes_sync(t)]
     assert hits and "config/schedules.yml" in str(hits[0]["when"])
 

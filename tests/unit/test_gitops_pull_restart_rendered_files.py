@@ -8,7 +8,7 @@ and name the file. The decision compares what the files hold before the
 pull with what they hold after it, not which files the commits touched, so
 a re-apply over commits the instance already runs needs no restart. These
 tests run the fingerprint helper and the restart decision from
-pull_compose.yml against a temp instance.
+_pull.yml against a temp instance.
 """
 
 import json
@@ -21,7 +21,7 @@ import yaml
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 FINGERPRINT = os.path.join(TASKS, "_rendered_fingerprint.yml")
-PULL_COMPOSE = os.path.join(TASKS, "pull_compose.yml")
+PULL_COMPOSE = os.path.join(TASKS, "_pull.yml")
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
 
 MEDIA = "media_hosts:\n- hostname: media.example.com\n  bucket: b\n  endpoint: e\n"

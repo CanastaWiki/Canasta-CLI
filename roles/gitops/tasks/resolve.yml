@@ -75,7 +75,7 @@
 
 # --- start: the pull, which stops at its conflicts ---
 - name: Run the pull and stop at its conflicts
-  ansible.builtin.include_tasks: "pull_compose.yml"
+  ansible.builtin.include_tasks: "_pull.yml"
   vars:
     gitops_resolve_mode: start
   when: _resolve_action == 'start'
@@ -277,7 +277,7 @@
   when: _resolve_action == 'continue'
 
 - name: Apply the resolved pull
-  ansible.builtin.include_tasks: "pull_compose.yml"
+  ansible.builtin.include_tasks: "_pull.yml"
   vars:
     gitops_resolve_mode: continue
   when: _resolve_action == 'continue'

@@ -31,9 +31,9 @@ def _build(tmp_path, runtime, env_extra=None, build_arg=None):
         (bindir / name).write_text(STUB)
         (bindir / name).chmod(0o755)
     src = tmp_path / "src"
-    for repo in ("Canasta", "CanastaBase"):
-        (src / repo).mkdir(parents=True)
-        (src / repo / "Dockerfile").write_text("FROM scratch\n")
+    (src / "Canasta").mkdir(parents=True)
+    for name in ("Dockerfile", "Dockerfile.canasta"):
+        (src / "Canasta" / name).write_text("FROM scratch\n")
     log = tmp_path / "calls.log"
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{

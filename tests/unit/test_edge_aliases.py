@@ -97,7 +97,7 @@ def _task(path, name):
 
 
 def test_placeholders_render_as_the_gitops_render_writes_them():
-    content = _task("gitops/tasks/render_compose.yml",
+    content = _task("gitops/tasks/render.yml",
                     "Render wikis.yaml content from template")
     body = content["ansible.builtin.set_fact"]["_render_wikis_content"]
     body = body.replace("_render_wikis_template_raw.content | b64decode", "src")
@@ -169,7 +169,7 @@ def test_an_unreadable_record_falls_back_to_the_staged_sources():
 
 
 def test_the_record_is_written_wherever_config_wikis_yaml_is_rendered():
-    for path, before in (("gitops/tasks/render_compose.yml", "Render wikis.yaml from template"),
+    for path, before in (("gitops/tasks/render.yml", "Render wikis.yaml from template"),
                          ("gitops/tasks/sync_wikis_yaml.yml",
                           "Stage the template once it agrees with config/wikis.yaml")):
         with open(os.path.join(TASKS, *path.split("/"))) as f:

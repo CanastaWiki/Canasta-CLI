@@ -9,4 +9,4 @@
   ansible.builtin.include_tasks: _ssh_key.yml
 
 - name: Apply the hosts.yaml change
-  ansible.builtin.include_tasks: "hosts_change_compose.yml"
+  ansible.builtin.include_tasks: "_hosts_change_encrypted.yml"

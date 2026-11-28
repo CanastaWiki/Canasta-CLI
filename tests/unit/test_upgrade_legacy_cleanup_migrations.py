@@ -95,7 +95,7 @@ class TestWiring:
 
     def test_no_longer_inline_elsewhere(self):
         inline = {
-            "roles/gitops/tasks/init_compose.yml": "skins/.gitignore",
+            "roles/gitops/tasks/_init.yml": "skins/.gitignore",
             "roles/gitops/tasks/join.yml": "skins/.gitignore",
             "roles/orchestrator/tasks/backup_schedule_apply.yml": "CronJob",
             "roles/orchestrator/tasks/backup_schedule_unapply.yml": "CronJob",

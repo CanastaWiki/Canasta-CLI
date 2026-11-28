@@ -44,7 +44,6 @@ from ._helpers import *  # noqa: F401, F403
 from ._helpers import (  # noqa: F401
     _SENTINEL,
     _MAINT_PATH_RE,
-    _check_dir_exists,
     _check_running_compose,
     _compose_file_args,
     _exec_in_container,

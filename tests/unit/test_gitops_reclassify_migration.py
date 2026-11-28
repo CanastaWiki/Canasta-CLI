@@ -8,7 +8,7 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 MIG = os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
                    "_migrate_reclassified_secrets.yml")
-PUSH = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "push_compose.yml")
+PUSH = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "_push.yml")
 
 
 def _read(p):

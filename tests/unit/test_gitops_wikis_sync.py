@@ -20,7 +20,7 @@ from canasta_gitops import (  # noqa: E402
 
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 SYNC = os.path.join(TASKS, "sync_wikis_yaml.yml")
-PULL = os.path.join(TASKS, "pull_compose.yml")
+PULL = os.path.join(TASKS, "_pull.yml")
 RECONCILE = os.path.join(
     REPO_ROOT, "roles", "instance_lifecycle", "tasks", "reconcile.yml")
 

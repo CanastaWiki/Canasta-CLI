@@ -17,7 +17,7 @@ from _gitops_flow import flow_tasks
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 INIT_COMPOSE = os.path.join(
-    REPO_ROOT, "roles", "gitops", "tasks", "init_compose.yml")
+    REPO_ROOT, "roles", "gitops", "tasks", "_init.yml")
 FILES = (
     INIT_COMPOSE,
     os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "fix_submodules.yml"),

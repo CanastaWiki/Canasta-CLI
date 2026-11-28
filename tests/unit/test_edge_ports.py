@@ -151,7 +151,8 @@ def test_doctor_names_the_edge_ca_for_an_internal_certificate():
     entries = [("example.com", "CN=Canasta edge CA", "Jan 19 00:00:00 2029 GMT",
                 "CN=example.com")]
     out = "\n".join(doctor._origin_tls_lines_from_entries(
-        "one", entries, now, tls_internal=True, edge=True))
+        "one", entries, now,
+        internal_names={"example.com": "TLS_MODE=internal"}))
     assert "OK (the edge's internal CA — TLS_MODE=internal" in out
 
 
@@ -160,6 +161,6 @@ def test_doctor_warns_when_the_edge_has_no_public_certificate():
     entries = [("example.com", "CN=Canasta edge CA", "Jan 19 00:00:00 2029 GMT",
                 "CN=example.com")]
     out = "\n".join(doctor._origin_tls_lines_from_entries(
-        "one", entries, now, tls_internal=False, edge=True))
+        "one", entries, now))
     assert "WARN — served by the edge's internal CA" in out
     assert "Caddy" not in out

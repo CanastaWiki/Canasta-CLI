@@ -57,7 +57,7 @@
 
 - name: Remove gitops vars for unset keys
   ansible.builtin.include_tasks: >-
-    {{ canasta_root }}/roles/orchestrator/tasks/config_remove_gitops_vars.yml
+    {{ canasta_root }}/roles/config/tasks/_remove_gitops_vars.yml
   when: _config_gitops_stat.stat.exists | default(false)
 
 - name: Stage the plain web key list

@@ -20,7 +20,7 @@ REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 GITOPS_TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 HELPER = os.path.join(GITOPS_TASKS, "_update_submodules.yml")
 CALLERS = [
-    "pull_compose.yml",
+    "_pull.yml",
     "join.yml",
 ]
 
@@ -160,7 +160,7 @@ class TestCallers:
                 assert "when" not in t
 
     def test_pull_updates_submodules_before_recording_the_pull(self):
-        names = _names(_load(os.path.join(GITOPS_TASKS, "pull_compose.yml")))
+        names = _names(_load(os.path.join(GITOPS_TASKS, "_pull.yml")))
         assert names.index("Update submodules") < names.index(
             "Write .gitops-applied")
 

@@ -113,16 +113,12 @@ class TestItHealsWhenThereIsNothingToLoseAccessTo:
 class TestItRunsBeforeAnythingStarts:
     def test_start_includes_it(self):
         with open(START) as f:
-            play = next(p for p in yaml.safe_load(f)
-                        if "Docker Compose" in str(p.get("name", "")))
-        names = [t.get("name") for t in play["block"]]
+            names = [t.get("name") for t in yaml.safe_load(f)]
         assert "Heal a missing database password" in names
 
     def test_it_precedes_the_containers_coming_up(self):
         with open(START) as f:
-            play = next(p for p in yaml.safe_load(f)
-                        if "Docker Compose" in str(p.get("name", "")))
-        names = [t.get("name") for t in play["block"]]
+            names = [t.get("name") for t in yaml.safe_load(f)]
         assert (names.index("Heal a missing database password")
                 < names.index("Start containers"))
 

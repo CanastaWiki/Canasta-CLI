@@ -186,12 +186,12 @@ class TestAnInterruptedRestoreIsReported:
 class TestListAndStatusSurfaceIt:
     def test_list_flags_the_instance(self):
         detail = _helpers._make_detail(
-            "demo", "h", "/p", "compose", "RUNNING", [], True)
+            "demo", "h", "/p", "Docker", "RUNNING", [], True)
         assert "RESTORE INTERRUPTED" in detail["status"]
         assert "RUNNING" in detail["status"]
 
     def test_an_uninterrupted_instance_reads_exactly_as_before(self):
-        detail = _helpers._make_detail("demo", "h", "/p", "compose", "RUNNING", [])
+        detail = _helpers._make_detail("demo", "h", "/p", "Docker", "RUNNING", [])
         assert detail["status"] == "RUNNING"
 
     def test_the_remote_gather_costs_no_extra_ssh_round_trip(self):

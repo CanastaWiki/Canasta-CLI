@@ -162,8 +162,7 @@ def _names(tasks):
 
 
 def test_start_checks_before_anything_else_on_compose():
-    block = next(t for t in _tasks("roles", "orchestrator", "tasks", "start.yml")
-                 if t.get("name") == "Start (Docker Compose)")["block"]
+    block = _tasks("roles", "orchestrator", "tasks", "start.yml")
     assert block[0]["canasta_edge"]["state"] == "check"
 
 

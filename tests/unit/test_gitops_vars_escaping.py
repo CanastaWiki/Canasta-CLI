@@ -13,7 +13,7 @@ from ansible.parsing.dataloader import DataLoader
 from ansible.template import Templar, trust_as_template
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-INIT = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "init_compose.yml")
+INIT = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "_init.yml")
 RECONCILE = os.path.join(REPO_ROOT, "roles", "gitops", "tasks",
                          "_reconcile_wikis_template.yml")
 

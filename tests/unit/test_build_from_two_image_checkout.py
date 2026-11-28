@@ -1,10 +1,9 @@
 """--build-from on a Canasta checkout that holds both images' source.
 
 A Canasta checkout with Dockerfile.canasta builds canasta-base from its
-Dockerfile and then canasta from Dockerfile.canasta on top of it. Without
-Dockerfile.canasta, the existing layouts keep working: canasta-base from a
-CanastaBase/ checkout, the published canasta-base for a Canasta checkout on
-its own, and the Canasta release image for an overlay.
+Dockerfile and then canasta from Dockerfile.canasta on top of it. Anything
+else under Canasta/ is an overlay on the Canasta release image, except a
+Canasta checkout too old to hold the canasta-base source, which is refused.
 """
 
 import os
@@ -59,7 +58,7 @@ def _build(tmp_path, files, build_arg=(), base_only=False, expect_rc=0):
                           capture_output=True, text=True, env=env, cwd=tmp_path)
     assert proc.returncode == expect_rc, proc.stdout + proc.stderr
     builds = [line.split() for line in log.read_text().splitlines()]
-    return builds, proc.stdout
+    return builds, proc.stdout + proc.stderr
 
 
 def test_two_image_checkout_builds_base_then_canasta(tmp_path):
@@ -76,31 +75,12 @@ def test_two_image_checkout_builds_base_then_canasta(tmp_path):
     assert canasta[-3:] == ["-t", "canasta:local-site", "."]
 
 
-def test_two_image_checkout_ignores_canastabase(tmp_path):
-    builds, out = _build(tmp_path, ["Canasta/Dockerfile",
-                                    "Canasta/Dockerfile.canasta",
-                                    "CanastaBase/Dockerfile"])
-    assert [b[0] for b in builds] == ["Canasta", "Canasta"]
-    assert "Warning: " + str(tmp_path / "src" / "CanastaBase") in out
-
-
-def test_separate_canastabase_checkout(tmp_path):
+def test_canasta_checkout_without_the_base_source_is_refused(tmp_path):
     builds, out = _build(tmp_path, ["Canasta/Dockerfile",
                                     "Canasta/contents.yaml",
-                                    "CanastaBase/Dockerfile"])
-    assert [b[0] for b in builds] == ["CanastaBase", "Canasta"]
-    assert "-f" not in builds[1]
-    assert "BASE_IMAGE=canasta-base:local-site" in builds[1]
-    assert "Warning:" not in out
-
-
-def test_canasta_checkout_alone_uses_published_base(tmp_path):
-    builds, _ = _build(tmp_path, ["Canasta/Dockerfile",
-                                  "Canasta/contents.yaml"])
-    assert len(builds) == 1, builds
-    assert "-f" not in builds[0]
-    assert ("BASE_IMAGE=ghcr.io/canastawiki/canasta-base:latest"
-            in builds[0])
+                                    "CanastaBase/Dockerfile"], expect_rc=2)
+    assert builds == []
+    assert "has no Dockerfile.canasta" in out, out
 
 
 def test_overlay_builds_on_the_canasta_release(tmp_path):
@@ -126,15 +106,6 @@ def test_base_only_builds_canasta_base_under_the_output_tag(tmp_path):
     assert len(builds) == 1, builds
     assert builds[0][0] == "Canasta"
     assert "-f" not in builds[0]
-    assert builds[0][-3:] == ["-t", "canasta:local-site", "."]
-
-
-def test_base_only_uses_a_canastabase_checkout(tmp_path):
-    builds, _ = _build(tmp_path, ["Canasta/Dockerfile",
-                                  "Canasta/contents.yaml",
-                                  "CanastaBase/Dockerfile"],
-                       base_only=True)
-    assert [b[0] for b in builds] == ["CanastaBase"]
     assert builds[0][-3:] == ["-t", "canasta:local-site", "."]
 
 
