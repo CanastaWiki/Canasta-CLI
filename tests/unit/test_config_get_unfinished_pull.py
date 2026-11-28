@@ -24,7 +24,7 @@ def _run(monkeypatch, path):
         direct_commands._helpers, "_read_env_content", lambda *a: "")
     args = type("Args", (), {
         "id": "test", "keys": [], "show_secrets": False})()
-    return direct_commands.cmd_config_get(args)
+    return direct_commands.config.cmd_config_get(args)
 
 
 @pytest.mark.parametrize("marker", ["rebase-merge", "rebase-apply"])

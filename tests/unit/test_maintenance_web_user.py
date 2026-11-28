@@ -163,7 +163,7 @@ def recorded(monkeypatch):
 
 class TestMaintenanceCommandsPassWebUser:
     def test_script_runs_as_web_user(self, recorded):
-        direct_commands.cmd_maintenance_script(
+        direct_commands.maintenance.cmd_maintenance_script(
             _args(script_args=["refreshLinks.php"]))
         assert recorded == [
             ("php maintenance/run.php refreshLinks.php --wiki='main'",
@@ -171,7 +171,7 @@ class TestMaintenanceCommandsPassWebUser:
         ]
 
     def test_extension_script_runs_as_web_user(self, recorded):
-        direct_commands.cmd_maintenance_extension(
+        direct_commands.maintenance.cmd_maintenance_extension(
             _args(script_args=["SemanticMediaWiki:rebuildData.php"]))
         assert recorded == [
             ("php maintenance/run.php SemanticMediaWiki:rebuildData.php "
@@ -179,7 +179,7 @@ class TestMaintenanceCommandsPassWebUser:
         ]
 
     def test_update_runs_every_php_step_as_web_user(self, recorded):
-        direct_commands.cmd_maintenance_update(_args())
+        direct_commands.maintenance.cmd_maintenance_update(_args())
         users = {}
         for command, user in recorded:
             for step in ("update.php", "runJobs.php", "run.php eval",
@@ -194,8 +194,8 @@ class TestMaintenanceCommandsPassWebUser:
         }
 
     def test_listings_keep_the_default_user(self, recorded):
-        direct_commands.cmd_maintenance_script(_args())
-        direct_commands.cmd_maintenance_extension(_args())
+        direct_commands.maintenance.cmd_maintenance_script(_args())
+        direct_commands.maintenance.cmd_maintenance_extension(_args())
         assert [u for _, u in recorded] == [None, None]
 
 

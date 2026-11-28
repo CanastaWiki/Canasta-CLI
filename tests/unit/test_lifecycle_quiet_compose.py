@@ -70,7 +70,7 @@ class TestStartStopOutput:
 
     def test_stop_is_quiet_and_reports_stopped(self, external_db_instance,
                                                capsys):
-        assert direct_commands.cmd_stop(ARGS) == 0
+        assert direct_commands.lifecycle.cmd_stop(ARGS) == 0
         out, err = capsys.readouterr()
         assert "Container" not in out + err
         assert out.strip() == "Instance 'test' stopped."
@@ -80,7 +80,7 @@ class TestStartStopOutput:
     def test_failed_stop_shows_compose_output_and_no_outcome(
             self, external_db_instance, capsys):
         external_db_instance["rc"] = 1
-        assert direct_commands.cmd_stop(ARGS) == 1
+        assert direct_commands.lifecycle.cmd_stop(ARGS) == 1
         out, err = capsys.readouterr()
         assert "stopped" not in out
         assert "Container test-web-1  Started" in err
@@ -100,7 +100,7 @@ class TestBundledDatabase:
             self, external_db_instance, monkeypatch, capsys, env):
         monkeypatch.setattr(_helpers, "_sync_compose_profiles",
                             lambda inst: dict(env))
-        assert direct_commands.cmd_stop(ARGS) == 0
+        assert direct_commands.lifecycle.cmd_stop(ARGS) == 0
         out, err = capsys.readouterr()
         assert "Container" not in out + err
         assert out.strip() == "Instance 'test' stopped."

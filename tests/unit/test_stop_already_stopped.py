@@ -58,7 +58,7 @@ class TestFastPath:
                                      capsys):
         monkeypatch.setattr(_helpers, "_compose_containers_up",
                             lambda inst: False)
-        assert direct_commands.cmd_stop(ARGS) == 0
+        assert direct_commands.lifecycle.cmd_stop(ARGS) == 0
         assert capsys.readouterr().out.strip() == (
             "Instance 'test' is already stopped.")
         # `down` still sweeps exited and orphaned containers.
@@ -68,7 +68,7 @@ class TestFastPath:
                                           monkeypatch, capsys):
         monkeypatch.setattr(_helpers, "_compose_containers_up",
                             lambda inst: True)
-        assert direct_commands.cmd_stop(ARGS) == 0
+        assert direct_commands.lifecycle.cmd_stop(ARGS) == 0
         assert capsys.readouterr().out.strip() == "Instance 'test' stopped."
 
 

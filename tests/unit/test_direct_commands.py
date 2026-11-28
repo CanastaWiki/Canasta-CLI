@@ -125,32 +125,32 @@ class TestRegistration:
 
 class TestHostMatches:
     def test_exact_match(self):
-        assert direct_commands._host_matches("prod.example.com", "prod.example.com")
+        assert direct_commands._helpers._host_matches("prod.example.com", "prod.example.com")
 
     def test_user_at_host(self):
-        assert direct_commands._host_matches("admin@prod.example.com", "prod.example.com")
+        assert direct_commands._helpers._host_matches("admin@prod.example.com", "prod.example.com")
 
     def test_full_match_with_user(self):
-        assert direct_commands._host_matches("admin@prod.example.com", "admin@prod.example.com")
+        assert direct_commands._helpers._host_matches("admin@prod.example.com", "admin@prod.example.com")
 
     def test_no_match(self):
-        assert not direct_commands._host_matches("staging.example.com", "prod.example.com")
+        assert not direct_commands._helpers._host_matches("staging.example.com", "prod.example.com")
 
 
 class TestFilterByHost:
     def test_no_filter_returns_all(self, registry):
         _, data = registry
-        result = direct_commands._filter_by_host(data["Instances"], None)
+        result = direct_commands._helpers._filter_by_host(data["Instances"], None)
         assert len(result) == 2
 
     def test_filter_localhost(self, registry):
         _, data = registry
-        result = direct_commands._filter_by_host(data["Instances"], "localhost")
+        result = direct_commands._helpers._filter_by_host(data["Instances"], "localhost")
         assert len(result) == 2
 
     def test_filter_remote(self, registry_with_remote):
         _, data = registry_with_remote
-        result = direct_commands._filter_by_host(
+        result = direct_commands._helpers._filter_by_host(
             data["Instances"], "prod.example.com",
         )
         assert list(result.keys()) == ["remote"]
@@ -159,19 +159,19 @@ class TestFilterByHost:
 class TestReadRegistry:
     def test_reads_instances(self, registry):
         tmp_path, _ = registry
-        instances = direct_commands._read_registry(str(tmp_path / "conf.json"))
+        instances = direct_commands._helpers._read_registry(str(tmp_path / "conf.json"))
         assert "siteA" in instances
         assert "siteB" in instances
 
     def test_missing_file_returns_empty(self, tmp_path):
-        instances = direct_commands._read_registry(str(tmp_path / "nope.json"))
+        instances = direct_commands._helpers._read_registry(str(tmp_path / "nope.json"))
         assert instances == {}
 
     def test_legacy_installations_key(self, tmp_path):
         data = {"Installations": {"old": {"path": "/old"}}}
         conf = tmp_path / "conf.json"
         conf.write_text(json.dumps(data))
-        instances = direct_commands._read_registry(str(conf))
+        instances = direct_commands._helpers._read_registry(str(conf))
         assert "old" in instances
 
 
@@ -179,13 +179,13 @@ class TestReadWikis:
     def test_reads_local_wikis(self, registry):
         tmp_path, data = registry
         path = data["Instances"]["siteA"]["path"]
-        wikis = direct_commands._read_wikis(path, "localhost")
+        wikis = direct_commands._helpers._read_wikis(path, "localhost")
         assert len(wikis) == 2
         assert wikis[0]["id"] == "main"
         assert wikis[1]["id"] == "docs"
 
     def test_missing_file_returns_empty(self, tmp_path):
-        wikis = direct_commands._read_wikis(str(tmp_path / "nodir"), "localhost")
+        wikis = direct_commands._helpers._read_wikis(str(tmp_path / "nodir"), "localhost")
         assert wikis == []
 
 
@@ -343,20 +343,20 @@ class TestCmdWikiCheckNullUrl:
             lambda path, host: [{"id": "dev", "url": None}],
         )
         args = type("Args", (), {"id": "mysite", "host": None})()
-        rc = direct_commands.cmd_wiki_check(args)
+        rc = direct_commands.wiki_check.cmd_wiki_check(args)
         assert rc == 1
         assert "missing wiki URL" in capsys.readouterr().out
 
 
 class TestShellQuote:
     def test_simple(self):
-        assert direct_commands._shell_quote("hello") == "'hello'"
+        assert direct_commands._helpers._shell_quote("hello") == "'hello'"
 
     def test_with_single_quotes(self):
-        assert direct_commands._shell_quote("it's") == "'it'\\''s'"
+        assert direct_commands._helpers._shell_quote("it's") == "'it'\\''s'"
 
     def test_with_spaces(self):
-        assert direct_commands._shell_quote("hello world") == "'hello world'"
+        assert direct_commands._helpers._shell_quote("hello world") == "'hello world'"
 
 
 class TestSshRunResolvesCanastaHostName:
@@ -380,7 +380,7 @@ class TestSshRunResolvesCanastaHostName:
             return type("R", (), {"returncode": 0, "stdout": "ok", "stderr": ""})()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        rc, _ = direct_commands._ssh_run("node1", "echo hi")
+        rc, _ = direct_commands._helpers._ssh_run("node1", "echo hi")
         assert rc == 0
         # ssh target must be admin@cp.example.com, not the bare 'node1'.
         ssh_target = captured["cmd"][-2]
@@ -396,7 +396,7 @@ class TestSshRunResolvesCanastaHostName:
             return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        direct_commands._ssh_run("cp.example.com", "echo hi")
+        direct_commands._helpers._ssh_run("cp.example.com", "echo hi")
         assert captured["cmd"][-2] == "cp.example.com"
 
     def test_user_at_host_passes_through(self, monkeypatch):
@@ -410,7 +410,7 @@ class TestSshRunResolvesCanastaHostName:
             return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        direct_commands._ssh_run("admin@cp.example.com", "echo hi")
+        direct_commands._helpers._ssh_run("admin@cp.example.com", "echo hi")
         assert captured["cmd"][-2] == "admin@cp.example.com"
 
 
@@ -420,21 +420,21 @@ class TestCheckRunningCompose:
             subprocess, "run",
             lambda *a, **kw: type("R", (), {"returncode": 0, "stdout": "abc123\n"})(),
         )
-        assert direct_commands._check_running_compose(str(tmp_path), "localhost")
+        assert direct_commands._helpers._check_running_compose(str(tmp_path), "localhost")
 
     def test_not_running(self, monkeypatch, tmp_path):
         monkeypatch.setattr(
             subprocess, "run",
             lambda *a, **kw: type("R", (), {"returncode": 0, "stdout": ""})(),
         )
-        assert not direct_commands._check_running_compose(str(tmp_path), "localhost")
+        assert not direct_commands._helpers._check_running_compose(str(tmp_path), "localhost")
 
     def test_error(self, monkeypatch, tmp_path):
         monkeypatch.setattr(
             subprocess, "run",
             lambda *a, **kw: type("R", (), {"returncode": 1, "stdout": ""})(),
         )
-        assert not direct_commands._check_running_compose(str(tmp_path), "localhost")
+        assert not direct_commands._helpers._check_running_compose(str(tmp_path), "localhost")
 
 
 # ---------------------------------------------------------------------------
@@ -454,7 +454,7 @@ class TestPrintTable:
                 {"id": "docs", "url": "example.com/docs"},
             ],
         }]
-        direct_commands._print_table(details)
+        direct_commands._helpers._print_table(details)
         out = capsys.readouterr().out
         lines = out.strip().split("\n")
         assert "Canasta ID" in lines[0]
@@ -478,7 +478,7 @@ class TestPrintTable:
             "status": "STOPPED",
             "wikis": [{"id": "main", "url": "example.com"}],
         }]
-        direct_commands._print_table(details)
+        direct_commands._helpers._print_table(details)
         out = capsys.readouterr().out
         assert "example.com/" in out
 
@@ -491,7 +491,7 @@ class TestPrintTable:
             "status": "STOPPED",
             "wikis": [{"id": "docs", "url": "example.com/docs"}],
         }]
-        direct_commands._print_table(details)
+        direct_commands._helpers._print_table(details)
         out = capsys.readouterr().out
         assert "example.com/docs" in out
         assert "example.com/docs/" not in out
@@ -505,7 +505,7 @@ class TestPrintTable:
             "status": "NOT FOUND",
             "wikis": [],
         }]
-        direct_commands._print_table(details)
+        direct_commands._helpers._print_table(details)
         out = capsys.readouterr().out
         assert "(no wikis)" in out
 
@@ -520,7 +520,7 @@ class TestPrintTable:
                 "runtime": "Docker", "status": "STOPPED", "wikis": [],
             },
         ]
-        direct_commands._print_table(details)
+        direct_commands._helpers._print_table(details)
         out = capsys.readouterr().out
         lines = out.split("\n")
         # Find the data lines — blank line separates instances
@@ -537,7 +537,7 @@ class TestPrintTable:
             "status": "RUNNING",
             "wikis": [],
         }]
-        direct_commands._print_table(details)
+        direct_commands._helpers._print_table(details)
         out = capsys.readouterr().out
         header = out.split("\n")[0]
         host_start = header.index("Host")
@@ -559,7 +559,7 @@ class TestCleanup:
         shutil.rmtree(str(tmp_path / "siteB"))
 
         # Simulate cleanup
-        instances = direct_commands._read_registry(conf)
+        instances = direct_commands._helpers._read_registry(conf)
         to_remove = [
             iid for iid, inst in instances.items()
             if not os.path.isdir(inst.get("path", ""))
@@ -573,10 +573,10 @@ class TestCleanup:
         shutil.rmtree(str(tmp_path / "siteB"))
 
         args = type("Args", (), {"cleanup": True, "host": None})()
-        direct_commands.cmd_list(args)
+        direct_commands.info.cmd_list(args)
 
         # Verify siteB was removed from conf.json
-        instances = direct_commands._read_registry(str(tmp_path / "conf.json"))
+        instances = direct_commands._helpers._read_registry(str(tmp_path / "conf.json"))
         assert "siteB" not in instances
         assert "siteA" in instances
         out = capsys.readouterr().out
@@ -593,7 +593,7 @@ class TestCleanup:
 
         monkeypatch.setattr(os, "replace", boom)
         with pytest.raises(OSError):
-            direct_commands._write_registry(str(conf), {})
+            direct_commands._helpers._write_registry(str(conf), {})
         assert conf.read_text() == before
         assert [p.name for p in tmp_path.iterdir()
                 if p.name.endswith(".tmp")] == []
@@ -611,9 +611,9 @@ class TestCleanup:
         args = type("Args", (), {
             "cleanup": True, "host": None, "force": False, "dry_run": False,
         })()
-        direct_commands.cmd_list(args)
+        direct_commands.info.cmd_list(args)
 
-        instances = direct_commands._read_registry(
+        instances = direct_commands._helpers._read_registry(
             str(tmp_path / "conf.json")
         )
         assert "remote" in instances  # kept despite being unreachable
@@ -640,9 +640,9 @@ class TestCleanup:
         args = type("Args", (), {
             "cleanup": True, "host": None, "force": False, "dry_run": False,
         })()
-        direct_commands.cmd_list(args)
+        direct_commands.info.cmd_list(args)
 
-        instances = direct_commands._read_registry(
+        instances = direct_commands._helpers._read_registry(
             str(tmp_path / "conf.json")
         )
         assert "remote" in instances
@@ -658,9 +658,9 @@ class TestCleanup:
         args = type("Args", (), {
             "cleanup": True, "host": None, "force": True, "dry_run": False,
         })()
-        direct_commands.cmd_list(args)
+        direct_commands.info.cmd_list(args)
 
-        instances = direct_commands._read_registry(
+        instances = direct_commands._helpers._read_registry(
             str(tmp_path / "conf.json")
         )
         assert "remote" not in instances  # removed by --force
@@ -679,9 +679,9 @@ class TestCleanup:
         args = type("Args", (), {
             "cleanup": True, "host": None, "force": False, "dry_run": False,
         })()
-        direct_commands.cmd_list(args)
+        direct_commands.info.cmd_list(args)
 
-        instances = direct_commands._read_registry(
+        instances = direct_commands._helpers._read_registry(
             str(tmp_path / "conf.json")
         )
         assert "remote" not in instances
@@ -699,10 +699,10 @@ class TestCleanup:
         args = type("Args", (), {
             "cleanup": True, "host": None, "force": False, "dry_run": True,
         })()
-        direct_commands.cmd_list(args)
+        direct_commands.info.cmd_list(args)
 
         # Registry unchanged
-        instances = direct_commands._read_registry(
+        instances = direct_commands._helpers._read_registry(
             str(tmp_path / "conf.json")
         )
         assert "remote" in instances
@@ -722,7 +722,7 @@ class TestGatherInstanceInfo:
             lambda *a, **kw: "RUNNING",
         )
         _, data = registry
-        detail = direct_commands._gather_instance_info(
+        detail = direct_commands._helpers._gather_instance_info(
             "siteA", data["Instances"]["siteA"],
         )
         assert detail["id"] == "siteA"
@@ -731,7 +731,7 @@ class TestGatherInstanceInfo:
 
     def test_local_missing_dir(self, tmp_path):
         inst = {"path": str(tmp_path / "gone"), "orchestrator": "compose"}
-        detail = direct_commands._gather_instance_info("x", inst)
+        detail = direct_commands._helpers._gather_instance_info("x", inst)
         assert detail["status"] == "NOT FOUND"
         assert detail["wikis"] == []
 
@@ -739,9 +739,9 @@ class TestGatherInstanceInfo:
         wikis_yaml = "wikis:\n  - id: main\n    url: example.com\n"
         ssh_output = (
             "DIR_OK\n"
-            + direct_commands._SENTINEL + "\n"
+            + direct_commands._helpers._SENTINEL + "\n"
             + wikis_yaml
-            + direct_commands._SENTINEL + "\n"
+            + direct_commands._helpers._SENTINEL + "\n"
             + "abc123\n"
         )
         monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
@@ -752,7 +752,7 @@ class TestGatherInstanceInfo:
             "orchestrator": "compose",
             "host": "admin@remote.example.com",
         }
-        detail = direct_commands._gather_instance_info("site", inst)
+        detail = direct_commands._helpers._gather_instance_info("site", inst)
         assert detail["status"] == "RUNNING"
         assert detail["host"] == "admin@remote.example.com"
         assert len(detail["wikis"]) == 1
@@ -761,9 +761,9 @@ class TestGatherInstanceInfo:
     def test_remote_batched_ssh_stopped(self, monkeypatch):
         ssh_output = (
             "DIR_OK\n"
-            + direct_commands._SENTINEL + "\n"
+            + direct_commands._helpers._SENTINEL + "\n"
             + "WIKIS_MISSING\n"
-            + direct_commands._SENTINEL + "\n"
+            + direct_commands._helpers._SENTINEL + "\n"
             + "\n"
         )
         monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
@@ -774,16 +774,16 @@ class TestGatherInstanceInfo:
             "orchestrator": "compose",
             "host": "remote",
         }
-        detail = direct_commands._gather_instance_info("site", inst)
+        detail = direct_commands._helpers._gather_instance_info("site", inst)
         assert detail["status"] == "STOPPED"
         assert detail["wikis"] == []
 
     def test_remote_dir_missing(self, monkeypatch):
         ssh_output = (
             "DIR_MISSING\n"
-            + direct_commands._SENTINEL + "\n"
+            + direct_commands._helpers._SENTINEL + "\n"
             + "WIKIS_MISSING\n"
-            + direct_commands._SENTINEL + "\n"
+            + direct_commands._helpers._SENTINEL + "\n"
             + "\n"
         )
         monkeypatch.setattr(direct_commands._helpers, "_ssh_run",
@@ -794,7 +794,7 @@ class TestGatherInstanceInfo:
             "orchestrator": "compose",
             "host": "remote",
         }
-        detail = direct_commands._gather_instance_info("x", inst)
+        detail = direct_commands._helpers._gather_instance_info("x", inst)
         assert detail["status"] == "NOT FOUND"
 
     def test_remote_ssh_failure(self, monkeypatch):
@@ -806,14 +806,14 @@ class TestGatherInstanceInfo:
             "orchestrator": "compose",
             "host": "unreachable",
         }
-        detail = direct_commands._gather_instance_info("x", inst)
+        detail = direct_commands._helpers._gather_instance_info("x", inst)
         assert detail["status"] == "UNREACHABLE"
 
 
 class TestGatherAllInstances:
     def test_parallel_execution(self, monkeypatch):
         monkeypatch.setattr(direct_commands._helpers, "_gather_instance_info",
-            lambda iid, inst: direct_commands._make_detail(
+            lambda iid, inst: direct_commands._helpers._make_detail(
                 iid, "localhost", inst["path"], "Docker", "STOPPED", [],
             ),
         )
@@ -821,14 +821,14 @@ class TestGatherAllInstances:
             "a": {"path": "/a", "orchestrator": "compose"},
             "b": {"path": "/b", "orchestrator": "compose"},
         }
-        results = direct_commands._gather_all_instances(instances)
+        results = direct_commands.info._gather_all_instances(instances)
         assert len(results) == 2
         assert results[0]["id"] == "a"
         assert results[1]["id"] == "b"
 
     def test_preserves_order(self, monkeypatch):
         monkeypatch.setattr(direct_commands._helpers, "_gather_instance_info",
-            lambda iid, inst: direct_commands._make_detail(
+            lambda iid, inst: direct_commands._helpers._make_detail(
                 iid, "localhost", "/p", "Docker", "STOPPED", [],
             ),
         )
@@ -837,14 +837,14 @@ class TestGatherAllInstances:
             "a": {"path": "/a", "orchestrator": "compose"},
             "m": {"path": "/m", "orchestrator": "compose"},
         }
-        results = direct_commands._gather_all_instances(instances)
+        results = direct_commands.info._gather_all_instances(instances)
         assert [r["id"] for r in results] == ["z", "a", "m"]
 
     def test_handles_exception(self, monkeypatch):
         def flaky(iid, inst):
             if iid == "bad":
                 raise RuntimeError("boom")
-            return direct_commands._make_detail(
+            return direct_commands._helpers._make_detail(
                 iid, "localhost", "/p", "Docker", "STOPPED", [],
             )
 
@@ -854,12 +854,12 @@ class TestGatherAllInstances:
             "good": {"path": "/good", "orchestrator": "compose"},
             "bad": {"path": "/bad", "orchestrator": "compose"},
         }
-        results = direct_commands._gather_all_instances(instances)
+        results = direct_commands.info._gather_all_instances(instances)
         assert results[0]["status"] == "STOPPED"
         assert results[1]["status"] == "ERROR"
 
     def test_empty(self):
-        assert direct_commands._gather_all_instances({}) == []
+        assert direct_commands.info._gather_all_instances({}) == []
 
 
 class TestCmdList:
@@ -869,7 +869,7 @@ class TestCmdList:
         monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
 
         args = type("Args", (), {"cleanup": False, "host": None})()
-        rc = direct_commands.cmd_list(args)
+        rc = direct_commands.info.cmd_list(args)
         assert rc == 0
         assert "No Canasta instances." in capsys.readouterr().out
 
@@ -877,7 +877,7 @@ class TestCmdList:
         monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
 
         args = type("Args", (), {"cleanup": False, "host": None})()
-        rc = direct_commands.cmd_list(args)
+        rc = direct_commands.info.cmd_list(args)
         assert rc == 0
         assert "No Canasta instances." in capsys.readouterr().out
 
@@ -886,7 +886,7 @@ class TestCmdList:
             lambda *a, **kw: "STOPPED",
         )
         args = type("Args", (), {"cleanup": False, "host": None})()
-        rc = direct_commands.cmd_list(args)
+        rc = direct_commands.info.cmd_list(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "siteA" in out
@@ -899,14 +899,14 @@ class TestCmdList:
             lambda *a, **kw: "RUNNING",
         )
         args = type("Args", (), {"cleanup": False, "host": None})()
-        rc = direct_commands.cmd_list(args)
+        rc = direct_commands.info.cmd_list(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "RUNNING" in out
 
     def test_host_filter(self, registry_with_remote, monkeypatch, capsys):
         monkeypatch.setattr(direct_commands._helpers, "_gather_instance_info",
-            lambda iid, inst: direct_commands._make_detail(
+            lambda iid, inst: direct_commands._helpers._make_detail(
                 iid,
                 inst.get("host") or "localhost",
                 inst.get("path", ""),
@@ -919,7 +919,7 @@ class TestCmdList:
             "cleanup": False,
             "host": "prod.example.com",
         })()
-        rc = direct_commands.cmd_list(args)
+        rc = direct_commands.info.cmd_list(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "remote" in out
@@ -940,7 +940,7 @@ class TestCmdList:
         monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
 
         args = type("Args", (), {"cleanup": False, "host": None})()
-        rc = direct_commands.cmd_list(args)
+        rc = direct_commands.info.cmd_list(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "NOT FOUND" in out
@@ -971,7 +971,7 @@ class TestCmdVersion:
             return type("R", (), {"returncode": 0, "stdout": stdout})()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        rc = direct_commands.cmd_version(None)
+        rc = direct_commands.info.cmd_version(None)
         assert rc == 0
         out = capsys.readouterr().out
         assert "v4.0.0" in out
@@ -995,7 +995,7 @@ class TestCmdVersion:
             return type("R", (), {"returncode": 0, "stdout": stdout})()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        rc = direct_commands.cmd_version(None)
+        rc = direct_commands.info.cmd_version(None)
         assert rc == 0
         out = capsys.readouterr().out
         assert "Canasta CLI dev (" in out
@@ -1009,7 +1009,7 @@ class TestCmdVersion:
         monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
         monkeypatch.setenv("CANASTA_CLI_IMAGE_TAG", "4.0.0")
         monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
-        rc = direct_commands.cmd_version(None)
+        rc = direct_commands.info.cmd_version(None)
         assert rc == 0
         out = capsys.readouterr().out
         assert "v4.0.0" in out
@@ -1021,7 +1021,7 @@ class TestCmdVersion:
         monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
         monkeypatch.setenv("CANASTA_CLI_IMAGE_TAG", "latest")
         monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
-        rc = direct_commands.cmd_version(None)
+        rc = direct_commands.info.cmd_version(None)
         assert rc == 0
         out = capsys.readouterr().out
         assert "Canasta CLI dev (" in out
@@ -1033,7 +1033,7 @@ class TestCmdVersion:
         (tmp_path / "BUILD_DATE").write_text("2026-04-18 10:00:00\n")
         monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
         monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
-        rc = direct_commands.cmd_version(None)
+        rc = direct_commands.info.cmd_version(None)
         assert rc == 0
         out = capsys.readouterr().out
         assert "v4.0.0" in out
@@ -1052,7 +1052,7 @@ class TestCmdVersion:
         # No instances registered — PWD auto-resolve should be a no-op.
         monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
         args = type("Args", (), {"id": None, "cli_only": False, "host": None})()
-        rc = direct_commands.cmd_version(args)
+        rc = direct_commands.info.cmd_version(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "Target Canasta version: 3.5.7" in out
@@ -1067,7 +1067,7 @@ class TestCmdVersion:
         monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
         monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
         args = type("Args", (), {"id": None, "cli_only": False, "host": None})()
-        rc = direct_commands.cmd_version(args)
+        rc = direct_commands.info.cmd_version(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "Target Canasta version: unknown" in out
@@ -1081,7 +1081,7 @@ class TestCmdVersion:
         (tmp_path / "BUILD_DATE").write_text("2026-04-20 14:00:00\n")
         monkeypatch.delenv("CANASTA_RUN_MODE", raising=False)
         monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
-        rc = direct_commands.cmd_version(None)
+        rc = direct_commands.info.cmd_version(None)
         assert rc == 0
         out = capsys.readouterr().out
         assert "v4.0.0" in out
@@ -1097,7 +1097,7 @@ class TestCmdVersion:
             subprocess, "run",
             lambda *a, **kw: type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})(),
         )
-        rc = direct_commands.cmd_version(None)
+        rc = direct_commands.info.cmd_version(None)
         assert rc == 0
         out = capsys.readouterr().out
         assert "unknown" in out
@@ -1109,7 +1109,7 @@ class TestCmdVersion:
             subprocess, "run",
             lambda *a, **kw: type("R", (), {"returncode": 128, "stdout": "", "stderr": ""})(),
         )
-        rc = direct_commands.cmd_version(None)
+        rc = direct_commands.info.cmd_version(None)
         assert rc == 0
         out = capsys.readouterr().out
         assert "v4.0.0" in out
@@ -1151,7 +1151,7 @@ class TestCmdVersionInstanceModes:
         })
         monkeypatch.chdir(site)  # inside the instance dir
         args = type("Args", (), {"id": None, "cli_only": True, "host": None})()
-        rc = direct_commands.cmd_version(args)
+        rc = direct_commands.info.cmd_version(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "Canasta CLI v4.0.0" in out
@@ -1180,7 +1180,7 @@ class TestCmdVersionInstanceModes:
         outside.mkdir()
         monkeypatch.chdir(outside)
         args = type("Args", (), {"id": None, "cli_only": False, "host": None})()
-        rc = direct_commands.cmd_version(args)
+        rc = direct_commands.info.cmd_version(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "Instance 'site1': canasta:3.6.0" in out
@@ -1302,7 +1302,7 @@ class TestCmdVersionInstanceModes:
             })(),
         )
         args = type("Args", (), {"id": None, "cli_only": False, "host": None})()
-        rc = direct_commands.cmd_version(args)
+        rc = direct_commands.info.cmd_version(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "Instance 'site': canasta:3.6.3 (running: 3.6.3-running)" in out
@@ -1334,7 +1334,7 @@ class TestCmdVersionInstanceModes:
         outside.mkdir()
         monkeypatch.chdir(outside)
         args = type("Args", (), {"id": None, "cli_only": False, "host": None})()
-        assert direct_commands.cmd_version(args) == 0
+        assert direct_commands.info.cmd_version(args) == 0
         lines = capsys.readouterr().out.splitlines()
         assert ("Instance 'built': canasta:local "
                 "(built on ghcr.io/canastawiki/canasta:3.5.29)") in lines
@@ -1360,7 +1360,7 @@ class TestCmdVersionInstanceModes:
             })(),
         )
         args = type("Args", (), {"id": None, "cli_only": False, "host": None})()
-        assert direct_commands.cmd_version(args) == 0
+        assert direct_commands.info.cmd_version(args) == 0
         out = capsys.readouterr().out
         assert ("Instance 'site': canasta:local (built on canasta-base:local) "
                 "(running: 3.5.29)") in out
@@ -1388,7 +1388,7 @@ class TestReadEnvFile:
             'MW_SITE_NAME="My Wiki"\n'
             "EMPTY=\n"
         )
-        result = direct_commands._read_env_file(str(tmp_path), "localhost")
+        result = direct_commands._helpers._read_env_file(str(tmp_path), "localhost")
         assert result["MW_SITE_SERVER"] == "https://example.com"
         assert result["MW_SITE_NAME"] == "My Wiki"
         assert result["EMPTY"] == ""
@@ -1396,17 +1396,17 @@ class TestReadEnvFile:
     def test_handles_equals_in_value(self, tmp_path):
         env = tmp_path / ".env"
         env.write_text("KEY=a=b=c\n")
-        result = direct_commands._read_env_file(str(tmp_path), "localhost")
+        result = direct_commands._helpers._read_env_file(str(tmp_path), "localhost")
         assert result["KEY"] == "a=b=c"
 
     def test_missing_file(self, tmp_path):
-        result = direct_commands._read_env_file(str(tmp_path), "localhost")
+        result = direct_commands._helpers._read_env_file(str(tmp_path), "localhost")
         assert result == {}
 
     def test_single_quoted_value(self, tmp_path):
         env = tmp_path / ".env"
         env.write_text("KEY='hello world'\n")
-        result = direct_commands._read_env_file(str(tmp_path), "localhost")
+        result = direct_commands._helpers._read_env_file(str(tmp_path), "localhost")
         assert result["KEY"] == "hello world"
 
 
@@ -1427,7 +1427,7 @@ class TestCmdConfigGet:
         args = type("Args", (), {
             "id": "test", "keys": ["MW_SITE_SERVER"], "force": False,
         })()
-        rc = direct_commands.cmd_config_get(args)
+        rc = direct_commands.config.cmd_config_get(args)
         assert rc == 0
         assert capsys.readouterr().out.strip() == "MW_SITE_SERVER=https://example.com"
 
@@ -1440,7 +1440,7 @@ class TestCmdConfigGet:
         args = type("Args", (), {
             "id": "test", "keys": ["A", "C"], "force": False,
         })()
-        rc = direct_commands.cmd_config_get(args)
+        rc = direct_commands.config.cmd_config_get(args)
         assert rc == 0
         out = capsys.readouterr().out.strip().splitlines()
         assert out == ["A=1", "C=3"]
@@ -1454,7 +1454,7 @@ class TestCmdConfigGet:
         args = type("Args", (), {
             "id": "test", "keys": ["NOPE"], "force": False,
         })()
-        rc = direct_commands.cmd_config_get(args)
+        rc = direct_commands.config.cmd_config_get(args)
         assert rc == 0
         assert "not found" in capsys.readouterr().out.lower()
 
@@ -1465,7 +1465,7 @@ class TestCmdConfigGet:
             lambda args: ("test", {"path": str(tmp_path), "orchestrator": "compose"}),
         )
         args = type("Args", (), {"id": "test", "key": None, "force": False})()
-        rc = direct_commands.cmd_config_get(args)
+        rc = direct_commands.config.cmd_config_get(args)
         assert rc == 0
         lines = capsys.readouterr().out.strip().split("\n")
         assert lines[0] == "APPLE=a"
@@ -1477,7 +1477,7 @@ class TestCmdConfigGet:
             lambda args: ("test", {"path": str(tmp_path), "orchestrator": "compose"}),
         )
         args = type("Args", (), {"id": "test", "key": None, "force": False})()
-        rc = direct_commands.cmd_config_get(args)
+        rc = direct_commands.config.cmd_config_get(args)
         assert rc == 1
 
 
@@ -1487,19 +1487,19 @@ class TestCmdConfigGet:
 
 class TestComposeFileArgs:
     def test_base_only(self, tmp_path):
-        args = direct_commands._compose_file_args(str(tmp_path), "localhost")
+        args = direct_commands._helpers._compose_file_args(str(tmp_path), "localhost")
         assert args == ["-f", "docker-compose.yml"]
 
     def test_with_override(self, tmp_path):
         (tmp_path / "docker-compose.override.yml").write_text("")
-        args = direct_commands._compose_file_args(str(tmp_path), "localhost")
+        args = direct_commands._helpers._compose_file_args(str(tmp_path), "localhost")
         assert args == [
             "-f", "docker-compose.yml",
             "-f", "docker-compose.override.yml",
         ]
 
     def test_with_devmode(self, tmp_path):
-        args = direct_commands._compose_file_args(
+        args = direct_commands._helpers._compose_file_args(
             str(tmp_path), "localhost", devmode=True,
         )
         assert "-f" in args
@@ -1510,7 +1510,7 @@ class TestComposeFileArgs:
         # user override (so the operator's override wins a clash).
         (tmp_path / "docker-compose.sidecars.yml").write_text("")
         (tmp_path / "docker-compose.override.yml").write_text("")
-        args = direct_commands._compose_file_args(
+        args = direct_commands._helpers._compose_file_args(
             str(tmp_path), "localhost", include_sidecars=True,
         )
         assert args == [
@@ -1520,7 +1520,7 @@ class TestComposeFileArgs:
         ]
 
     def test_sidecars_skipped_when_file_missing(self, tmp_path):
-        args = direct_commands._compose_file_args(
+        args = direct_commands._helpers._compose_file_args(
             str(tmp_path), "localhost", include_sidecars=True,
         )
         assert args == ["-f", "docker-compose.yml"]
@@ -1530,14 +1530,14 @@ class TestComposeFileArgs:
         # layered unless the caller opted in: `up -d` with the stale
         # layer would recreate the removed sidecar.
         (tmp_path / "docker-compose.sidecars.yml").write_text("")
-        args = direct_commands._compose_file_args(str(tmp_path), "localhost")
+        args = direct_commands._helpers._compose_file_args(str(tmp_path), "localhost")
         assert args == ["-f", "docker-compose.yml"]
 
     def test_web_env_layered_before_override(self, tmp_path):
         (tmp_path / "docker-compose.sidecars.yml").write_text("")
         (tmp_path / "docker-compose.web-env.yml").write_text("")
         (tmp_path / "docker-compose.override.yml").write_text("")
-        args = direct_commands._compose_file_args(
+        args = direct_commands._helpers._compose_file_args(
             str(tmp_path), "localhost", include_sidecars=True,
         )
         assert args == [
@@ -1551,7 +1551,7 @@ class TestComposeFileArgs:
         # Unlike the sidecars layer, it never lingers stale, so every
         # compose invocation must see it (stop, start, rebuild, logs).
         (tmp_path / "docker-compose.web-env.yml").write_text("")
-        args = direct_commands._compose_file_args(str(tmp_path), "localhost")
+        args = direct_commands._helpers._compose_file_args(str(tmp_path), "localhost")
         assert args == [
             "-f", "docker-compose.yml",
             "-f", "docker-compose.web-env.yml",
@@ -1605,7 +1605,7 @@ class TestLifecycleCommands:
             direct_commands._helpers, "_resolve_instance",
             lambda args: ("scsite", {"path": path, "orchestrator": "compose"}))
         args = type("Args", (), {"id": "scsite"})()
-        assert direct_commands.cmd_stop(args) is direct_commands.FALLBACK
+        assert direct_commands.lifecycle.cmd_stop(args) is direct_commands.FALLBACK
 
     def test_podman_stop_falls_back(self, monkeypatch):
         # Ansible disables the instance's boot unit, so a stopped instance
@@ -1615,7 +1615,7 @@ class TestLifecycleCommands:
                                  "host": "remote.example.com",
                                  "inspectCommand": "podman"}))
         args = type("Args", (), {"id": "pm"})()
-        assert direct_commands.cmd_stop(args) is direct_commands.FALLBACK
+        assert direct_commands.lifecycle.cmd_stop(args) is direct_commands.FALLBACK
 
     def test_stop_runs_down(self, monkeypatch):
         captured_cmds = []
@@ -1641,7 +1641,7 @@ class TestLifecycleCommands:
             lambda inst: True)
 
         args = type("Args", (), {"id": "test"})()
-        rc = direct_commands.cmd_stop(args)
+        rc = direct_commands.lifecycle.cmd_stop(args)
         assert rc == 0
         assert "down" in captured_cmds[0]
         # Sweep a sidecar container orphaned by `sidecar remove`.
@@ -1658,7 +1658,7 @@ class TestLifecycleCommands:
         monkeypatch.setattr(direct_commands._helpers, "_run_compose",
             lambda inst_id, inst, action, **kw: events.append(action[0]) or 0)
         args = type("Args", (), {"id": "test"})()
-        rc = direct_commands.cmd_stop(args)
+        rc = direct_commands.lifecycle.cmd_stop(args)
         assert rc == 0
         assert events == ["sync", "down"]
 
@@ -1668,7 +1668,7 @@ class TestEnvFileWriter:
 
     def test_parse_keeps_comments_and_blanks_in_order(self):
         content = "# header comment\n\nKEY=value\n# inline\nOTHER=x\n"
-        entries = direct_commands._parse_env_entries(content)
+        entries = direct_commands._helpers._parse_env_entries(content)
         assert entries[0] == (None, "# header comment", True)
         assert entries[1] == (None, "", True)
         assert entries[2] == ("KEY", "value", False)
@@ -1676,7 +1676,7 @@ class TestEnvFileWriter:
         assert entries[4] == ("OTHER", "x", False)
 
     def test_parse_strips_matching_quotes(self):
-        entries = direct_commands._parse_env_entries(
+        entries = direct_commands._helpers._parse_env_entries(
             'A="quoted"\nB=\'single\'\nC=bare\n'
         )
         vals = {k: v for k, v, c in entries if not c}
@@ -1684,14 +1684,14 @@ class TestEnvFileWriter:
 
     def test_write_env_content_local(self, tmp_path):
         p = str(tmp_path)
-        ok = direct_commands._write_env_content(p, "localhost", "K=v\n")
+        ok = direct_commands._helpers._write_env_content(p, "localhost", "K=v\n")
         assert ok is True
         with open(tmp_path / ".env") as f:
             assert f.read() == "K=v\n"
 
     def test_write_env_content_ends_with_newline(self, tmp_path):
         p = str(tmp_path)
-        assert direct_commands._write_env_content(p, "localhost", "A=1\nB=2")
+        assert direct_commands._helpers._write_env_content(p, "localhost", "A=1\nB=2")
         with open(tmp_path / ".env") as f:
             assert f.read() == "A=1\nB=2\n"
 
@@ -1710,7 +1710,7 @@ class TestEnvFileWriter:
             return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        ok = direct_commands._write_env_content("/srv/mysite", "node1", "K=v\n")
+        ok = direct_commands._helpers._write_env_content("/srv/mysite", "node1", "K=v\n")
         assert ok is True
         # ssh target must be the resolved user@host, not the bare 'node1'.
         assert "admin@cp.example.com" in captured["cmd"]
@@ -1784,7 +1784,7 @@ class TestSyncComposeProfiles:
         (tmp_path / ".env").write_text(
             "CANASTA_ENABLE_REDIS=true\nCOMPOSE_PROFILES=\n"
         )
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
         profiles = next(line for line in content.split("\n")
                         if line.startswith("COMPOSE_PROFILES="))
@@ -1793,7 +1793,7 @@ class TestSyncComposeProfiles:
     def test_adds_varnish_by_default(self, tmp_path):
         # CANASTA_ENABLE_VARNISH defaults to true even when unset.
         (tmp_path / ".env").write_text("COMPOSE_PROFILES=\n")
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
         assert "COMPOSE_PROFILES=varnish" in content
 
@@ -1805,7 +1805,7 @@ class TestSyncComposeProfiles:
             "CANASTA_ENABLE_OBSERVABILITY=false\n"
             "COMPOSE_PROFILES=redis,varnish\n"
         )
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
         # Every feature profile is dropped because all flags are false, but
         # internal-db stays (default-on; no external DB configured).
@@ -1823,7 +1823,7 @@ class TestSyncComposeProfiles:
             "CANASTA_ENABLE_OBSERVABILITY=false\n"
             "COMPOSE_PROFILES=mytest,varnish\n"
         )
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
         for line in content.split("\n"):
             if line.startswith("COMPOSE_PROFILES="):
@@ -1840,7 +1840,7 @@ class TestSyncComposeProfiles:
             "CANASTA_CADDY_HTTPS_PUBLISH=127.0.0.1:\n"
         )
         original_mtime = env_path.stat().st_mtime_ns
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         # If _sync wrote the file, mtime would update. The guard in
         # _sync (sorted(desired) == sorted(current)) must prevent that.
         assert env_path.stat().st_mtime_ns == original_mtime
@@ -1849,7 +1849,7 @@ class TestSyncComposeProfiles:
         # No USE_EXTERNAL_DB set: the bundled database runs by default, so
         # internal-db must be derived even when COMPOSE_PROFILES omits it.
         (tmp_path / ".env").write_text("COMPOSE_PROFILES=\n")
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
         assert "internal-db" in content
 
@@ -1859,7 +1859,7 @@ class TestSyncComposeProfiles:
         (tmp_path / ".env").write_text(
             "CANASTA_ENABLE_VARNISH=true\nCOMPOSE_PROFILES=varnish\n"
         )
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
         for line in content.split("\n"):
             if line.startswith("COMPOSE_PROFILES="):
@@ -1876,7 +1876,7 @@ class TestSyncComposeProfiles:
             "CANASTA_ENABLE_VARNISH=true\n"
             "COMPOSE_PROFILES=internal-db,varnish\n"
         )
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
         for line in content.split("\n"):
             if line.startswith("COMPOSE_PROFILES="):
@@ -1895,7 +1895,7 @@ class TestSyncComposeProfiles:
             "COMPOSE_PROFILES=\n"
             "# trailing comment\n"
         )
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
         assert 'RESTIC_PASSWORD="abc #def"' in content
         assert "# trailing comment" in content
@@ -1912,7 +1912,7 @@ class TestSyncComposeProfiles:
             "CANASTA_ENABLE_VARNISH=true\n"
             "COMPOSE_PROFILES=redis,varnish\n"
         )
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         assert len(self.compose_calls) == 1
         argv = self.compose_calls[0]
         assert argv[:2] == ["--profile", "redis"]
@@ -1928,7 +1928,7 @@ class TestSyncComposeProfiles:
             "CANASTA_ENABLE_VARNISH=true\n"
             "COMPOSE_PROFILES=observable,varnish\n"
         )
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         assert len(self.compose_calls) == 1
         named = self.compose_calls[0][self.compose_calls[0].index("-sf") + 1:]
         assert sorted(named) == sorted(
@@ -1966,7 +1966,7 @@ class TestSyncComposeProfiles:
             )
         calls = self._stub_runtime(
             monkeypatch, {"opensearch": ["aaa"], "logstash": ["bbb"]})
-        direct_commands._sync_compose_profiles(inst)
+        direct_commands._helpers._sync_compose_profiles(inst)
         assert self.compose_calls == []
         ps_calls = [c for c in calls if c[1] == "ps"]
         services = direct_commands._helpers._MANAGED_PROFILE_SERVICES[
@@ -1991,7 +1991,7 @@ class TestSyncComposeProfiles:
                 "COMPOSE_PROFILES=redis,varnish\n"
             )
         calls = self._stub_runtime(monkeypatch, {})
-        direct_commands._sync_compose_profiles(inst)
+        direct_commands._helpers._sync_compose_profiles(inst)
         assert self.compose_calls == []
         assert [c[1] for c in calls] == ["ps"]
 
@@ -2002,7 +2002,7 @@ class TestSyncComposeProfiles:
             "CANASTA_ENABLE_VARNISH=true\n"
             "COMPOSE_PROFILES=varnish\n"
         )
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         assert self.compose_calls == []
 
     def test_profile_service_map_matches_bundled_compose(self):
@@ -2032,7 +2032,7 @@ class TestSyncComposeProfiles:
 
     def test_no_env_file_is_a_noop(self, tmp_path):
         # Nothing to sync; must not create a file or raise.
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         assert not (tmp_path / ".env").exists()
 
     def test_preserves_comments_on_write(self, tmp_path):
@@ -2042,7 +2042,7 @@ class TestSyncComposeProfiles:
             "# profiles below\n"
             "COMPOSE_PROFILES=\n"
         )
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
         assert "# Canasta config" in content
         assert "# profiles below" in content
@@ -2055,7 +2055,7 @@ class TestSyncComposeProfiles:
             "CANASTA_ENABLE_VARNISH=false\n"
             "COMPOSE_PROFILES=\n"
         )
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
         assert "COMPOSE_PROFILES=crowdsec" in content
         # Enabling crowdsec switches the caddy image to the bouncer build.
@@ -2069,7 +2069,7 @@ class TestSyncComposeProfiles:
         (tmp_path / ".env").write_text(
             "CANASTA_ENABLE_VARNISH=false\nCOMPOSE_PROFILES=\n"
         )
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
         assert "crowdsec" not in content
         # No spurious empty CANASTA_CADDY_IMAGE line is added.
@@ -2083,7 +2083,7 @@ class TestSyncComposeProfiles:
             "COMPOSE_PROFILES=crowdsec\n"
             % direct_commands._helpers._CADDY_PLUGIN_IMAGE
         )
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
         # crowdsec dropped (internal-db stays, default-on) and the managed
         # image cleared back to default.
@@ -2101,7 +2101,7 @@ class TestSyncComposeProfiles:
             "CANASTA_CADDY_IMAGE=myregistry/custom-caddy:1.0\n"
             "COMPOSE_PROFILES=\n"
         )
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
         assert "CANASTA_CADDY_IMAGE=myregistry/custom-caddy:1.0" in content
         # Profile is still added even though the image is left alone.
@@ -2116,7 +2116,7 @@ class TestSyncComposeProfiles:
             "CANASTA_ENABLE_VARNISH=false\n"
             "COMPOSE_PROFILES=\n"
         )
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
         assert "CANASTA_CADDY_IMAGE" not in content
 
@@ -2128,7 +2128,7 @@ class TestSyncComposeProfiles:
             "CANASTA_ENABLE_VARNISH=false\n"
             "COMPOSE_PROFILES=\n"
         )
-        direct_commands._sync_compose_profiles(self._inst(tmp_path))
+        direct_commands._helpers._sync_compose_profiles(self._inst(tmp_path))
         content = (tmp_path / ".env").read_text()
         assert "CANASTA_CADDY_IMAGE" not in content
 
@@ -2143,7 +2143,7 @@ class TestHostList:
 
     def test_no_file(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
-        rc = direct_commands.cmd_host_list(None)
+        rc = direct_commands.host.cmd_host_list(None)
         assert rc == 0
         assert "No hosts configured" in capsys.readouterr().out
 
@@ -2159,7 +2159,7 @@ class TestHostList:
             "    prod2:\n"
             "      ansible_host: 10.0.0.5\n"
         )
-        rc = direct_commands.cmd_host_list(None)
+        rc = direct_commands.host.cmd_host_list(None)
         assert rc == 0
         out = capsys.readouterr().out
         assert "prod1" in out
@@ -2171,7 +2171,7 @@ class TestHostList:
         monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
         hosts_file = tmp_path / "hosts.yml"
         hosts_file.write_text("all:\n  hosts: {}\n")
-        rc = direct_commands.cmd_host_list(None)
+        rc = direct_commands.host.cmd_host_list(None)
         assert rc == 0
         assert "No hosts configured" in capsys.readouterr().out
 
@@ -2187,7 +2187,7 @@ class TestHostAdd:
             "ssh": "ubuntu@prod1.example.com",
             "python": None,
         })()
-        rc = direct_commands.cmd_host_add(args)
+        rc = direct_commands.host.cmd_host_add(args)
         assert rc == 0
         assert "saved" in capsys.readouterr().out
 
@@ -2204,7 +2204,7 @@ class TestHostAdd:
             "ssh": "10.0.0.5",
             "python": "/usr/bin/python3",
         })()
-        rc = direct_commands.cmd_host_add(args)
+        rc = direct_commands.host.cmd_host_add(args)
         assert rc == 0
 
         import yaml as _yaml
@@ -2224,7 +2224,7 @@ class TestHostAdd:
             "ssh": "admin@new.com",
             "python": None,
         })()
-        rc = direct_commands.cmd_host_add(args)
+        rc = direct_commands.host.cmd_host_add(args)
         assert rc == 0
 
         import yaml as _yaml
@@ -2245,7 +2245,7 @@ class TestHostRemove:
             "    prod2:\n      ansible_host: prod2.com\n"
         )
         args = type("Args", (), {"host_name": "prod1"})()
-        rc = direct_commands.cmd_host_remove(args)
+        rc = direct_commands.host.cmd_host_remove(args)
         assert rc == 0
         assert "removed" in capsys.readouterr().out
 
@@ -2260,13 +2260,13 @@ class TestHostRemove:
         hosts_file = tmp_path / "hosts.yml"
         hosts_file.write_text("all:\n  hosts:\n    prod1:\n      ansible_host: x\n")
         args = type("Args", (), {"host_name": "nope"})()
-        rc = direct_commands.cmd_host_remove(args)
+        rc = direct_commands.host.cmd_host_remove(args)
         assert rc == 1
 
     def test_remove_no_file(self, tmp_path, monkeypatch, capsys):
         monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
         args = type("Args", (), {"host_name": "prod1"})()
-        rc = direct_commands.cmd_host_remove(args)
+        rc = direct_commands.host.cmd_host_remove(args)
         assert rc == 1
 
 
@@ -2276,23 +2276,23 @@ class TestHostRemove:
 
 class TestParseRemoteSync:
     def test_in_sync(self):
-        assert direct_commands._parse_remote_sync("FETCH:ok\n0\t0") == (0, 0, "ok")
+        assert direct_commands.gitops._parse_remote_sync("FETCH:ok\n0\t0") == (0, 0, "ok")
 
     def test_ahead_behind(self):
-        assert direct_commands._parse_remote_sync("FETCH:ok\n3\t2") == (3, 2, "ok")
+        assert direct_commands.gitops._parse_remote_sync("FETCH:ok\n3\t2") == (3, 2, "ok")
 
     def test_fetch_failed_even_with_zero_revcount(self):
         # rev-list against a stale ref can print 0\t0; a failed fetch still wins.
-        assert direct_commands._parse_remote_sync("FETCH:fail\n0\t0") == (
+        assert direct_commands.gitops._parse_remote_sync("FETCH:fail\n0\t0") == (
             0, 0, "fetch_failed")
 
     def test_no_upstream(self):
-        assert direct_commands._parse_remote_sync("FETCH:ok\nREVLIST:fail") == (
+        assert direct_commands.gitops._parse_remote_sync("FETCH:ok\nREVLIST:fail") == (
             0, 0, "no_upstream")
 
     def test_missing_markers_treated_as_fetch_failed(self):
         # Defensive: an old/garbled section with no FETCH marker is not in-sync.
-        assert direct_commands._parse_remote_sync("0\t0")[2] == "fetch_failed"
+        assert direct_commands.gitops._parse_remote_sync("0\t0")[2] == "fetch_failed"
 
 
 class TestParseGitopsStatus:
@@ -2300,7 +2300,7 @@ class TestParseGitopsStatus:
                      commit="abc1234", applied="abc1234",
                      staged="", unstaged="", revcount="0\t0", fetch="ok",
                      wikis=None, template=None, untracked=None):
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         # parts[6] is the fetch-status marker followed by the rev-list line.
         remote = "FETCH:%s\n%s" % (fetch, revcount)
         out = (
@@ -2327,20 +2327,20 @@ class TestParseGitopsStatus:
     def test_unapplied_pull_is_not_reported_as_wikis_edit(self):
         out = self._make_output(commit="def5678", applied="abc1234" + "0" * 33,
                                 wikis=self._LIVE, template=self._TMPL)
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Uncaptured config/wikis.yaml edits" not in result
         assert "stopped before applying commit def5678" in result
 
     def test_applied_checkout_still_reports_wikis_edit(self):
         out = self._make_output(commit="def5678", applied="def5678" + "0" * 33,
                                 wikis=self._LIVE, template=self._TMPL)
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Uncaptured config/wikis.yaml edits" in result
         assert "stopped before applying" not in result
 
     def test_basic_status(self):
         out = self._make_output()
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Host:           myhost" in result
         assert "Canasta ID:     mysite" in result
         assert "Current commit: abc1234" in result
@@ -2352,7 +2352,7 @@ class TestParseGitopsStatus:
         # (commit none): must say the instance isn't GitOps-managed, not claim
         # "No changes / Up to date with remote" (there is no remote).
         out = self._make_output(hostname="MISSING", commit="none", applied="none")
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "not under GitOps management" in result
         assert "gitops init" in result and "gitops join" in result
         assert "Up to date with remote." not in result
@@ -2364,15 +2364,15 @@ class TestParseGitopsStatus:
         # claim there is no git repository.
         out = self._make_output(hostname="MISSING", commit="NOCOMMIT",
                                 applied="none")
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "no git repository" not in result
         assert "setup did not finish" in result
         assert "canasta gitops init --reinit" in result
         assert "Up to date with remote." not in result
 
     def test_script_distinguishes_empty_git_from_no_git(self, tmp_path):
-        script = direct_commands._gitops_status_script(str(tmp_path))
-        d = direct_commands._SENTINEL + "\n"
+        script = direct_commands.gitops._gitops_status_script(str(tmp_path))
+        d = direct_commands._helpers._SENTINEL + "\n"
 
         # Keep git from finding an enclosing repository above tmp_path.
         env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(tmp_path.parent))
@@ -2391,14 +2391,14 @@ class TestParseGitopsStatus:
         out = self._make_output(
             staged="M\tconfig/.env\nA\tconfig/wikis.yaml",
         )
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Staged for push (2 files):" in result
         assert "modified: config/.env" in result
         assert "new file: config/wikis.yaml" in result
 
     def test_with_unstaged_files(self):
         out = self._make_output(unstaged="M\tdocker-compose.override.yml")
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Unstaged changes (1 files):" in result
         assert "modified: docker-compose.override.yml" in result
 
@@ -2406,21 +2406,21 @@ class TestParseGitopsStatus:
         # A staged deletion (e.g. after 'git rm --cached') must read as a
         # removal, not as content being pushed.
         out = self._make_output(staged="D\tconfig/.smw.json")
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Staged for push (1 files):" in result
         assert "deleted: config/.smw.json" in result
 
     def test_renamed_file_shows_current_path(self):
         # name-status rename lines are R<score>\t<old>\t<new>; show the new path.
         out = self._make_output(staged="R100\told/name.php\tnew/name.php")
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "renamed: new/name.php" in result
 
     def test_with_untracked_files(self):
         out = self._make_output(
             untracked="?? hosts/hosts.yaml\n?? public_assets/notes/",
         )
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Untracked files (2):" in result
         assert "hosts/hosts.yaml" in result
         assert "public_assets/notes/" in result
@@ -2434,7 +2434,7 @@ class TestParseGitopsStatus:
         # A plain 'gitops add wikis.yaml.template' skips the reconcile; the
         # advisory must route to 'gitops add config/wikis.yaml' instead.
         out = self._make_output(untracked="?? wikis.yaml.template")
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "canasta gitops add config/wikis.yaml" in result
         assert "gitops add <file>" not in result
 
@@ -2444,7 +2444,7 @@ class TestParseGitopsStatus:
         out = self._make_output(
             untracked="?? wikis.yaml.template\n?? hosts/hosts.yaml",
         )
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "canasta gitops add config/wikis.yaml" in result
         assert "canasta gitops add hosts/hosts.yaml" in result
         assert "managed gitops file" in result
@@ -2455,7 +2455,7 @@ class TestParseGitopsStatus:
 
     def test_untracked_does_not_break_clean_status(self):
         out = self._make_output(untracked="")
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "No changes." in result
         assert "Untracked files" not in result
 
@@ -2465,24 +2465,24 @@ class TestParseGitopsStatus:
         out = self._make_output(
             untracked=" M config/default.vcl\n?? hosts/hosts.yaml",
         )
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Untracked files (1):" in result
         assert "hosts/hosts.yaml" in result
         assert "config/default.vcl" not in result
 
     def test_ahead_of_remote(self):
         out = self._make_output(revcount="3\t0")
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Ahead of remote by 3 commit(s)." in result
 
     def test_behind_remote(self):
         out = self._make_output(revcount="0\t2")
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Behind remote by 2 commit(s)." in result
 
     def test_diverged_from_remote_reports_both_counts(self):
         out = self._make_output(revcount="1\t2")
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert (
             "Diverged from remote: 1 local commit(s) not pushed, "
             "2 remote commit(s) not pulled. Run 'canasta gitops pull', "
@@ -2495,31 +2495,31 @@ class TestParseGitopsStatus:
         # A failed fetch left origin stale; rev-list may still print 0\t0
         # against the stale ref. Must NOT read as in-sync.
         out = self._make_output(fetch="fail", revcount="0\t0")
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Remote status unknown" in result
         assert "Up to date with remote." not in result
 
     def test_fetch_failed_hint_names_ssh_key(self):
         out = self._make_output(fetch="fail")
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "--ssh-key" in result
 
     def test_no_upstream_reports_unknown(self):
         out = self._make_output(fetch="ok", revcount="REVLIST:fail")
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Remote status unknown" in result
         assert "no upstream tracking" in result
         assert "Up to date with remote." not in result
 
     def test_in_sync_only_when_fetch_ok_and_zero(self):
         out = self._make_output(fetch="ok", revcount="0\t0")
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Up to date with remote." in result
 
     def test_with_hosts_yaml(self):
         hosts_yaml = "hosts:\n  - name: myhost\n    role: production\n    pull_requests: true"
         out = self._make_output(hosts_yaml=hosts_yaml)
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Role:           production" in result
         assert "Pull requests:  True" in result
 
@@ -2527,19 +2527,19 @@ class TestParseGitopsStatus:
         hosts_yaml = ("hosts:\n  - name: source\n    role: source\n    pull_requests: true\n"
                       "  - name: myhost\n    role: sink\n")
         out = self._make_output(hosts_yaml=hosts_yaml)
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Role:           sink" in result
         assert "Pull requests:  False" in result
 
     def test_a_host_missing_from_hosts_yaml_has_no_role(self):
         hosts_yaml = "hosts:\n  - name: other\n    role: both\n"
         out = self._make_output(hosts_yaml=hosts_yaml)
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Role:           unknown" in result
 
     def test_missing_host_file(self):
         out = self._make_output(hostname="MISSING")
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Host:           unknown" in result
 
     # Uncaptured config/wikis.yaml edits (e.g. a display name edited
@@ -2556,7 +2556,7 @@ class TestParseGitopsStatus:
 
     def test_uncaptured_wikis_edit_flagged(self):
         out = self._make_output(wikis=self._LIVE, template=self._TMPL_STALE)
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Uncaptured config/wikis.yaml edits" in result
         assert "canasta gitops add" in result
         # Must not also claim there is nothing to do.
@@ -2564,25 +2564,25 @@ class TestParseGitopsStatus:
 
     def test_captured_wikis_no_advisory(self):
         out = self._make_output(wikis=self._LIVE, template=self._TMPL_OK)
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Uncaptured config/wikis.yaml edits" not in result
         assert "No changes." in result
 
     def test_no_template_no_advisory(self):
         """A non-gitops instance has no wikis.yaml.template — never flag."""
         out = self._make_output(wikis=self._LIVE, template="")
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "Uncaptured config/wikis.yaml edits" not in result
 
     def test_legacy_output_without_wikis_sections(self):
         """Output predating the wikis sections must parse unchanged."""
         out = self._make_output()
-        result = direct_commands._parse_gitops_status(out, "mysite")
+        result = direct_commands.gitops._parse_gitops_status(out, "mysite")
         assert "No changes." in result
         assert "Uncaptured config/wikis.yaml edits" not in result
 
     def test_script_reads_wikis_and_template(self):
-        script = direct_commands._gitops_status_script("/srv/mysite")
+        script = direct_commands.gitops._gitops_status_script("/srv/mysite")
         assert "cat config/wikis.yaml" in script
         assert "cat wikis.yaml.template" in script
 
@@ -2596,7 +2596,7 @@ class TestCmdGitopsStatus:
         # function; 'canasta gitops status' then returns the helper's
         # value and sys.exit prints its repr with rc=1.
         assert direct_commands.DIRECT_COMMANDS["gitops_status"] is (
-            direct_commands.cmd_gitops_status
+            direct_commands.gitops.cmd_gitops_status
         )
 
 
@@ -2608,34 +2608,34 @@ class TestGitopsSshKey:
         # host-key convention (accept-new) and fall back to the key path
         # recorded in .gitops-ssh-key, so a status fetch authenticates
         # like push.
-        for prefix in (direct_commands._git_ssh_env_prefix(None),
-                       direct_commands._git_ssh_env_prefix("")):
+        for prefix in (direct_commands.gitops._git_ssh_env_prefix(None),
+                       direct_commands.gitops._git_ssh_env_prefix("")):
             assert "GIT_SSH_COMMAND" in prefix
             assert "StrictHostKeyChecking=accept-new" in prefix
             assert ".gitops-ssh-key" in prefix
 
     def test_prefix_sets_git_ssh_command(self):
-        prefix = direct_commands._git_ssh_env_prefix("/home/u/.ssh/id_ed25519")
+        prefix = direct_commands.gitops._git_ssh_env_prefix("/home/u/.ssh/id_ed25519")
         assert prefix.startswith("export GIT_SSH_COMMAND=")
         assert "ssh -i '/home/u/.ssh/id_ed25519' " in prefix
         assert "StrictHostKeyChecking=accept-new" in prefix
         assert prefix.endswith("; ")
 
     def test_prefix_quotes_key_path(self):
-        prefix = direct_commands._git_ssh_env_prefix("/tmp/my key")
+        prefix = direct_commands.gitops._git_ssh_env_prefix("/tmp/my key")
         assert "'/tmp/my key'" in prefix
 
     def test_status_script_sets_ssh_env_without_key(self):
         # Without --ssh-key the fetch still runs under the host-key convention
         # (accept-new) with a .gitops-ssh-key fallback, so it authenticates
         # wherever push does.
-        script = direct_commands._gitops_status_script("/srv/mysite")
+        script = direct_commands.gitops._gitops_status_script("/srv/mysite")
         assert "GIT_SSH_COMMAND" in script
         assert ".gitops-ssh-key" in script
         assert "git fetch" in script
 
     def test_status_script_includes_prefix_with_key(self):
-        script = direct_commands._gitops_status_script(
+        script = direct_commands.gitops._gitops_status_script(
             "/srv/mysite", ssh_key="/home/u/.ssh/deploy"
         )
         # Prefix is exported before the git commands that follow.
@@ -2662,7 +2662,7 @@ class TestDirectCommandRegistry:
         )
 
     def test_remote_uses_ssh(self, monkeypatch, capsys):
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         ssh_output = (
             "myhost\n" + d + "\n"
             + "MISSING\n" + d + "\n"
@@ -2683,7 +2683,7 @@ class TestDirectCommandRegistry:
             lambda host, cmd: (0, ssh_output),
         )
         args = type("Args", (), {"id": "mysite"})()
-        rc = direct_commands.cmd_gitops_status(args)
+        rc = direct_commands.gitops.cmd_gitops_status(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "Canasta ID:     mysite" in out
@@ -2702,7 +2702,7 @@ class TestExecInContainer:
                 "returncode": 0, "stdout": "Cite\nVisualEditor\n",
             })(),
         )
-        rc, out = direct_commands._exec_in_container(
+        rc, out = direct_commands._helpers._exec_in_container(
             "test",
             {"path": "/srv/test", "orchestrator": "compose"},
             "find extensions",
@@ -2755,7 +2755,7 @@ class TestExtensionSkinList:
             lambda *a, **kw: (0, "Cite\nVisualEditor\nParserFunctions\n"),
         )
         args = type("Args", (), {"id": "test", "wiki": None})()
-        rc = direct_commands.cmd_extension_list(args)
+        rc = direct_commands.extension_skin.cmd_extension_list(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "Available Canasta extensions:" in out
@@ -2770,7 +2770,7 @@ class TestExtensionSkinList:
             lambda *a, **kw: (0, "Vector\nTimeless\n"),
         )
         args = type("Args", (), {"id": "test", "wiki": None})()
-        rc = direct_commands.cmd_skin_list(args)
+        rc = direct_commands.extension_skin.cmd_skin_list(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "Available Canasta skins:" in out
@@ -2784,7 +2784,7 @@ class TestExtensionSkinList:
             lambda *a, **kw: (1, ""),
         )
         args = type("Args", (), {"id": "test", "wiki": None})()
-        rc = direct_commands.cmd_extension_list(args)
+        rc = direct_commands.extension_skin.cmd_extension_list(args)
         assert rc == 1
 
 
@@ -2799,7 +2799,7 @@ class TestParseGitopsDiff:
         # Sentinel-separated sections: for each boundary a --name-only list
         # followed by the patch, then submodule status, then (optionally) the
         # fetch-status marker.
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         out = (
             uncommitted + "\n" + d + "\n"
             + uncommitted_patch + "\n" + d + "\n"
@@ -2814,29 +2814,29 @@ class TestParseGitopsDiff:
         return out
 
     def test_fetch_failed_flags_stale_comparison(self):
-        result = direct_commands._parse_gitops_diff(self._make_output(fetch="fail"))
+        result = direct_commands.gitops._parse_gitops_diff(self._make_output(fetch="fail"))
         assert "could not fetch from the remote" in result
 
     def test_fetch_ok_has_no_stale_note(self):
-        result = direct_commands._parse_gitops_diff(self._make_output(fetch="ok"))
+        result = direct_commands.gitops._parse_gitops_diff(self._make_output(fetch="ok"))
         assert "could not fetch" not in result
 
     def test_diff_script_fetches_authenticated(self):
-        script = direct_commands._gitops_diff_script("/srv/mysite")
+        script = direct_commands.gitops._gitops_diff_script("/srv/mysite")
         assert "git fetch" in script
         assert "StrictHostKeyChecking=accept-new" in script
         assert ".gitops-ssh-key" in script
 
     def test_no_changes(self):
         out = self._make_output()
-        result = direct_commands._parse_gitops_diff(out)
+        result = direct_commands.gitops._parse_gitops_diff(out)
         assert "Uncommitted changes: 0 file(s)" in result
         assert "Local changes (not yet pushed): 0 file(s)" in result
         assert "Remote changes (would be applied on pull): 0 file(s)" in result
 
     def test_uncommitted_files(self):
         out = self._make_output(uncommitted="config/.env\nconfig/wikis.yaml")
-        result = direct_commands._parse_gitops_diff(out)
+        result = direct_commands.gitops._parse_gitops_diff(out)
         assert "Uncommitted changes: 2 file(s)" in result
 
     def test_patch_content_shown(self):
@@ -2846,32 +2846,32 @@ class TestParseGitopsDiff:
         )
         out = self._make_output(uncommitted="config/.env",
                                 uncommitted_patch=patch)
-        result = direct_commands._parse_gitops_diff(out)
+        result = direct_commands.gitops._parse_gitops_diff(out)
         assert "Uncommitted changes: 1 file(s)" in result
         assert "+FOO=new" in result
         assert "-FOO=old" in result
 
     def test_local_and_remote(self):
         out = self._make_output(local="config/.env", remote="config/settings.php")
-        result = direct_commands._parse_gitops_diff(out)
+        result = direct_commands.gitops._parse_gitops_diff(out)
         assert "Local changes (not yet pushed): 1 file(s)" in result
         assert "Remote changes (would be applied on pull): 1 file(s)" in result
 
     def test_restart_hint(self):
         out = self._make_output(local="config/.env")
-        result = direct_commands._parse_gitops_diff(out)
+        result = direct_commands.gitops._parse_gitops_diff(out)
         assert "restart would be needed" in result
 
     def test_update_hint(self):
         out = self._make_output(remote="config/settings/global/Custom.php")
-        result = direct_commands._parse_gitops_diff(out)
+        result = direct_commands.gitops._parse_gitops_diff(out)
         assert "maintenance update may be needed" in result
 
     def test_submodule_changes(self):
         out = self._make_output(
             submodules="+abc123 user-extensions/MyExt (heads/main)\n def456 user-skins/MySkin"
         )
-        result = direct_commands._parse_gitops_diff(out)
+        result = direct_commands.gitops._parse_gitops_diff(out)
         assert "Submodules that would be updated:" in result
         assert "user-extensions/MyExt" in result
         assert "user-skins/MySkin" not in result
@@ -2882,7 +2882,7 @@ class TestCmdGitopsDiff:
         assert direct_commands.is_direct_command("gitops_diff")
 
     def test_compose_remote(self, monkeypatch, capsys):
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         ssh_output = (
             "config/.env\n" + d + "\n"
             + "diff --git a/config/.env b/config/.env\n" + d + "\n"
@@ -2903,7 +2903,7 @@ class TestCmdGitopsDiff:
             lambda host, cmd: (0, ssh_output),
         )
         args = type("Args", (), {"id": "mysite"})()
-        rc = direct_commands.cmd_gitops_diff(args)
+        rc = direct_commands.gitops.cmd_gitops_diff(args)
         assert rc == 0
         out = capsys.readouterr().out
         assert "Uncommitted changes: 1 file(s)" in out
@@ -2938,7 +2938,7 @@ class TestBackupList:
             })(),
         )
         args = type("Args", (), {"id": "test"})()
-        rc = direct_commands.cmd_backup_list(args)
+        rc = direct_commands.backup.cmd_backup_list(args)
         assert rc == 0
         assert "abc123" in capsys.readouterr().out
 
@@ -2971,7 +2971,7 @@ class TestBackupList:
             monkeypatch,
             "Fatal: unable to open config file: Stat: Access Denied.\n",
         )
-        rc = direct_commands.cmd_backup_list(args)
+        rc = direct_commands.backup.cmd_backup_list(args)
         assert rc == 1
         captured = capsys.readouterr()
         assert "Access Denied" in captured.err, (
@@ -2998,7 +2998,7 @@ class TestBackupList:
             })(),
         )
         args = type("Args", (), {"id": "test"})()
-        rc = direct_commands.cmd_backup_list(args)
+        rc = direct_commands.backup.cmd_backup_list(args)
         assert rc == 0
         assert capsys.readouterr().err == "", (
             "a successful listing should not print stderr chatter")
@@ -3019,7 +3019,7 @@ class TestBackupList:
                                   "stderr": ""})()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        rc = direct_commands.cmd_backup_list(
+        rc = direct_commands.backup.cmd_backup_list(
             type("Args", (), {"id": "test"})())
         return rc, calls
 
@@ -3093,7 +3093,7 @@ class TestDoctor:
         assert direct_commands.is_direct_command("doctor")
 
     def test_parse_doctor_all_ok(self):
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         parts = [
             "Python 3.12.0",
             "Docker version 27.0.0",
@@ -3109,7 +3109,7 @@ class TestDoctor:
             "1024",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
-        result = direct_commands._parse_doctor(stdout, "myhost")
+        result = direct_commands.doctor._parse_doctor(stdout, "myhost")
         assert "Canasta Dependency Check (myhost)" in result
         assert "Python 3:        OK" in result
         assert "Docker:          OK" in result
@@ -3118,7 +3118,7 @@ class TestDoctor:
         assert "www-data group:  OK (member)" in result
 
     def test_parse_doctor_reports_host_canasta(self):
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         # The fields through the rootless socket; the canasta probe follows.
         base = [
             "Python 3.12.0", "Docker version 27.0.0",
@@ -3132,7 +3132,7 @@ class TestDoctor:
             ("MISSING", "canasta on host: not installed"),
         ]:
             stdout = ("\n" + d + "\n").join(base + [value]) + "\n"
-            result = direct_commands._parse_doctor(stdout, "myhost")
+            result = direct_commands.doctor._parse_doctor(stdout, "myhost")
             assert expected in result
 
     # The fields through the canasta probe and self-update writability.
@@ -3146,31 +3146,31 @@ class TestDoctor:
         ]
 
     def test_parse_doctor_canasta_group_member(self):
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         parts = self._doctor_parts("user docker www-data canasta", "WRITABLE")
-        result = direct_commands._parse_doctor(
+        result = direct_commands.doctor._parse_doctor(
             ("\n" + d + "\n").join(parts) + "\n", "myhost")
         assert "canasta group:   OK (member)" in result
         assert "Self-update:     OK (install dir writable)" in result
 
     def test_parse_doctor_not_in_canasta_group_flags_self_update(self):
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         parts = self._doctor_parts("user docker www-data", "NOT_WRITABLE")
-        result = direct_commands._parse_doctor(
+        result = direct_commands.doctor._parse_doctor(
             ("\n" + d + "\n").join(parts) + "\n", "myhost")
         assert "canasta group:   NOT A MEMBER" in result
         assert "usermod -aG canasta" in result
         assert "Self-update:     BLOCKED" in result
 
     def test_parse_doctor_missing_deps(self):
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         parts = [
             "MISSING", "MISSING", "MISSING", "NOT_RUNNING",
             "user", "MISSING", "MISSING", "MISSING", "Linux",
             "unknown", "unknown", "unknown",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
-        result = direct_commands._parse_doctor(stdout, "myhost")
+        result = direct_commands.doctor._parse_doctor(stdout, "myhost")
         assert "Python 3:        MISSING" in result
         assert "Docker:          MISSING" in result
         assert "Docker daemon:   NOT RUNNING" in result
@@ -3178,7 +3178,7 @@ class TestDoctor:
         assert "www-data group:  NOT A MEMBER" in result
 
     def test_parse_doctor_macos_skips_www_data(self):
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         parts = [
             "Python 3.12.0",
             "Docker version 27.0.0",
@@ -3191,12 +3191,12 @@ class TestDoctor:
             "16 GB", "50G", "unknown",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
-        result = direct_commands._parse_doctor(stdout, "myhost")
+        result = direct_commands.doctor._parse_doctor(stdout, "myhost")
         assert "www-data group:  N/A (Docker Desktop handles UID mapping on Darwin)" in result
         assert "NOT A MEMBER" not in result
 
     def test_parse_doctor_reports_detected_rootless_socket(self):
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         parts = [
             "Python 3.12.0",
             "Docker version 27.0.0",
@@ -3210,14 +3210,14 @@ class TestDoctor:
             "unix:///run/user/1000/podman/podman.sock",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
-        result = direct_commands._parse_doctor(stdout, "myhost")
+        result = direct_commands.doctor._parse_doctor(stdout, "myhost")
         assert (
             "Rootless socket: unix:///run/user/1000/podman/podman.sock"
         ) in result
         assert "auto-set --docker-host" in result
 
     def test_parse_doctor_rootless_podman_with_docker_daemon(self):
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         parts = [
             "Python 3.12.0",
             "Docker version 27.0.0",
@@ -3231,13 +3231,13 @@ class TestDoctor:
             "unix:///run/user/1000/podman/podman.sock",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
-        result = direct_commands._parse_doctor(stdout, "myhost")
+        result = direct_commands.doctor._parse_doctor(stdout, "myhost")
         assert "auto-set --docker-host" not in result
         assert "canasta create uses the Docker daemon instead" in result
         assert "CANASTA_CONTAINER_RUNTIME=podman" in result
 
     def test_parse_doctor_rootless_docker_with_docker_daemon(self):
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         parts = [
             "Python 3.12.0",
             "Docker version 27.0.0",
@@ -3251,12 +3251,12 @@ class TestDoctor:
             "unix:///run/user/1000/docker.sock",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
-        result = direct_commands._parse_doctor(stdout, "myhost")
+        result = direct_commands.doctor._parse_doctor(stdout, "myhost")
         assert "unless --docker-host names this socket" in result
         assert "CANASTA_CONTAINER_RUNTIME" not in result
 
     def test_parse_doctor_reports_no_rootless_socket(self):
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         parts = [
             "Python 3.12.0",
             "Docker version 27.0.0",
@@ -3270,13 +3270,13 @@ class TestDoctor:
             "",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
-        result = direct_commands._parse_doctor(stdout, "myhost")
+        result = direct_commands.doctor._parse_doctor(stdout, "myhost")
         assert "Rootless socket: none detected" in result
         assert "/var/run/docker.sock" in result
         assert "Privileged ports" not in result
 
     def test_parse_doctor_rootless_with_blocked_priv_ports(self):
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         parts = [
             "Python 3.12.0",
             "Docker version 27.0.0",
@@ -3290,7 +3290,7 @@ class TestDoctor:
             "unix:///run/user/1000/docker.sock",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
-        result = direct_commands._parse_doctor(stdout, "myhost")
+        result = direct_commands.doctor._parse_doctor(stdout, "myhost")
         assert "Privileged ports: BLOCKED" in result
         assert "ip_unprivileged_port_start=1024" in result
         assert "RootlessKit" in result
@@ -3301,7 +3301,7 @@ class TestDoctor:
         assert "/etc/sysctl.d/canasta-privport.conf" in result
 
     def test_parse_doctor_rootless_podman_with_blocked_priv_ports(self):
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         parts = [
             "Python 3.12.0",
             "Docker version 27.0.0",
@@ -3315,13 +3315,13 @@ class TestDoctor:
             "unix:///run/user/1000/podman/podman.sock",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
-        result = direct_commands._parse_doctor(stdout, "myhost")
+        result = direct_commands.doctor._parse_doctor(stdout, "myhost")
         assert "Privileged ports: BLOCKED" in result
         assert "canasta-edge.socket" in result
         assert "canasta install podman" in result
 
     def test_parse_doctor_rootless_with_priv_ports_ok(self):
-        d = direct_commands._SENTINEL
+        d = direct_commands._helpers._SENTINEL
         parts = [
             "Python 3.12.0",
             "Docker version 27.0.0",
@@ -3335,7 +3335,7 @@ class TestDoctor:
             "unix:///run/user/1000/docker.sock",
         ]
         stdout = ("\n" + d + "\n").join(parts) + "\n"
-        result = direct_commands._parse_doctor(stdout, "myhost")
+        result = direct_commands.doctor._parse_doctor(stdout, "myhost")
         assert "Privileged ports: OK (ip_unprivileged_port_start=80)" in result
         assert "BLOCKED" not in result
 
@@ -3352,7 +3352,7 @@ class TestCanastaStatus:
 
     def test_unknown_id_errors(self, monkeypatch, capsys):
         monkeypatch.setattr(direct_commands._helpers, "_read_registry", lambda p: {})
-        rc = direct_commands.cmd_status(self._args(id="ghost"))
+        rc = direct_commands.info.cmd_status(self._args(id="ghost"))
         assert rc == 1
         assert "not found in the registry" in capsys.readouterr().err
 
@@ -3377,7 +3377,7 @@ class TestCanastaStatus:
             return type("R", (), {"returncode": 0, "stdout": "NAME STATUS\nweb_1 Up\n"})()
 
         monkeypatch.setattr(subprocess, "run", fake_run)
-        rc = direct_commands.cmd_status(self._args(id="mysite"))
+        rc = direct_commands.info.cmd_status(self._args(id="mysite"))
         assert rc == 0
         assert captured["cmd"][:3] == ["docker", "compose", "ps"]
         assert captured["cwd"] == path
@@ -3402,7 +3402,7 @@ class TestCanastaStatus:
             lambda *a, **k: type("R", (), {"returncode": 0, "stdout": ""})(),
         )
         monkeypatch.chdir(path)
-        rc = direct_commands.cmd_status(self._args(id=None))
+        rc = direct_commands.info.cmd_status(self._args(id=None))
         assert rc == 0
         assert "Instance:     by-cwd" in capsys.readouterr().out
 
@@ -3414,21 +3414,21 @@ class TestCanastaStatus:
 class TestScriptArgTokens:
     def test_none(self):
         args = type("Args", (), {})()
-        assert direct_commands._script_arg_tokens(args) == []
+        assert direct_commands._helpers._script_arg_tokens(args) == []
 
     def test_empty_string(self):
         args = type("Args", (), {"script_args": ""})()
-        assert direct_commands._script_arg_tokens(args) == []
+        assert direct_commands._helpers._script_arg_tokens(args) == []
 
     def test_string_with_whitespace(self):
         args = type("Args", (), {"script_args": "  rebuildall.php  "})()
-        assert direct_commands._script_arg_tokens(args) == ["rebuildall.php"]
+        assert direct_commands._helpers._script_arg_tokens(args) == ["rebuildall.php"]
 
     def test_string_tokenized(self):
         # The `--` passthrough path pre-joins args into a string; shlex
         # recovers the individual tokens.
         args = type("Args", (), {"script_args": "foo.php --arg x"})()
-        assert direct_commands._script_arg_tokens(args) == [
+        assert direct_commands._helpers._script_arg_tokens(args) == [
             "foo.php", "--arg", "x",
         ]
 
@@ -3438,35 +3438,35 @@ class TestScriptArgTokens:
         args = type("Args", (), {
             "script_args": ["createAndPromote", "User", "p @ss$"],
         })()
-        assert direct_commands._script_arg_tokens(args) == [
+        assert direct_commands._helpers._script_arg_tokens(args) == [
             "createAndPromote", "User", "p @ss$",
         ]
 
     def test_empty_list(self):
         args = type("Args", (), {"script_args": []})()
-        assert direct_commands._script_arg_tokens(args) == []
+        assert direct_commands._helpers._script_arg_tokens(args) == []
 
 
 class TestMaintPathRegex:
     def test_accepts_simple(self):
-        assert direct_commands._MAINT_PATH_RE.match("rebuildall.php")
+        assert direct_commands._helpers._MAINT_PATH_RE.match("rebuildall.php")
 
     def test_accepts_extension_prefix(self):
-        assert direct_commands._MAINT_PATH_RE.match("Cite:fixHTMLOutputForCite")
+        assert direct_commands._helpers._MAINT_PATH_RE.match("Cite:fixHTMLOutputForCite")
 
     def test_rejects_space(self):
         # The regex now guards the script NAME only — a single token, never
         # a whole arg string, so a space signals a bad name.
-        assert not direct_commands._MAINT_PATH_RE.match("rebuildall.php --quick")
+        assert not direct_commands._helpers._MAINT_PATH_RE.match("rebuildall.php --quick")
 
     def test_accepts_subdir(self):
-        assert direct_commands._MAINT_PATH_RE.match("Cite/maintenance/foo.php")
+        assert direct_commands._helpers._MAINT_PATH_RE.match("Cite/maintenance/foo.php")
 
     def test_rejects_shell_metachar(self):
-        assert not direct_commands._MAINT_PATH_RE.match("foo;rm -rf /")
-        assert not direct_commands._MAINT_PATH_RE.match("foo|cat")
-        assert not direct_commands._MAINT_PATH_RE.match("foo`bar`")
-        assert not direct_commands._MAINT_PATH_RE.match("$(whoami)")
+        assert not direct_commands._helpers._MAINT_PATH_RE.match("foo;rm -rf /")
+        assert not direct_commands._helpers._MAINT_PATH_RE.match("foo|cat")
+        assert not direct_commands._helpers._MAINT_PATH_RE.match("foo`bar`")
+        assert not direct_commands._helpers._MAINT_PATH_RE.match("$(whoami)")
 
 
 class TestMaintenanceScript:
@@ -3500,7 +3500,7 @@ class TestMaintenanceScript:
             return 0
 
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
-        rc = direct_commands.cmd_maintenance_script(self._args())
+        rc = direct_commands.maintenance.cmd_maintenance_script(self._args())
         assert rc == 0
         assert "ls maintenance/*.php" in captured["command"]
         assert "sort" in captured["command"]
@@ -3510,7 +3510,7 @@ class TestMaintenanceScript:
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container",
             lambda *a, **kw: 0,
         )
-        rc = direct_commands.cmd_maintenance_script(
+        rc = direct_commands.maintenance.cmd_maintenance_script(
             self._args(script_args="foo;rm -rf /"),
         )
         assert rc == 1
@@ -3529,7 +3529,7 @@ class TestMaintenanceScript:
             return 0
 
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
-        rc = direct_commands.cmd_maintenance_script(
+        rc = direct_commands.maintenance.cmd_maintenance_script(
             self._args(script_args=["createAndPromote", "WikiSysop",
                                      "P@ss$w0rd#4!"]),
         )
@@ -3552,7 +3552,7 @@ class TestMaintenanceScript:
             return 0
 
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
-        rc = direct_commands.cmd_maintenance_script(
+        rc = direct_commands.maintenance.cmd_maintenance_script(
             self._args(script_args=["createAndPromote", "User", "x; rm -rf /"]),
         )
         assert rc == 0
@@ -3571,7 +3571,7 @@ class TestMaintenanceScript:
             return 0
 
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
-        rc = direct_commands.cmd_maintenance_script(
+        rc = direct_commands.maintenance.cmd_maintenance_script(
             self._args(script_args="rebuildall.php"),
         )
         assert rc == 0
@@ -3587,7 +3587,7 @@ class TestMaintenanceScript:
             return 0
 
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
-        rc = direct_commands.cmd_maintenance_script(
+        rc = direct_commands.maintenance.cmd_maintenance_script(
             self._args(script_args="createAndPromote"),
         )
         assert rc == 0
@@ -3603,7 +3603,7 @@ class TestMaintenanceScript:
             return 0
 
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
-        direct_commands.cmd_maintenance_script(
+        direct_commands.maintenance.cmd_maintenance_script(
             self._args(script_args="storage/recompressTracked"),
         )
         assert (
@@ -3621,7 +3621,7 @@ class TestMaintenanceScript:
             return 0
 
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
-        direct_commands.cmd_maintenance_script(
+        direct_commands.maintenance.cmd_maintenance_script(
             self._args(script_args="createAndPromote SomeUser --sysop"),
         )
         assert (
@@ -3639,7 +3639,7 @@ class TestMaintenanceScript:
             return 0
 
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
-        direct_commands.cmd_maintenance_script(
+        direct_commands.maintenance.cmd_maintenance_script(
             self._args(script_args="rebuildall.php", wiki="main"),
         )
         assert "php maintenance/run.php rebuildall.php" in captured["command"]
@@ -3659,7 +3659,7 @@ class TestMaintenanceScript:
     def test_farm_runs_on_every_wiki_without_wiki_flag(self, monkeypatch, capsys):
         self._patch_resolve(monkeypatch, wikis=["main", "draft"])
         commands = self._record_streams(monkeypatch)
-        rc = direct_commands.cmd_maintenance_script(
+        rc = direct_commands.maintenance.cmd_maintenance_script(
             self._args(script_args="rebuildall.php"),
         )
         assert rc == 0
@@ -3674,7 +3674,7 @@ class TestMaintenanceScript:
     def test_wiki_flag_limits_farm_run_to_that_wiki(self, monkeypatch):
         self._patch_resolve(monkeypatch, wikis=["main", "draft"])
         commands = self._record_streams(monkeypatch)
-        direct_commands.cmd_maintenance_script(
+        direct_commands.maintenance.cmd_maintenance_script(
             self._args(script_args="rebuildall.php", wiki="draft"),
         )
         assert len(commands) == 1
@@ -3683,7 +3683,7 @@ class TestMaintenanceScript:
     def test_failure_on_one_wiki_fails_the_command(self, monkeypatch):
         self._patch_resolve(monkeypatch, wikis=["main", "draft"])
         commands = self._record_streams(monkeypatch, rcs={1: 3})
-        rc = direct_commands.cmd_maintenance_script(
+        rc = direct_commands.maintenance.cmd_maintenance_script(
             self._args(script_args="rebuildall.php"),
         )
         assert rc == 3
@@ -3692,7 +3692,7 @@ class TestMaintenanceScript:
     def test_no_wikis_found_runs_nothing(self, monkeypatch, capsys):
         self._patch_resolve(monkeypatch, wikis=[])
         commands = self._record_streams(monkeypatch)
-        rc = direct_commands.cmd_maintenance_script(
+        rc = direct_commands.maintenance.cmd_maintenance_script(
             self._args(script_args="rebuildall.php"),
         )
         assert rc == 1
@@ -3702,7 +3702,7 @@ class TestMaintenanceScript:
     def test_unknown_wiki_is_refused(self, monkeypatch, capsys):
         self._patch_resolve(monkeypatch, wikis=["main", "draft"])
         commands = self._record_streams(monkeypatch)
-        rc = direct_commands.cmd_maintenance_script(
+        rc = direct_commands.maintenance.cmd_maintenance_script(
             self._args(script_args="rebuildall.php", wiki="nope"),
         )
         assert rc == 1
@@ -3741,7 +3741,7 @@ class TestMaintenanceExtension:
             return 0
 
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
-        rc = direct_commands.cmd_maintenance_extension(self._args())
+        rc = direct_commands.maintenance.cmd_maintenance_extension(self._args())
         assert rc == 0
         assert "find -L extensions" in captured["command"]
         assert "-name maintenance" in captured["command"]
@@ -3756,7 +3756,7 @@ class TestMaintenanceExtension:
             return 0
 
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
-        direct_commands.cmd_maintenance_extension(
+        direct_commands.maintenance.cmd_maintenance_extension(
             self._args(script_args="Cite:fixHTMLOutputForCite"),
         )
         assert (
@@ -3774,7 +3774,7 @@ class TestMaintenanceExtension:
             return 0
 
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
-        direct_commands.cmd_maintenance_extension(
+        direct_commands.maintenance.cmd_maintenance_extension(
             self._args(script_args="SemanticMediaWiki:rebuildData"),
         )
         assert (
@@ -3792,7 +3792,7 @@ class TestMaintenanceExtension:
             return 0
 
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
-        direct_commands.cmd_maintenance_extension(
+        direct_commands.maintenance.cmd_maintenance_extension(
             self._args(script_args="Cite:foo arg1 --flag"),
         )
         assert (
@@ -3810,7 +3810,7 @@ class TestMaintenanceExtension:
             return 0
 
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
-        direct_commands.cmd_maintenance_extension(
+        direct_commands.maintenance.cmd_maintenance_extension(
             self._args(script_args="Cite:fixHTMLOutputForCite", wiki="main"),
         )
         assert (
@@ -3833,7 +3833,7 @@ class TestMaintenanceExtension:
     def test_farm_runs_on_every_wiki_without_wiki_flag(self, monkeypatch, capsys):
         self._patch_resolve(monkeypatch, wikis=["main", "draft"])
         commands = self._record_streams(monkeypatch)
-        rc = direct_commands.cmd_maintenance_extension(
+        rc = direct_commands.maintenance.cmd_maintenance_extension(
             self._args(script_args="Cite:fixHTMLOutputForCite"),
         )
         assert rc == 0
@@ -3848,7 +3848,7 @@ class TestMaintenanceExtension:
     def test_wiki_flag_limits_farm_run_to_that_wiki(self, monkeypatch):
         self._patch_resolve(monkeypatch, wikis=["main", "draft"])
         commands = self._record_streams(monkeypatch)
-        direct_commands.cmd_maintenance_extension(
+        direct_commands.maintenance.cmd_maintenance_extension(
             self._args(script_args="Cite:fixHTMLOutputForCite", wiki="draft"),
         )
         assert len(commands) == 1
@@ -3857,7 +3857,7 @@ class TestMaintenanceExtension:
     def test_failure_on_one_wiki_fails_the_command(self, monkeypatch):
         self._patch_resolve(monkeypatch, wikis=["main", "draft"])
         commands = self._record_streams(monkeypatch, rcs={1: 3})
-        rc = direct_commands.cmd_maintenance_extension(
+        rc = direct_commands.maintenance.cmd_maintenance_extension(
             self._args(script_args="Cite:fixHTMLOutputForCite"),
         )
         assert rc == 3
@@ -3866,7 +3866,7 @@ class TestMaintenanceExtension:
     def test_no_wikis_found_runs_nothing(self, monkeypatch, capsys):
         self._patch_resolve(monkeypatch, wikis=[])
         commands = self._record_streams(monkeypatch)
-        rc = direct_commands.cmd_maintenance_extension(
+        rc = direct_commands.maintenance.cmd_maintenance_extension(
             self._args(script_args="Cite:fixHTMLOutputForCite"),
         )
         assert rc == 1
@@ -3876,7 +3876,7 @@ class TestMaintenanceExtension:
     def test_unknown_wiki_is_refused(self, monkeypatch, capsys):
         self._patch_resolve(monkeypatch, wikis=["main", "draft"])
         commands = self._record_streams(monkeypatch)
-        rc = direct_commands.cmd_maintenance_extension(
+        rc = direct_commands.maintenance.cmd_maintenance_extension(
             self._args(script_args="Cite:fixHTMLOutputForCite", wiki="nope"),
         )
         assert rc == 1
@@ -3925,7 +3925,7 @@ class TestMaintenanceUpdate:
             return 0
 
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
-        direct_commands.cmd_maintenance_update(self._args())
+        direct_commands.maintenance.cmd_maintenance_update(self._args())
         assert retries["maintenance/update.php"] is False
         assert retries["maintenance/runJobs.php"] is True
 
@@ -3943,7 +3943,7 @@ class TestMaintenanceUpdate:
             return 0
 
         monkeypatch.setattr(direct_commands._helpers, "_stream_in_container", fake_stream)
-        rc = direct_commands.cmd_maintenance_update(self._args())
+        rc = direct_commands.maintenance.cmd_maintenance_update(self._args())
         assert rc == 0
         # update.php for both wikis, then runJobs for both wikis.
         assert any(
@@ -3966,7 +3966,7 @@ class TestMaintenanceUpdate:
             lambda iid, i, c, service="web", retry_on_reset=False, user=None:
                 commands.append(c) or 0,
         )
-        direct_commands.cmd_maintenance_update(self._args(skip_jobs=True))
+        direct_commands.maintenance.cmd_maintenance_update(self._args(skip_jobs=True))
         assert any("update.php" in c for c in commands)
         assert not any("runJobs.php" in c for c in commands)
 
@@ -3999,7 +3999,7 @@ class TestMaintenanceUpdate:
         monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
                             fake_exec)
         commands = self._stream_recorder(monkeypatch)
-        direct_commands.cmd_maintenance_update(self._args())
+        direct_commands.maintenance.cmd_maintenance_update(self._args())
         assert any("rebuildData.php" in c for c in commands)
 
     def test_smw_runs_only_on_wikis_that_load_it(self, monkeypatch):
@@ -4011,7 +4011,7 @@ class TestMaintenanceUpdate:
         monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
                             fake_exec)
         commands = self._stream_recorder(monkeypatch)
-        rc = direct_commands.cmd_maintenance_update(self._args())
+        rc = direct_commands.maintenance.cmd_maintenance_update(self._args())
         assert rc == 0
         assert probes == ["main", "draft"]
         rebuilds = [c for c in commands if "rebuildData.php" in c]
@@ -4029,7 +4029,7 @@ class TestMaintenanceUpdate:
         monkeypatch.setattr(direct_commands._helpers, "_exec_in_container",
                             fake_exec)
         commands = self._stream_recorder(monkeypatch)
-        rc = direct_commands.cmd_maintenance_update(self._args())
+        rc = direct_commands.maintenance.cmd_maintenance_update(self._args())
         assert rc == 0
         assert not any("rebuildData.php" in c for c in commands)
         err = capsys.readouterr().err
@@ -4044,7 +4044,7 @@ class TestMaintenanceUpdate:
             lambda iid, i, c, service="web": calls.append(c) or (0, "no\n"),
         )
         commands = self._stream_recorder(monkeypatch)
-        direct_commands.cmd_maintenance_update(self._args())
+        direct_commands.maintenance.cmd_maintenance_update(self._args())
         assert len(calls) == 1
         assert not any("rebuildData.php" in c for c in commands)
 
@@ -4060,7 +4060,7 @@ class TestMaintenanceUpdate:
             lambda iid, i, c, service="web", retry_on_reset=False, user=None:
                 commands.append(c) or 0,
         )
-        direct_commands.cmd_maintenance_update(self._args(skip_smw=True))
+        direct_commands.maintenance.cmd_maintenance_update(self._args(skip_smw=True))
         assert not any("rebuildData.php" in c for c in commands)
 
     def test_explicit_wiki_overrides_wikis_yaml(self, monkeypatch):
@@ -4073,7 +4073,7 @@ class TestMaintenanceUpdate:
             lambda iid, i, c, service="web", retry_on_reset=False, user=None:
                 commands.append(c) or 0,
         )
-        direct_commands.cmd_maintenance_update(self._args(wiki="draft"))
+        direct_commands.maintenance.cmd_maintenance_update(self._args(wiki="draft"))
         # Only the named wiki should appear in the commands.
         assert any("--wiki='draft'" in c for c in commands)
         assert not any("--wiki='main'" in c for c in commands)
@@ -4107,7 +4107,7 @@ class TestDockerHostPropagation:
         )
         from argparse import Namespace
         args = Namespace(id="mysite")
-        direct_commands._resolve_instance(args)
+        direct_commands._helpers._resolve_instance(args)
         assert (
             os.environ.get("DOCKER_HOST")
             == "unix:///run/user/1000/podman/podman.sock"
@@ -4128,7 +4128,7 @@ class TestDockerHostPropagation:
             },
         )
         from argparse import Namespace
-        direct_commands._resolve_instance(Namespace(id="mysite"))
+        direct_commands._helpers._resolve_instance(Namespace(id="mysite"))
         assert "DOCKER_HOST" not in os.environ, (
             "_resolve_instance must not export DOCKER_HOST when the "
             "instance has no dockerHost — would override the "
@@ -4152,11 +4152,11 @@ class TestDockerHostPropagation:
         monkeypatch.setenv(
             "DOCKER_HOST", "unix:///run/user/1000/podman/podman.sock"
         )
-        monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
+        monkeypatch.setattr(direct_commands._helpers.subprocess, "run", fake_run)
         monkeypatch.setattr(direct_commands._helpers, "_resolve_ssh_target",
             lambda h: h,
         )
-        direct_commands._ssh_run("acme", "docker compose ps")
+        direct_commands._helpers._ssh_run("acme", "docker compose ps")
         # Last arg is the remote shell command; must carry the env
         # assignment as a prefix.
         remote_cmd = captured["argv"][-1]
@@ -4182,11 +4182,11 @@ class TestDockerHostPropagation:
             return R()
 
         monkeypatch.setenv("DOCKER_HOST", "unix:///env.sock")
-        monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
+        monkeypatch.setattr(direct_commands._helpers.subprocess, "run", fake_run)
         monkeypatch.setattr(direct_commands._helpers, "_resolve_ssh_target",
             lambda h: h,
         )
-        direct_commands._ssh_run(
+        direct_commands._helpers._ssh_run(
             "acme", "cd /srv/x && docker compose ps",
             docker_host="unix:///inst.sock")
         remote_cmd = captured["argv"][-1]
@@ -4217,7 +4217,7 @@ class TestDockerHostPropagation:
             return R()
 
         monkeypatch.delenv("DOCKER_HOST", raising=False)
-        monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
+        monkeypatch.setattr(direct_commands._helpers.subprocess, "run", fake_run)
         monkeypatch.setattr(direct_commands._helpers, "_resolve_ssh_target",
             lambda h: h,
         )
@@ -4295,11 +4295,11 @@ class TestDockerHostPropagation:
             return R()
 
         monkeypatch.delenv("DOCKER_HOST", raising=False)
-        monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
+        monkeypatch.setattr(direct_commands._helpers.subprocess, "run", fake_run)
         monkeypatch.setattr(direct_commands._helpers, "_resolve_ssh_target",
             lambda h: h,
         )
-        direct_commands._ssh_run("acme", "docker compose ps")
+        direct_commands._helpers._ssh_run("acme", "docker compose ps")
         remote_cmd = captured["argv"][-1]
         assert remote_cmd == "docker compose ps", (
             "remote cmd should be unmodified when DOCKER_HOST unset; "
@@ -4371,14 +4371,14 @@ class TestDockerHostPropagation:
                 stdout = "abc123\n"
             return R()
 
-        monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
+        monkeypatch.setattr(direct_commands._helpers.subprocess, "run", fake_run)
         inst = {
             "id": "mysite",
             "path": str(site),
             "orchestrator": "compose",
             "dockerHost": "unix:///run/user/1000/podman/podman.sock",
         }
-        detail = direct_commands._gather_instance_info("mysite", inst)
+        detail = direct_commands._helpers._gather_instance_info("mysite", inst)
         assert detail["status"] == "RUNNING"
         assert captured["env"] is not None, (
             "compose ps must run with an explicit env carrying DOCKER_HOST"
@@ -4406,13 +4406,13 @@ class TestDockerHostPropagation:
                 stdout = "abc123\n"
             return R()
 
-        monkeypatch.setattr(direct_commands.subprocess, "run", fake_run)
+        monkeypatch.setattr(direct_commands._helpers.subprocess, "run", fake_run)
         inst = {
             "id": "mysite",
             "path": str(site),
             "orchestrator": "compose",
         }
-        direct_commands._gather_instance_info("mysite", inst)
+        direct_commands._helpers._gather_instance_info("mysite", inst)
         # No dockerHost -> inherit the process env (env=None), don't fabricate.
         assert captured["env"] is None
 
@@ -4422,13 +4422,13 @@ class TestLintEnvContent:
     reaches docker --env-file literally."""
 
     def test_clean(self):
-        assert direct_commands._lint_env_content("A=1\nB=2\n# c\n") is False
+        assert direct_commands._helpers._lint_env_content("A=1\nB=2\n# c\n") is False
 
     def test_quoted_values_are_not_flagged(self):
-        assert direct_commands._lint_env_content('PW="x"\nQ=\'y\'\n') is False
+        assert direct_commands._helpers._lint_env_content('PW="x"\nQ=\'y\'\n') is False
 
     def test_crlf(self):
-        assert direct_commands._lint_env_content("A=1\r\n") is True
+        assert direct_commands._helpers._lint_env_content("A=1\r\n") is True
 
 
 class TestResolveInstanceByCwd:

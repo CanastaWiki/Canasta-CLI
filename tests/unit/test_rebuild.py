@@ -41,7 +41,7 @@ class TestRebuildNoBuildableServices:
         monkeypatch.setattr(direct_commands.rebuild, "_list_buildable_services",
             lambda inst, include_sidecars=False: [],
         )
-        rc = direct_commands.cmd_rebuild(_args())
+        rc = direct_commands.rebuild.cmd_rebuild(_args())
         assert rc == 0
         out = capsys.readouterr().out
         assert "Nothing to rebuild" in out or "nothing to rebuild" in out
@@ -62,7 +62,7 @@ class TestRebuildBuildAndRestart:
         monkeypatch.setattr(direct_commands._helpers, "_run_compose", fake_run_compose)
 
         args = _args(id=None)
-        result = direct_commands.cmd_rebuild(args)
+        result = direct_commands.rebuild.cmd_rebuild(args)
         assert isinstance(result, direct_commands._helpers.AnsibleHandoff)
         assert result.command == "restart"
         assert args.id == "test"
@@ -79,7 +79,7 @@ class TestRebuildBuildAndRestart:
                 (calls.append(list(action_args)) or 0),
         )
 
-        direct_commands.cmd_rebuild(_args(no_cache=True))
+        direct_commands.rebuild.cmd_rebuild(_args(no_cache=True))
         assert calls[0] == ["build", "--no-cache", "web"]
 
     def test_multiple_buildable_services_all_built(self, monkeypatch):
@@ -93,7 +93,7 @@ class TestRebuildBuildAndRestart:
                 (calls.append(list(action_args)) or 0),
         )
 
-        direct_commands.cmd_rebuild(_args())
+        direct_commands.rebuild.cmd_rebuild(_args())
         assert calls[0] == ["build", "web", "varnish-custom"]
 
     def test_no_restart_skips_down_up(self, monkeypatch, capsys):
@@ -107,7 +107,7 @@ class TestRebuildBuildAndRestart:
                 (calls.append(list(action_args)) or 0),
         )
 
-        rc = direct_commands.cmd_rebuild(_args(no_restart=True))
+        rc = direct_commands.rebuild.cmd_rebuild(_args(no_restart=True))
         assert rc == 0
         assert calls == [["build", "web"]]
         out = capsys.readouterr().out
@@ -126,7 +126,7 @@ class TestRebuildBuildAndRestart:
             return 2 if action_args[0] == "build" else 0
 
         monkeypatch.setattr(direct_commands._helpers, "_run_compose", fake_run_compose)
-        rc = direct_commands.cmd_rebuild(_args())
+        rc = direct_commands.rebuild.cmd_rebuild(_args())
         assert rc == 2
         # Only the build call was attempted, no down/up
         assert calls == [["build", "web"]]
@@ -167,7 +167,7 @@ class TestRebuildSidecars:
 
         monkeypatch.setattr(
             direct_commands._helpers, "_run_compose", fake_run_compose)
-        rc = direct_commands.cmd_rebuild(_args())
+        rc = direct_commands.rebuild.cmd_rebuild(_args())
         return rc, listed, calls
 
     def test_sidecar_instance_layers_sidecars_in_all_compose_calls(
@@ -214,7 +214,7 @@ class TestListBuildableServices:
         )
         monkeypatch.setattr(direct_commands.rebuild.subprocess, "run", fake_subprocess_run)
 
-        result = direct_commands._list_buildable_services({
+        result = direct_commands.rebuild._list_buildable_services({
             "path": "/srv/test",
             "host": "localhost",
             "devMode": False,
@@ -235,7 +235,7 @@ class TestListBuildableServices:
         )
         monkeypatch.setattr(direct_commands.rebuild.subprocess, "run", fake_subprocess_run)
 
-        result = direct_commands._list_buildable_services({
+        result = direct_commands.rebuild._list_buildable_services({
             "path": "/srv/test",
             "host": "localhost",
             "devMode": False,
@@ -258,7 +258,7 @@ class TestListBuildableServices:
         )
         monkeypatch.setattr(direct_commands.rebuild.subprocess, "run", fake_subprocess_run)
 
-        result = direct_commands._list_buildable_services({
+        result = direct_commands.rebuild._list_buildable_services({
             "path": "/srv/test",
             "host": "localhost",
             "devMode": False,
@@ -309,7 +309,7 @@ class TestListBuildableServicesOnPodman:
             lambda i: list(profiles or []))
         monkeypatch.setattr(direct_commands.rebuild.subprocess, "run", fake_run)
 
-        result = direct_commands._list_buildable_services(
+        result = direct_commands.rebuild._list_buildable_services(
             {"path": "/srv/test", "host": "localhost", "devMode": False})
         return result, seen["cmd"]
 

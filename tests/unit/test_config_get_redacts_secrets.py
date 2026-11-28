@@ -46,7 +46,7 @@ def _run(monkeypatch, keys=None, show_secrets=False):
         direct_commands._helpers, "_read_env_content", lambda *a: "")
     args = type("Args", (), {
         "id": "test", "keys": keys or [], "show_secrets": show_secrets})()
-    return direct_commands.cmd_config_get(args)
+    return direct_commands.config.cmd_config_get(args)
 
 
 class TestBareDump:
@@ -140,7 +140,7 @@ class TestKeysSetWithSecret:
             direct_commands._helpers, "_read_env_content", lambda *a: "")
         args = type("Args", (), {
             "id": "test", "keys": [], "show_secrets": False})()
-        assert direct_commands.cmd_config_get(args) == 0
+        assert direct_commands.config.cmd_config_get(args) == 0
         out = capsys.readouterr().out
         assert "client-material" not in out
         assert "OAUTH_CLIENT=********" in out

@@ -215,7 +215,7 @@ def _patch_rebuild(monkeypatch, path, calls):
 def test_rebuild_refuses_before_building(tmp_path, monkeypatch, capsys):
     calls = []
     _patch_rebuild(monkeypatch, _instance(tmp_path, site="tls internal\n"), calls)
-    assert direct_commands.cmd_rebuild(_args()) == 1
+    assert direct_commands.rebuild.cmd_rebuild(_args()) == 1
     assert calls == []
     assert "config/Caddyfile.site:1" in capsys.readouterr().err
 
@@ -223,7 +223,7 @@ def test_rebuild_refuses_before_building(tmp_path, monkeypatch, capsys):
 def test_rebuild_without_a_restart_still_builds(tmp_path, monkeypatch):
     calls = []
     _patch_rebuild(monkeypatch, _instance(tmp_path, site="tls internal\n"), calls)
-    assert direct_commands.cmd_rebuild(_args(no_restart=True)) == 0
+    assert direct_commands.rebuild.cmd_rebuild(_args(no_restart=True)) == 0
     assert calls == [["build", "web"]]
 
 
@@ -246,7 +246,7 @@ def test_an_instance_not_behind_the_edge_keeps_its_tls_for_rebuild_and_doctor(
                                     "orchestrator": "compose"}) == []
     calls = []
     _patch_rebuild(monkeypatch, path, calls)
-    result = direct_commands.cmd_rebuild(_args())
+    result = direct_commands.rebuild.cmd_rebuild(_args())
     assert isinstance(result, direct_commands._helpers.AnsibleHandoff)
     assert result.command == "restart"
     assert calls == [["build", "web"]]
