@@ -3,7 +3,7 @@
 # sees exactly what CI does. A flag in the Makefile silently overrides this
 # file, which is how the two came to disagree.
 #
-# Widened in stages under #1409. Stage 1: the full pyflakes set, after
+# Widened in stages. Stage 1: the full pyflakes set, after
 # F401 alone passed while two unused imports went unreported, a test class
 # shadowed another (hiding 2 tests, one of them failing), and a helper
 # called an unimported module. Stage 2: whitespace and blank lines — the
@@ -32,7 +32,9 @@ line-length = 120
 # E5     line length (see the ceiling above)
 # W2/W3  trailing whitespace, blank line at end of file
 # W6     deprecated constructs
-select = ["F", "E1", "E2", "E3", "E5", "W2", "W3", "W6"]
+# RUF100 a `# noqa` that suppresses nothing, which includes one naming a
+#        rule this file does not select
+select = ["F", "E1", "E2", "E3", "E5", "W2", "W3", "W6", "RUF100"]
 
 [lint.per-file-ignores]
 # _DOCTOR_SCRIPT is a shell script embedded in a triple-quoted string. Its

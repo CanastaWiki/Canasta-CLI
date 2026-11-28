@@ -15,8 +15,8 @@ import pytest
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, REPO_ROOT)
 
-import direct_commands  # noqa: E402
-from direct_commands import _helpers, doctor  # noqa: E402
+import direct_commands
+from direct_commands import _helpers, doctor
 
 MISSING_EXT_LOG = (
     "[Wed Oct 14 12:00:00 2026] PHP Fatal error: Uncaught Exception: "

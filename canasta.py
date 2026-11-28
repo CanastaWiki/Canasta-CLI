@@ -43,8 +43,8 @@ EXIT_INSTANCE_BUSY = 4
 # helpers live under the role's module_utils dir; append it to the path
 # so `import canasta_config` resolves the same file Ansible ships.
 sys.path.append(os.path.join(SCRIPT_DIR, "roles", "common", "module_utils"))
-import canasta_config  # noqa: E402
-from direct_commands._helpers import (  # noqa: E402
+import canasta_config
+from direct_commands._helpers import (
     forward_agent_option,
     _compose_profile_args,
     _install_repair_commands,

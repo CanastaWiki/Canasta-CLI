@@ -8,7 +8,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from direct_commands import doctor  # noqa: E402
+from direct_commands import doctor
 
 
 def _w(env, profiles, running, cirrus):

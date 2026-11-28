@@ -14,8 +14,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 
-from direct_commands import doctor  # noqa: E402
-from direct_commands import _helpers  # noqa: E402
+from direct_commands import doctor
+from direct_commands import _helpers
 
 DEFAULT_POOL = 134217728
 INST = {"id": "test", "path": "/srv/test", "host": "localhost",

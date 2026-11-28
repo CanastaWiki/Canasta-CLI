@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "..", "roles", "common", "module_utils"))
 
-from canasta_compose_profiles import (  # noqa: E402
+from canasta_compose_profiles import (
     desired_caddy_image,
     desired_profiles,
 )

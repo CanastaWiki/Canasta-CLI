@@ -7,10 +7,7 @@
 # the deliberate design (that is what exec.yml exists for).
 #
 # What is enabled here is the subset about correctness rather than style.
-# Widen it deliberately, the way #1409 widened ruff, rather than by
-# turning the default set on.
-#
-# See #1413.
+# Widen it one rule at a time rather than by turning the default set on.
 
 # Everything under playbooks/ is a task file included from canasta.yml,
 # not a play. Without this, ansible-lint parses each as a playbook and
@@ -48,9 +45,15 @@ skip_list:
   - run-once
   - no-role-prefix
   - command-instead-of-module
+  # Shell is needed for `command -v` (a builtin), and exec.yml and
+  # resilient_exec.yml run caller-supplied strings that may use pipes or
+  # redirects.
   - command-instead-of-shell
   - no-handler
   - name
+  # jinja[spacing] is style. jinja[invalid], a template that cannot
+  # parse, is worth having: enable it, skipping jinja[spacing], once the
+  # fix to sidecar_migrate.yml's report reaches this branch.
   - jinja
   - var-naming
   - yaml

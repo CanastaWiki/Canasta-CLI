@@ -21,8 +21,8 @@ from mock_ansible import run_module_with_params
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
-import canasta_dotenv  # noqa: E402
-import canasta_gitops  # noqa: E402
+import canasta_dotenv
+import canasta_gitops
 
 PROBE = os.path.join(REPO_ROOT, "roles", "upgrade", "files",
                      "probe_migration_state.py")

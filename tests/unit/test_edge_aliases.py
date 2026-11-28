@@ -14,7 +14,7 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
 
-from direct_commands import doctor  # noqa: E402
+from direct_commands import doctor
 
 
 def _instance(tmp_path, wikis, global_=""):
@@ -55,13 +55,13 @@ def test_doctor_is_quiet_without_overlap(tmp_path):
 
 # --- gitops ------------------------------------------------------------- #
 
-import base64  # noqa: E402
-import json  # noqa: E402
+import base64
+import json
 
-import jinja2  # noqa: E402
+import jinja2
 
 sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
-import canasta_gitops as g  # noqa: E402
+import canasta_gitops as g
 
 TASKS = os.path.join(REPO_ROOT, "roles")
 
@@ -231,7 +231,7 @@ def test_the_syncs_template_render_fills_in_aliases_from_the_host_vars():
 
 # --- the wikis.yaml sync, run through Ansible ----------------------------- #
 
-import subprocess  # noqa: E402
+import subprocess
 
 
 def _git(inst, *args):

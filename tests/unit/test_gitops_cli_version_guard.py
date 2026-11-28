@@ -17,7 +17,7 @@ import yaml
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
-from canasta_gitops import (  # noqa: E402
+from canasta_gitops import (
     FilterModule,
     canasta_cli_version_check as check,
     canasta_cli_version_list as version_list,

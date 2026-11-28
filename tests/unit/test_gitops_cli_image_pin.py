@@ -17,12 +17,12 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
 sys.path.insert(0, os.path.join(REPO_ROOT, "roles", "common", "module_utils"))
-from canasta_gitops import (  # noqa: E402
+from canasta_gitops import (
     FilterModule,
     canasta_env_render as render,
     canasta_env_sync_plan as plan,
 )
-from canasta_image_pin import (  # noqa: E402
+from canasta_image_pin import (
     is_cli_image_pin,
     retarget_release_image,
 )

@@ -12,7 +12,7 @@ import sys
 sys.path.insert(
     0, os.path.join(os.path.dirname(__file__), "..", "..", "filter_plugins")
 )
-from canasta_caddy import (  # noqa: E402
+from canasta_caddy import (
     meld_caddy_global_blocks,
     caddy_unsafe,
     _parse_top_level,

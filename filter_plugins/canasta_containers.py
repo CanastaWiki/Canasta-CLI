@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "..", "roles", "common", "module_utils"))
 
-from canasta_web_cause import web_startup_cause  # noqa: E402
+from canasta_web_cause import web_startup_cause
 
 # Docker prints RFC 3339 ("2026-10-13T12:34:56.123456789Z"); podman prints
 # Go's time.Time ("2026-10-13 12:34:56.123456789 -0400 EDT").

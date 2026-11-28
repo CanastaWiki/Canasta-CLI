@@ -7,7 +7,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
 
-import direct_commands  # noqa: E402
+import direct_commands
 
 
 class TestSyncComposeProfilesHandsBackWhatItParsed:

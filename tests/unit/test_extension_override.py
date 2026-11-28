@@ -22,7 +22,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 sys.path.insert(0, REPO_ROOT)
 
-from direct_commands import _helpers, extension_skin  # noqa: E402
+from direct_commands import _helpers, extension_skin
 
 TASKS = os.path.join(REPO_ROOT, "roles", "extensions_skins", "tasks")
 ADD = os.path.join(TASKS, "add.yml")

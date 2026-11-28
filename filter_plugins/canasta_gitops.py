@@ -15,17 +15,17 @@ sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "..", "roles", "common", "module_utils"))
 
-from canasta_env_keys import (  # noqa: E402
+from canasta_env_keys import (
     PLAIN_HTTP_KEY,
     RENAMED_ENV_KEYS,
     modernize_text as canasta_env_modernize,
 )
-from canasta_env_quote import (  # noqa: E402
+from canasta_env_quote import (
     quote_value,
     requote_raw,
     unquote_value,
 )
-from canasta_image_pin import (  # noqa: E402
+from canasta_image_pin import (
     CLI_IMAGE_KEY,
     is_cli_image_pin,
     release_image,

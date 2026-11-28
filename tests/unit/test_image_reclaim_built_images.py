@@ -139,7 +139,7 @@ class TestWiring:
     def test_only_instance_directories_present_on_the_host_are_used(self):
         fact = _task("Note the instance directories present here")[
             "ansible.builtin.set_fact"]["_reclaim_local_paths"]
-        stat_result = lambda path, isdir: {  # noqa: E731
+        stat_result = lambda path, isdir: {
             "stat": {"exists": isdir, "isdir": isdir} if isdir
             else {"exists": False},
             "_reclaim_dir": {"key": path, "value": {"path": path}},

@@ -18,7 +18,7 @@ import yaml
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO_ROOT)
 
-from direct_commands import _helpers, info  # noqa: E402
+from direct_commands import _helpers, info
 
 RESTORE = os.path.join(REPO_ROOT, "roles", "backup", "tasks", "restore.yml")
 RESTORE_INSTANCE = os.path.join(

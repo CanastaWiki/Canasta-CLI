@@ -20,7 +20,7 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
 
-from direct_commands.doctor import (  # noqa: E402
+from direct_commands.doctor import (
     _DOCTOR_SCRIPT,
     _PROBE_FIELDS,
     _install_escalation_blocked,

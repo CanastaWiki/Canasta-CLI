@@ -15,8 +15,8 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 
-import direct_commands  # noqa: E402
-import direct_commands._helpers  # noqa: E402
+import direct_commands
+import direct_commands._helpers
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 CLASSIFICATION = os.path.join(

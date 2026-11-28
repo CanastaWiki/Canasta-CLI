@@ -6,8 +6,8 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-import canasta  # noqa: E402
-import direct_commands  # noqa: E402
+import canasta
+import direct_commands
 
 _REAL_ACQUIRE = canasta.acquire_instance_lock
 

@@ -12,8 +12,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
 
-from direct_commands import doctor  # noqa: E402
-from direct_commands import _helpers  # noqa: E402
+from direct_commands import doctor
+from direct_commands import _helpers
 
 D = _helpers._SENTINEL
 _FIELD_NAMES = [name for name, _ in doctor._PROBE_FIELDS]

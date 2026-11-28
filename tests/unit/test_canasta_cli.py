@@ -8,7 +8,7 @@ import types
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-import canasta as canasta_cli  # noqa: E402 (the canasta.py module)
+import canasta as canasta_cli
 
 
 @pytest.fixture

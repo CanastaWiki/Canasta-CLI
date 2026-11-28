@@ -6,7 +6,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from direct_commands import doctor  # noqa: E402
+from direct_commands import doctor
 
 
 NOW = datetime.datetime(2026, 7, 31, tzinfo=datetime.timezone.utc)

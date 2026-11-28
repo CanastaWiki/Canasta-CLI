@@ -15,8 +15,8 @@ import pytest
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
 
-import direct_commands  # noqa: E402
-from direct_commands import _helpers  # noqa: E402
+import direct_commands
+from direct_commands import _helpers
 
 COMPOSE_NOISE = " Container test-web-1  Started\n"
 EXTERNAL_DB_ENV = {

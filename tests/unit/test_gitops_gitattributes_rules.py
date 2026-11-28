@@ -21,7 +21,7 @@ DEFAULT = os.path.join(REPO_ROOT, "roles", "gitops", "files",
                        "gitattributes.default")
 
 sys.path.insert(0, os.path.join(REPO_ROOT, "filter_plugins"))
-from canasta_gitops import (  # noqa: E402
+from canasta_gitops import (
     FilterModule,
     canasta_gitattributes_missing_rules as missing,
 )

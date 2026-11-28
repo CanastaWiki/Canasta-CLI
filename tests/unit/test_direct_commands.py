@@ -12,7 +12,7 @@ from types import SimpleNamespace
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
 
-import direct_commands  # noqa: E402
+import direct_commands
 
 
 # ---------------------------------------------------------------------------

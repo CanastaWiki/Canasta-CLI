@@ -14,8 +14,8 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
 
-import canasta  # noqa: E402
-from direct_commands import gitops  # noqa: E402
+import canasta
+from direct_commands import gitops
 
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 

@@ -16,7 +16,7 @@ import yaml
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, ROOT)
 
-from direct_commands import _helpers  # noqa: E402
+from direct_commands import _helpers
 
 TASKS = os.path.join(ROOT, "roles", "orchestrator", "tasks")
 LAYERS = ("docker-compose.sidecars.yml", "docker-compose.web-env.yml",

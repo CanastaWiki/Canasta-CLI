@@ -15,7 +15,7 @@ import pytest
 # its import side effects leave that first base.yml parse failing with a
 # YAML ConstructorError. Loading (and caching) ansible now makes the suite
 # independent of test collection order. See conftest, not the tests, for this.
-import ansible.constants  # noqa: E402,F401
+import ansible.constants  # noqa: F401
 
 # Add the module library paths so we can import them directly
 ROLES_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "roles")
@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.join(ROLES_DIR, "extensions_skins", "library"))
 # import the module directly, so we add the dir to sys.path and stash
 # a reference under the `ansible.module_utils.<file>` namespace so
 # the in-module import resolves the same way it would on a real run.
-import importlib  # noqa: E402
+import importlib
 _module_utils_dir = os.path.join(ROLES_DIR, "common", "module_utils")
 sys.path.insert(0, _module_utils_dir)
 for _name in ("canasta_validate", "canasta_sitemap", "canasta_config",

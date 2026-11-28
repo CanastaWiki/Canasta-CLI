@@ -23,7 +23,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))))
 
-from direct_commands import _helpers  # noqa: E402
+from direct_commands import _helpers
 
 # Deliberately not resolvable: the probe must reach the server by
 # forcing the socket to loopback, never by looking the name up.

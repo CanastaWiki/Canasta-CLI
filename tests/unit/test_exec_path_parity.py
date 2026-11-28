@@ -24,7 +24,7 @@ from argparse import Namespace
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 sys.path.insert(0, REPO_ROOT)
 
-import canasta  # noqa: E402
+import canasta
 
 ORCH_TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 
