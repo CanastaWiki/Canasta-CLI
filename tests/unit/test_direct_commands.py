@@ -1064,10 +1064,9 @@ class TestCmdVersion:
         assert "def5678" in out
 
     def test_target_canasta_version_line(self, tmp_path, monkeypatch, capsys):
-        """When CANASTA_VERSION file is present, the target version line
-        is always printed, even without -i."""
-        (tmp_path / "VERSION").write_text("4.0.0\n")
-        (tmp_path / "CANASTA_VERSION").write_text("3.5.7\n")
+        """The target Canasta version is the CLI's own VERSION, printed
+        even without -i."""
+        (tmp_path / "VERSION").write_text("5.0.0\n")
         (tmp_path / "BUILD_COMMIT").write_text("abc1234\n")
         (tmp_path / "BUILD_DATE").write_text("2026-04-23 00:00:00\n")
         monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
@@ -1078,22 +1077,7 @@ class TestCmdVersion:
         rc = direct_commands.info.cmd_version(args)
         assert rc == 0
         out = capsys.readouterr().out
-        assert "Target Canasta version: 3.5.7" in out
-
-    def test_missing_canasta_version_file(self, tmp_path, monkeypatch, capsys):
-        """If CANASTA_VERSION file is absent, target shown as 'unknown'
-        (doesn't crash)."""
-        (tmp_path / "VERSION").write_text("4.0.0\n")
-        (tmp_path / "BUILD_COMMIT").write_text("abc1234\n")
-        (tmp_path / "BUILD_DATE").write_text("2026-04-23 00:00:00\n")
-        monkeypatch.setenv("CANASTA_RUN_MODE", "docker")
-        monkeypatch.setattr(direct_commands._helpers, "_get_script_dir", lambda: str(tmp_path))
-        monkeypatch.setenv("CANASTA_CONFIG_DIR", str(tmp_path))
-        args = type("Args", (), {"id": None, "cli_only": False, "host": None})()
-        rc = direct_commands.info.cmd_version(args)
-        assert rc == 0
-        out = capsys.readouterr().out
-        assert "Target Canasta version: unknown" in out
+        assert "Target Canasta version: 5.0.0" in out
 
     def test_native_with_build_files(self, tmp_path, monkeypatch, capsys):
         """Native installs also write BUILD_COMMIT/BUILD_DATE (via
@@ -1151,8 +1135,7 @@ class TestCmdVersionInstanceModes:
         direct_commands at it. Returns (script_dir, config_dir)."""
         script_dir = tmp_path / "script"
         script_dir.mkdir()
-        (script_dir / "VERSION").write_text("4.0.0\n")
-        (script_dir / "CANASTA_VERSION").write_text("3.6.3\n")
+        (script_dir / "VERSION").write_text("5.0.0\n")
         (script_dir / "BUILD_COMMIT").write_text("abc1234\n")
         (script_dir / "BUILD_DATE").write_text("2026-04-23 00:00:00\n")
         config_dir = tmp_path / "config"
@@ -1177,8 +1160,8 @@ class TestCmdVersionInstanceModes:
         rc = direct_commands.info.cmd_version(args)
         assert rc == 0
         out = capsys.readouterr().out
-        assert "Canasta CLI v4.0.0" in out
-        assert "Target Canasta version: 3.6.3" in out
+        assert "Canasta CLI v5.0.0" in out
+        assert "Target Canasta version: 5.0.0" in out
         # No instance line — cli_only must short-circuit.
         assert "Instance '" not in out
 

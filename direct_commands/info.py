@@ -304,17 +304,6 @@ def cmd_version(args):
     except OSError:
         version = "unknown"
 
-    # Target Canasta version — what this CLI was built to deploy.
-    # Always shown, even when no instances are registered. This is the
-    # CANASTA_VERSION file bundled with the Canasta CLI, distinct from
-    # any particular instance's pinned CANASTA_IMAGE tag.
-    target_version_file = os.path.join(script_dir, "CANASTA_VERSION")
-    try:
-        with open(target_version_file) as f:
-            target_canasta_version = f.read().strip()
-    except OSError:
-        target_canasta_version = "unknown"
-
     # Run mode is set by the canasta-docker wrapper. Presence of
     # BUILD_COMMIT isn't a reliable signal — native installs also
     # write it (via 'make build-info') so 'canasta version' works
@@ -355,7 +344,7 @@ def cmd_version(args):
     version_label = "dev" if dev_build else "v%s" % version
     print("Canasta CLI %s (%s, commit %s, built %s)"
           % (version_label, mode, commit, date))
-    print("Target Canasta version: %s" % target_canasta_version)
+    print("Target Canasta version: %s" % version)
 
     # --cli-only: stop after the two-line header; no instance reads.
     if getattr(args, "cli_only", False):

@@ -587,7 +587,7 @@ def test_upgrade_rebuilds_buildable(inst):
 
 
 def _cli_canasta_version():
-    with open(os.path.join(REPO_ROOT, "CANASTA_VERSION")) as f:
+    with open(os.path.join(REPO_ROOT, "VERSION")) as f:
         return f.read().strip()
 
 
@@ -613,7 +613,7 @@ def test_canasta_base(inst):
     # The first canasta-base release that shares Canasta's version tags.
     older = "3.6.0"
     assert older != current, (
-        "the older pin must differ from CANASTA_VERSION (%s)" % current
+        "the older pin must differ from VERSION (%s)" % current
     )
 
     print("Creating instance on canasta-base...")
