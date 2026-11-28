@@ -155,7 +155,7 @@ def test_caddy_image(env, expected):
 @pytest.mark.parametrize("env_text", [
     "",
     "COMPOSE_PROFILES=custom\n",
-    "CANASTA_ENABLE_VARNISH=\nCANASTA_ENABLE_ELASTICSEARCH=true\n",
+    "CANASTA_ENABLE_VARNISH=\nCANASTA_ENABLE_REDIS=true\n",
     "CANASTA_ENABLE_VARNISH=false\nCANASTA_ENABLE_OBSERVABILITY=TRUE\n"
     "USE_EXTERNAL_DB=true\n",
     "TRUSTED_PROXIES=cloudflare\n",

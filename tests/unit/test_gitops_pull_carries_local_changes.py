@@ -24,7 +24,7 @@ import yaml
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 VARS = os.path.join(REPO_ROOT, "roles", "gitops", "vars", "main.yml")
-PULLS = ("pull_compose.yml",)
+PULLS = ("_pull.yml",)
 
 
 def _load(name):
@@ -62,8 +62,8 @@ BASE = _shell("_local_changes_base.yml",
               "Find the commit under the set-aside local changes")
 ABORT = _shell("_explain_pull_failure.yml", "Abort an incomplete rebase")
 RESTORE = _shell("_explain_pull_failure.yml", "Restore the files the pull rewrote")
-ROLLBACK = _shell("pull_compose.yml", "Roll back to the pre-pull commit")
-PULL = _shell("pull_compose.yml", "Pull from remote")
+ROLLBACK = _shell("_pull.yml", "Roll back to the pre-pull commit")
+PULL = _shell("_pull.yml", "Pull from remote")
 
 
 # --- repositories -----------------------------------------------------------
@@ -523,7 +523,7 @@ def test_an_interrupted_pull_is_put_back_first(name):
         "/_put_back_local_changes.yml")
 
 
-@pytest.mark.parametrize("name", ("push_compose.yml",))
+@pytest.mark.parametrize("name", ("_push.yml",))
 def test_push_never_pushes_set_aside_changes(name):
     tasks = _load(name)
     names = [t.get("name") for t in tasks]
@@ -532,7 +532,7 @@ def test_push_never_pushes_set_aside_changes(name):
 
 
 def test_renders_follow_the_put_back():
-    tasks = _load("pull_compose.yml")
+    tasks = _load("_pull.yml")
     names = [t.get("name") for t in tasks]
     block_i = names.index("Pull with local changes carried through")
     syncs = [i for i, t in enumerate(tasks)
@@ -543,7 +543,7 @@ def test_renders_follow_the_put_back():
 
 
 def test_the_dirty_tree_refusal_and_sync_commit_are_gone():
-    text = open(os.path.join(TASKS, "pull_compose.yml")).read()
+    text = open(os.path.join(TASKS, "_pull.yml")).read()
     for gone in ("Fail if uncommitted changes exist",
                  "Commit the .env sync's changes",
                  "_pull_commit_sync"):

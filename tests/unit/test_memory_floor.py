@@ -1,7 +1,7 @@
 """Regression guard: the host memory floor is profile-aware and
 enforced in both `create` and `config set`.
 
-Elasticsearch and the observability stack each raise the requirement, so the
+OpenSearch and the observability stack each raise the requirement, so the
 floor is ~2 GiB (neither) / ~4 GiB (either) / ~8 GiB (both), expressed as
 1600 / 3500 / 7000 MiB (below the marketed size to absorb the kernel/firmware
 reporting gap). The shared check lives in check_host_memory.yml and is included

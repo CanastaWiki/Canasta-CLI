@@ -17,7 +17,7 @@ import yaml
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
-PULLS = ("pull_compose.yml",)
+PULLS = ("_pull.yml",)
 
 
 def _load(name):

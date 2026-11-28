@@ -3,7 +3,6 @@ stub orchestrator and instance_lifecycle: restart, the config update, the
 secret writes and the running check only log what they were asked to do."""
 
 import os
-import shutil
 import subprocess
 import sys
 
@@ -12,7 +11,6 @@ import yaml
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
-ORCH = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 
 
 def _log(log, line):
@@ -26,8 +24,6 @@ def _stub_root(tmp_path, running):
     stubs = {
         "orchestrator": {
             "update_config.yml": [_log(log, "UPDATE_CONFIG")],
-            "config_set_secret.yml": [_log(log, "SET_SECRET")],
-            "config_unset_secret.yml": [_log(log, "UNSET_SECRET")],
             "check_running.yml": [{"ansible.builtin.set_fact": {
                 "_container_running": running}}],
             "refuse_paused.yml": [{"ansible.builtin.meta": "noop"}],
@@ -37,6 +33,8 @@ def _stub_root(tmp_path, running):
         "config": {
             "_update_gitops_vars.yml": [_log(log, "UPDATE_GITOPS_VARS")],
             "_remove_gitops_vars.yml": [_log(log, "REMOVE_GITOPS_VARS")],
+            "_store_secrets.yml": [_log(log, "SET_SECRET")],
+            "_remove_secrets.yml": [_log(log, "UNSET_SECRET")],
         },
     }
     for role, files in stubs.items():
@@ -44,10 +42,6 @@ def _stub_root(tmp_path, running):
         tasks.mkdir(parents=True)
         for name, content in files.items():
             (tasks / name).write_text(yaml.safe_dump(content))
-    # The real gitops vars dispatch, leading to the stubbed config role tasks.
-    for name in ("config_update_gitops_vars.yml", "config_remove_gitops_vars.yml"):
-        shutil.copy(os.path.join(ORCH, name),
-                    root / "roles" / "orchestrator" / "tasks" / name)
     # Roles found ahead of the real ones; the real config role stays in use.
     roles = tmp_path / "roles"
     roles.mkdir()

@@ -49,7 +49,7 @@ def _run(tmp_path, step, play_vars, include_vars=None):
                   "_join_move_git.yml", "_git_identity_repo.yml",
                   "_join_checkout_differing.yml",
                   "_register_host.yml", "_join_commit_push.yml"]),
-    ("init_compose.yml", ["_git_identity.yml", "_init_require_no_repo.yml",
+    ("_init.yml", ["_git_identity.yml", "_init_require_no_repo.yml",
                           "_git_identity_repo.yml",
                           "_init_convert_submodules.yml",
                           "_init_commit_push.yml"]),
@@ -62,43 +62,37 @@ def test_each_flow_includes_its_shared_steps_in_order(flow, steps):
     assert included == steps
 
 
-@pytest.mark.parametrize("flow", ["join.yml", "init_compose.yml"])
+@pytest.mark.parametrize("flow", ["join.yml", "_init.yml"])
 def test_every_parameter_of_a_shared_step_is_passed(flow):
     text = yaml.safe_dump(flow_tasks(flow))
-    for name in ("_join_git_env", "_join_host_noun", "_join_blocked_remedy",
-                 "_register_file_mode", "_register_dir_mode",
-                 "_join_commit_message", "_init_git_env"):
+    for name in ("_join_commit_message",):
         assert "{{ %s }}" % name not in text, (flow, name)
 
 
-@pytest.mark.parametrize("noun,message", [
-    ("host", "Host 'h1' already exists in the gitops repository. Choose a "
-             "different name, remove the existing host first, or pass "
-             "--reinit to re-attach this host."),
-])
-def test_read_hosts_refuses_a_registered_name(tmp_path, noun, message):
+def test_read_hosts_refuses_a_registered_name(tmp_path):
+    message = ("Host 'h1' already exists in the gitops repository. Choose a "
+               "different name, remove the existing host first, or pass "
+               "--reinit to re-attach this host.")
     (tmp_path / "clone" / "hosts").mkdir(parents=True)
     (tmp_path / "clone" / "hosts" / "hosts.yaml").write_text(
         "hosts:\n  - name: h1\n    role: both\n")
     play_vars = {"host_name": "h1",
                  "_join_tmpdir": {"path": str(tmp_path / "clone")}}
-    proc = _run(tmp_path, "_join_read_hosts.yml", play_vars,
-                {"_join_host_noun": noun})
+    proc = _run(tmp_path, "_join_read_hosts.yml", play_vars)
     assert proc.returncode != 0
     assert message in proc.stdout + proc.stderr
-    proc = _run(tmp_path, "_join_read_hosts.yml", dict(play_vars, reinit=True),
-                {"_join_host_noun": noun})
+    proc = _run(tmp_path, "_join_read_hosts.yml", dict(play_vars, reinit=True))
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
-def test_register_host_upserts_with_the_given_modes(tmp_path):
+def test_register_host_upserts_with_private_modes(tmp_path):
     inst = tmp_path / "inst"
     (inst / "hosts").mkdir(parents=True)
     proc = _run(tmp_path, "_register_host.yml", {
         "instance_path": str(inst), "host_name": "h2", "role": "sink",
         "_join_hosts": {"hosts": [{"name": "h1", "role": "both"},
                                   {"name": "h2", "role": "both"}]},
-    }, {"_register_file_mode": "0600", "_register_dir_mode": "0700"})
+    })
     assert proc.returncode == 0, proc.stdout + proc.stderr
     hosts = yaml.safe_load((inst / "hosts" / "hosts.yaml").read_text())
     assert hosts == {"hosts": [{"name": "h1", "role": "both"},
@@ -129,8 +123,7 @@ def test_checkout_rewrites_only_the_differing_files(tmp_path):
     (inst / "a.txt").write_text("changed\n")
     b_inode = os.stat(inst / "b.txt").st_ino
     proc = _run(tmp_path, "_join_checkout_differing.yml",
-                {"instance_path": str(inst)},
-                {"_join_blocked_remedy": "Fix it."})
+                {"instance_path": str(inst)})
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert (inst / "a.txt").read_text() == "a\n"
     assert os.stat(inst / "b.txt").st_ino == b_inode
@@ -147,41 +140,37 @@ def test_checkout_failure_names_the_files_and_the_remedy(tmp_path):
     os.chmod(inst / "locked", 0o555)
     try:
         proc = _run(tmp_path, "_join_checkout_differing.yml",
-                    {"instance_path": str(inst), "id": "x"},
-                    {"_join_blocked_remedy": "Run canasta stop -i {{ id }}."})
+                    {"instance_path": str(inst), "id": "x"})
     finally:
         os.chmod(inst / "locked", 0o755)
     assert proc.returncode != 0
     out = proc.stdout + proc.stderr
     assert "locked/a.txt" in out
-    assert "Run canasta stop -i x." in out
+    assert "canasta stop -i x" in out
 
 
 def test_commit_push_skips_the_commit_when_nothing_is_staged(tmp_path):
     inst, remote = _repo_with_remote(tmp_path)
     head = _git(inst, "rev-parse", "HEAD")
     proc = _run(tmp_path, "_join_commit_push.yml",
-                {"instance_path": str(inst), "host_name": "h1"},
-                {"_join_commit_message": "Add host {{ host_name }}",
-                 "_join_git_env": ENV})
+                {"instance_path": str(inst), "host_name": "h1",
+                 "gitops_git_env": ENV},
+                {"_join_commit_message": "Add host {{ host_name }}"})
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert _git(inst, "rev-parse", "HEAD") == head
 
 
-def test_commit_push_commits_with_the_message_and_identity(tmp_path):
+def test_commit_push_commits_with_the_message(tmp_path):
     inst, remote = _repo_with_remote(tmp_path)
     (inst / "c.txt").write_text("c\n")
     _git(inst, "add", "c.txt")
     proc = _run(tmp_path, "_join_commit_push.yml",
-                {"instance_path": str(inst), "host_name": "h1"},
-                {"_join_commit_message": "Add host {{ host_name }}",
-                 "_join_commit_identity":
-                     "-c user.name={{ 'O Brien' | quote }} "
-                     "-c user.email=o@example.com",
-                 "_join_git_env": ENV})
+                {"instance_path": str(inst), "host_name": "h1",
+                 "gitops_git_env": ENV},
+                {"_join_commit_message": "Add host {{ host_name }}"})
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    log = _git(remote, "log", "-1", "--format=%s|%an|%ae", "main").strip()
-    assert log == "Add host h1|O Brien|o@example.com"
+    log = _git(remote, "log", "-1", "--format=%s", "main").strip()
+    assert log == "Add host h1"
 
 
 def test_init_commit_push_sets_up_the_remote(tmp_path):
@@ -195,8 +184,8 @@ def test_init_commit_push_sets_up_the_remote(tmp_path):
     (inst / "a.txt").write_text("a\n")
     _git(inst, "add", "a.txt")
     proc = _run(tmp_path, "_init_commit_push.yml",
-                {"instance_path": str(inst), "repo": str(remote)},
-                {"_init_git_env": ENV})
+                {"instance_path": str(inst), "repo": str(remote),
+                 "gitops_git_env": ENV})
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert _git(remote, "log", "-1", "--format=%s", "main").strip() == \
         "Initial gitops configuration"

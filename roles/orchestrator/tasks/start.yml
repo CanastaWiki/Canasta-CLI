@@ -6,618 +6,616 @@
 # Optional: start_quiet_when_running (bool) - print nothing about starting
 #   unless something is actually started.
 
-- name: Start (Docker Compose)
+# Also before the instance's first move: this start renders its
+# Caddyfile for plain HTTP and adds it to the edge.
+- name: Refuse an instance whose Caddy cannot start behind the edge
+  canasta_edge:
+    state: check
+    instance_id: "{{ instance_id | default(id) }}"
+    instance_path: "{{ instance_path }}"
+
+- name: Sync compose profiles
+  ansible.builtin.include_tasks: sync_compose_profiles.yml
+
+- name: Render sidecars to a compose override layer
+  canasta_render_sidecars:
+    instance_path: "{{ instance_path }}"
+    secret_key_regex: "{{ canasta_secret_key_regex }}"
+  register: _sidecar_render
+
+- name: Report secret variables left out of the sidecar env bridge
+  ansible.builtin.include_tasks: report_bridge_omitted.yml
+
+- name: Render web secret keys to a compose override layer
+  ansible.builtin.include_tasks: render_web_env.yml
+
+- name: Bring the instance's place behind the edge in line
+  ansible.builtin.include_tasks: edge_sync.yml
+  vars:
+    edge_defer_errors: true
+
+- name: Bring the instance's place in the host's OpenSearch in line
+  ansible.builtin.include_tasks: opensearch_sync.yml
+
+- name: Build compose file arguments
+  ansible.builtin.include_tasks: compose_file_args.yml
+
+- name: Unpause paused containers
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/unpause_services.yml"
+
+- name: Report starting containers
+  ansible.builtin.debug:
+    msg: "Starting containers..."
+  when: not (start_quiet_when_running | default(false) | bool)
+
+# The compose command can be overridden for podman deployments.
+# When using rootless Podman instead of Docker, set
+# compose_command: "podman-compose" in the instance .env or via
+# extra-vars.  The -f flags are appended automatically by
+# _compose_files above, so duplicating them here would break.
+# compose_command and inspect_command are defined in
+# roles/orchestrator/defaults/main.yml (override for Podman).
+- name: Set compose and inspect commands
+  ansible.builtin.set_fact:
+    _compose_cmd: "{{ compose_command }}"
+    _inspect_cmd: "{{ inspect_command }}"
+
+# podman-compose ignores COMPOSE_PROFILES from .env, so we must pass
+# --profile flags explicitly.  Docker Compose reads .env automatically,
+# so the flags are empty for Docker.
+- name: Read COMPOSE_PROFILES from .env
+  canasta_env:
+    path: "{{ instance_path }}/.env"
+    state: read_all
+  register: _env_profiles_start
+  no_log: true  # registers the whole .env, including passwords
+  when: compose_command is search('podman')
+
+- name: Build compose profile flags
+  ansible.builtin.set_fact:
+    _compose_profile_flags: >-
+      {{ (((_env_profiles_start.variables.COMPOSE_PROFILES | default(''))
+         | split(',') | map('trim') | reject('equalto', '')
+         | map('regex_replace', '^', '--profile ')
+         | join(' '))
+         if compose_command is search('podman') else '') }}
+
+# Before anything starts: db exits immediately when MYSQL_PASSWORD is
+# absent from .env, and the message it prints names MariaDB variables
+# the operator never set.
+- name: Heal a missing database password
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/heal_mysql_password.yml"
+
+# Backfill MYSQL_HOST/PORT/USER/SSL for instances created before
+# _env_update.yml began pinning them. Without these in .env,
+# podman-compose passes ${MYSQL_HOST:-db} literally and the web
+# container hangs in wait-for-it.sh forever.
+- name: Backfill bundled DB MySQL defaults
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/heal_mysql_defaults.yml"
+
+- name: Check if already running
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/check_running.yml"
+
+# A running web container does not mean the instance is converged: a
+# profile added since the last converge (a feature just enabled, or
+# COMPOSE_PROFILES repaired) names a service that is not running yet,
+# and `up -d` is the only step that would start it. Ask compose which
+# services the active profiles imply and compare with what is running,
+# so the cheap no-op is kept for an instance that really is converged.
+- name: List the services the active profiles imply
+  ansible.builtin.command:
+    cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} config --services"
+    chdir: "{{ instance_path }}"
+  register: _expected_services
+  changed_when: false
+  failed_when: false
+
+- name: List the services actually running
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/list_running_services.yml"
+
+# An unreadable service list (rc != 0) leaves this empty, which falls
+# back to the previous web-only behavior rather than forcing a converge.
+- name: Determine which expected services are missing
+  ansible.builtin.set_fact:
+    _missing_services: >-
+      {{ ((_expected_services.stdout | default('')).split()
+          if _expected_services.rc | default(1) == 0 else [])
+         | difference((_running_services | default('')).split()) }}
+
+- name: Skip start when every expected service is running
+  ansible.builtin.debug:
+    msg: "Instance is already running."
+  when:
+    - _container_running | default(false) | bool
+    - _missing_services | length == 0
+    - not (start_converge | default(false) | bool)
+    - not (start_quiet_when_running | default(false) | bool)
+
+- name: Report the services being started
+  ansible.builtin.debug:
+    msg: "Starting {{ _missing_services | join(', ') }}..."
+  when:
+    - _container_running | default(false) | bool
+    - _missing_services | length > 0
+
+- name: Decide whether containers need starting
+  ansible.builtin.set_fact:
+    _start_needed: >-
+      {{ not (_container_running | default(false) | bool)
+         or _missing_services | length > 0
+         or start_converge | default(false) | bool }}
+    _start_account_ensured: false
+
+# Docker creates a missing bind-mount source on the host, as root under
+# rootful Docker, and the operator then cannot change or remove it.
+# Parents come first: a directory's mode also applies to the parents
+# it creates.
+- name: Find the stack's bind-mounted directories
+  ansible.builtin.stat:
+    path: "{{ instance_path }}/{{ item.dir }}"
+  loop:
+    - { dir: config }
+    - { dir: extensions }
+    - { dir: skins }
+    - { dir: images, mode: "0775" }
+    - { dir: public_assets }
+    - { dir: config/certs, mode: "0700" }
+    - { dir: config/logstash/pipeline }
+  loop_control:
+    label: "{{ item.dir }}"
+  register: _stack_bind_dirs
+  when: _start_needed | bool
+
+- name: Create the stack's missing bind-mounted directories
+  ansible.builtin.file:
+    path: "{{ instance_path }}/{{ item.item.dir }}"
+    state: directory
+    mode: "{{ item.item.mode | default('0755') }}"
+  loop: "{{ _stack_bind_dirs.results | default([]) | rejectattr('skipped', 'defined')
+            | rejectattr('stat.exists') | list }}"
+  loop_control:
+    label: "{{ item.item.dir }}"
+
+- name: List the sources Docker would create for bind mounts
+  ansible.builtin.command:
+    cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} config"
+    chdir: "{{ instance_path }}"
+  register: _start_compose_config
+  changed_when: false
+  failed_when: false
+  no_log: true  # the rendered configuration includes .env's passwords
+  when:
+    - _start_needed | bool
+    - compose_command is not search('podman')
+
+- name: Collect the bind-mount sources Docker would create
+  ansible.builtin.set_fact:
+    _start_bind_sources: >-
+      {% set found = [] -%}
+      {% if _start_compose_config.rc | default(1) == 0 -%}
+      {% for svc in ((_start_compose_config.stdout | from_yaml).services | default({})).values() -%}
+      {% for vol in svc.volumes | default([]) -%}
+      {% if vol.type | default('') == 'bind' and vol.bind is defined
+            and vol.bind.create_host_path | default(true) -%}
+      {% set _ = found.append(vol.source) -%}
+      {% endif -%}
+      {% endfor -%}
+      {% endfor -%}
+      {% endif -%}
+      {{ found | unique }}
+
+- name: Check the bind-mount sources
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ _start_bind_sources }}"
+  register: _start_bind_source_stats
+
+- name: Report bind-mount sources that do not exist
+  ansible.builtin.debug:
+    msg: >-
+      The instance's compose files bind-mount {{ item.item }}, which does
+      not exist. Docker creates it as an empty directory, owned by root
+      under rootful Docker. Create it, or remove the mount from
+      docker-compose.override.yml.
+  loop: "{{ _start_bind_source_stats.results | rejectattr('stat.exists') | list }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Report starting containers (quiet mode)
+  ansible.builtin.debug:
+    msg: "Starting containers..."
+  when:
+    - start_quiet_when_running | default(false) | bool
+    - not (_container_running | default(false) | bool)
+
+# web runs update.php for every wiki as soon as it boots, so MediaWiki's
+# database account and its grants must be in place before web starts.
+# Start the bundled database on its own and ensure the account first.
+# A failure here is left for the full `up` below to report.
+- name: Start the database before MediaWiki
+  ansible.builtin.command:
+    cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} up -d db"
+    chdir: "{{ instance_path }}"
+  register: _start_db_first
+  changed_when: true
+  failed_when: false
+  when:
+    - _start_needed | bool
+    - "'db' in (_expected_services.stdout | default('')).split()"
+
+- name: Ensure MediaWiki's database account before web starts
+  ansible.builtin.include_tasks: ensure_wiki_db_account.yml
+  when:
+    - _start_db_first is not skipped
+    - _start_db_first.rc | default(1) == 0
+
+- name: Record that the account was ensured before web started
+  ansible.builtin.set_fact:
+    _start_account_ensured: true
+  when:
+    - _start_db_first is not skipped
+    - _start_db_first.rc | default(1) == 0
+
+- name: Start containers
+  ansible.builtin.command:
+    cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} up -d"
+    chdir: "{{ instance_path }}"
+  register: _start_result
+  changed_when: true
+  failed_when: false
+  when: >-
+    not (_container_running | default(false) | bool)
+    or _missing_services | length > 0
+    or start_converge | default(false) | bool
+
+# The three failure guards below default rc: `Start containers` is skipped
+# on an already-running instance, and a skipped result is a dict with no
+# rc at all, so a bare `_start_result.rc` raises instead of evaluating.
+#
+# When docker compose up fails (typically an unhealthy container),
+# capture per-service logs and state before we bail out. The caller
+# usually rolls back (docker compose down) on failure, which wipes
+# the containers — so any post-hoc dump from the controller sees
+# nothing. Capturing here, before propagating the error, is the
+# only reliable way to see WHY a container was unhealthy.
+- name: Capture compose state on failure
+  ansible.builtin.command:
+    cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} ps -a"
+    chdir: "{{ instance_path }}"
+  register: _start_ps
+  changed_when: false
+  failed_when: false
+  when: _start_result.rc | default(0) != 0
+
+- name: Capture compose logs on failure
+  ansible.builtin.command:
+    cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} logs --tail=200 --no-color"
+    chdir: "{{ instance_path }}"
+  register: _start_logs
+  changed_when: false
+  failed_when: false
+  when: _start_result.rc | default(0) != 0
+
+- name: Capture the database error log on failure
+  ansible.builtin.include_tasks: _capture_db_error_log.yml
+  when: _start_result.rc | default(0) != 0
+
+# Ansible's default callback swallows stderr/stdout for failed
+# command modules under the compact "[ERROR]: Task failed: ..."
+# rendering. Register with failed_when: false and fail explicitly
+# so the full output is visible in CI/operator logs.
+- name: Fail with full output if docker compose up failed
+  ansible.builtin.fail:
+    msg: |-
+      docker compose up exited with rc={{ _start_result.rc }}
+      --- STDOUT ---
+      {{ _start_result.stdout | default('(empty)') }}
+      --- STDERR ---
+      {{ _start_result.stderr | default('(empty)') }}
+      --- docker compose ps -a ---
+      {{ _start_ps.stdout | default('(not captured)') }}
+      --- docker compose logs (last 200) ---
+      {{ _start_logs.stdout | default('(not captured)') }}
+      --- database error log (last 100) ---
+      {{ _start_db_log_text | default('(not captured)') }}
+  when: _start_result.rc | default(0) != 0
+
+# `up -d` exiting 0 is not evidence that every service started:
+# podman-compose reports success while a service it could not create —
+# an image reference it cannot resolve, say — is simply absent. The
+# checks below cover `web` alone, so any other service went missing
+# without a word and the command still reported success.
+#
+# Absence, not "not running", is the test: `observable-init` is a
+# one-shot (restart: "no") and has an exited container by design, so a
+# service that ran and exited is not a failure. A service with no
+# container was never created.
+- name: List the services that have a container
+  ansible.builtin.command:
+    argv:
+      - "{{ _inspect_cmd }}"
+      - ps
+      - "-a"
+      - --filter
+      - "label=com.docker.compose.project={{ instance_path | basename | lower }}"
+      - --format
+      - >-
+        {% if 'podman' in (_inspect_cmd | basename) -%}
+        {% raw %}{{index .Labels "com.docker.compose.service"}}{% endraw %}
+        {%- else -%}
+        {% raw %}{{.Label "com.docker.compose.service"}}{% endraw %}
+        {%- endif %}
+    chdir: "{{ instance_path }}"
+  register: _start_present_services
+  changed_when: false
+  failed_when: false
+
+# An unreadable expected-service list leaves this empty, matching the
+# pre-start comparison above: an unknown answer is not a failure.
+- name: Determine which expected services never started
+  ansible.builtin.set_fact:
+    _start_absent_services: >-
+      {{ ((_expected_services.stdout | default('')).split()
+          if _expected_services.rc | default(1) == 0 else [])
+         | difference((_start_present_services.stdout | default('')).split()) }}
+
+- name: Fail when an expected service never started
+  ansible.builtin.fail:
+    msg: >-
+      The containers started, but the active profiles select
+      {{ _start_absent_services | join(', ') }}, which
+      {{ 'has' if _start_absent_services | length == 1 else 'have' }}
+      no container on the host for instance '{{ instance_id }}'.
+      The instance is not fully up. The compose command reported
+      success, so the reason is per-service — check the container
+      logs on the host, and confirm the image reference for
+      {{ _start_absent_services | join(', ') }} can be resolved
+      there.
+  when: _start_absent_services | length > 0
+
+# Wait for the web container to finish booting before returning.
+# /run-all.sh in the canasta image runs `composer update`
+# synchronously before starting apache; install.php and any other
+# `docker compose exec web php …` task that runs immediately after
+# `up -d` will race composer and crash with "vendor/composer/...
+# bootstrap.php: No such file or directory" if vendor is mid-write.
+# The canasta-base HEALTHCHECK probes /server-status, which only
+# responds once both composer AND apache have finished — so
+# "healthy" is the right gate. Custom images that do not declare a
+# HEALTHCHECK skip the wait (we trust them to define their own
+# readiness contract).
+#
+# Runtimes disagree on what "no health data" looks like: Podman
+# 4.9.3 reports a non-nil .State.Health whose Status is empty, older
+# Podman omits .State.Health entirely, and Docker reports a real
+# status. So the probe renders the status itself rather than testing
+# the struct for presence — an empty render means "nothing to wait
+# on" on every runtime, with no version knowledge encoded.
+- name: Get web container id
+  ansible.builtin.command:
+    cmd: >-
+      {{ _inspect_cmd }} ps
+      --filter label=com.docker.compose.project={{ instance_path | basename | lower }}
+      --filter label=com.docker.compose.service=web
+      --format {% raw %}{{.ID}}{% endraw %}
+    chdir: "{{ instance_path }}"
+  register: _start_web_cid
+  changed_when: false
+
+# `ps` without -a lists only running containers, so an empty result
+# means the stack is not up. `up -d` exiting 0 does not rule that out:
+# with rootless podman and no lingering, systemd kills the containers
+# the moment the ssh session ends. Without this check the health gate
+# below is merely skipped and the run reports success.
+- name: Fail when no web container is running after start
+  ansible.builtin.fail:
+    msg: >-
+      Started the containers, but no running 'web' container is present
+      for instance '{{ instance_id }}'. The instance is not up — check
+      'canasta list' and the container logs on the host. On rootless
+      Podman this is usually lingering: without
+      'sudo loginctl enable-linger <user>', systemd stops the
+      containers as soon as the session that started them ends.
+  when: _start_web_cid.stdout | trim == ''
+
+- name: Probe whether web reports a health status
+  ansible.builtin.command:
+    argv:
+      - "{{ _inspect_cmd }}"
+      - inspect
+      - "-f"
+      - "{% raw %}{{if .State.Health}}{{.State.Health.Status}}{{end}}{% endraw %}"
+      - "{{ _start_web_cid.stdout | trim }}"
+  register: _start_web_has_health
+  changed_when: false
+  when: _start_web_cid.stdout | trim != ''
+
+# Up to 60 retries × 10s = 10 min — comfortably above the
+# canasta-base healthcheck's 5 min --start-period plus a slow
+# first-time composer install.
+#
+# failed_when: false so the fail below can name the last status;
+# exhausting the retries reports only the inspect invocation.
+- name: Wait for web container to report healthy
+  ansible.builtin.command:
+    argv:
+      - "{{ _inspect_cmd }}"
+      - inspect
+      - "-f"
+      - "{% raw %}{{.State.Health.Status}}{% endraw %}"
+      - "{{ _start_web_cid.stdout | trim }}"
+  register: _start_web_health
+  changed_when: false
+  failed_when: false
+  retries: 60
+  delay: 10
+  until: _start_web_health.stdout | trim == 'healthy'
+  when:
+    - _start_web_cid.stdout | trim != ''
+    - _start_web_has_health.stdout | default('') | trim != ''
+
+# `up` succeeding and the health gate timing out is the other way a start
+# fails, and it is the more common one: an unallocatable buffer pool
+# leaves the database crash-looping while compose reports every container
+# started, so web never reaches a database and the only failure is here.
+- name: Fail when web never reported healthy
+  when:
+    - _start_web_cid.stdout | trim != ''
+    - _start_web_has_health.stdout | default('') | trim != ''
+    - (_start_web_health.stdout | default('') | trim) != 'healthy'
   block:
-    # Also before the instance's first move: this start renders its
-    # Caddyfile for plain HTTP and adds it to the edge.
-    - name: Refuse an instance whose Caddy cannot start behind the edge
-      canasta_edge:
-        state: check
-        instance_id: "{{ instance_id | default(id) }}"
-        instance_path: "{{ instance_path }}"
-
-    - name: Sync compose profiles
-      ansible.builtin.include_tasks: sync_compose_profiles.yml
-
-    - name: Render sidecars to a compose override layer
-      canasta_render_sidecars:
-        instance_path: "{{ instance_path }}"
-        secret_key_regex: "{{ canasta_secret_key_regex }}"
-      register: _sidecar_render
-
-    - name: Report secret variables left out of the sidecar env bridge
-      ansible.builtin.include_tasks: report_bridge_omitted.yml
-
-    - name: Render web secret keys to a compose override layer
-      ansible.builtin.include_tasks: render_web_env.yml
-
-    - name: Bring the instance's place behind the edge in line
-      ansible.builtin.include_tasks: edge_sync.yml
-      vars:
-        edge_defer_errors: true
-
-    - name: Bring the instance's place in the host's OpenSearch in line
-      ansible.builtin.include_tasks: opensearch_sync.yml
-
-    - name: Build compose file arguments
-      ansible.builtin.include_tasks: compose_file_args.yml
-
-    - name: Unpause paused containers
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/unpause_services.yml"
-
-    - name: Report starting containers
-      ansible.builtin.debug:
-        msg: "Starting containers..."
-      when: not (start_quiet_when_running | default(false) | bool)
-
-    # The compose command can be overridden for podman deployments.
-    # When using rootless Podman instead of Docker, set
-    # compose_command: "podman-compose" in the instance .env or via
-    # extra-vars.  The -f flags are appended automatically by
-    # _compose_files above, so duplicating them here would break.
-    # compose_command and inspect_command are defined in
-    # roles/orchestrator/defaults/main.yml (override for Podman).
-    - name: Set compose and inspect commands
-      ansible.builtin.set_fact:
-        _compose_cmd: "{{ compose_command }}"
-        _inspect_cmd: "{{ inspect_command }}"
-
-    # podman-compose ignores COMPOSE_PROFILES from .env, so we must pass
-    # --profile flags explicitly.  Docker Compose reads .env automatically,
-    # so the flags are empty for Docker.
-    - name: Read COMPOSE_PROFILES from .env
-      canasta_env:
-        path: "{{ instance_path }}/.env"
-        state: read_all
-      register: _env_profiles_start
-      no_log: true  # registers the whole .env, including passwords
-      when: compose_command is search('podman')
-
-    - name: Build compose profile flags
-      ansible.builtin.set_fact:
-        _compose_profile_flags: >-
-          {{ (((_env_profiles_start.variables.COMPOSE_PROFILES | default(''))
-             | split(',') | map('trim') | reject('equalto', '')
-             | map('regex_replace', '^', '--profile ')
-             | join(' '))
-             if compose_command is search('podman') else '') }}
-
-    # Before anything starts: db exits immediately when MYSQL_PASSWORD is
-    # absent from .env, and the message it prints names MariaDB variables
-    # the operator never set.
-    - name: Heal a missing database password
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/heal_mysql_password.yml"
-
-    # Backfill MYSQL_HOST/PORT/USER/SSL for instances created before
-    # _env_update.yml began pinning them. Without these in .env,
-    # podman-compose passes ${MYSQL_HOST:-db} literally and the web
-    # container hangs in wait-for-it.sh forever.
-    - name: Backfill bundled DB MySQL defaults
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/heal_mysql_defaults.yml"
-
-    - name: Check if already running
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/check_running.yml"
-
-    # A running web container does not mean the instance is converged: a
-    # profile added since the last converge (a feature just enabled, or
-    # COMPOSE_PROFILES repaired) names a service that is not running yet,
-    # and `up -d` is the only step that would start it. Ask compose which
-    # services the active profiles imply and compare with what is running,
-    # so the cheap no-op is kept for an instance that really is converged.
-    - name: List the services the active profiles imply
-      ansible.builtin.command:
-        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} config --services"
-        chdir: "{{ instance_path }}"
-      register: _expected_services
-      changed_when: false
-      failed_when: false
-
-    - name: List the services actually running
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/list_running_services.yml"
-
-    # An unreadable service list (rc != 0) leaves this empty, which falls
-    # back to the previous web-only behavior rather than forcing a converge.
-    - name: Determine which expected services are missing
-      ansible.builtin.set_fact:
-        _missing_services: >-
-          {{ ((_expected_services.stdout | default('')).split()
-              if _expected_services.rc | default(1) == 0 else [])
-             | difference((_running_services | default('')).split()) }}
-
-    - name: Skip start when every expected service is running
-      ansible.builtin.debug:
-        msg: "Instance is already running."
-      when:
-        - _container_running | default(false) | bool
-        - _missing_services | length == 0
-        - not (start_converge | default(false) | bool)
-        - not (start_quiet_when_running | default(false) | bool)
-
-    - name: Report the services being started
-      ansible.builtin.debug:
-        msg: "Starting {{ _missing_services | join(', ') }}..."
-      when:
-        - _container_running | default(false) | bool
-        - _missing_services | length > 0
-
-    - name: Decide whether containers need starting
-      ansible.builtin.set_fact:
-        _start_needed: >-
-          {{ not (_container_running | default(false) | bool)
-             or _missing_services | length > 0
-             or start_converge | default(false) | bool }}
-        _start_account_ensured: false
-
-    # Docker creates a missing bind-mount source on the host, as root under
-    # rootful Docker, and the operator then cannot change or remove it.
-    # Parents come first: a directory's mode also applies to the parents
-    # it creates.
-    - name: Find the stack's bind-mounted directories
-      ansible.builtin.stat:
-        path: "{{ instance_path }}/{{ item.dir }}"
-      loop:
-        - { dir: config }
-        - { dir: extensions }
-        - { dir: skins }
-        - { dir: images, mode: "0775" }
-        - { dir: public_assets }
-        - { dir: config/certs, mode: "0700" }
-        - { dir: config/logstash/pipeline }
-      loop_control:
-        label: "{{ item.dir }}"
-      register: _stack_bind_dirs
-      when: _start_needed | bool
-
-    - name: Create the stack's missing bind-mounted directories
-      ansible.builtin.file:
-        path: "{{ instance_path }}/{{ item.item.dir }}"
-        state: directory
-        mode: "{{ item.item.mode | default('0755') }}"
-      loop: "{{ _stack_bind_dirs.results | default([]) | rejectattr('skipped', 'defined')
-                | rejectattr('stat.exists') | list }}"
-      loop_control:
-        label: "{{ item.item.dir }}"
-
-    - name: List the sources Docker would create for bind mounts
-      ansible.builtin.command:
-        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} config"
-        chdir: "{{ instance_path }}"
-      register: _start_compose_config
-      changed_when: false
-      failed_when: false
-      no_log: true  # the rendered configuration includes .env's passwords
-      when:
-        - _start_needed | bool
-        - compose_command is not search('podman')
-
-    - name: Collect the bind-mount sources Docker would create
-      ansible.builtin.set_fact:
-        _start_bind_sources: >-
-          {% set found = [] -%}
-          {% if _start_compose_config.rc | default(1) == 0 -%}
-          {% for svc in ((_start_compose_config.stdout | from_yaml).services | default({})).values() -%}
-          {% for vol in svc.volumes | default([]) -%}
-          {% if vol.type | default('') == 'bind' and vol.bind is defined
-                and vol.bind.create_host_path | default(true) -%}
-          {% set _ = found.append(vol.source) -%}
-          {% endif -%}
-          {% endfor -%}
-          {% endfor -%}
-          {% endif -%}
-          {{ found | unique }}
-
-    - name: Check the bind-mount sources
-      ansible.builtin.stat:
-        path: "{{ item }}"
-      loop: "{{ _start_bind_sources }}"
-      register: _start_bind_source_stats
-
-    - name: Report bind-mount sources that do not exist
-      ansible.builtin.debug:
-        msg: >-
-          The instance's compose files bind-mount {{ item.item }}, which does
-          not exist. Docker creates it as an empty directory, owned by root
-          under rootful Docker. Create it, or remove the mount from
-          docker-compose.override.yml.
-      loop: "{{ _start_bind_source_stats.results | rejectattr('stat.exists') | list }}"
-      loop_control:
-        label: "{{ item.item }}"
-
-    - name: Report starting containers (quiet mode)
-      ansible.builtin.debug:
-        msg: "Starting containers..."
-      when:
-        - start_quiet_when_running | default(false) | bool
-        - not (_container_running | default(false) | bool)
-
-    # web runs update.php for every wiki as soon as it boots, so MediaWiki's
-    # database account and its grants must be in place before web starts.
-    # Start the bundled database on its own and ensure the account first.
-    # A failure here is left for the full `up` below to report.
-    - name: Start the database before MediaWiki
-      ansible.builtin.command:
-        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} up -d db"
-        chdir: "{{ instance_path }}"
-      register: _start_db_first
-      changed_when: true
-      failed_when: false
-      when:
-        - _start_needed | bool
-        - "'db' in (_expected_services.stdout | default('')).split()"
-
-    - name: Ensure MediaWiki's database account before web starts
-      ansible.builtin.include_tasks: ensure_wiki_db_account.yml
-      when:
-        - _start_db_first is not skipped
-        - _start_db_first.rc | default(1) == 0
-
-    - name: Record that the account was ensured before web started
-      ansible.builtin.set_fact:
-        _start_account_ensured: true
-      when:
-        - _start_db_first is not skipped
-        - _start_db_first.rc | default(1) == 0
-
-    - name: Start containers
-      ansible.builtin.command:
-        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} up -d"
-        chdir: "{{ instance_path }}"
-      register: _start_result
-      changed_when: true
-      failed_when: false
-      when: >-
-        not (_container_running | default(false) | bool)
-        or _missing_services | length > 0
-        or start_converge | default(false) | bool
-
-    # The three failure guards below default rc: `Start containers` is skipped
-    # on an already-running instance, and a skipped result is a dict with no
-    # rc at all, so a bare `_start_result.rc` raises instead of evaluating.
-    #
-    # When docker compose up fails (typically an unhealthy container),
-    # capture per-service logs and state before we bail out. The caller
-    # usually rolls back (docker compose down) on failure, which wipes
-    # the containers — so any post-hoc dump from the controller sees
-    # nothing. Capturing here, before propagating the error, is the
-    # only reliable way to see WHY a container was unhealthy.
-    - name: Capture compose state on failure
-      ansible.builtin.command:
-        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} ps -a"
-        chdir: "{{ instance_path }}"
-      register: _start_ps
-      changed_when: false
-      failed_when: false
-      when: _start_result.rc | default(0) != 0
-
-    - name: Capture compose logs on failure
-      ansible.builtin.command:
-        cmd: "{{ _compose_cmd }} {{ _compose_files | join(' ') }} {{ _compose_profile_flags | default('') }} logs --tail=200 --no-color"
-        chdir: "{{ instance_path }}"
-      register: _start_logs
-      changed_when: false
-      failed_when: false
-      when: _start_result.rc | default(0) != 0
-
-    - name: Capture the database error log on failure
-      ansible.builtin.include_tasks: _capture_db_error_log.yml
-      when: _start_result.rc | default(0) != 0
-
-    # Ansible's default callback swallows stderr/stdout for failed
-    # command modules under the compact "[ERROR]: Task failed: ..."
-    # rendering. Register with failed_when: false and fail explicitly
-    # so the full output is visible in CI/operator logs.
-    - name: Fail with full output if docker compose up failed
-      ansible.builtin.fail:
-        msg: |-
-          docker compose up exited with rc={{ _start_result.rc }}
-          --- STDOUT ---
-          {{ _start_result.stdout | default('(empty)') }}
-          --- STDERR ---
-          {{ _start_result.stderr | default('(empty)') }}
-          --- docker compose ps -a ---
-          {{ _start_ps.stdout | default('(not captured)') }}
-          --- docker compose logs (last 200) ---
-          {{ _start_logs.stdout | default('(not captured)') }}
-          --- database error log (last 100) ---
-          {{ _start_db_log_text | default('(not captured)') }}
-      when: _start_result.rc | default(0) != 0
-
-    # `up -d` exiting 0 is not evidence that every service started:
-    # podman-compose reports success while a service it could not create —
-    # an image reference it cannot resolve, say — is simply absent. The
-    # checks below cover `web` alone, so any other service went missing
-    # without a word and the command still reported success.
-    #
-    # Absence, not "not running", is the test: `observable-init` is a
-    # one-shot (restart: "no") and has an exited container by design, so a
-    # service that ran and exited is not a failure. A service with no
-    # container was never created.
-    - name: List the services that have a container
-      ansible.builtin.command:
-        argv:
-          - "{{ _inspect_cmd }}"
-          - ps
-          - "-a"
-          - --filter
-          - "label=com.docker.compose.project={{ instance_path | basename | lower }}"
-          - --format
-          - >-
-            {% if 'podman' in (_inspect_cmd | basename) -%}
-            {% raw %}{{index .Labels "com.docker.compose.service"}}{% endraw %}
-            {%- else -%}
-            {% raw %}{{.Label "com.docker.compose.service"}}{% endraw %}
-            {%- endif %}
-        chdir: "{{ instance_path }}"
-      register: _start_present_services
-      changed_when: false
-      failed_when: false
-
-    # An unreadable expected-service list leaves this empty, matching the
-    # pre-start comparison above: an unknown answer is not a failure.
-    - name: Determine which expected services never started
-      ansible.builtin.set_fact:
-        _start_absent_services: >-
-          {{ ((_expected_services.stdout | default('')).split()
-              if _expected_services.rc | default(1) == 0 else [])
-             | difference((_start_present_services.stdout | default('')).split()) }}
-
-    - name: Fail when an expected service never started
-      ansible.builtin.fail:
-        msg: >-
-          The containers started, but the active profiles select
-          {{ _start_absent_services | join(', ') }}, which
-          {{ 'has' if _start_absent_services | length == 1 else 'have' }}
-          no container on the host for instance '{{ instance_id }}'.
-          The instance is not fully up. The compose command reported
-          success, so the reason is per-service — check the container
-          logs on the host, and confirm the image reference for
-          {{ _start_absent_services | join(', ') }} can be resolved
-          there.
-      when: _start_absent_services | length > 0
-
-    # Wait for the web container to finish booting before returning.
-    # /run-all.sh in the canasta image runs `composer update`
-    # synchronously before starting apache; install.php and any other
-    # `docker compose exec web php …` task that runs immediately after
-    # `up -d` will race composer and crash with "vendor/composer/...
-    # bootstrap.php: No such file or directory" if vendor is mid-write.
-    # The canasta-base HEALTHCHECK probes /server-status, which only
-    # responds once both composer AND apache have finished — so
-    # "healthy" is the right gate. Custom images that do not declare a
-    # HEALTHCHECK skip the wait (we trust them to define their own
-    # readiness contract).
-    #
-    # Runtimes disagree on what "no health data" looks like: Podman
-    # 4.9.3 reports a non-nil .State.Health whose Status is empty, older
-    # Podman omits .State.Health entirely, and Docker reports a real
-    # status. So the probe renders the status itself rather than testing
-    # the struct for presence — an empty render means "nothing to wait
-    # on" on every runtime, with no version knowledge encoded.
-    - name: Get web container id
+    - name: Capture web's logs for the health-gate failure
       ansible.builtin.command:
         cmd: >-
-          {{ _inspect_cmd }} ps
-          --filter label=com.docker.compose.project={{ instance_path | basename | lower }}
-          --filter label=com.docker.compose.service=web
-          --format {% raw %}{{.ID}}{% endraw %}
+          {{ _compose_cmd }} {{ _compose_files | join(' ') }}
+          {{ _compose_profile_flags | default('') }}
+          logs --tail=200 --no-color web
         chdir: "{{ instance_path }}"
-      register: _start_web_cid
+      register: _start_web_logs
       changed_when: false
+      failed_when: false
 
-    # `ps` without -a lists only running containers, so an empty result
-    # means the stack is not up. `up -d` exiting 0 does not rule that out:
-    # with rootless podman and no lingering, systemd kills the containers
-    # the moment the ssh session ends. Without this check the health gate
-    # below is merely skipped and the run reports success.
-    - name: Fail when no web container is running after start
+    # Through the ./config bind mount, so a container that is
+    # restarting does not have to answer an exec.
+    - name: Read the startup composer failure record for the health-gate failure
+      ansible.builtin.command:
+        argv:
+          - head
+          - "-n"
+          - "1"
+          - "{{ instance_path }}/config/persistent/composer-update.failed"
+      register: _start_composer_failed
+      changed_when: false
+      failed_when: false
+
+    - name: Find the startup error web logged
+      ansible.builtin.set_fact:
+        _start_web_cause: >-
+          {{ (_start_web_logs.stdout | default(''))
+             | web_startup_cause(instance_id,
+                                 _start_composer_failed.stdout | default('')) }}
+        _start_web_timeout: >-
+          The 'web' container for instance '{{ instance_id }}' did not
+          report healthy within 10 minutes; its last status was
+          '{{ _start_web_health.stdout | default('') | trim | default('(none)', true) }}'.
+        _start_web_log_lines: "{{ (_start_web_logs.stdout | default('')).splitlines() }}"
+
+    - name: Report the startup error web logged
       ansible.builtin.fail:
-        msg: >-
-          Started the containers, but no running 'web' container is present
-          for instance '{{ instance_id }}'. The instance is not up — check
-          'canasta list' and the container logs on the host. On rootless
-          Podman this is usually lingering: without
-          'sudo loginctl enable-linger <user>', systemd stops the
-          containers as soon as the session that started them ends.
-      when: _start_web_cid.stdout | trim == ''
+        msg: |-
+          {{ _start_web_cause.cause }}
+          {{ _start_web_cause.hint }}
+          {{ _start_web_timeout }}
+          --- web logs (last 20) ---
+          {% for line in _start_web_log_lines[-20:] %}
+          {{ line }}
+          {% endfor %}
+      when: _start_web_cause.cause | default('') | length > 0
 
-    - name: Probe whether web reports a health status
-      ansible.builtin.command:
-        argv:
-          - "{{ _inspect_cmd }}"
-          - inspect
-          - "-f"
-          - "{% raw %}{{if .State.Health}}{{.State.Health.Status}}{{end}}{% endraw %}"
-          - "{{ _start_web_cid.stdout | trim }}"
-      register: _start_web_has_health
-      changed_when: false
-      when: _start_web_cid.stdout | trim != ''
+    - name: Capture the database error log for the health-gate failure
+      ansible.builtin.include_tasks: _capture_db_error_log.yml
 
-    # Up to 60 retries × 10s = 10 min — comfortably above the
-    # canasta-base healthcheck's 5 min --start-period plus a slow
-    # first-time composer install.
-    #
-    # failed_when: false so the fail below can name the last status;
-    # exhausting the retries reports only the inspect invocation.
-    - name: Wait for web container to report healthy
-      ansible.builtin.command:
-        argv:
-          - "{{ _inspect_cmd }}"
-          - inspect
-          - "-f"
-          - "{% raw %}{{.State.Health.Status}}{% endraw %}"
-          - "{{ _start_web_cid.stdout | trim }}"
-      register: _start_web_health
-      changed_when: false
-      failed_when: false
-      retries: 60
-      delay: 10
-      until: _start_web_health.stdout | trim == 'healthy'
-      when:
-        - _start_web_cid.stdout | trim != ''
-        - _start_web_has_health.stdout | default('') | trim != ''
+    - name: Report that web never reported healthy
+      ansible.builtin.fail:
+        msg: |-
+          {{ _start_web_timeout }}
+          The image's healthcheck probes /server-status, which answers only
+          once composer and apache have both finished — so this usually
+          means composer is still running or failed, or the database web
+          waits on never came up.
+          --- web logs (last 60) ---
+          {% for line in _start_web_log_lines[-60:] %}
+          {{ line }}
+          {% endfor %}
+          --- database error log (last 100) ---
+          {{ _start_db_log_text | default('(not captured)') }}
 
-    # `up` succeeding and the health gate timing out is the other way a start
-    # fails, and it is the more common one: an unallocatable buffer pool
-    # leaves the database crash-looping while compose reports every container
-    # started, so web never reaches a database and the only failure is here.
-    - name: Fail when web never reported healthy
-      when:
-        - _start_web_cid.stdout | trim != ''
-        - _start_web_has_health.stdout | default('') | trim != ''
-        - (_start_web_health.stdout | default('') | trim) != 'healthy'
-      block:
-        - name: Capture web's logs for the health-gate failure
-          ansible.builtin.command:
-            cmd: >-
-              {{ _compose_cmd }} {{ _compose_files | join(' ') }}
-              {{ _compose_profile_flags | default('') }}
-              logs --tail=200 --no-color web
-            chdir: "{{ instance_path }}"
-          register: _start_web_logs
-          changed_when: false
-          failed_when: false
+# Podman renders an empty status for the stock image, so the wait
+# above skips and the composer race comes back. Two reasons, both
+# outside our control: the published image is OCI-format and podman
+# ignores Healthcheck in an OCI config, and podman runs healthchecks
+# from systemd transient timers that compose never creates — the
+# static builds used in CI have no systemd at all.
+#
+# So ask the container the question the healthcheck would ask,
+# rather than asking the runtime for an answer it cannot produce.
+# This depends on nothing but `exec`.
+#
+# 127.0.0.1, not localhost: localhost resolves to ::1 first under
+# rootless podman, and CanastaBase before 1.3.19 served
+# /server-status only to 127.0.0.1.
+#
+# Best-effort on purpose. A custom image that never serves
+# /server-status must not turn a missing signal into a failed
+# create — the gate did not run on Podman at all before this, so
+# warning and continuing is never worse than the old behavior,
+# while a wait that cannot pass would be far worse. 30 × 10s
+# matches the image healthcheck's 5 min --start-period.
+- name: Wait for web to answer on Podman
+  ansible.builtin.command:
+    argv:
+      - "{{ _inspect_cmd }}"
+      - exec
+      - "{{ _start_web_cid.stdout | trim }}"
+      - wget
+      - "-q"
+      - "--method=HEAD"
+      - "127.0.0.1/server-status"
+  register: _start_web_podman_ready
+  changed_when: false
+  failed_when: false
+  retries: 30
+  delay: 10
+  until: _start_web_podman_ready.rc == 0
+  when:
+    - _start_web_cid.stdout | trim != ''
+    - (_start_web_has_health.stdout | default('') | trim) == ''
+    - _inspect_cmd | default('docker') is search('podman')
 
-        # Through the ./config bind mount, so a container that is
-        # restarting does not have to answer an exec.
-        - name: Read the startup composer failure record for the health-gate failure
-          ansible.builtin.command:
-            argv:
-              - head
-              - "-n"
-              - "1"
-              - "{{ instance_path }}/config/persistent/composer-update.failed"
-          register: _start_composer_failed
-          changed_when: false
-          failed_when: false
+- name: Report that web never answered on Podman
+  ansible.builtin.debug:
+    msg: >-
+      web did not answer /server-status within 5 minutes, so the
+      readiness gate is being skipped. A custom image that does not
+      serve /server-status is expected here. On the stock image this
+      means web is still starting, and the MediaWiki installer may
+      race composer — check the container logs if create then fails
+      on a missing vendor/ file.
+  when: (_start_web_podman_ready.rc | default(0)) != 0
 
-        - name: Find the startup error web logged
-          ansible.builtin.set_fact:
-            _start_web_cause: >-
-              {{ (_start_web_logs.stdout | default(''))
-                 | web_startup_cause(instance_id,
-                                     _start_composer_failed.stdout | default('')) }}
-            _start_web_timeout: >-
-              The 'web' container for instance '{{ instance_id }}' did not
-              report healthy within 10 minutes; its last status was
-              '{{ _start_web_health.stdout | default('') | trim | default('(none)', true) }}'.
-            _start_web_log_lines: "{{ (_start_web_logs.stdout | default('')).splitlines() }}"
+# The account lives in the database server, so a restored or rebuilt db
+# volume can lack it while .env still names it. Put it back on every
+# start that did not already do so before web started.
+- name: Ensure MediaWiki's database account
+  ansible.builtin.include_tasks: ensure_wiki_db_account.yml
+  when: not (_start_account_ensured | bool)
 
-        - name: Report the startup error web logged
-          ansible.builtin.fail:
-            msg: |-
-              {{ _start_web_cause.cause }}
-              {{ _start_web_cause.hint }}
-              {{ _start_web_timeout }}
-              --- web logs (last 20) ---
-              {% for line in _start_web_log_lines[-20:] %}
-              {{ line }}
-              {% endfor %}
-          when: _start_web_cause.cause | default('') | length > 0
+# Rootless Podman: run-all.sh rsyncs with --chown=www-data at container
+# startup, which resets ownership of config/, extensions/, skins/ to the
+# container's subuid. Re-apply the operator-writable directory ownership
+# fix now that the containers have started and run-all.sh has run.
+- name: Fix operator directory ownership for rootless Podman (post-start)
+  ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/_rootless_operator_chown.yml"
+  when:
+    - _inspect_cmd | default('docker') is search('podman')
 
-        - name: Capture the database error log for the health-gate failure
-          ansible.builtin.include_tasks: _capture_db_error_log.yml
+# Register CAPI + auto-enroll the bouncer when CrowdSec is on. Shared
+# with create. crowdsec_autoenroll is false only
+# for create's first start, which defers enrollment until after the
+# instance is registered (the crowdsec preflight resolves it).
+- name: Auto-enroll CrowdSec (register CAPI + enroll bouncer) when enabled
+  ansible.builtin.include_tasks: crowdsec_autoenroll.yml
+  when: crowdsec_autoenroll | default(true) | bool
 
-        - name: Report that web never reported healthy
-          ansible.builtin.fail:
-            msg: |-
-              {{ _start_web_timeout }}
-              The image's healthcheck probes /server-status, which answers only
-              once composer and apache have both finished — so this usually
-              means composer is still running or failed, or the database web
-              waits on never came up.
-              --- web logs (last 60) ---
-              {% for line in _start_web_log_lines[-60:] %}
-              {{ line }}
-              {% endfor %}
-              --- database error log (last 100) ---
-              {{ _start_db_log_text | default('(not captured)') }}
-
-    # Podman renders an empty status for the stock image, so the wait
-    # above skips and the composer race comes back. Two reasons, both
-    # outside our control: the published image is OCI-format and podman
-    # ignores Healthcheck in an OCI config, and podman runs healthchecks
-    # from systemd transient timers that compose never creates — the
-    # static builds used in CI have no systemd at all.
-    #
-    # So ask the container the question the healthcheck would ask,
-    # rather than asking the runtime for an answer it cannot produce.
-    # This depends on nothing but `exec`.
-    #
-    # 127.0.0.1, not localhost: localhost resolves to ::1 first under
-    # rootless podman, and CanastaBase before 1.3.19 served
-    # /server-status only to 127.0.0.1.
-    #
-    # Best-effort on purpose. A custom image that never serves
-    # /server-status must not turn a missing signal into a failed
-    # create — the gate did not run on Podman at all before this, so
-    # warning and continuing is never worse than the old behavior,
-    # while a wait that cannot pass would be far worse. 30 × 10s
-    # matches the image healthcheck's 5 min --start-period.
-    - name: Wait for web to answer on Podman
-      ansible.builtin.command:
-        argv:
-          - "{{ _inspect_cmd }}"
-          - exec
-          - "{{ _start_web_cid.stdout | trim }}"
-          - wget
-          - "-q"
-          - "--method=HEAD"
-          - "127.0.0.1/server-status"
-      register: _start_web_podman_ready
-      changed_when: false
-      failed_when: false
-      retries: 30
-      delay: 10
-      until: _start_web_podman_ready.rc == 0
-      when:
-        - _start_web_cid.stdout | trim != ''
-        - (_start_web_has_health.stdout | default('') | trim) == ''
-        - _inspect_cmd | default('docker') is search('podman')
-
-    - name: Report that web never answered on Podman
-      ansible.builtin.debug:
-        msg: >-
-          web did not answer /server-status within 5 minutes, so the
-          readiness gate is being skipped. A custom image that does not
-          serve /server-status is expected here. On the stock image this
-          means web is still starting, and the MediaWiki installer may
-          race composer — check the container logs if create then fails
-          on a missing vendor/ file.
-      when: (_start_web_podman_ready.rc | default(0)) != 0
-
-    # The account lives in the database server, so a restored or rebuilt db
-    # volume can lack it while .env still names it. Put it back on every
-    # start that did not already do so before web started.
-    - name: Ensure MediaWiki's database account
-      ansible.builtin.include_tasks: ensure_wiki_db_account.yml
-      when: not (_start_account_ensured | bool)
-
-    # Rootless Podman: run-all.sh rsyncs with --chown=www-data at container
-    # startup, which resets ownership of config/, extensions/, skins/ to the
-    # container's subuid. Re-apply the operator-writable directory ownership
-    # fix now that the containers have started and run-all.sh has run.
-    - name: Fix operator directory ownership for rootless Podman (post-start)
-      ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/_rootless_operator_chown.yml"
-      when:
-        - _inspect_cmd | default('docker') is search('podman')
-
-    # Register CAPI + auto-enroll the bouncer when CrowdSec is on. Shared
-    # with create. crowdsec_autoenroll is false only
-    # for create's first start, which defers enrollment until after the
-    # instance is registered (the crowdsec preflight resolves it).
-    - name: Auto-enroll CrowdSec (register CAPI + enroll bouncer) when enabled
-      ansible.builtin.include_tasks: crowdsec_autoenroll.yml
-      when: crowdsec_autoenroll | default(true) | bool
-
-    # Podman has no daemon to restore containers at boot.
-    - name: Start the instance at boot under rootless Podman
-      canasta_boot_unit:
-        state: enabled
-        instance_id: "{{ instance_id | default(id) }}"
-        instance_path: "{{ instance_path }}"
-        compose_command: "{{ _compose_cmd }}"
-        inspect_command: "{{ _inspect_cmd }}"
-        devmode: "{{ instance_devmode | default(false) | bool }}"
+# Podman has no daemon to restore containers at boot.
+- name: Start the instance at boot under rootless Podman
+  canasta_boot_unit:
+    state: enabled
+    instance_id: "{{ instance_id | default(id) }}"
+    instance_path: "{{ instance_path }}"
+    compose_command: "{{ _compose_cmd }}"
+    inspect_command: "{{ _inspect_cmd }}"
+    devmode: "{{ instance_devmode | default(false) | bool }}"
 
 # The instance is up, served by the edge's last good configuration.
 - name: Fail on the edge configuration error

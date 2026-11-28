@@ -179,20 +179,6 @@ _VALIDATORS = {
         "alphanumeric character (e.g. 'example.com').",
         _hostname_hint,
     ),
-    # Docker image reference without a registry host: repository path
-    # components per the distribution spec, plus an optional tag. The
-    # registry host is not accepted — image push prepends the in-cluster
-    # registry's address itself.
-    "image_ref": (
-        re.compile(
-            r"^[a-z0-9]+((\.|_|__|-+)[a-z0-9]+)*"
-            r"(/[a-z0-9]+((\.|_|__|-+)[a-z0-9]+)*)*"
-            r"(:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?$"
-        ),
-        "is not a valid image name. Expected a lowercase repository name "
-        "with an optional :tag (e.g. 'myapp-elasticsearch' or "
-        "'custom-web:v2'), without a registry host.",
-    ),
     # restic reads a comma as a separator between tags.
     "backup_tag": (
         re.compile(r"^[A-Za-z0-9_.:-]+$"),

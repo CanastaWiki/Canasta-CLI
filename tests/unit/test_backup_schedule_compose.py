@@ -215,7 +215,7 @@ class TestSchedulePersistence:
     REMAT = os.path.join(
         ROLES, "orchestrator", "tasks", "backup_schedule_rematerialize.yml")
     RESTORE = os.path.join(ROLES, "backup", "tasks", "restore.yml")
-    PULL_COMPOSE = os.path.join(ROLES, "gitops", "tasks", "pull_compose.yml")
+    PULL_COMPOSE = os.path.join(ROLES, "gitops", "tasks", "_pull.yml")
 
     def test_set_persists_file_then_applies(self):
         tasks = _tasks_of(self.SET)
@@ -255,7 +255,7 @@ class TestSchedulePersistence:
     def test_gitops_pull_compose_rematerializes_when_schedule_changed(self):
         remat = [t for t in _tasks_of(self.PULL_COMPOSE)
                  if "backup_schedule_rematerialize.yml" in _inc(t)]
-        assert remat, "pull_compose must re-materialize the schedule"
+        assert remat, "_pull.yml must re-materialize the schedule"
         assert "config/backup-schedule.yml" in str(remat[0].get("when")), \
             "rematerialize must be gated on the schedule file changing"
 

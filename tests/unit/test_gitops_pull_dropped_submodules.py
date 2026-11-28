@@ -18,7 +18,7 @@ REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 TASKS = os.path.join(
     REPO_ROOT, "roles", "gitops", "tasks", "_remove_dropped_submodules.yml"
 )
-PULL = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "pull_compose.yml")
+PULL = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "_pull.yml")
 
 
 def _load(path):

@@ -11,7 +11,7 @@ from direct_commands import doctor  # noqa: E402
 
 NOW = datetime.datetime(2026, 7, 31, tzinfo=datetime.timezone.utc)
 LE = "C = US, O = Let's Encrypt, CN = R11"
-CADDY_LOCAL = "CN = Caddy Local Authority - ECC Intermediate"
+EDGE_CA = "CN = Canasta edge CA"
 
 
 def _fmt(dt):
@@ -51,10 +51,10 @@ class TestParseProbeOutput:
         out = (
             "%sNAME:a.example.org\nissuer=%s\nnotAfter=Sep 10 12:00:00 2026 GMT\n"
             "%sNAME:b.example.org\nissuer=%s\nnotAfter=Aug  1 00:00:00 2026 GMT\n"
-            % (d, LE, d, CADDY_LOCAL))
+            % (d, LE, d, EDGE_CA))
         assert doctor._parse_origin_tls(out) == [
             ("a.example.org", LE, "Sep 10 12:00:00 2026 GMT", ""),
-            ("b.example.org", CADDY_LOCAL, "Aug  1 00:00:00 2026 GMT", ""),
+            ("b.example.org", EDGE_CA, "Aug  1 00:00:00 2026 GMT", ""),
         ]
 
     def test_name_with_no_handshake_yields_empty_fields(self):
@@ -105,14 +105,14 @@ class TestReportedLines:
 
     def test_internal_ca_on_a_public_domain_warns(self):
         body = " ".join(_lines([
-            ("a.example.org", CADDY_LOCAL,
+            ("a.example.org", EDGE_CA,
              _fmt(NOW + datetime.timedelta(days=1)))]))
         assert "WARN" in body
         assert "internal CA" in body
 
     def test_internal_ca_on_localhost_is_not_a_warning(self):
         body = " ".join(_lines([
-            ("localhost", CADDY_LOCAL,
+            ("localhost", EDGE_CA,
              _fmt(NOW + datetime.timedelta(days=1)))]))
         assert "WARN" not in body
 
@@ -121,7 +121,7 @@ class TestReportedLines:
         lines = _lines([
             ("a.example.org", LE, _fmt(NOW + datetime.timedelta(days=61))),
             ("b.example.org", LE, _fmt(NOW + datetime.timedelta(days=61))),
-            (primary, CADDY_LOCAL, _fmt(NOW + datetime.timedelta(days=1))),
+            (primary, EDGE_CA, _fmt(NOW + datetime.timedelta(days=1))),
         ])
         warns = [ln for ln in lines if "WARN" in ln]
         assert len(warns) == 1
@@ -244,14 +244,14 @@ class TestStagingCertificates:
 def test_a_host_set_to_internal_by_tls_mode_hosts_is_ok():
     entries = [("www.example.com", "CN=Canasta edge CA", "Aug  1 00:00:00 2026 GMT")]
     out = "\n".join(doctor._origin_tls_lines_from_entries(
-        "site", entries, NOW, edge=True,
+        "site", entries, NOW,
         internal_names={"www.example.com": "TLS_MODE_HOSTS=www.example.com=internal"}))
     assert "www.example.com: OK (the edge's internal CA — " \
         "TLS_MODE_HOSTS=www.example.com=internal is configured" in out
     default = "\n".join(doctor._origin_tls_lines_from_entries(
-        "site", entries, NOW, edge=True,
+        "site", entries, NOW,
         internal_names={"www.example.com": "TLS_MODE=internal"}))
     assert "TLS_MODE=internal is configured" in default
     unlisted = "\n".join(doctor._origin_tls_lines_from_entries(
-        "site", entries, NOW, edge=True))
+        "site", entries, NOW))
     assert "OK (the edge's internal CA" not in unlisted

@@ -13,7 +13,7 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TASKS = os.path.join(REPO_ROOT, "roles", "orchestrator", "tasks")
 SWITCH = os.path.join(REPO_ROOT, "roles", "common", "tasks", "switch_connection.yml")
 UPGRADE_SINGLE = os.path.join(REPO_ROOT, "playbooks", "_upgrade_single.yml")
-PUSH = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "push_compose.yml")
+PUSH = os.path.join(REPO_ROOT, "roles", "gitops", "tasks", "_push.yml")
 
 
 def _walk(tasks):

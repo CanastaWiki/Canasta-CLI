@@ -361,8 +361,6 @@
 
 - name: Commit and push the initial configuration
   ansible.builtin.include_tasks: _init_commit_push.yml
-  vars:
-    _init_git_env: "{{ gitops_git_env }}"
 
 # The rendered files match HEAD; `gitops pull` diffs against this commit.
 - name: Record HEAD as the applied commit

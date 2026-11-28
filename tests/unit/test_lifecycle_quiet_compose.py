@@ -60,8 +60,6 @@ def external_db_instance(monkeypatch, fake_subprocess):
     monkeypatch.setattr(_helpers, "_check_running_compose", lambda *a: False)
     monkeypatch.setattr(_helpers, "_compose_containers_up",
                         lambda inst: True)
-    monkeypatch.setattr(_helpers, "_warn_composer_failure",
-                        lambda i, inst: None)
     return fake_subprocess
 
 

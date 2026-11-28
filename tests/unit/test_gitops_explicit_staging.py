@@ -24,7 +24,7 @@ HELPER = os.path.join(TASKS_DIR, "_stage_tracked_paths.yml")
 GITIGNORE = os.path.join(REPO_ROOT, "roles", "gitops", "files", "gitignore.default")
 
 SITES = {
-    "init_compose.yml": "gitops_compose_tracked_paths",
+    "_init.yml": "gitops_compose_tracked_paths",
 }
 
 # Files that hold secrets or host-local state and must never be staged by name.
@@ -134,7 +134,7 @@ class TestPathLists:
 class TestComposeInitGuard:
     def test_gitcrypt_check_between_staging_and_commit(self):
         names = []
-        for t in _walk(flow_tasks("init_compose.yml")):
+        for t in _walk(flow_tasks("_init.yml")):
             if _include(t) in ("_stage_tracked_paths.yml",
                                "_check_gitcrypt_staged.yml"):
                 names.append(_include(t))

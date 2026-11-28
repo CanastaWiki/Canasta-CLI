@@ -190,9 +190,9 @@ class TestGitopsTemplating:
     RENDER = os.path.join(
         REPO_ROOT, "roles", "gitops", "tasks", "_render_media_hosts.yml")
     RENDER_COMPOSE = os.path.join(
-        REPO_ROOT, "roles", "gitops", "tasks", "render_compose.yml")
+        REPO_ROOT, "roles", "gitops", "tasks", "render.yml")
     PULL_COMPOSE = os.path.join(
-        REPO_ROOT, "roles", "gitops", "tasks", "pull_compose.yml")
+        REPO_ROOT, "roles", "gitops", "tasks", "_pull.yml")
     GITIGNORE = os.path.join(
         REPO_ROOT, "roles", "gitops", "files", "gitignore.default")
 
@@ -214,12 +214,12 @@ class TestGitopsTemplating:
         assert self._include(self.RENDER_COMPOSE) is not None
 
     def test_rendered_by_pull_compose(self):
-        """pull_compose does not delegate to render_compose — each renders
+        """_pull.yml does not delegate to render.yml — each renders
         independently, so a change to one silently misses the other."""
         assert self._include(self.PULL_COMPOSE) is not None
 
     def test_each_path_passes_its_own_vars(self):
-        """render_compose builds _render_vars, pull_compose builds _pull_vars.
+        """render.yml builds _render_vars, _pull.yml builds _pull_vars.
         Passing the wrong one renders every placeholder empty."""
         assert "_render_vars" in str(self._include(self.RENDER_COMPOSE)["vars"])
         assert "_pull_vars" in str(self._include(self.PULL_COMPOSE)["vars"])

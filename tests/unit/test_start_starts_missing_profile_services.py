@@ -17,7 +17,6 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 
-import direct_commands._helpers  # noqa: E402
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 START = os.path.join(
@@ -41,40 +40,6 @@ def _start_tasks():
 
 def _by_name(name):
     return next((t for t in _start_tasks() if t.get("name") == name), None)
-
-
-class TestMissingProfileServices:
-    def _inst(self):
-        return {"path": "/srv/test", "host": "localhost",
-                "orchestrator": "compose"}
-
-    def test_reports_a_service_the_profiles_imply_but_nothing_runs(
-            self, monkeypatch):
-        captures = iter(["caddy\ndb\nvarnish\nweb\n", "caddy\ndb\nweb\n"])
-        monkeypatch.setattr(
-            direct_commands._helpers, "_capture_in_instance",
-            lambda *a, **kw: next(captures))
-        missing = direct_commands._helpers._missing_profile_services(
-            self._inst(), ["docker", "compose"])
-        assert missing == ["varnish"]
-
-    def test_reports_nothing_when_converged(self, monkeypatch):
-        captures = iter(["caddy\ndb\nweb\n", "web\ncaddy\ndb\n"])
-        monkeypatch.setattr(
-            direct_commands._helpers, "_capture_in_instance",
-            lambda *a, **kw: next(captures))
-        assert direct_commands._helpers._missing_profile_services(
-            self._inst(), ["docker", "compose"]) == []
-
-    def test_an_unreadable_service_list_does_not_force_a_converge(
-            self, monkeypatch):
-        # Falling back to the old web-only behavior beats bouncing
-        # containers because a ps call failed.
-        monkeypatch.setattr(
-            direct_commands._helpers, "_capture_in_instance",
-            lambda *a, **kw: None)
-        assert direct_commands._helpers._missing_profile_services(
-            self._inst(), ["docker", "compose"]) == []
 
 
 class TestAnsibleStartGuard:

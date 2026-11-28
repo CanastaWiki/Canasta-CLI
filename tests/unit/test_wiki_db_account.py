@@ -165,9 +165,7 @@ class TestWiring:
             return yaml.safe_load(f)
 
     def _compose_start(self):
-        play = next(t for t in self._tasks("start.yml")
-                    if "Docker Compose" in str(t.get("name", "")))
-        return play["block"]
+        return self._tasks("start.yml")
 
     def test_start_ensures_before_web_starts(self):
         # web runs update.php for every wiki as soon as it boots, so the

@@ -3,6 +3,6 @@
 # Input: id, host_name.
 
 - name: Remove the host
-  ansible.builtin.include_tasks: _hosts_change_dispatch.yml
+  ansible.builtin.include_tasks: _hosts_change_entry.yml
   vars:
     _hc_action: remove

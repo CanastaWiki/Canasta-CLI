@@ -106,7 +106,7 @@ class TestOrphanRecoveryTask:
 
 class TestInitUsesRecovery:
     def _recovery_and_commit_indices(self):
-        tasks = list(_walk(flow_tasks("init_compose.yml")))
+        tasks = list(_walk(flow_tasks("_init.yml")))
         recover_i = commit_i = -1
         for i, t in enumerate(tasks):
             inc = (t.get("ansible.builtin.include_tasks")

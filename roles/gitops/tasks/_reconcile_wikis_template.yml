@@ -43,7 +43,7 @@
       when: _reconcile_wikis_tmpl.stat.exists
 
     # Emit list items at column 0 (block-sequence style matching
-    # canasta_wikis_yaml.py's yaml.dump output). render_compose.yml copies
+    # canasta_wikis_yaml.py's yaml.dump output). render.yml copies
     # this indentation verbatim into config/wikis.yaml, and canasta-base's
     # config-subdir-wikis.sh parses it with column-0 line anchors; indenting
     # here would silently drop every public_assets rewrite rule.

@@ -19,7 +19,7 @@ import yaml
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 GITOPS_TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 RECONCILE = os.path.join(GITOPS_TASKS, "_reconcile_wikis_template.yml")
-INIT_COMPOSE = os.path.join(GITOPS_TASKS, "init_compose.yml")
+INIT_COMPOSE = os.path.join(GITOPS_TASKS, "_init.yml")
 ADD_YML = os.path.join(GITOPS_TASKS, "add.yml")
 LIFECYCLE_RECONCILE = os.path.join(REPO_ROOT, "roles", "instance_lifecycle",
                                    "tasks", "reconcile.yml")
@@ -99,7 +99,7 @@ class TestReconcileTask:
 
     def test_template_list_items_are_column_zero(self):
         """List items must sit at column 0 (block-sequence style matching
-        canasta_wikis_yaml.py). render_compose.yml copies this indentation
+        canasta_wikis_yaml.py). render.yml copies this indentation
         verbatim, and canasta-base's config-subdir-wikis.sh parses it with
         column-0 line anchors; indenting here silently drops every
         public_assets rewrite rule (broken logos on wiki farms)."""
@@ -134,7 +134,7 @@ class TestExtraDatabasesSurviveRender:
         return rendered
 
     def _rendered_yaml(self, wikis, db_groups):
-        """Parse the template the way render_compose.yml sees it: with the
+        """Parse the template the way render.yml sees it: with the
         host-specific url placeholders already substituted."""
         rendered = self._render(wikis, db_groups)
         return yaml.safe_load(
@@ -224,7 +224,7 @@ class TestWiring:
         )
         render_idx = next(
             (i for i, t in enumerate(raw)
-             if isinstance(t, dict) and "render_gitops_config.yml" in _include_path(t)),
+             if isinstance(t, dict) and "render.yml" in str(t.get("ansible.builtin.include_role", ""))),
             None,
         )
         assert sync_idx is not None, "reconcile must sync wikis.yaml edits"

@@ -70,7 +70,7 @@ def test_unrouted_text_is_unchanged():
 def test_placeholders_in_addresses_are_part_of_the_address():
     text = ("{$SITE_HOST}, www.example.com {\n    respond x\n}\n"
             "{\n    email a@example.com\n}\n")
-    blocks, _ = cf.parse_top_level(text)
+    blocks, _ = cf._parse_top_level(text)
     labels = [b["label"].strip() for b in blocks]
     assert labels == ["{$SITE_HOST}, www.example.com", ""]
     assert [b["is_global"] for b in blocks] == [False, True]

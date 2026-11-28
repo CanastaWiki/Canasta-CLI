@@ -140,7 +140,7 @@ class TestComposeLayering:
         assert render and "when" not in render[0]
 
     def test_gitops_pull_renders_and_restarts_on_list_change(self):
-        body = _read(os.path.join(GITOPS_TASKS, "pull_compose.yml"))
+        body = _read(os.path.join(GITOPS_TASKS, "_pull.yml"))
         assert "render_web_env.yml" in body
         fingerprint = _read(os.path.join(GITOPS_TASKS, "_rendered_fingerprint.yml"))
         assert '"secret-keys-web"' in fingerprint
@@ -168,21 +168,19 @@ class TestComposeLayering:
 
 
 class TestDispatch:
-    def test_set_and_unset_dispatch_to_compose(self):
-        body = _read(os.path.join(ORCH_TASKS, "config_set_secret.yml"))
-        assert "_set_secret_compose.yml" in body
-        assert "_unset_secret_compose.yml" in _read(
-            os.path.join(ORCH_TASKS, "config_unset_secret.yml"))
-        assert "config_unset_secret.yml" in _read(
+    def test_set_and_unset_include_the_secret_writes(self):
+        assert "roles/config/tasks/_store_secrets.yml" in _read(
+            os.path.join(CONFIG_TASKS, "_set_secret.yml"))
+        assert "roles/config/tasks/_remove_secrets.yml" in _read(
             os.path.join(CONFIG_TASKS, "_unset_secret.yml"))
 
     def test_compose_value_write_is_no_log(self):
-        tasks = _load(os.path.join(CONFIG_TASKS, "_set_secret_compose.yml"))
+        tasks = _load(os.path.join(CONFIG_TASKS, "_store_secrets.yml"))
         write = [t for t in tasks if t["name"] == "Write each secret to .env"]
         assert write and write[0]["no_log"] is True
 
     def test_init_and_join_classify_listed_keys(self):
-        for name in ("init_compose.yml", "join.yml"):
+        for name in ("_init.yml", "join.yml"):
             assert "config/secret-keys" in _read(
                 os.path.join(GITOPS_TASKS, name)), name
 
@@ -227,13 +225,13 @@ def _play(tmp_path, inst, tasks_file, extra):
 
 def _set(tmp_path, inst):
     return _play(tmp_path, inst,
-                 os.path.join(CONFIG_TASKS, "_set_secret_compose.yml"),
+                 os.path.join(CONFIG_TASKS, "_store_secrets.yml"),
                  {"_config_settings": ["OAUTH_CLIENT=%s" % VALUE], "web": True})
 
 
 def _unset(tmp_path, inst):
     return _play(tmp_path, inst,
-                 os.path.join(CONFIG_TASKS, "_unset_secret_compose.yml"),
+                 os.path.join(CONFIG_TASKS, "_remove_secrets.yml"),
                  {"keys": "OAUTH_CLIENT MW_SITE_FQDN"})
 
 

@@ -93,7 +93,7 @@ class TestRestrictHostsDir:
 
 COMPOSE_WRITERS = [
     os.path.join(GITOPS, f) for f in (
-        "init_compose.yml", "join.yml", "push_compose.yml",
+        "_init.yml", "join.yml", "_push.yml",
         "_migrate_reclassified_secrets.yml", "unstage_removed_wiki.yml",
         "backfill_mycnf_template.yml")
 ] + [
@@ -140,12 +140,12 @@ def _includes_restrict(tasks):
 
 class TestRestrictWiring:
     def test_steps_that_let_git_write_hosts_restrict_it(self):
-        for name in ("join.yml", "pull_compose.yml", "push_compose.yml",
+        for name in ("join.yml", "_pull.yml", "_push.yml",
                      "_detect_gitcrypt_lock.yml", "_explain_pull_failure.yml"):
             assert _includes_restrict(_load(os.path.join(GITOPS, name))), name
 
     def test_pull_restricts_right_after_the_pull(self):
-        tasks = next(t for t in _load(os.path.join(GITOPS, "pull_compose.yml"))
+        tasks = next(t for t in _load(os.path.join(GITOPS, "_pull.yml"))
                      if t.get("name") == "Pull with local changes carried through")["block"]
         names = [t.get("name") for t in tasks]
         pull = names.index("Pull from remote")

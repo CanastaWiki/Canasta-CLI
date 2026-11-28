@@ -7,8 +7,7 @@
 # push, or its local gitops state was lost), so _register_host.yml upserts
 # the existing entry instead.
 #
-# Input: host_name, _join_tmpdir, _join_host_noun ('host' or
-# 'environment', as the message names it). Optional: reinit.
+# Input: host_name, _join_tmpdir. Optional: reinit.
 # Output: _join_hosts (the parsed hosts.yaml).
 
 - name: Read hosts.yaml from cloned repo
@@ -23,10 +22,9 @@
 - name: Fail if host name already exists
   ansible.builtin.fail:
     msg: >-
-      {{ _join_host_noun | capitalize }} '{{ host_name }}' already exists
-      in the gitops repository. Choose a different name, remove the
-      existing {{ _join_host_noun }} first, or pass --reinit to re-attach
-      this {{ _join_host_noun }}.
+      Host '{{ host_name }}' already exists in the gitops repository.
+      Choose a different name, remove the existing host first, or pass
+      --reinit to re-attach this host.
   when: >-
     not (reinit | default(false) | bool)
     and _join_hosts.hosts | default([])
