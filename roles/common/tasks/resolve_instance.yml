@@ -15,7 +15,7 @@
 # CANASTA_HOST_PWD is a directory path, not a password.
 #
 # Input: id (optional)
-# Output: instance_id, instance_path, instance_orchestrator,
+# Output: instance_id, instance_path,
 #   instance_devmode
 #
 # Implementation note: this file uses a save/switch/restore dance on
@@ -146,7 +146,6 @@
   ansible.builtin.set_fact:
     instance_id: "{{ _instance_result.instance.id }}"
     instance_path: "{{ _instance_result.instance.path }}"
-    instance_orchestrator: "{{ _instance_result.instance.orchestrator | default('compose') }}"
     instance_devmode: "{{ _instance_result.instance.devMode | default(false) }}"
     # instance_docker_host feeds canasta.yml's play-level
     # `environment: DOCKER_HOST: …`. Empty string when the registry

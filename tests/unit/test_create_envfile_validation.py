@@ -12,7 +12,6 @@ import sys
 import pytest
 import yaml
 
-from _orchestrator import INSTANCE_IS_K8S_VARS
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
@@ -42,7 +41,7 @@ def _play(tmp_path, tasks, play_vars):
         "connection": "local",
         "gather_facts": False,
         "vars_files": [os.path.join(REPO_ROOT, "vars", "secret_classification.yml")],
-        "vars": dict(INSTANCE_IS_K8S_VARS, canasta_root=REPO_ROOT,
+        "vars": dict(canasta_root=REPO_ROOT,
                      ansible_python_interpreter=sys.executable, **play_vars),
         "tasks": tasks,
     }]))
@@ -196,8 +195,7 @@ def _config(tmp_path, tasks_from, play_vars):
     ("MYSQL_HOST=db.example.com", "cannot be changed after instance creation"),
 ])
 def test_config_set_still_refuses(tmp_path, setting, message):
-    code, out = _config(tmp_path, "set.yml", {"settings": [setting],
-                                              "instance_orchestrator": "compose"})
+    code, out = _config(tmp_path, "set.yml", {"settings": [setting]})
     assert code != 0, out
     assert message in out, out
 
@@ -205,7 +203,7 @@ def test_config_set_still_refuses(tmp_path, setting, message):
 def test_config_unset_of_a_port_still_works(tmp_path):
     validate_key = os.path.join(CONFIG_TASKS, "_validate_key.yml")
     code, out = _play(tmp_path, [{"ansible.builtin.include_tasks": validate_key}], {
-        "_config_key": "HTTPS_PORT", "instance_orchestrator": "compose",
+        "_config_key": "HTTPS_PORT",
         "canasta_known_keys": [{"name": "HTTPS_PORT"}],
         "canasta_create_only_keys": []})
     assert code == 0, out

@@ -1,5 +1,5 @@
 ---
-# GitOps init — dispatches to Compose or Kubernetes variant.
+# GitOps init.
 
 # `gitops init` operates on an *existing* Canasta instance: it converts
 # the instance's extensions/skins into git submodules and pushes the
@@ -27,21 +27,12 @@
 - name: Remember or recall the gitops SSH key
   ansible.builtin.include_tasks: _ssh_key.yml
 
-- name: Reject --git-crypt-gpg-user on Kubernetes
-  ansible.builtin.fail:
-    msg: >-
-      --git-crypt-gpg-user is only supported on Compose. Kubernetes gitops
-      repos do not use git-crypt; pass --key instead.
-  when:
-    - instance_is_k8s | bool
-    - git_crypt_gpg_user | default('') | length > 0
-
 # --- Non-destructive reinit ---
 # init --reinit wipes .git (via _reinit_cleanup) and re-creates the repo
 # in place. If the re-init then fails — e.g. the push is rejected — the
 # original .git, which may hold local gitops commits that were never
 # pushed, would already be gone. Move it aside first and restore it if
-# the dispatch fails. (Join takes the opposite tack: it clones before the
+# init fails. (Join takes the opposite tack: it clones before the
 # destructive cleanup, so it needs no backup.) Restore brings back the
 # repo and its history; the working tree can be rebuilt with
 # `git checkout -- .` after a restored failure.
@@ -72,10 +63,10 @@
     - _init_existing_git.stat.exists | default(false)
   changed_when: true
 
-- name: Dispatch gitops init (restoring .git if it fails)
+- name: Run gitops init (restoring .git if it fails)
   block:
-    - name: Dispatch gitops init
-      ansible.builtin.include_tasks: "init_{{ instance_orchestrator | default('compose') }}.yml"
+    - name: Run gitops init
+      ansible.builtin.include_tasks: "init_compose.yml"
 
     - name: Reinit — discard the .git backup after a successful re-init
       ansible.builtin.file:

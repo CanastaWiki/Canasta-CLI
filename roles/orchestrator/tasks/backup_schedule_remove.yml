@@ -4,7 +4,7 @@
 # Drops the durable schedule state (config/backup-schedule.yml) so it is no
 # longer re-materialized after restore / gitops pull, then removes the
 # crontab entry.
-# Input: instance_id, instance_path, instance_orchestrator
+# Input: instance_id, instance_path
 
 - name: Drop the persisted backup schedule from instance config
   ansible.builtin.file:

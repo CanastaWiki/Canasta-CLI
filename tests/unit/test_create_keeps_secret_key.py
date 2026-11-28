@@ -1,8 +1,7 @@
 """create keeps the MW_SECRET_KEY that .env holds before the stack starts.
 
-On Kubernetes the <id>-mw-secrets Secret is built from .env before the
-pods start, so neither the installer nor a database import may replace
-the key in .env afterward.
+The web container takes the key from .env, so neither the installer nor a
+database import may replace it there afterward.
 
 The real _database.yml, install.yml, install_single_wiki.yml and
 generate_secret_key.yml run against stubbed container execs; the stub
@@ -58,7 +57,6 @@ def _run(tmp_path, extra_vars):
         "vars": {
             "instance_path": str(inst),
             "canasta_root": str(root),
-            "instance_orchestrator": "kubernetes",
             "wiki": "main",
             "_created_wikis": {
                 "wiki_ids": ["main"],

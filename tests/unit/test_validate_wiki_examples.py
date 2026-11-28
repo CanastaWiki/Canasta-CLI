@@ -195,7 +195,7 @@ class TestLineExtraction:
         assert list(v.iter_shell_lines(block("$ canasta restart -i x")))
 
     def test_non_canasta_lines_ignored(self):
-        text = block("kubectl get pods\ndocker compose ps")
+        text = block("git status\ndocker compose ps")
         assert list(v.iter_shell_lines(text)) == []
 
     def test_wrapper_names_are_recognized(self):

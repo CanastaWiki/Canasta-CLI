@@ -2,7 +2,7 @@
 # Install a single wiki via install.php.
 # Called in a loop from install.yml.
 # Input: _wiki (dict with id, url, name), _wiki_idx (int),
-#   instance_path, instance_orchestrator,
+#   instance_path,
 #   install_admin_name, install_admin_password,
 #   install_root_db_password
 #
@@ -56,8 +56,8 @@
     msg: "Saving password to {{ instance_path }}/admin-password_{{ _wiki.id }}"
 
 # install.php runs without MW_SECRET_KEY and writes a key of its own into
-# LocalSettings.php. That file is discarded so the key already in .env, which
-# the K8s mw-secrets Secret was built from, stays the wiki's key.
+# LocalSettings.php. That file is discarded so the key already in .env stays the
+# wiki's key.
 - name: Delete LocalSettings.php
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/exec.yml

@@ -1,10 +1,8 @@
-"""Each --build-from Compose instance builds to its own image tag.
+"""Each --build-from instance builds to its own image tag.
 
 A tag shared by every build-from instance on a host is taken over by
 whichever instance built last; the others run that build once their web
-containers are recreated. Compose instances therefore build to
-canasta:local-<id>. Kubernetes keeps canasta:local, the name its
-values.yaml and in-cluster registry pushes refer to.
+containers are recreated. Instances therefore build to canasta:local-<id>.
 
   - the build names its output after the instance;
   - upgrade moves a rebuilt instance still naming canasta:local onto its
@@ -68,13 +66,12 @@ class TestBuildName:
             "ansible.builtin.set_fact"]["_build_image_name"]
         return str(_render(fact, **variables)).strip()
 
-    def test_compose_names_the_image_after_the_instance(self):
-        assert self._name(instance_is_k8s=False, id="wiki") == (
+    def test_the_image_is_named_after_the_instance(self):
+        assert self._name(id="wiki") == (
             "canasta:local-wiki")
 
     def test_upgrade_names_it_after_the_instance_being_upgraded(self):
-        assert self._name(instance_is_k8s=False, instance_id="b",
-                          id="a") == "canasta:local-b"
+        assert self._name(instance_id="b", id="a") == "canasta:local-b"
 
     def test_the_name_is_set_before_anything_builds(self):
         names = [t.get("name") for t in _tasks(BUILD_FROM)]
@@ -100,11 +97,10 @@ class TestBuildName:
 class TestUpgradeMovesOffTheSharedTag:
     BLOCK = "Point a rebuilt Compose instance at its own image tag"
 
-    def _applies(self, image="canasta:local", k8s=False, rebuilt=True,
+    def _applies(self, image="canasta:local", rebuilt=True,
                  built="canasta:local-wiki"):
         return _when(
             _task(IMAGE_TAG, self.BLOCK),
-            instance_is_k8s=k8s,
             _upgrade_rebuild=rebuilt,
             _built_image=built,
             _mig={"env": {"CANASTA_IMAGE": image},

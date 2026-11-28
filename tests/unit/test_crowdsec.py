@@ -82,7 +82,7 @@ def _render_caddyfile(**ctx):
         _observable=False,
         _os_user="",
         _os_password_hash="",
-        _staging_certs=False,
+        _trusted_proxies_cidrs=["10.0.0.0/8", "172.16.0.0/12"],
     )
     base.update(ctx)
     src = _read(CADDYFILE_J2)
@@ -234,11 +234,9 @@ class TestCaddyfileRendering:
         out = _render_caddyfile(_crowdsec_active=False)
         assert "crowdsec {" not in out
         assert "order crowdsec first" not in out
-        # No global options block at all when neither staging nor crowdsec.
-        assert not re.search(r"(?m)^\{\s*$", out), (
-            "an empty/standalone global block must not be emitted when no "
-            "global directive is active"
-        )
+        # The global options block holds only the servers block.
+        assert len(re.findall(r"(?m)^\{\s*$", out)) == 1
+        assert "trusted_proxies static 10.0.0.0/8 172.16.0.0/12" in out
 
     def test_crowdsec_directives_when_active(self):
         out = _render_caddyfile(_crowdsec_active=True)
@@ -491,15 +489,6 @@ class TestCrowdsecBundledFiles:
         assert "xcaddy build" in content
         assert "caddy-crowdsec-bouncer/http" in content
 
-    def test_xcaddy_dockerfile_builds_combine_ranges_module(self):
-        # K8s real-client-IP behind a CDN combines the cluster CIDR with the
-        # CDN ranges via caddy-combine-ip-ranges.
-        content = _read(os.path.join(
-            REPO_ROOT, "images", "caddy", "Dockerfile",
-        ))
-        assert "caddy-combine-ip-ranges" in content
-        assert "caddy-cdn-ranges" in content
-
     def test_publish_workflow_targets_caddy_image(self):
         path = os.path.join(
             REPO_ROOT, ".github", "workflows", "docker-caddy.yml",
@@ -704,12 +693,9 @@ class TestCrowdsecInspectionRoles:
         ))
 
     @pytest.mark.parametrize("name", ["scenarios.yml", "alerts.yml", "metrics.yml"])
-    def test_inspection_command_is_orchestrator_agnostic(self, name):
-        # These run on K8s too, so they must route cscli through
-        # the resolved prefix — never the hardcoded Compose invocation, which
-        # lives only in crowdsec_cscli_prefix.yml. Without this, the rewritten
-        # preflight (which no longer refuses K8s) would let them run
-        # `docker compose exec` on a Kubernetes instance and fail confusingly.
+    def test_inspection_command_uses_the_resolved_prefix(self, name):
+        # The Compose invocation lives only in crowdsec_cscli_prefix.yml,
+        # which carries the instance's profile flags and compose command.
         content = self._role(name)
         assert "docker compose exec" not in content, (
             f"{name} must use _cscli_prefix/_cscli_argv, not a hardcoded "
@@ -1181,7 +1167,7 @@ class TestCrowdsecConsoleEnrollRole:
     def test_restarts_engine_to_apply(self):
         content = self._console()
         assert "crowdsec_restart_engine.yml" in content, (
-            "the engine must restart (via the shared, orchestrator-aware "
+            "the engine must restart (via the shared "
             "crowdsec_restart_engine include) so it picks up the console credentials"
         )
 
@@ -1193,9 +1179,8 @@ class TestCrowdsecReloadRole:
         ))
 
     def test_restarts_only_the_engine(self):
-        """reload must bounce just the engine (the crowdsec container on
-        Compose; the caddy pod that hosts the sidecar on K8s), via the shared
-        orchestrator-aware restart include — not the whole instance."""
+        """reload must bounce just the crowdsec container, via the shared
+        restart include — not the whole instance."""
         content = self._reload()
         assert "crowdsec_restart_engine.yml" in content, (
             "reload must restart the engine via the shared crowdsec_restart_engine "
@@ -1209,10 +1194,8 @@ class TestCrowdsecReloadRole:
         )
 
     def test_purge_routes_through_resolved_prefix(self):
-        # The console-blocklist purge runs cscli too, so on K8s it must use the
-        # resolved prefix, not a hardcoded `docker compose exec` —
-        # the rewritten preflight no longer refuses K8s, so a hardcoded purge
-        # would otherwise run the Compose command on a cluster.
+        # The console-blocklist purge runs cscli too, so it uses the
+        # resolved prefix, which carries the instance's profile flags.
         content = self._reload()
         assert "docker compose exec" not in content, (
             "reload's purge must use _cscli_argv, not a hardcoded "
@@ -1220,22 +1203,6 @@ class TestCrowdsecReloadRole:
         )
         assert "_cscli_argv" in content
         assert "'cscli', 'decisions', 'delete'" in content
-
-    def test_purge_rebuilds_prefix_after_restart(self):
-        # The restart rolls the engine. On K8s (Recreate strategy) that gives
-        # the caddy pod a new name, so the cscli prefix built in preflight then
-        # points at a dead pod. The purge must re-resolve the prefix AFTER
-        # crowdsec_restart_engine and BEFORE exec-ing cscli, or the delete targets a
-        # pod that no longer exists.
-        content = self._reload()
-        restart = content.index("crowdsec_restart_engine.yml")
-        resolve = content.index("crowdsec_cscli_prefix.yml")
-        delete = content.index("'cscli', 'decisions', 'delete'")
-        assert restart < resolve < delete, (
-            "reload must re-include crowdsec_cscli_prefix.yml after the engine "
-            "restart and before the purge delete, so the K8s prefix targets "
-            "the post-rollout pod"
-        )
 
 
 class TestCrowdsecReportFormatting:
@@ -1294,13 +1261,10 @@ class TestStartAutoEnrollsTheBouncer:
         with no separate manual step.
 
         Idempotency lives in bouncer_enroll rather than in a key-absence
-        gate here: on K8s, disabling CrowdSec prunes the engine PVC and
-        wipes the bouncer registration while the key persists in .env, so
-        re-enabling has to re-enroll even though a key is present."""
-        # start.yml used to include bouncer_enroll.yml directly. The
-        # enroll is now one shared, orchestrator-agnostic task that both
-        # start paths and create dispatch to, so follow the indirection
-        # rather than asserting the old shape.
+        gate here: the key in .env can outlive the engine's bouncer
+        registration, so re-enabling has to re-enroll even though a key is
+        present."""
+        # The enroll is one shared task that start and create both include.
         content = _read(os.path.join(
             REPO_ROOT, "roles", "orchestrator", "tasks", "start.yml",
         ))
@@ -1400,17 +1364,8 @@ class TestCrowdsecCapiRegistration:
         ), "CAPI registration must run before bouncer auto-enroll"
 
 
-# ---------------------------------------------------------------------------
-# Kubernetes orchestrator support
-# ---------------------------------------------------------------------------
-
-HELM_DIR = os.path.join(
-    REPO_ROOT, "roles", "orchestrator", "files", "helm", "canasta",
-)
-
-
 class TestCrowdsecRestartEngine:
-    """The shared, orchestrator-aware engine restart."""
+    """The shared engine restart."""
 
     def _content(self):
         return _read(os.path.join(
@@ -1452,11 +1407,9 @@ class TestCrowdsecResolveCscli:
 
 class TestCrowdsecAutoEnroll:
     """Create-time `-e CANASTA_ENABLE_CROWDSEC=true` must produce a working
-    CrowdSec on BOTH orchestrators, not an inert engine. One shared,
-    orchestrator-agnostic enroll task (crowdsec_autoenroll.yml) registers CAPI
-    and enrolls the bouncer when enabled-but-unenrolled; the crowdsec role
-    dispatches Compose vs k8s internally, so only the K8s sidecar-wait is
-    guarded in the task."""
+    CrowdSec, not an inert engine. One shared enroll task
+    (crowdsec_autoenroll.yml) registers CAPI and enrolls the bouncer when
+    enabled-but-unenrolled."""
 
     def _autoenroll(self):
         return _read(os.path.join(
@@ -1471,10 +1424,9 @@ class TestCrowdsecAutoEnroll:
         assert "CANASTA_ENABLE_CROWDSEC" in content
 
     def test_autoenroll_calls_bouncer_unconditionally(self):
-        # bouncer_enroll must NOT be gated on a stored key: on K8s, disabling
-        # CrowdSec prunes the engine PVC (wipes the bouncer registration) while
-        # the key persists in .env, so re-enabling needs a re-enroll even with
-        # a key present. bouncer_enroll itself enrolls when the engine has no
+        # bouncer_enroll must NOT be gated on a stored key: the key in .env
+        # can outlive the engine's bouncer registration, so re-enabling needs
+        # a re-enroll even with a key present. bouncer_enroll itself enrolls when the engine has no
         # bouncer (idempotent), and bouncer_enroll_auto keeps it quiet.
         auto = self._autoenroll()
         assert "CROWDSEC_BOUNCER_API_KEY" not in auto, (
@@ -1501,20 +1453,17 @@ class TestCrowdsecAutoEnroll:
             REPO_ROOT, "roles", "create", "tasks", "main.yml"))
         assert "crowdsec_autoenroll.yml" in start
         assert "crowdsec_autoenroll.yml" in create
-        assert "k8s_crowdsec_autoenroll.yml" not in start
-        assert "k8s_crowdsec_autoenroll.yml" not in create
 
-    def test_create_enroll_is_orchestrator_agnostic(self):
-        # The create-time enroll must NOT switch on the orchestrator in action
-        # code — it dispatches unconditionally; the task self-gates.
+    def test_create_enroll_is_unconditional(self):
+        # The create-time enroll dispatches unconditionally; the task
+        # self-gates.
         create = _read(os.path.join(
             REPO_ROOT, "roles", "create", "tasks", "main.yml"))
         start = create.index("Enroll CrowdSec bouncer")
         step = create[start:create.index("Step 14", start)]
         assert "crowdsec_autoenroll.yml" in step
         assert "when:" not in step, (
-            "create-time enroll must dispatch unconditionally, not gate on the "
-            "orchestrator"
+            "create-time enroll must dispatch unconditionally"
         )
 
     def test_create_enrolls_after_register(self):
@@ -1545,7 +1494,7 @@ class TestCrowdsecAutoEnroll:
 
 
 class TestCrowdsecTrustedProxy:
-    def test_rewrite_caddy_defaults_cluster_cidrs(self):
+    def test_rewrite_caddy_defaults_private_cidrs(self):
         content = _read(os.path.join(
             REPO_ROOT, "roles", "orchestrator", "tasks", "rewrite_caddy.yml",
         ))
@@ -1597,12 +1546,12 @@ class TestCrowdsecPreflightEnabledButNotRunning:
     """An enabled engine that failed to start must not be told to enable
     CrowdSec; that advice applies only when CANASTA_ENABLE_CROWDSEC is off."""
 
-    def _fail_msgs(self, when):
+    def _fail_msgs(self):
         tasks = yaml.safe_load(_read(os.path.join(
             REPO_ROOT, "roles", "crowdsec", "tasks", "_preflight.yml")))
         return [
             t["ansible.builtin.fail"]["msg"]
-            for b in tasks if "block" in b and b.get("when") == when
+            for b in tasks if "block" in b
             for t in b["block"] if "ansible.builtin.fail" in t
         ]
 
@@ -1617,8 +1566,8 @@ class TestCrowdsecPreflightEnabledButNotRunning:
             REPO_ROOT, "roles", "crowdsec", "tasks", "_preflight.yml"))
         assert "key: CANASTA_ENABLE_CROWDSEC" in content
 
-    def test_compose_message_distinguishes_enabled(self):
-        msgs = self._fail_msgs("not (instance_is_k8s | bool)")
+    def test_message_distinguishes_enabled(self):
+        msgs = self._fail_msgs()
         assert len(msgs) == 1
         enabled = self._render(msgs[0], True)
         disabled = self._render(msgs[0], False)
@@ -1630,7 +1579,7 @@ class TestCrowdsecPreflightEnabledButNotRunning:
 
 def test_reload_always_restarts_the_local_api():
     # The local API holds the console enrollment and credentials, so a
-    # config reload restarts it on every orchestrator.
+    # config reload always restarts it.
     with open(os.path.join(REPO_ROOT, "roles", "crowdsec", "tasks",
                            "reload.yml")) as f:
         tasks = yaml.safe_load(f)

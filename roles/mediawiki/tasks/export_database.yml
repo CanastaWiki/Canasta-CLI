@@ -1,6 +1,6 @@
 ---
 # Export one database as a SQL dump on the host.
-# Input: instance_path, instance_orchestrator, export_db (database name),
+# Input: instance_path, export_db (database name),
 #        export_dest (host path), export_gzip (bool)
 #
 # The dump names no database (no CREATE DATABASE / USE), so it can be
@@ -41,8 +41,8 @@
     exec_command: "gzip -f {{ _export_tmp }}"
   when: export_gzip | bool
 
-# kubectl cp writes the destination with the default umask rather than the
-# source's mode, but keeps the mode of a file that already exists.
+# Creating the file first fails early, with a clear message, when its
+# directory does not exist on the host.
 - name: Create the export file owner-only before copying into it
   ansible.builtin.file:
     path: "{{ export_dest }}"
@@ -59,8 +59,6 @@
       Check that its directory exists there.
   when: _export_touch.failed | default(false)
 
-# The orchestrator owns how a file is copied out of the container
-# (docker compose cp vs kubectl cp); dispatch.
 - name: Copy dump from the container to the host
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/copy_from_container.yml

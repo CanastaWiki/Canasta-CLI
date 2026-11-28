@@ -131,7 +131,7 @@ class TestDbGroups:
 
 class TestComposeDump:
     def test_group_is_one_invocation(self):
-        dump = _by_name(STAGE, "Dump each wiki's database group (Compose)")
+        dump = _by_name(STAGE, "Dump each wiki's database group")
         assert dump is not None
         cmd = dump["vars"]["dump_command"]
         # The first attempt passes the whole group to one mariadb-dump call;
@@ -144,12 +144,12 @@ class TestComposeDump:
     def test_dump_file_is_named_for_the_wiki(self):
         # Single-wiki restore (-w) looks for db_<wiki>.sql, so the group's
         # file keeps the wiki's name even when it holds several databases.
-        dump = _by_name(STAGE, "Dump each wiki's database group (Compose)")
+        dump = _by_name(STAGE, "Dump each wiki's database group")
         assert "'/config/backup/db_' ~ item.wiki ~ '.sql'" in \
             dump["vars"]["dump_command"]
 
     def test_loop_is_over_groups(self):
-        dump = _by_name(STAGE, "Dump each wiki's database group (Compose)")
+        dump = _by_name(STAGE, "Dump each wiki's database group")
         assert dump["loop"] == "{{ _backup_wikis.db_groups }}"
 
 
@@ -239,7 +239,7 @@ class TestPasswordsStayOffTheCommandLine:
             assert not pattern.search(good), good
 
     def test_compose_dump_reads_the_environment(self):
-        dump = _by_name(STAGE, "Dump each wiki's database group (Compose)")
+        dump = _by_name(STAGE, "Dump each wiki's database group")
         assert "{{ _db_admin_pwd }}" in dump["vars"]["dump_command"]
 
     def test_restore_import_reads_the_environment(self):

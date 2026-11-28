@@ -21,7 +21,6 @@
     _edge_plan_input: >-
       {{ _edge_plan_input + [{
            'id': item.key, 'path': item.value.path,
-           'orchestrator': item.value.orchestrator | default('compose'),
            'compose_command': item.value.composeCommand
                               | default(_upgrade_default_compose_command),
            'docker_host': item.value.dockerHost | default('')}] }}

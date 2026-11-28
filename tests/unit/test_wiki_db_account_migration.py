@@ -24,7 +24,6 @@ sys.path.insert(0, REPO_ROOT)
 
 from direct_commands import _helpers  # noqa: E402
 
-from _orchestrator import TEMPLAR_VARS
 
 UPGRADE = os.path.join(REPO_ROOT, "roles", "upgrade", "tasks")
 MIGRATE = os.path.join(UPGRADE, "migrate_wiki_db_account.yml")
@@ -57,12 +56,11 @@ def _render(expr, **variables):
 
 
 class TestWhoIsMoved:
-    def _decide(self, env, orchestrator="compose", running=True):
+    def _decide(self, env, running=True):
         check = _named(_load(CHECK),
                        "Decide whether MediaWiki waits to move to its own database account")
         # The task's vars are templated first, as Ansible does.
-        variables = {"_mig_db_env": {"variables": env},
-                     "instance_orchestrator": orchestrator, **TEMPLAR_VARS}
+        variables = {"_mig_db_env": {"variables": env}}
         for name, expr in check["vars"].items():
             variables[name] = _render(expr, **variables)
         pending = _render(check["ansible.builtin.set_fact"]["_mig_db_pending"],
@@ -71,17 +69,15 @@ class TestWhoIsMoved:
                       "Decide whether to move MediaWiki to its own database account")
         return _render(task["ansible.builtin.set_fact"]["_mig_db_account"],
                        _mig_db_pending=pending,
-                       instance_orchestrator=orchestrator, _was_running=running,
-                       **TEMPLAR_VARS)
+                       _was_running=running)
 
-    @pytest.mark.parametrize("orchestrator", ["compose"])
-    def test_a_running_root_instance_is_moved(self, orchestrator):
-        assert self._decide({"WIKI_DB_USER": "root"}, orchestrator) is True
-        assert self._decide({}, orchestrator) is True
+    def test_a_running_root_instance_is_moved(self):
+        assert self._decide({"WIKI_DB_USER": "root"}) is True
+        assert self._decide({}) is True
 
     EXTERNAL = {"USE_EXTERNAL_DB": "true", "MYSQL_USER": "op"}
 
-    def test_an_external_compose_instance_on_its_administrator_is_moved(self):
+    def test_an_external_instance_on_its_administrator_is_moved(self):
         assert self._decide({"WIKI_DB_USER": "op", **self.EXTERNAL}) is True
         assert self._decide(dict(self.EXTERNAL)) is True
 
@@ -89,7 +85,6 @@ class TestWhoIsMoved:
         assert self._decide({"WIKI_DB_USER": "mediawiki_site",
                              **self.EXTERNAL}) is False
 
-    @pytest.mark.parametrize("orchestrator", ["compose"])
     @pytest.mark.parametrize("env, running", [
         ({"WIKI_DB_USER": "mediawiki"}, True),
         ({"WIKI_DB_USER": "root", "CANASTA_DB_ROOT_ACCOUNT": "true"}, True),
@@ -97,8 +92,8 @@ class TestWhoIsMoved:
           "CANASTA_DB_ROOT_ACCOUNT": "true"}, True),
         ({"WIKI_DB_USER": "root"}, False),
     ])
-    def test_others_are_left_alone(self, env, orchestrator, running):
-        assert self._decide(env, orchestrator, running) is False
+    def test_others_are_left_alone(self, env, running):
+        assert self._decide(env, running) is False
 
     def test_the_staged_flag_is_reset_for_every_instance(self):
         task = _named(_load(MIGRATE),
@@ -127,7 +122,6 @@ class TestRefusals:
             "/roles/orchestrator/tasks/switch_wiki_db_account.yml")
 
     def test_databases_are_listed_where_db_admin_says(self):
-        # On Kubernetes db_admin.yml points _db_admin_exec at the db pod.
         names = [t.get("name") for t in _named(
             _load(MIGRATE), "Move MediaWiki to its own database account")["block"]]
         assert names.index("Find where database administration runs") < \

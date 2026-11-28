@@ -1,9 +1,8 @@
 ---
 # Upgrade a single Canasta instance.
 # Runs all migrations, handles MySQL-to-MariaDB, rebuilds custom images,
-# refreshes stack files, pulls images, restarts. A gitops-managed Kubernetes
-# instance is staged in its gitops repo instead of being redeployed.
-# Input: instance_path, instance_id, instance_orchestrator, instance_devmode
+# refreshes stack files, pulls images, restarts.
+# Input: instance_path, instance_id, instance_devmode
 
 # --- Check instance directory exists ---
 - name: Check if instance directory exists
@@ -42,7 +41,6 @@
     key: CANASTA_CADDY_IMAGE
   register: _upgrade_caddy_env_before
   failed_when: false
-  when: not (instance_is_k8s | bool)
 
 # --- Migrations ---
 - name: Report checking migrations
@@ -65,7 +63,6 @@
     - remove_empty_composer_local.yml
     - remove_legacy_git_dir.yml
     - remove_legacy_gitignore_files.yml
-    - remove_legacy_backup_cronjob.yml
     - remove_skip_binary_as_hex.yml
     - backfill_canasta_image.yml
     - backfill_compose_profiles.yml
@@ -80,8 +77,8 @@
   loop_control:
     loop_var: _migration
 
-# --- DB migrations (orchestrator-specific; Compose runs MySQL->MariaDB) ---
-- name: Run orchestrator DB migrations
+# --- DB migrations (MySQL->MariaDB) ---
+- name: Run DB migrations
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/upgrade_db_migration.yml
 
@@ -228,55 +225,33 @@
 # Create wikis.yaml.template for a gitops instance that lacks it (e.g. a
 # Go-CLI-era repo predating the template). Without it the wikis.yaml
 # reconcile/advisory machinery is inert. No-ops on non-gitops instances
-# and when the template already exists. Compose only: a Kubernetes gitops
-# repo does not track the template, so creating it there leaves it untracked.
+# and when the template already exists.
 - name: Backfill gitops wikis.yaml.template if missing
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/backfill_wikis_template.yml
-  when: not (instance_is_k8s | bool)
 
 # Create my.cnf.template for a gitops instance that lacks it. my.cnf is
 # host-specific (innodb_buffer_pool_size must fit the host's RAM), so a
 # repo spanning hosts of different sizes cannot share one. Create-only,
 # and stages nothing — the operator finishes the migration. No-ops on
-# non-gitops instances and when the template already exists. Compose only:
-# Kubernetes serves the chart's files/my.cnf, not the instance's my.cnf.
+# non-gitops instances and when the template already exists.
 - name: Backfill gitops my.cnf.template if missing
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/backfill_mycnf_template.yml
-  when: not (instance_is_k8s | bool)
 
-# init_config writes config/haproxy-backend.cfg; a Compose gitops repo created
-# before the HAProxy edge would otherwise leave it untracked. Compose only:
-# the file serves the edge, which fronts Compose instances.
+# init_config writes config/haproxy-backend.cfg; a gitops repo created before
+# the HAProxy edge would otherwise leave it untracked.
 - name: Stage haproxy-backend.cfg in a gitops repo that lacks it
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/gitops/tasks/stage_haproxy_backend_cfg.yml
-  when: not (instance_is_k8s | bool)
 
 # Facts persist across the instances of one upgrade run, so clear the image
-# change signals before this instance sets its own.
+# change signal before this instance sets its own.
 - name: Reset image change signals for this instance
   ansible.builtin.set_fact:
     _pull_changed: false
-    _k8s_image_tag_changed: false
 
-# Argo CD deploys a gitops-managed Kubernetes instance from its repo and
-# self-heals back to it, so a direct deploy would be reverted until the
-# staged changes are pushed. Such an instance is staged only.
-- name: Check whether the instance is gitops-managed
-  ansible.builtin.stat:
-    path: "{{ instance_path }}/.gitops-host"
-  register: _upgrade_gitops_marker
-
-- name: Decide whether the upgrade only stages the instance for a gitops push
-  ansible.builtin.set_fact:
-    _upgrade_stage_only: >-
-      {{ (instance_is_k8s | bool) and _upgrade_gitops_marker.stat.exists }}
-
-# --- Bump configured image tag (orchestrator-specific) ---
-# K8s updates values.yaml image.tag and CANASTA_IMAGE in .env; Compose
-# updates CANASTA_IMAGE in .env.
+# --- Bump the configured image tag (CANASTA_IMAGE in .env) ---
 - name: Update configured image tag
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/upgrade_image_tag.yml
@@ -295,14 +270,11 @@
 
 - name: Check if new images were pulled
   ansible.builtin.set_fact:
-    _images_updated: >-
-      {{ (_pull_changed | default(false) | bool)
-         or (_k8s_image_tag_changed | default(false) | bool) }}
+    _images_updated: "{{ _pull_changed | default(false) | bool }}"
 
-# --- Rebuild buildable services (orchestrator-specific; Compose only) ---
-# Compose detects services with a `build:` directive and rebuilds them
-# when an image change is detected; updates the shared _images_updated
-# fact. K8s builds + pushes custom images instead, so this is a no-op.
+# --- Rebuild buildable services ---
+# Services with a `build:` directive are rebuilt when an image change is
+# detected; updates the shared _images_updated fact.
 - name: Rebuild buildable services if needed
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/orchestrator/tasks/upgrade_rebuild_buildable.yml
@@ -323,8 +295,8 @@
   ansible.builtin.set_fact:
     _upgrade_incomplete: "{{ _upgrade_incomplete_marker.stat.exists }}"
 
-# A compose-only change (e.g. gaining the crowdsec service), a chart-only
-# change on Kubernetes, a new managed Caddy image, or .env values the
+# A compose-only change (e.g. gaining the crowdsec service), a new managed
+# Caddy image, or .env values the
 # migrations quoted, must also trigger a recreate, not just an image bump.
 # A build_from instance pulls nothing, so _images_updated stays false for it;
 # it restarts when its rebuilt image differs from the one it runs.
@@ -336,7 +308,6 @@
     _restart_needed: >-
       {{ ((_images_updated | bool)
           or (_compose_stack_copy is defined and _compose_stack_copy is changed)
-          or (_k8s_chart_changed | default(false) | bool)
           or (_upgrade_caddy_image_changed | default(false) | bool)
           or (_upgrade_rebuilt_image_changed | bool)
           or (_upgrade_incomplete | default(false) | bool)
@@ -354,7 +325,6 @@
   when:
     - _restart_needed | bool
     - _was_running | bool
-    - not (_upgrade_stage_only | bool)
   block:
     - name: Report restarting
       ansible.builtin.debug:
@@ -441,10 +411,8 @@
     inspect_command: "{{ inspect_command | default('docker') }}"
     devmode: "{{ instance_devmode | default(false) | bool }}"
   when:
-    - not (instance_is_k8s | bool)
     - _was_running | bool
     - not (_upgrade_restart_failed | bool)
-    - not (_upgrade_stage_only | bool)
 
 # A stopped instance keeps its refreshed config/image on disk but is left
 # stopped, so upgrade never starts something the operator had brought down.
@@ -456,7 +424,6 @@
   when:
     - _restart_needed | bool
     - not (_was_running | bool)
-    - not (_upgrade_stage_only | bool)
 
 # The database account move restarts or redeploys the instance itself.
 - name: Report already up to date
@@ -466,7 +433,6 @@
     - not (_restart_needed | bool)
     - not (_mig_db_redeployed | default(false) | bool)
     - (_upgrade_build_failed_services | default([]) | length) == 0
-    - not (_upgrade_stage_only | bool)
 
 # Recorded rather than failed here so the remaining instances still upgrade;
 # the playbook fails once the loop is done.

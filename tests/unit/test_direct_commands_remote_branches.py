@@ -1,5 +1,5 @@
-"""wiki check, maintenance wiki targeting, and the remote / K8s branches of
-the direct-command helpers, gitops status/diff and rebuild."""
+"""wiki check, maintenance wiki targeting, and the remote branches of the
+direct-command helpers, gitops status/diff and rebuild."""
 
 import os
 import subprocess
@@ -292,7 +292,7 @@ class TestMaintenanceUpdateRc:
         assert "failed" not in captured.out + captured.err
 
 
-# --- _helpers remote / K8s branches -----------------------------------------
+# --- _helpers remote branches -----------------------------------------------
 
 
 class _Completed:

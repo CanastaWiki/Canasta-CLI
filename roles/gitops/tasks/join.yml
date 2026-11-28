@@ -5,17 +5,13 @@
 # Host B runs 'gitops join' to connect to the same repo.
 #
 # Input: host_name, role, repo, key, force
-# Requires: instance_path, instance_id, instance_orchestrator (set by dispatcher)
+# Requires: instance_path, instance_id
 
 - name: Resolve instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/common/tasks/resolve_instance.yml"
 
 - name: Remember or recall the gitops SSH key
   ansible.builtin.include_tasks: _ssh_key.yml
-
-- name: Skip Compose join for K8s
-  ansible.builtin.meta: end_play
-  when: instance_is_k8s | bool
 
 # --- Step 1: Validate prerequisites ---
 - name: Check git is installed
@@ -445,7 +441,6 @@
 # user now, excluding runtime dirs the containers keep writing into.
 - name: Fix operator directory ownership (rootless Podman)
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/_rootless_operator_chown.yml"
-  when: not (instance_is_k8s | bool)
 
 # --- Step 10: Update submodules ---
 - name: Update submodules

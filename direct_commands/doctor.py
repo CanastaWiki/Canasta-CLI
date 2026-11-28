@@ -10,7 +10,6 @@ import sys
 import canasta_caddyfile
 import canasta_edge_render
 import canasta_image_pin
-import canasta_web_cause
 import yaml
 
 
@@ -58,11 +57,6 @@ docker --version 2>&1 || echo MISSING; echo "$D"
 docker compose version 2>&1 || echo MISSING; echo "$D"
 _check OK NOT_RUNNING docker info; echo "$D"
 id -nG 2>/dev/null || echo ""; echo "$D"
-kubectl version --client --output=yaml >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
-helm version --short 2>/dev/null || echo MISSING; echo "$D"
-k3s --version 2>/dev/null || echo MISSING; echo "$D"
-_check REACHABLE UNREACHABLE kubectl cluster-info; echo "$D"
-_check INSTALLED MISSING kubectl get deployment argocd-server -n argocd; echo "$D"
 git --version 2>/dev/null || echo MISSING; echo "$D"
 git-crypt --version 2>/dev/null && echo OK || echo MISSING; echo "$D"
 command -v crontab >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
@@ -73,8 +67,6 @@ cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown; e
 runtime="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; _sock=""; for s in "$runtime/docker.sock" "$runtime/podman/podman.sock"; do if [ -S "$s" ]; then _sock="unix://$s"; break; fi; done; echo "$_sock"; echo "$D"
 command -v canasta >/dev/null 2>&1 && _check OK BROKEN canasta version || echo MISSING; echo "$D"
 cdir="$(dirname "$(readlink -f "$(command -v canasta 2>/dev/null)" 2>/dev/null)" 2>/dev/null)"; if [ -n "$cdir" ] && [ -d "$cdir/.git" ]; then { [ -w "$cdir/.git" ] && echo WRITABLE || echo NOT_WRITABLE; echo "dir=$cdir"; python3 -c @INSTALL_PROBE@ "$cdir" 2>/dev/null; } else echo NA; fi; echo "$D"
-command -v sops >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
-command -v age-keygen >/dev/null 2>&1 && echo OK || echo MISSING; echo "$D"
 command -v podman >/dev/null 2>&1 && podman --version 2>/dev/null || echo MISSING; echo "$D"
 command -v sudo >/dev/null 2>&1 && sudo --version 2>/dev/null | head -1 || echo MISSING; echo "$D"
 command -v sudo >/dev/null 2>&1 && { sudo -n true >/dev/null 2>&1 && echo OK || echo PASSWORD_REQUIRED; } || echo MISSING; echo "$D"
@@ -95,8 +87,8 @@ _n=$(getent group 33 2>/dev/null | cut -d: -f1); case " $(id -G 2>/dev/null) " i
 # and skip. Only `--force` rewrites the files.
 #
 # The stub's argspec is empty, so the module rejects every option it is
-# given: "Unsupported parameters for (kubernetes.core.k8s) module:
-# definition, state. Supported parameters include: ." It surfaces only
+# given: "Unsupported parameters for (<module>) module: <options>.
+# Supported parameters include: ." It surfaces only
 # against a remote host — a controller-side call is handled by the
 # collection's action plugin, which is not mocked, and never runs the stub.
 _MOCK_MODULE_MARKER = "ansible-lint (@nobody)"
@@ -175,7 +167,7 @@ def _collection_integrity_lines():
         "Controller (this machine):",
         "  Ansible collections: %d module(s) replaced by ansible-lint stubs "
         "— %s. These reject every option they are given when they run on a "
-        "remote host, so Kubernetes commands against --host fail with "
+        "remote host, so commands against --host that use them fail with "
         "\"Supported parameters include: .\". The collection still reports "
         "its pinned version, and 'ansible-galaxy collection install "
         "--upgrade' will not repair it. Fix with: ansible-galaxy collection "
@@ -245,40 +237,20 @@ def _is_zero_size(size):
     return m is not None and float(m.group(1)) == 0
 
 
-def _reclaimable_line(df_out, k3s):
-    """The System-section line for reclaimable image storage, or None.
-
-    `docker system df` describes neither containerd's image store nor the
-    in-cluster registry PVC, so on a cluster host the figure is labelled as
-    the partial measurement it is instead of standing in for the total.
-
-    k3s presence, not cluster reachability, is what decides that: kubectl
-    follows the current kubeconfig context, which routinely names a cluster
-    running somewhere else entirely.
-    """
-    k8s = k3s != "MISSING"
+def _reclaimable_line(df_out):
+    """The System-section line for reclaimable image storage, or None."""
     parsed = _parse_system_df(df_out)
     if parsed is None:
-        if not k8s:
-            return None
-        return ("  Reclaimable:     not measured (no Docker daemon); "
-                "'canasta image prune' reclaims containerd images and the "
-                "in-cluster registry")
+        return None
     images, build_cache = parsed
     if _is_zero_size(images) and _is_zero_size(build_cache):
         amount = "none"
     else:
         amount = "%s images, %s build cache" % (images, build_cache)
-    if k8s:
-        amount += "; containerd and the in-cluster registry not measured"
-    # `canasta image prune` leaves the build cache alone, and on a cluster
-    # host it also keeps the Docker copies of images built for the registry.
+    # `canasta image prune` leaves the build cache alone.
     advice = []
-    if k8s or not _is_zero_size(images):
+    if not _is_zero_size(images):
         advice.append("images with 'canasta image prune'")
-        if k8s and not _is_zero_size(images):
-            advice[-1] += (" (it lists, but keeps, the Docker copies of "
-                           "images built for Kubernetes)")
     if not _is_zero_size(build_cache):
         advice.append("build cache with 'docker builder prune'")
     if advice:
@@ -290,53 +262,42 @@ def _timed_out(command):
     return "unknown ('%s' took over %d seconds)" % (command, PROBE_COMMAND_TIMEOUT)
 
 
+# The doctor probe's fields, in output order, each with the value it takes
+# when the probe output stops short of it. selfupdate is the writability of
+# the native install dir's .git (the precondition for `canasta upgrade`'s
+# self-update), NA on docker installs. web_gid is membership of gid 33 and
+# the host's name for it, as "MEMBER|tape".
+_PROBE_FIELDS = (
+    ("python", "unknown"),
+    ("docker", "unknown"),
+    ("compose", "unknown"),
+    ("daemon", "unknown"),
+    ("groups", "unknown"),
+    ("git", "unknown"),
+    ("gitcrypt", "unknown"),
+    ("crontab", "unknown"),
+    ("host_os", "unknown"),
+    ("memory", "unknown"),
+    ("disk", "unknown"),
+    ("unpriv_port_start", "unknown"),
+    ("rootless_sock", ""),
+    ("host_canasta", "MISSING"),
+    ("selfupdate", "NA"),
+    ("podman_version", "MISSING"),
+    ("sudo_version", "MISSING"),
+    ("sudo_nopasswd", "MISSING"),
+    ("podman_compose_version", "MISSING"),
+    ("system_df", ""),
+    ("web_gid", ""),
+)
+
+
 def _doctor_probes(stdout):
     """Split the doctor probe output into its named fields."""
-    d = _helpers._SENTINEL
-    parts = stdout.split(d + "\n")
-
-    def p(i):
-        return parts[i].strip() if i < len(parts) else "unknown"
-
+    parts = stdout.split(_helpers._SENTINEL + "\n")
     return {
-        "python": p(0),
-        "docker": p(1),
-        "compose": p(2),
-        "daemon": p(3),
-        "groups": p(4),
-        "kubectl": p(5),
-        "helm": p(6),
-        "k3s": p(7),
-        "cluster": p(8),
-        "argocd": p(9),
-        "git": p(10),
-        "gitcrypt": p(11),
-        "crontab": p(12),
-        "host_os": p(13),
-        "memory": p(14),
-        "disk": p(15) if len(parts) > 15 else "unknown",
-        "unpriv_port_start": p(16) if len(parts) > 16 else "unknown",
-        "rootless_sock": p(17) if len(parts) > 17 else "",
-        # canasta probe is appended after rootless (index 18) so adding it
-        # didn't shift the existing positional indices above.
-        "host_canasta": p(18) if len(parts) > 18 else "MISSING",
-        # Writability of the native install dir's .git — the precondition for
-        # `canasta upgrade`'s self-update (git fetch). NA on docker installs.
-        "selfupdate": p(19) if len(parts) > 19 else "NA",
-        # SOPS toolchain for encrypted K8s gitops secrets (appended, so it didn't
-        # shift the positional indices above): sops on the gitops host, age on the
-        # controller.
-        "sops": p(20) if len(parts) > 20 else "MISSING",
-        "age": p(21) if len(parts) > 21 else "MISSING",
-        "podman_version": p(22) if len(parts) > 22 else "MISSING",
-        # Privilege escalation, appended so the indices above are unchanged.
-        "sudo_version": p(23) if len(parts) > 23 else "MISSING",
-        "sudo_nopasswd": p(24) if len(parts) > 24 else "MISSING",
-        "podman_compose_version": p(25) if len(parts) > 25 else "MISSING",
-        # Reclaimable image storage, appended so the indices above are unchanged.
-        "system_df": p(26) if len(parts) > 26 else "",
-        # Membership of gid 33 and the host's name for it, as "MEMBER|tape".
-        "web_gid": p(27) if len(parts) > 27 else "",
+        name: parts[i].strip() if i < len(parts) else default
+        for i, (name, default) in enumerate(_PROBE_FIELDS)
     }
 
 
@@ -495,55 +456,17 @@ def _doctor_podman_compose_lines(probes):
     return lines
 
 
-def _doctor_kubernetes_lines(probes):
-    """Kubernetes (optional) section."""
-    lines = []
-    kubectl = probes["kubectl"]
-    helm = probes["helm"]
-    k3s = probes["k3s"]
-    cluster = probes["cluster"]
-    argocd = probes["argocd"]
-    lines.append("")
-    lines.append("Kubernetes (optional):")
-    lines.append("  kubectl:         %s" % ("OK" if kubectl.strip() == "OK" else "not installed"))
-    lines.append("  Helm:            %s" % (
-        "OK (%s)" % helm if helm != "MISSING" else "not installed"))
-    lines.append("  k3s:             %s" % (
-        "OK" if k3s != "MISSING" else "not installed"))
-    lines.append("  Cluster:         %s" % (
-        "reachable" if cluster.strip() == "REACHABLE"
-        else _timed_out("kubectl cluster-info") if cluster.strip() == "TIMEOUT"
-        else "not reachable"))
-    lines.append("  Argo CD:         %s" % (
-        "installed" if argocd.strip() == "INSTALLED"
-        else _timed_out("kubectl") if argocd.strip() == "TIMEOUT" else "not found"))
-    return lines
-
-
 def _doctor_gitops_lines(probes):
     """GitOps (optional) section."""
     lines = []
     git = probes["git"]
     gitcrypt = probes["gitcrypt"]
-    sops = probes["sops"]
-    age = probes["age"]
     lines.append("")
     lines.append("GitOps (optional):")
     lines.append("  git:             %s" % (
         "OK (%s)" % git if "git version" in git else "not installed"))
     lines.append("  git-crypt:       %s" % (
         "OK" if gitcrypt == "OK" else "not installed"))
-    # SOPS toolchain: sops encrypts Secret manifests on the gitops host; age
-    # manages the operator key on the controller. Needed only for K8s gitops
-    # with gitops_sops_secrets enabled. Install both with 'canasta install sops'.
-    lines.append("  sops:            %s" % (
-        "OK" if sops == "OK"
-        else "not installed (needed on the gitops host for encrypted K8s "
-             "secrets; 'canasta install sops')"))
-    lines.append("  age:             %s" % (
-        "OK" if age == "OK"
-        else "not installed (operator key tool for encrypted K8s secrets; "
-             "'canasta install sops')"))
     return lines
 
 
@@ -563,14 +486,12 @@ def _doctor_backup_lines(probes):
             lines.append("  canasta on host: OK (%s)" % cli_bin)
         return lines
     # Backup scheduling writes a host crontab entry on the host where the
-    # instance runs — the local/remote host for Compose, the control-plane
-    # node for Kubernetes — so crontab is needed there for both orchestrators.
+    # instance runs, so crontab is needed there.
     lines.append("Scheduled backups (optional):")
     lines.append("  crontab:         %s" % (
         "OK" if crontab == "OK"
         else "not installed (install cron to use 'canasta backup schedule'; "
-             "the schedule is a host crontab entry on the instance's host, "
-             "including the control-plane node for Kubernetes)"))
+             "the schedule is a host crontab entry on the instance's host)"))
     # Scheduled backups run `canasta backup create` on the host via the
     # crontab, so a runnable canasta must exist there (any flavor —
     # native or docker). BROKEN = the command exists but doesn't run.
@@ -663,7 +584,6 @@ def _doctor_system_lines(probes):
     """System section: resources, groups, self-update, sudo."""
     lines = []
     groups = probes["groups"]
-    k3s = probes["k3s"]
     host_os = probes["host_os"]
     memory = probes["memory"]
     disk = probes["disk"]
@@ -675,7 +595,7 @@ def _doctor_system_lines(probes):
     lines.append("System:")
     lines.append("  Memory:          %s" % memory)
     lines.append("  Disk free:       %s" % _disk_line(disk))
-    reclaimable = _reclaimable_line(system_df, k3s)
+    reclaimable = _reclaimable_line(system_df)
     if reclaimable:
         lines.append(reclaimable)
     if probes.get("docker_mode"):
@@ -776,7 +696,6 @@ def _parse_doctor(stdout, hostname, docker_mode=False):
     lines.extend(_doctor_core_lines(probes))
     lines.extend(_doctor_podman_lines(probes))
     lines.extend(_doctor_podman_compose_lines(probes))
-    lines.extend(_doctor_kubernetes_lines(probes))
     lines.extend(_doctor_gitops_lines(probes))
     lines.extend(_doctor_backup_lines(probes))
     lines.extend(_doctor_system_lines(probes))
@@ -935,8 +854,6 @@ def _instance_consistency_lines(inst):
     not applicable (no instance / unreadable state)."""
     if not inst:
         return []
-    if _helpers._is_k8s(inst):
-        return _k8s_config_consistency_lines(inst)
     path = inst.get("path", "")
     host = inst.get("host") or "localhost"
     if not path:
@@ -986,10 +903,6 @@ _TLS_INTERNAL_ISSUER_MARKERS = ("caddy local authority", "canasta edge ca")
 # the same visible outcome as the internal-CA case above.
 _TLS_STAGING_ISSUER_MARKERS = ("(staging)",)
 
-# Traefik serves this self-signed certificate for any Ingress host that has
-# no certificate of its own.
-_TLS_TRAEFIK_DEFAULT_MARKERS = ("traefik default cert",)
-
 # Names Caddy serves from its internal CA by design.
 _TLS_LOCAL_NAMES = ("localhost",)
 _TLS_LOCAL_SUFFIXES = (
@@ -1001,7 +914,6 @@ _TLS_LOCAL_SUFFIXES = (
 _ORIGIN_TLS_SCRIPT = r"""
 command -v openssl >/dev/null 2>&1 || { echo NO_OPENSSL; exit 0; }
 printf '%%sTLSINTERNAL:%%s\n' '%(delim)s' "$(grep -lE '^[[:space:]]*tls[[:space:]]+internal([[:space:]]|$)' %(cfg)s 2>/dev/null | head -1)"
-[ -f %(values)s ] && { printf '%%sVALUES:\n' '%(delim)s'; cat %(values)s; }
 for n in %(names)s; do
   printf '%%sNAME:%%s\n' '%(delim)s' "$n"
   echo | openssl s_client -connect 127.0.0.1:%(port)s -servername "$n" \
@@ -1070,25 +982,6 @@ def _parse_tls_internal(stdout):
     return False
 
 
-def _parse_cert_manager(stdout):
-    """True/False for the instance's ingress.certManager.enabled (the chart
-    defaults it to false), or None when there is no values.yaml to read."""
-    for seg in stdout.split(_helpers._SENTINEL):
-        header, _, body = seg.partition("\n")
-        if header.strip() != "VALUES:":
-            continue
-        try:
-            values = yaml.safe_load(body) or {}
-        except yaml.YAMLError:
-            return None
-        if not isinstance(values, dict):
-            return None
-        ingress = values.get("ingress") or {}
-        cert_manager = ingress.get("certManager") or {}
-        return bool(cert_manager.get("enabled", False))
-    return None
-
-
 def _parse_cert_expiry(text):
     """openssl's 'Sep 10 12:00:00 2026 GMT' -> aware datetime, or None."""
     raw = (text or "").strip()
@@ -1102,16 +995,12 @@ def _parse_cert_expiry(text):
 
 
 def _is_self_signed(issuer, subject):
-    """True for a self-signed leaf (issuer == subject) or Traefik's built-in
-    default certificate."""
-    if issuer and issuer == subject:
-        return True
-    return any(m in issuer.lower() for m in _TLS_TRAEFIK_DEFAULT_MARKERS)
+    """True for a self-signed leaf (issuer == subject)."""
+    return bool(issuer) and issuer == subject
 
 
 def _origin_tls_lines_from_entries(inst_id, entries, now,
-                                   tls_internal=False, k8s=False,
-                                   cert_manager=None, edge=False,
+                                   tls_internal=False, edge=False,
                                    internal_names=None):
     """doctor lines for the probed certificates. With `edge`, the HAProxy
     edge served them, and `tls_internal` means TLS_MODE=internal.
@@ -1163,25 +1052,10 @@ def _origin_tls_lines_from_entries(inst_id, entries, now,
             fallback_names.append(name)
             continue
         if _is_self_signed(issuer, subject) and _is_public_hostname(name):
-            if k8s and cert_manager is False:
-                lines.append(
-                    "  %s: no TLS certificate by design (cert-manager is not "
-                    "enabled for this instance, e.g. created with "
-                    "--skip-tls); the ingress controller's default "
-                    "certificate is served (issuer %s)" % (name, issuer))
-                continue
-            if k8s:
-                hint = (
-                    "The Ingress is not getting a certificate for this host; "
-                    "check the cert-manager Certificate and the Ingress TLS "
-                    "secret in namespace %s."
-                    % _helpers._k8s_namespace(inst_id))
-            else:
-                hint = "Check the tls directive in config/Caddyfile.site."
             lines.append(
                 "  %s: WARN — self-signed certificate (issuer %s), not "
-                "publicly trusted, so browsers reject it. %s"
-                % (name, issuer, hint))
+                "publicly trusted, so browsers reject it. Check the tls "
+                "directive in config/Caddyfile.site." % (name, issuer))
             continue
         expiry = _parse_cert_expiry(not_after)
         if expiry is None:
@@ -1381,10 +1255,9 @@ def _edge_crowdsec_line(inst_id, enrolled, status):
 
 
 def _edge_lines(inst):
-    """doctor lines for a Compose instance's place behind the edge; [] on
-    Kubernetes."""
+    """doctor lines for an instance's place behind the edge."""
     path = inst.get("path", "")
-    if not path or _helpers._is_k8s(inst):
+    if not path:
         return []
     host = inst.get("host") or "localhost"
     inspect = inst.get("inspectCommand") or "docker"
@@ -1436,10 +1309,9 @@ def _tls_mode_hosts(inst):
 
 
 def _caddy_tls_lines(inst):
-    """doctor lines for tls directives in a Compose instance's
-    Caddyfile.site and Caddyfile.global; [] when it has none, and on
-    Kubernetes."""
-    if not inst.get("path") or _helpers._is_k8s(inst):
+    """doctor lines for tls directives in an instance's Caddyfile.site and
+    Caddyfile.global; [] when it has none."""
+    if not inst.get("path"):
         return []
     found = _helpers._caddy_tls_directives(inst)
     if not found:
@@ -1451,9 +1323,9 @@ def _caddy_tls_lines(inst):
 def _caddy_alias_lines(inst):
     """doctor lines for Caddyfile.global site blocks that a wikis.yaml alias
     has made redundant: the edge redirects the alias before Caddy sees it.
-    [] when there are none, and on Kubernetes."""
+    [] when there are none."""
     path = inst.get("path", "")
-    if not path or _helpers._is_k8s(inst):
+    if not path:
         return []
     host = inst.get("host") or "localhost"
     try:
@@ -1516,10 +1388,6 @@ def _db_tuning_lines(inst):
     followed by a restart leaves the two disagreeing.
     """
     if not inst:
-        return []
-    # Kubernetes ships its own my.cnf through the chart and the tuning
-    # path differs; Compose is where the instance-directory file applies.
-    if _helpers._is_k8s(inst):
         return []
     path = inst.get("path", "")
     if not path:
@@ -1627,21 +1495,15 @@ def _my_cnf_buffer_pool(path, host, inst):
 
 def _origin_tls_lines(inst):
     """doctor lines for the certificate the instance actually serves, or []
-    when the check does not apply (no path/names, plain-HTTP Compose)."""
+    when the check does not apply (no path/names, TLS_MODE=off)."""
     path = inst.get("path", "")
     if not path:
         return []
     host = inst.get("host") or "localhost"
-    is_k8s = _helpers._is_k8s(inst)
-    # The ingress controller, or the HAProxy edge on the instance's own
-    # HTTPS port, terminates TLS.
-    edge = not is_k8s
-    if is_k8s:
-        port = "443"
-    else:
-        if (_helpers._read_env_for(inst, "TLS_MODE") or "").strip().lower() == "off":
-            return []
-        port = _helpers._read_env_for(inst, "HTTPS_PORT") or "443"
+    # The HAProxy edge on the instance's own HTTPS port terminates TLS.
+    if (_helpers._read_env_for(inst, "TLS_MODE") or "").strip().lower() == "off":
+        return []
+    port = _helpers._read_env_for(inst, "HTTPS_PORT") or "443"
     names = _origin_tls_server_names(path, host)
     if not names:
         return []
@@ -1652,7 +1514,6 @@ def _origin_tls_lines(inst):
         "cfg": " ".join(
             _helpers._shell_quote(os.path.join(path, "config", f))
             for f in ("Caddyfile", "Caddyfile.site")),
-        "values": _helpers._shell_quote(os.path.join(path, "values.yaml")),
     }
     try:
         if _helpers._is_localhost(host):
@@ -1668,239 +1529,16 @@ def _origin_tls_lines(inst):
         return []
     if not stdout.strip():
         return []
-    internal_names = {}
-    if edge:
-        host_modes = _tls_mode_hosts(inst)
-        default = (_helpers._read_env_for(inst, "TLS_MODE") or "acme").strip().lower()
-        internal_names = {
-            n: ("TLS_MODE_HOSTS=%s=internal" % n if n in host_modes
-                else "TLS_MODE=internal")
-            for n in names if host_modes.get(n, default) == "internal"}
-        tls_internal = False
-    else:
-        tls_internal = _parse_tls_internal(stdout)
+    host_modes = _tls_mode_hosts(inst)
+    default = (_helpers._read_env_for(inst, "TLS_MODE") or "acme").strip().lower()
+    internal_names = {
+        n: ("TLS_MODE_HOSTS=%s=internal" % n if n in host_modes
+            else "TLS_MODE=internal")
+        for n in names if host_modes.get(n, default) == "internal"}
     return _origin_tls_lines_from_entries(
         inst.get("id", "?"), _parse_origin_tls(stdout),
         datetime.datetime.now(datetime.timezone.utc),
-        tls_internal=tls_internal, k8s=is_k8s,
-        cert_manager=_parse_cert_manager(stdout) if is_k8s else None,
-        edge=edge, internal_names=internal_names)
-
-
-# --- Kubernetes config drift ------------------------------------------------
-#
-# On K8s, "desired" config is the operator's local files and "actual" is what
-# was last deployed — captured on disk as values-configdata.yaml (written by
-# k8s_sync_config.yml on every start/restart/reconcile). We compare current
-# managed config files against that snapshot; a difference means edits that a
-# `canasta reconcile` would apply. Managed config == exactly what the sync
-# task deploys, keyed the same way so the comparison is apples-to-apples:
-#   - configData.web:      .env (secrets stripped), wikis.yaml,
-#                          composer.local.json, settings--<encoded path>
-#   - configData.caddy:    Caddyfile, Caddyfile.site
-#   - configData.varnish:  default.vcl
-#   - configData.crowdsec: acquis.yaml, whitelists.yaml (CrowdSec enabled)
-# Extensions/skins (PVC + boot-time symlinks, need a restart) and secrets are
-# intentionally out of scope; gitops-managed instances are served by
-# `canasta gitops status`/`diff` instead.
-
-# Each managed file's path relative to the instance dir -> (channel, key) in
-# the configData snapshot. Settings files are handled separately (dynamic).
-_K8S_STATIC_CONFIG_MAP = {
-    ".env": ("web", ".env"),
-    "config/wikis.yaml": ("web", "wikis.yaml"),
-    "config/composer.local.json": ("web", "composer.local.json"),
-    "config/Caddyfile": ("caddy", "Caddyfile"),
-    "config/Caddyfile.site": ("caddy", "Caddyfile.site"),
-    "config/default.vcl": ("varnish", "default.vcl"),
-    "config/crowdsec/acquis.yaml": ("crowdsec", "acquis.yaml"),
-    "config/crowdsec/whitelists.yaml": ("crowdsec", "whitelists.yaml"),
-}
-
-# Fetch, on the host where the instance dir lives: the gitops marker, the
-# deployed snapshot, and the current content of every managed config file.
-# Files are emitted as `<delim>FILE:<relpath>\n<content>` so content can hold
-# anything without breaking the framing.
-_K8S_DRIFT_SCRIPT = r"""
-cd '%(path)s' 2>/dev/null || exit 0
-[ -f .gitops-host ] && echo GITOPS_YES || echo GITOPS_NO
-printf '%%s\n' '%(delim)s'
-cat values-configdata.yaml 2>/dev/null
-for f in .env config/wikis.yaml config/composer.local.json config/Caddyfile \
-         config/Caddyfile.site config/default.vcl \
-         config/crowdsec/acquis.yaml config/crowdsec/whitelists.yaml; do
-  [ -f "$f" ] && { printf '%%sFILE:%%s\n' '%(delim)s' "$f"; cat "$f"; }
-done
-if [ -d config/settings ]; then
-  find config/settings -type f 2>/dev/null | while IFS= read -r f; do
-    [ "$(basename "$f")" = README ] && continue
-    printf '%%sFILE:%%s\n' '%(delim)s' "$f"; cat "$f"
-  done
-fi
-printf '%%sEND\n' '%(delim)s'
-"""
-
-
-def _k8s_settings_key(relpath):
-    """config/settings/global/Foo.php -> settings--global--Foo.php, matching
-    k8s_sync_config.yml's ConfigMap-key encoding."""
-    return "settings--" + relpath[len("config/settings/"):].replace("/", "--")
-
-
-def _k8s_strip_env_secrets(text):
-    """Drop the secret-bearing lines k8s_sync_config.yml strips before it
-    embeds .env in the web ConfigMap, using the same classification, so a
-    change to a secret is not reported as ConfigMap drift."""
-    return [ln for ln in text.splitlines()
-            if "=" not in ln or not _helpers._is_secret_key(ln.split("=", 1)[0])]
-
-
-def _k8s_display_path(channel, key):
-    """Friendly instance-relative path for a (channel, key) pair, for output."""
-    if channel == "web":
-        if key.startswith("settings--"):
-            return "config/settings/" + key[len("settings--"):].replace(
-                "--", "/")
-        return key if key == ".env" else "config/" + key
-    if channel == "crowdsec":
-        return "config/crowdsec/" + key
-    return "config/" + key
-
-
-def _k8s_current_channels(current_files):
-    """Map {relpath: content} of current managed files into the same
-    {channel: {key: content}} shape as the deployed snapshot's configData."""
-    channels = {"web": {}, "caddy": {}, "varnish": {}, "crowdsec": {}}
-    for relpath, content in current_files.items():
-        if relpath.startswith("config/settings/"):
-            channels["web"][_k8s_settings_key(relpath)] = content
-        elif relpath in _K8S_STATIC_CONFIG_MAP:
-            channel, key = _K8S_STATIC_CONFIG_MAP[relpath]
-            if relpath == ".env":
-                # Compare against the secret-stripped snapshot form.
-                content = "\n".join(_k8s_strip_env_secrets(content)) + "\n"
-            channels[channel][key] = content
-    # The sync deploys the crowdsec channel only when CrowdSec is enabled.
-    env = {k: v for k, v, c in
-           _helpers._parse_env_entries(current_files.get(".env", ""))
-           if not c and k}
-    if env.get("CANASTA_ENABLE_CROWDSEC", "").strip().lower() != "true":
-        channels["crowdsec"] = {}
-    return channels
-
-
-def _k8s_wikis_yaml_as_served(text):
-    """wikis.yaml without what only the CLI reads (each wiki's
-    extra_databases, which feed backups from the host copy), so declaring a
-    backup database is not reported as config the pods are missing. Text
-    that does not parse is returned unchanged."""
-    try:
-        data = yaml.safe_load(text)
-    except yaml.YAMLError:
-        return text
-    if isinstance(data, dict) and isinstance(data.get("wikis"), list):
-        data = dict(data, wikis=[
-            {k: v for k, v in w.items() if k != "extra_databases"}
-            if isinstance(w, dict) else w
-            for w in data["wikis"]])
-    return data
-
-
-def _k8s_config_drift(baseline_channels, current_channels):
-    """Return [(display_path, status)] where status is added/changed/removed,
-    comparing the deployed snapshot's configData channels against current
-    files. Trailing-newline differences are ignored (YAML round-trips them)."""
-    drift = []
-    for channel in ("web", "caddy", "varnish", "crowdsec"):
-        base = baseline_channels.get(channel) or {}
-        cur = current_channels.get(channel) or {}
-        for key in sorted(set(base) | set(cur)):
-            disp = _k8s_display_path(channel, key)
-            if key not in base:
-                drift.append((disp, "added"))
-            elif key not in cur:
-                drift.append((disp, "removed"))
-            elif channel == "web" and key == "wikis.yaml":
-                if (_k8s_wikis_yaml_as_served(str(base[key]))
-                        != _k8s_wikis_yaml_as_served(str(cur[key]))):
-                    drift.append((disp, "changed"))
-            elif str(base[key]).rstrip("\n") != str(cur[key]).rstrip("\n"):
-                drift.append((disp, "changed"))
-    return drift
-
-
-def _parse_k8s_drift_payload(stdout):
-    """Split the drift script output into (is_gitops, baseline_yaml_text,
-    {relpath: content})."""
-    segments = stdout.split(_helpers._SENTINEL)
-    is_gitops = segments[0].strip() == "GITOPS_YES"
-    baseline_text = segments[1] if len(segments) > 1 else ""
-    current_files = {}
-    for seg in segments[2:]:
-        if not seg.startswith("FILE:"):
-            continue
-        header, _, content = seg.partition("\n")
-        relpath = header[len("FILE:"):].strip()
-        if relpath:
-            current_files[relpath] = content
-    return is_gitops, baseline_text, current_files
-
-
-def _k8s_drift_lines_from_payload(inst_id, is_gitops, baseline_text,
-                                  current_files):
-    """Build the doctor output lines from an already-fetched payload (pure —
-    no I/O, so it is the unit-testable core)."""
-    title = ["", "Config sync (%s):" % inst_id]
-    if is_gitops:
-        return title + [
-            "  Managed via gitops — check for unapplied edits with "
-            "'canasta gitops status' or 'canasta gitops diff'."]
-    import yaml
-    try:
-        snapshot = yaml.safe_load(baseline_text) or {}
-    except yaml.YAMLError:
-        snapshot = {}
-    baseline_channels = snapshot.get("configData")
-    if not baseline_channels:
-        return title + [
-            "  No deployed config snapshot yet — run 'canasta reconcile' or "
-            "'canasta restart' once to enable drift detection."]
-    drift = _k8s_config_drift(
-        baseline_channels, _k8s_current_channels(current_files))
-    if not drift:
-        return title + ["  OK (deployed config matches local config)"]
-    lines = title + [
-        "  WARN: local config edits not yet applied to the running instance:"]
-    lines += ["    - %s (%s)" % (disp, status) for disp, status in drift]
-    lines.append("  Run 'canasta reconcile' to apply them.")
-    return lines
-
-
-def _k8s_config_consistency_lines(inst):
-    """doctor lines for a K8s instance's local-config-vs-deployed drift, or []
-    when it can't be determined (no path, host unreachable)."""
-    path = inst.get("path", "")
-    if not path:
-        return []
-    host = inst.get("host") or "localhost"
-    script = _K8S_DRIFT_SCRIPT % {"path": path, "delim": _helpers._SENTINEL}
-    try:
-        if _helpers._is_localhost(host):
-            stdout = subprocess.run(
-                ["bash", "-c", script],
-                capture_output=True, text=True, timeout=30,
-            ).stdout
-        else:
-            rc, stdout = _helpers._ssh_run(host, script)
-            if rc != 0 and not stdout.strip():
-                return []
-    except (subprocess.TimeoutExpired, OSError):
-        return []
-    if not stdout.strip():
-        return []
-    is_gitops, baseline_text, current_files = _parse_k8s_drift_payload(stdout)
-    return _k8s_drift_lines_from_payload(
-        inst.get("id", "?"), is_gitops, baseline_text, current_files)
+        edge=True, internal_names=internal_names)
 
 
 def _composer_failure_lines(inst):
@@ -1963,51 +1601,6 @@ def _compose_web_problem(inst):
         return None
     cause, logs = _helpers._compose_web_startup_cause(
         inst.get("id", "?"), inst)
-    return what, logs, cause
-
-
-def _k8s_web_problem(inst):
-    """(description, web log text, startup cause) for an instance with a
-    crash-looping web pod, or None when there is none."""
-    inst_id = inst.get("id")
-    if not inst_id:
-        return None
-    host = inst.get("host") or "localhost"
-    rc, out = _helpers._k8s_web_pods_query(inst_id, host)
-    if rc != 0:
-        return None
-    bad = [p for p in _helpers._k8s_web_pods(out)
-           if _helpers._k8s_pod_unhealthy(p)]
-    if not bad:
-        return None
-    pod = bad[0]
-    what = "pod %s is %s (last exit code %s, %s)" % (
-        pod["name"],
-        "crash-looping" if pod["reason"] == "CrashLoopBackOff"
-        else "not ready",
-        pod["exit_code"] or "?", _restarts(pod["restarts"]))
-    served = any(p["ready"] for p in _helpers._k8s_web_pods(out))
-    what += (", so the wiki may not be served" if served
-             else ", so the wiki is not being served")
-    # A crash-looping container's own error is in its previous run's log.
-    ns = _helpers._shell_quote("canasta-%s" % inst_id)
-    script = (
-        "kubectl logs -n %(ns)s -l app.kubernetes.io/component=web -c web "
-        "--previous --tail=%(n)d 2>/dev/null; "
-        "kubectl logs -n %(ns)s -l app.kubernetes.io/component=web -c web "
-        "--tail=%(n)d 2>/dev/null; true"
-    ) % {"ns": ns, "n": _helpers._WEB_CAUSE_SCAN_LINES}
-    if _helpers._is_localhost(host):
-        try:
-            logs = subprocess.run(
-                ["bash", "-c", script],
-                capture_output=True, text=True, timeout=30,
-            ).stdout
-        except (subprocess.TimeoutExpired, OSError):
-            logs = ""
-    else:
-        _rc, logs = _helpers._ssh_run(host, script)
-    cause = canasta_web_cause.web_startup_cause(logs, inst_id)
     return what, logs, cause
 
 
@@ -2096,10 +1689,7 @@ def _paused_lines(inst, paused):
 def _web_health_lines(inst):
     """doctor lines for a web container that is crash-looping or failing
     its health check, or [] when it is healthy, stopped or unreadable."""
-    if _helpers._is_k8s(inst):
-        problem = _k8s_web_problem(inst)
-    else:
-        problem = _compose_web_problem(inst)
+    problem = _compose_web_problem(inst)
     if not problem:
         return []
     what, logs, cause = problem
@@ -2188,8 +1778,7 @@ def cmd_doctor(args):
     for line in _collection_integrity_lines():
         print(line)
 
-    paused = (_helpers._compose_paused_services(inst)
-              if inst and not _helpers._is_k8s(inst) else [])
+    paused = _helpers._compose_paused_services(inst) if inst else []
     for line in (_paused_lines(inst, paused) if paused
                  else _instance_consistency_lines(inst)):
         print(line)

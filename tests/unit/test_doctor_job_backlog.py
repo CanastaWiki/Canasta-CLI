@@ -2,7 +2,7 @@
 
 A wiki's queue can grow for days unnoticed when the job runner falls
 behind or a job type keeps failing. doctor runs `showJobs --group` for
-each wiki in the web container (or pod) and warns, naming the largest
+each wiki in the web container and warns, naming the largest
 job types, when a queue is above CANASTA_DOCTOR_JOB_BACKLOG.
 """
 

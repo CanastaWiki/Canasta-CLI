@@ -94,7 +94,7 @@ def test_a_missing_file_is_not_an_error(tmp_path):
     assert _staged(inst) == ""
 
 
-def test_the_upgrade_stages_it_after_writing_it_on_compose_only():
+def test_the_upgrade_stages_it_after_writing_it():
     with open(UPGRADE) as fh:
         tasks = yaml.safe_load(fh)
     names = [t.get("name") for t in tasks]
@@ -103,4 +103,4 @@ def test_the_upgrade_stages_it_after_writing_it_on_compose_only():
     task = tasks[names.index(stage)]
     assert task["ansible.builtin.include_tasks"].strip().endswith(
         "/roles/gitops/tasks/stage_haproxy_backend_cfg.yml")
-    assert task["when"] == "not (instance_is_k8s | bool)"
+    assert "when" not in task

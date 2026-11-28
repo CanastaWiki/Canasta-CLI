@@ -1,7 +1,7 @@
 ---
-# Initialize orchestrator configuration for a new instance.
-# Common steps (Caddyfile, observability) plus orchestrator-specific config.
-# Input: instance_path, instance_orchestrator
+# Initialize configuration for a new instance: Caddyfile, observability
+# credentials, compose profiles and the edge's backend file.
+# Input: instance_path
 
 - name: Create Caddyfile.site from template (no-clobber)
   ansible.builtin.copy:
@@ -32,13 +32,11 @@
   ansible.builtin.include_tasks: rewrite_caddy.yml
 
 - name: Compose-specific init
-  when: not (instance_is_k8s | bool)
   block:
     - name: Sync compose profiles
       ansible.builtin.include_tasks: sync_compose_profiles.yml
 
-    # The HAProxy edge, which reads it, fronts Compose instances. Comments
-    # only until the user adds directives; no-clobber because this runs on
+    # The HAProxy edge reads it. Comments only until the user adds directives; no-clobber because this runs on
     # upgrade too.
     - name: Create haproxy-backend.cfg from template (no-clobber)
       ansible.builtin.copy:
@@ -46,8 +44,3 @@
         dest: "{{ instance_path }}/config/haproxy-backend.cfg"
         force: false
         mode: "0644"
-
-- name: Kubernetes-specific init
-  when: instance_is_k8s | bool
-  ansible.builtin.debug:
-    msg: "Kubernetes configuration managed via Helm values.yaml"

@@ -27,7 +27,6 @@ from canasta_schedule import (
     validate_entry,
     validate_name,
 )
-from _orchestrator import INSTANCE_IS_K8S_VARS
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
@@ -183,7 +182,7 @@ def _play(tmp_path, tasks, play_vars, env_extra=None):
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
         "hosts": "localhost", "connection": "local", "gather_facts": False,
-        "vars": dict(INSTANCE_IS_K8S_VARS, canasta_root=REPO_ROOT,
+        "vars": dict(canasta_root=REPO_ROOT,
                      ansible_python_interpreter=sys.executable,
                      **play_vars),
         "tasks": tasks,

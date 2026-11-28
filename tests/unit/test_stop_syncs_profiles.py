@@ -1,4 +1,4 @@
-"""Structural guard: the Compose stop path reconciles COMPOSE_PROFILES before
+"""Structural guard: the stop path reconciles COMPOSE_PROFILES before
 `down`.
 
 `docker compose down` only tears down services in the active profiles, so a
@@ -24,20 +24,20 @@ def _includes(task):
     return inc or ""
 
 
-def _compose_block():
+def _stop_block():
     with open(STOP) as f:
         tasks = yaml.safe_load(f)
-    compose = next(
-        (t for t in tasks if t.get("when") == "not (instance_is_k8s | bool)"
+    stop = next(
+        (t for t in tasks if t.get("name") == "Stop (Docker Compose)"
          and t.get("block")),
         None,
     )
-    assert compose is not None, "stop.yml must have a Compose block"
-    return compose["block"]
+    assert stop is not None, "stop.yml must have a stop block"
+    return stop["block"]
 
 
 def test_stop_syncs_profiles_before_down():
-    block = _compose_block()
+    block = _stop_block()
     sync_idx = next(
         (i for i, t in enumerate(block)
          if "sync_compose_profiles.yml" in _includes(t)),

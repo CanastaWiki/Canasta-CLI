@@ -7,7 +7,7 @@
 # - file present with a cron_expression  -> apply that schedule
 # - file absent                          -> remove any schedule crontab entry
 #
-# Input: instance_id, instance_path, instance_orchestrator
+# Input: instance_id, instance_path
 
 - name: Read the persisted backup schedule
   ansible.builtin.include_tasks: >-

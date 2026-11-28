@@ -1,9 +1,9 @@
-"""gitops init tells a refused deploy key apart from other ssh failures.
+"""gitops init tells an unverifiable git server host key apart from other ssh
+failures.
 
-The Kubernetes init probes the deploy key with `git ls-remote`. Only a
-refused key should lead to "register this public key"; a changed host key
-or a connection error must fail with ssh's own error, since registering the
-key cannot fix it. The Compose init shares the host key handling.
+init probes the remote with `git ls-remote`. A changed or unverifiable host
+key fails with the `ssh-keygen -R` fix; a refused key or a connection error
+is left to init's own remote check.
 """
 
 import os
@@ -22,9 +22,7 @@ from canasta_gitops import (  # noqa: E402
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
-PROBE = os.path.join(TASKS, "_init_deploy_key_probe.yml")
 ACCESS = os.path.join(TASKS, "_remote_access_error.yml")
-PUBKEY = "ssh-ed25519 AAAAC3Nzatestkey canasta-test"
 
 HOST_KEY_CHANGED = """\
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@

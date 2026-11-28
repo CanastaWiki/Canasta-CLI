@@ -1,6 +1,0 @@
----
-# Make a running instance use its current config files.
-# Compose: nothing to do; the web container reads config/ from a bind mount.
-# Kubernetes: pods copy their config in at startup, so it takes a rollout
-# (k8s_apply_config.yml).
-# Input: instance_id, instance_path, instance_orchestrator

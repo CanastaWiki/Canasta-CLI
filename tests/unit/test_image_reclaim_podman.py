@@ -1,11 +1,10 @@
 """The image reclaim on a host whose instances run under Podman.
 
-Probing for Docker alone found no runtime on such a host, so `image prune`
-and `upgrade --purge` reclaimed nothing and superseded images piled up
-until a pull ran out of disk.
+`image prune` and `upgrade --purge` must find Podman as the runtime, or
+superseded images pile up until a pull runs out of disk.
 
-Runs the real image_reclaim.yml against a stubbed `podman`, a `docker` and
-`kubectl` that are absent, and a throwaway registry.
+Runs the real image_reclaim.yml against a stubbed `podman`, an absent
+`docker`, and a throwaway registry.
 """
 
 import json
@@ -48,7 +47,6 @@ def _run(tmp_path, dry_run=False, dangling=""):
     bin_dir.mkdir()
     _stub(bin_dir, "podman", PODMAN)
     _stub(bin_dir, "docker", "#!/bin/sh\nexit 127\n")
-    _stub(bin_dir, "kubectl", "#!/bin/sh\nexit 127\n")
 
     site = tmp_path / "site"
     site.mkdir()

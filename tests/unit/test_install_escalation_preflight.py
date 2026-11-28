@@ -22,9 +22,12 @@ sys.path.insert(0, REPO_ROOT)
 
 from direct_commands.doctor import (  # noqa: E402
     _DOCTOR_SCRIPT,
+    _PROBE_FIELDS,
     _install_escalation_blocked,
     _parse_doctor,
 )
+
+_SUDO_IDX = [name for name, _ in _PROBE_FIELDS].index("sudo_version")
 
 PREFLIGHT = os.path.join(
     REPO_ROOT, "roles", "install", "tasks", "_escalation_preflight.yml"
@@ -66,7 +69,7 @@ class TestDoctorProbe:
         """Build a doctor payload with the escalation fields appended."""
         from direct_commands import _helpers
 
-        fields = ["unknown"] * 23 + [sudo_version, sudo_nopasswd]
+        fields = ["unknown"] * _SUDO_IDX + [sudo_version, sudo_nopasswd]
         return (_helpers._SENTINEL + "\n").join(fields)
 
     def test_blocked_host_is_reported(self):
@@ -95,7 +98,7 @@ class TestDoctorProbe:
         from direct_commands import _helpers
 
         out = _parse_doctor(
-            (_helpers._SENTINEL + "\n").join(["unknown"] * 23), "myhost"
+            (_helpers._SENTINEL + "\n").join(["unknown"] * _SUDO_IDX), "myhost"
         )
         assert "Privilege esc." not in out
 

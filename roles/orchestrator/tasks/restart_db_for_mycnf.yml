@@ -7,10 +7,7 @@
 # running container's start has not been read. my.cnf is written only when
 # its content changes, so its mtime marks the last real change.
 #
-# Compose only: on Kubernetes the db StatefulSet carries a checksum of its
-# ConfigMap, so a my.cnf change rolls the pod.
-#
-# Input: instance_path, instance_is_k8s, inspect_command, compose_command,
+# Input: instance_path, inspect_command, compose_command,
 #   instance_devmode (optional)
 # Output: _mycnf_restart_unknown (bool) - true when a running database's
 #   start time could not be compared with my.cnf
@@ -21,7 +18,6 @@
     _mycnf_restart_db: false
 
 - name: Compare my.cnf with the running database
-  when: not (instance_is_k8s | bool)
   block:
     - name: Stat my.cnf
       ansible.builtin.stat:

@@ -8,7 +8,7 @@
 
 # Called directly from start.yml (not via _preflight), so build the cscli
 # prefix here. Idempotent — safe to include on every start.
-- name: Build the cscli command prefix for this orchestrator
+- name: Build the cscli command prefix
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/crowdsec_cscli_prefix.yml"
 
 # The engine's start wrapper decides whether it runs with or without CAPI
@@ -107,8 +107,7 @@
       start checks it again. If the credentials were revoked, empty
       /etc/crowdsec/online_api_credentials.yaml and delete any
       /etc/crowdsec/online_api_credentials.yaml.refused in the crowdsec
-      container (on Kubernetes, the crowdsec container in the crowdsec pod),
-      then run 'canasta restart' to register anew.
+      container, then run 'canasta restart' to register anew.
   when:
     - _crowdsec_capi_refused.rc != 0
     - _crowdsec_capi_restored.rc != 0

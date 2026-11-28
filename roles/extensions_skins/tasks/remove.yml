@@ -22,7 +22,6 @@
     state: current
     instance_id: "{{ instance_id }}"
     instance_path: "{{ instance_path }}"
-  when: not (instance_is_k8s | bool)
 
 - name: Refuse a paused instance
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/refuse_paused.yml"
@@ -264,7 +263,7 @@
   register: _composer_local
 
 # A stopped web container runs composer when it starts, which the start
-# below does on Compose.
+# below does.
 - name: Check whether web is running for the composer refresh
   ansible.builtin.include_role:
     name: orchestrator
@@ -392,7 +391,6 @@
   vars:
     start_quiet_when_running: true
   when:
-    - not (instance_is_k8s | bool)
     - _remove_overrides | length == 0
     - >-
       _remove_present | length > 0

@@ -414,10 +414,9 @@ class TestBuildAnsibleArgs:
           remote then authenticates against the forge with the
           operator's keys).
         - ServerAliveInterval keeps long-running remote commands
-          (helm upgrade --wait, gitops init's git push, maintenance
-          update) from tripping a NAT or firewall idle drop and
-          reporting a bogus "Broken pipe" while the remote is still
-          working.
+          (gitops init's git push, maintenance update) from tripping
+          a NAT or firewall idle drop and reporting a bogus "Broken
+          pipe" while the remote is still working.
 
         Guard against any of those silently disappearing.
         """
@@ -860,7 +859,7 @@ class TestBuildAnsibleArgsQuoting:
 
 
 class TestCreateFlags:
-    """Test create command flags for K8s and TLS."""
+    """Test create command flags."""
 
     def test_skip_tls_accepted_with_compose(self, parser):
         args = parser.parse_args([
@@ -1129,8 +1128,8 @@ class TestInstallCommand:
         with pytest.raises(SystemExit):
             parser.parse_args(["install"])
         err = capsys.readouterr().err
-        for pkg in ("docker", "git-crypt", "sops", "podman",
-                    "docker-rootless", "canasta", "uv"):
+        for pkg in ("docker", "git-crypt", "podman", "docker-rootless",
+                    "canasta", "uv"):
             assert pkg in err, (
                 "usage must list %s; an opaque PACKAGES metavar leaves the "
                 "valid values undiscoverable" % pkg
@@ -1850,8 +1849,7 @@ class TestHandleInteractiveExecStdin:
     (so a piped payload survives) and redirect the file onto stdin. This path
     bypasses Ansible, so the wiring lives in handle_interactive_exec."""
 
-    def _run(self, monkeypatch, stdin_file, orchestrator="compose",
-             env=None, **inst_fields):
+    def _run(self, monkeypatch, stdin_file, env=None, **inst_fields):
         from argparse import Namespace
         from direct_commands import _helpers
         calls = {}
@@ -1859,7 +1857,7 @@ class TestHandleInteractiveExecStdin:
             _helpers, "_read_env_for",
             lambda _inst, key: (env or {}).get(key))
         inst = {
-            "id": "rsdev", "orchestrator": orchestrator,
+            "id": "rsdev", "orchestrator": "compose",
             "host": "localhost", "path": "/tmp/inst",
         }
         inst.update(inst_fields)
@@ -1871,10 +1869,6 @@ class TestHandleInteractiveExecStdin:
         monkeypatch.setattr(
             canasta_cli.os, "execvp",
             lambda f, argv: calls.__setitem__("execvp", (f, list(argv))))
-        if orchestrator in ("kubernetes", "k8s"):
-            monkeypatch.setattr(
-                canasta_cli.subprocess, "run",
-                lambda *a, **k: types.SimpleNamespace(returncode=0, stdout="pod-1"))
         args = Namespace(id="rsdev", service=None,
                          exec_args=["php", "edit"], stdin_file=stdin_file)
         canasta_cli.handle_interactive_exec(args)

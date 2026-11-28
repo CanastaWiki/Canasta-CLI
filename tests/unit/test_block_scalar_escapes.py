@@ -11,10 +11,8 @@ import os
 import subprocess
 import sys
 
-import pytest
 import yaml
 
-from _orchestrator import INSTANCE_IS_K8S_VARS
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 COMMON = os.path.join(REPO_ROOT, "roles", "common")
@@ -38,7 +36,7 @@ def _run(tmp_path, tasks, variables):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": dict(INSTANCE_IS_K8S_VARS, **variables, canasta_root=REPO_ROOT,
+        "vars": dict(**variables, canasta_root=REPO_ROOT,
                      ansible_python_interpreter=sys.executable),
         "tasks": tasks,
     }]))
@@ -86,26 +84,22 @@ class TestRefreshGitignore:
         (inst / ".gitignore").write_text(gitignore)
         return inst
 
-    def _refresh(self, tmp_path, inst, orchestrator):
+    def _refresh(self, tmp_path, inst):
         _run(tmp_path, [{"ansible.builtin.include_tasks": REFRESH}],
-             {"instance_path": str(inst),
-              "instance_orchestrator": orchestrator})
+             {"instance_path": str(inst)})
         return (inst / ".gitignore").read_text().splitlines()
 
     def test_each_shipped_rule_is_its_own_line_compose(self, tmp_path):
         inst = self._instance(tmp_path, "mine/\n")
-        lines = self._refresh(tmp_path, inst, "compose")
+        lines = self._refresh(tmp_path, inst)
         expected = _rules("gitignore.default") + _rules("gitignore.compose")
         assert lines == ["mine/"] + expected
         assert not any("\\n" in ln for ln in lines)
 
-    @pytest.mark.parametrize("orch, merged", [
-        ("compose", LAST_DEFAULT + "\\n"),
-    ])
-    def test_merged_line_from_earlier_upgrades_is_removed(
-            self, tmp_path, orch, merged):
+    def test_merged_line_from_earlier_upgrades_is_removed(self, tmp_path):
+        merged = self.LAST_DEFAULT + "\\n"
         inst = self._instance(tmp_path, "mine/\n%s\nother\\nrule\n" % merged)
-        lines = self._refresh(tmp_path, inst, orch)
-        assert merged not in lines, orch
-        assert lines[:2] == ["mine/", "other\\nrule"], orch
-        assert self.LAST_DEFAULT in lines, orch
+        lines = self._refresh(tmp_path, inst)
+        assert merged not in lines
+        assert lines[:2] == ["mine/", "other\\nrule"]
+        assert self.LAST_DEFAULT in lines

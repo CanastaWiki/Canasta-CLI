@@ -1,32 +1,8 @@
 ---
-# Propagate config-set changes into gitops vars for this orchestrator.
-# Compose: update vars.yaml (the compose-gitops source of truth) so the
-# change survives the next gitops pull. Kubernetes: config set writes the
-# local values.yaml, but the committed gitops source (values.template.yaml →
-# hosts/<name>/rendered-values.yaml) that Argo CD deploys is left untouched,
-# so warn the operator to push (a stage-only config set reports that
-# itself, as does an internal caller that reports on its own). A silent
-# write-through isn't possible here: making the change durable requires
-# committing and pushing to the repo Argo CD watches, which is exactly what
-# 'canasta gitops push' does.
-# Input: instance_path, instance_orchestrator, _config_settings,
-#        _config_gitops_stat, config_set_caller_reports (optional)
+# Propagate config-set changes into gitops vars: update vars.yaml (the
+# gitops source of truth) so the change survives the next gitops pull.
+# Input: instance_path, _config_settings, _config_gitops_stat
 
-- name: Update gitops vars for changed keys (Compose)
+- name: Update gitops vars for changed keys
   ansible.builtin.include_tasks: >-
     {{ canasta_root }}/roles/config/tasks/_update_gitops_vars.yml
-  when: not (instance_is_k8s | bool)
-
-- name: Warn that a K8s gitops config change needs a push to be durable
-  ansible.builtin.debug:
-    msg: >-
-      This is a gitops-managed Kubernetes instance. 'canasta config set'
-      updated the local values.yaml, but the committed gitops source
-      (values.template.yaml / rendered-values.yaml) that Argo CD deploys is
-      unchanged. Run 'canasta gitops push' to commit and deploy the change —
-      otherwise Argo CD may revert it on the next sync, and it won't reach
-      other hosts.
-  when:
-    - instance_is_k8s | bool
-    - not (_config_set_stage_only | default(false) | bool)
-    - not (config_set_caller_reports | default(false) | bool)

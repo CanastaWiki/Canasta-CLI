@@ -1,6 +1,5 @@
 ---
-# Make MediaWiki's database account match .env (Compose). On Kubernetes,
-# only say when the account picks up the change.
+# Make MediaWiki's database account match .env.
 #
 # Account state lives only in the database server: no backup captures it,
 # and a restore onto a fresh host, a gitops join or a rebuilt db volume
@@ -20,7 +19,7 @@
 #
 # Nothing to do while MediaWiki connects as the administrator account.
 #
-# Input: instance_path, instance_orchestrator, compose_command
+# Input: instance_path, compose_command
 # Output: _wiki_db_undeclared - databases the account cannot use
 
 - name: Read the wiki database account settings
@@ -37,9 +36,8 @@
       {{ (_ensure_env.variables.USE_EXTERNAL_DB | default('false')
           | string | lower) == 'true' }}
     _ensure_needed: >-
-      {{ not (instance_is_k8s | bool)
-         and (_ensure_env.variables.WIKI_DB_USER | default('root', true))
-             not in ['root', _ensure_env.variables.MYSQL_USER | default('root', true)] }}
+      {{ (_ensure_env.variables.WIKI_DB_USER | default('root', true))
+         not in ['root', _ensure_env.variables.MYSQL_USER | default('root', true)] }}
 
 - name: Ensure the wiki database account
   when: _ensure_needed | bool

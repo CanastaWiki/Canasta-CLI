@@ -1,12 +1,11 @@
-"""`config set --secret [--web]` on Compose.
+"""`config set --secret [--web]`.
 
 The value goes in .env, where Compose interpolates it into any service that
 references ${KEY}; the key name is recorded in config/secret-keys so gitops
 and `config get` treat it as a secret whatever it is called. --web lists the
 key in config/secret-keys-web, rendered to docker-compose.web-env.yml, which
 passes it to the web container. On a gitops instance the value gets an
-env.template placeholder and a vars.yaml entry. Kubernetes keeps using
-config/secrets.env and config/secrets-web.
+env.template placeholder and a vars.yaml entry.
 """
 
 import os
@@ -133,12 +132,12 @@ class TestComposeLayering:
             body = _read(os.path.join(ORCH_TASKS, name))
             assert "include_tasks: compose_file_args.yml" in body, name
 
-    def test_update_config_renders_on_compose_only(self):
+    def test_update_config_renders(self):
         tasks = _load(os.path.join(ORCH_TASKS, "update_config.yml"))
         render = [t for t in tasks
                   if "render_web_env.yml" in str(t.get(
                       "ansible.builtin.include_tasks", ""))]
-        assert render and str(render[0]["when"]) == "not (instance_is_k8s | bool)"
+        assert render and "when" not in render[0]
 
     def test_gitops_pull_renders_and_restarts_on_list_change(self):
         body = _read(os.path.join(GITOPS_TASKS, "pull_compose.yml"))
@@ -211,8 +210,8 @@ def _play(tmp_path, inst, tasks_file, extra):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": dict({"instance_path": str(inst), "canasta_root": REPO_ROOT,
-                      "instance_orchestrator": "compose"}, **extra),
+        "vars": dict({"instance_path": str(inst), "canasta_root": REPO_ROOT},
+                     **extra),
         "tasks": [
             {"ansible.builtin.include_vars": {"file": CLASSIFICATION}},
             {"ansible.builtin.include_tasks": tasks_file},

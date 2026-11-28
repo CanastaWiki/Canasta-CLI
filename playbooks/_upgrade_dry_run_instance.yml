@@ -7,7 +7,6 @@
   ansible.builtin.set_fact:
     instance_id: "{{ _inst.key }}"
     instance_path: "{{ _inst.value.path }}"
-    instance_orchestrator: "{{ _inst.value.orchestrator | default('compose') }}"
     inspect_command: >-
       {{ _inst.value.inspectCommand
          | default(_upgrade_default_inspect_command) }}

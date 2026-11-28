@@ -15,7 +15,6 @@
 - name: Check config/sidecars.yaml before stopping
   canasta_render_sidecars:
     instance_path: "{{ instance_path }}"
-    orchestrator: "{{ instance_orchestrator | default('compose') }}"
     secret_key_regex: "{{ canasta_secret_key_regex }}"
   check_mode: true
 
@@ -25,7 +24,6 @@
     instance_id: "{{ instance_id }}"
     instance_path: "{{ instance_path }}"
     edge_config: true
-  when: not (instance_is_k8s | bool)
 
 - name: Stop containers
   ansible.builtin.include_role:

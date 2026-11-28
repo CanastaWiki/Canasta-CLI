@@ -24,7 +24,6 @@
     state: disabled
     instance_id: "{{ instance_id }}"
     inspect_command: "{{ inspect_command | default('docker') }}"
-  when: not (instance_is_k8s | bool)
 
 - name: Report stopped
   ansible.builtin.debug:

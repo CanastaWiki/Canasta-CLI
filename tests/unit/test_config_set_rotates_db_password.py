@@ -1,4 +1,4 @@
-"""`config set MYSQL_PASSWORD` rotates the bundled Compose database password.
+"""`config set MYSQL_PASSWORD` rotates the bundled database password.
 
 The bundled MariaDB reads MYSQL_ROOT_PASSWORD only when it initializes an
 empty data directory, so writing .env alone locked the wiki out. The set now
@@ -14,7 +14,6 @@ import yaml
 from ansible.parsing.dataloader import DataLoader
 from ansible.template import Templar, trust_as_template
 
-from _orchestrator import TEMPLAR_VARS
 
 REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 TASKS = os.path.join(REPO_ROOT, "roles", "config", "tasks")
@@ -43,15 +42,13 @@ def _by_name(tasks, name):
 
 
 def _when(task, **variables):
-    templar = Templar(loader=DataLoader(), variables=dict(TEMPLAR_VARS, **variables))
+    templar = Templar(loader=DataLoader(), variables=dict(variables))
     return all(templar.template(trust_as_template("{{ %s }}" % cond))
                for cond in task["when"])
 
 
-def _vars(key="MYSQL_PASSWORD", orchestrator="compose", force=False,
-          ext_db=""):
-    return dict(_config_key=key, instance_orchestrator=orchestrator,
-                force=force, _set_ext_db={"value": ext_db})
+def _vars(key="MYSQL_PASSWORD", force=False, ext_db=""):
+    return dict(_config_key=key, force=force, _set_ext_db={"value": ext_db})
 
 
 def test_rotation_is_the_last_step_before_the_env_write():
@@ -66,7 +63,6 @@ def test_rotation_is_the_last_step_before_the_env_write():
     ({"ext_db": "false"}, False, True),
     ({"ext_db": "true"}, True, False),
     ({"ext_db": "True", "force": True}, False, False),
-    ({"orchestrator": "kubernetes"}, False, False),
     ({"key": "MW_SITE_SERVER"}, False, False),
 ])
 def test_refusal_and_rotation_conditions(kwargs, refused, rotated):

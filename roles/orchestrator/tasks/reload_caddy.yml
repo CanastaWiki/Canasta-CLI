@@ -4,13 +4,11 @@
 #
 # Compose bind-mounts both files, so `docker compose up -d` sees no change to
 # the service definition and never recreates the container — the new config
-# would otherwise sit on disk unread. Kubernetes needs nothing here: the caddy
-# deployment carries a checksum/caddy-config annotation, so a ConfigMap change
-# already rolls the pod on helm upgrade.
+# would otherwise sit on disk unread.
 #
 # `caddy reload` is atomic: an invalid config is rejected and the previously
 # loaded one keeps serving, so no separate validate pass is needed.
-# Input: instance_path, instance_id, instance_orchestrator
+# Input: instance_path, instance_id
 
 - name: Get running services for the Caddy reload
   ansible.builtin.include_tasks: list_running_services.yml
@@ -24,8 +22,7 @@
 - name: Determine whether Caddy can be reloaded
   ansible.builtin.set_fact:
     _reload_caddy: >-
-      {{ (not (instance_is_k8s | bool))
-         and 'caddy' in (_running_services | default('') | trim).split() }}
+      {{ 'caddy' in (_running_services | default('') | trim).split() }}
 
 - name: Reload Caddy
   block:
@@ -50,7 +47,6 @@
 - name: Find whether Caddy is paused
   ansible.builtin.include_tasks: list_paused_services.yml
   when:
-    - not (instance_is_k8s | bool)
     - not (_reload_caddy | bool)
 
 # Unpausing resumes Caddy with the config it already loaded.
@@ -61,6 +57,5 @@
       the regenerated configuration; 'canasta restart -i {{ instance_id }}'
       loads it.
   when:
-    - not (instance_is_k8s | bool)
     - not (_reload_caddy | bool)
     - "'caddy' in (_paused_services | default([]))"

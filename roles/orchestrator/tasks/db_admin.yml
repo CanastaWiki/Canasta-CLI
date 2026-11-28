@@ -5,12 +5,10 @@
 # $MYSQL_ROOT_PASSWORD, so nothing depends on the credentials the web
 # container holds. External database: there is no db container, so the web
 # container, as the .env MYSQL_USER. The web container holds only
-# MediaWiki's own account, so on Compose the administrator's credentials are
-# read from .env and passed into each command (canasta_dotenv_exec). On
-# Kubernetes these are the db StatefulSet's and the web Deployment's pods,
-# and the web pod's own MYSQL_USER is used.
+# MediaWiki's own account, so the administrator's credentials are read from
+# .env and passed into each command (canasta_dotenv_exec).
 #
-# Input: instance_path, compose_command; instance_id on Kubernetes
+# Input: instance_path, compose_command
 # Output:
 #   _db_admin_service - the service to run in (db or web)
 #   _db_admin_pwd     - the MYSQL_PWD assignment, and
@@ -48,12 +46,6 @@
          if _db_admin_external | bool
          else '-u root' }}
     _db_admin_exec: >-
-      {% if instance_is_k8s | default(false) | bool -%}
-      kubectl exec -i -n canasta-{{ instance_id }}
-      {{ ('deployment/canasta-' ~ instance_id ~ '-web -c web')
-         if _db_admin_external | bool
-         else ('statefulset/canasta-' ~ instance_id ~ '-db -c db') }} --
-      {%- else -%}
       {{ _db_admin_passed | canasta_dotenv_exec }}
       {{ compose_command }}
       {{ (_db_admin_env.variables.COMPOSE_PROFILES | default(''))
@@ -63,7 +55,6 @@
       exec -T
       {{ _db_admin_passed | list | map('regex_replace', '^', '-e ') | join(' ') }}
       {{ 'web' if _db_admin_external | bool else 'db' }}
-      {%- endif %}
   vars:
     _db_admin_external: >-
       {{ (_db_admin_env.variables.USE_EXTERNAL_DB | default('false'))
@@ -71,5 +62,5 @@
     _db_admin_passed: >-
       {{ {'CANASTA_DB_ADMIN_USER': 'MYSQL_USER',
           'CANASTA_DB_ADMIN_PASSWORD': 'MYSQL_PASSWORD'}
-         if _db_admin_external | bool and not (instance_is_k8s | default(false) | bool)
+         if _db_admin_external | bool
          else {} }}

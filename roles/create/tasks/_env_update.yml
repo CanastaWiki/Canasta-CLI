@@ -1,8 +1,7 @@
 ---
 # Update the instance .env file. Runs AFTER wikis.yaml is generated
 # and BEFORE the orchestrator init_config step. Sets the canonical
-# environment values that the stack and the K8s values.yaml template
-# both consume:
+# environment values that the stack consumes:
 #
 #   - validate the resolved passwords don't contain characters that
 #     break MediaWiki's installer or shell quoting
@@ -56,7 +55,7 @@
 
 # Pin the literal bridge-gateway IP for podman < 4.4, which can't resolve
 # the "host-gateway" magic value in docker-compose.yml's extra_hosts. The
-# fact is only set (non-empty) by the orchestrator create_preflight on
+# fact is only set (non-empty) by orchestrator/tasks/create_preflight.yml on
 # such hosts, so this is naturally a no-op for Docker and podman >= 4.4.
 - name: Pin HOST_GATEWAY for podman < 4.4
   canasta_env:
@@ -149,8 +148,8 @@
     - not (_ext_db_check.found and _ext_db_check.value | lower == 'true')
 
 # Generate the instance's MW_SECRET_KEY. It is the key for the life of the
-# instance: Compose reads it from .env, the K8s mw-secrets Secret is built
-# from it, and neither the installer nor a database import replaces it. A
+# instance: the containers read it from .env, and neither the installer nor
+# a database import replaces it. A
 # MW_SECRET_KEY supplied in the -e envfile is kept, so a wiki moved here
 # from elsewhere keeps its existing sessions valid.
 - name: Generate initial MW_SECRET_KEY
@@ -191,8 +190,7 @@
 # Profile-aware host memory floor. .env now reflects the final feature flags
 # (defaults + any -e overrides merged in _envfile.yml), so enforce the minimum
 # for the enabled profiles before the stack starts: ~2 GiB base, ~4 GiB with
-# OpenSearch or observability, ~8 GiB with both. Compose only — the K8s
-# per-node capacity check lives in k8s_preflight.yml.
+# OpenSearch or observability, ~8 GiB with both.
 - name: Read feature flags for the memory floor
   canasta_env:
     path: "{{ instance_path }}/.env"
@@ -202,7 +200,6 @@
     - CANASTA_ENABLE_OPENSEARCH
     - CANASTA_ENABLE_OBSERVABILITY
   register: _create_mem_flags
-  when: not (instance_is_k8s | bool)
 
 - name: Enforce the profile-aware host memory floor
   ansible.builtin.include_tasks: "{{ canasta_root }}/roles/orchestrator/tasks/check_host_memory.yml"
@@ -211,7 +208,6 @@
       {{ _create_mem_flags.results[0].value | default('false') | lower == 'true' }}
     _mem_obs_enabled: >-
       {{ _create_mem_flags.results[1].value | default('false') | lower == 'true' }}
-  when: not (instance_is_k8s | bool)
 
 # As config set does when CANASTA_ENABLE_OPENSEARCH turns on.
 - name: Enable CirrusSearch with OpenSearch
@@ -221,5 +217,4 @@
     state: enable
     names: [Elastica, CirrusSearch]
   when:
-    - not (instance_is_k8s | bool)
     - _create_mem_flags.results[0].value | default('false') | lower == 'true'

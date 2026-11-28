@@ -16,7 +16,6 @@ REPO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 GITOPS_TASKS = os.path.join(REPO_ROOT, "roles", "gitops", "tasks")
 VERIFY = os.path.join(GITOPS_TASKS, "_verify_exported_key.yml")
 INIT_COMPOSE = os.path.join(GITOPS_TASKS, "init_compose.yml")
-INIT_K8S = os.path.join(GITOPS_TASKS, "init_kubernetes.yml")
 
 
 def _walk(tasks):

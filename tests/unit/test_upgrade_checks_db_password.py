@@ -65,7 +65,7 @@ def _run(tmp_path, env_content, volume):
         "gather_facts": False,
         "vars": {"canasta_root": REPO_ROOT, "instance_id": "site",
                  "instance_path": str(site), "inspect_command": "docker",
-                 "instance_is_k8s": False, "unfinished_pull": False,
+                 "unfinished_pull": False,
                  "_upgrade_caddy_tls": {}, "_upgrade_space_reason": "",
                  "ansible_python_interpreter": sys.executable},
         "tasks": tasks,

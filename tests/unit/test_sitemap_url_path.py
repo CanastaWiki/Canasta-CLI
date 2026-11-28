@@ -3,7 +3,7 @@
 The image's background generator publishes each wiki's sitemaps at
 MW_SITEMAP_URL_PATH, relative to the wiki's URL, and names the files after
 the wiki's sitemap_identifier in wikis.yaml (default the wiki ID). The CLI
-passes the setting to the web container on both orchestrators, serves the
+passes the setting to the web container, serves the
 files at that path (Caddy rewrite, edge static class), stores the
 identifier, and runs `canasta sitemap generate` with the same arguments.
 """
@@ -18,7 +18,6 @@ import yaml
 import canasta_edge_render as edge
 import canasta_sitemap as rules
 import canasta_wikis_yaml as wikis_module
-from _orchestrator import INSTANCE_IS_K8S_VARS
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ROLES = os.path.join(REPO_ROOT, "roles")
@@ -67,7 +66,7 @@ def _play(tmp_path, tasks, play_vars, roles_path=None):
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
-        "vars": dict(INSTANCE_IS_K8S_VARS, ansible_python_interpreter=sys.executable,
+        "vars": dict(ansible_python_interpreter=sys.executable,
                      **play_vars),
         "tasks": tasks,
     }]))
@@ -263,7 +262,6 @@ def _config_set(tmp_path, value, wikis=PATH_FARM):
     (inst / "config" / "wikis.yaml").write_text(yaml.safe_dump({"wikis": wikis}))
     play_vars = dict(_load(DEFAULTS), **_load(CLASSIFIER))
     play_vars.update(instance_path=str(inst), canasta_root=REPO_ROOT,
-                     instance_orchestrator="compose",
                      _setting="%s=%s" % (KEY, value))
     code, out = _play(tmp_path, [{"ansible.builtin.include_tasks": SET_SINGLE}],
                       play_vars)
@@ -349,15 +347,12 @@ class TestAddFarm:
 
 # --- serving: Caddy -------------------------------------------------------- #
 
-def _caddyfile(tmp_path, env_lines, wikis=FARM, k8s=False):
+def _caddyfile(tmp_path, env_lines, wikis=FARM):
     inst = tmp_path / "inst"
     (inst / "config").mkdir(parents=True)
     (inst / ".env").write_text("".join(line + "\n" for line in env_lines))
     (inst / "config" / "wikis.yaml").write_text(yaml.safe_dump({"wikis": wikis}))
-    play_vars = dict(instance_path=str(inst), canasta_root=REPO_ROOT,
-                     instance_orchestrator="kubernetes" if k8s else "compose")
-    if k8s:
-        play_vars["instance_is_k8s"] = True
+    play_vars = dict(instance_path=str(inst), canasta_root=REPO_ROOT)
     code, out = _play(tmp_path, [{"ansible.builtin.include_tasks": REWRITE}], play_vars)
     return code, out, inst / "config" / "Caddyfile"
 
@@ -373,9 +368,8 @@ class TestCaddy:
         assert renders[0] == renders[1] == renders[2]
         assert "sitemap" not in renders[0] and "uri " not in renders[0]
 
-    @pytest.mark.parametrize("k8s", [False])
-    def test_each_wiki_is_rewritten_onto_the_images_path(self, tmp_path, k8s):
-        code, out, path = _caddyfile(tmp_path, ["MW_SITEMAP_URL_PATH=/wiki/sitemap"], k8s=k8s)
+    def test_each_wiki_is_rewritten_onto_the_images_path(self, tmp_path):
+        code, out, path = _caddyfile(tmp_path, ["MW_SITEMAP_URL_PATH=/wiki/sitemap"])
         assert code == 0, out
         text = path.read_text()
         assert ("    @sitemap1 {\n"
@@ -399,19 +393,15 @@ class TestCaddy:
         assert code != 0 and "MW_SITEMAP_URL_PATH must be a URL path" in out, out
         assert not path.exists()
 
-    @pytest.mark.parametrize("k8s", [False])
-    def test_an_overlapping_wikis_rewrite_is_left_out(self, tmp_path, k8s):
+    def test_an_overlapping_wikis_rewrite_is_left_out(self, tmp_path):
         code, out, path = _caddyfile(tmp_path, ["MW_SITEMAP_URL_PATH=/docs/sitemap"],
-                                     wikis=PATH_FARM, k8s=k8s)
+                                     wikis=PATH_FARM)
         assert code == 0, out
         text = path.read_text()
         assert "path /docs/docs/sitemap/*" in text
         assert "path /docs/sitemap/*" not in text
-        warning = ("Warning: MW_SITEMAP_URL_PATH=/docs/sitemap: the sitemaps of wiki "
-                   "'main' are not served at example.com/docs/sitemap, which is inside "
-                   "the URL of wiki 'docs' (example.com/docs).")
-        # On Compose the edge render reports it.
-        assert (warning in out) == k8s, out
+        # The edge render reports it.
+        assert "Warning: MW_SITEMAP_URL_PATH" not in out, out
 
 
 # --- serving: the HAProxy edge -------------------------------------------- #
@@ -532,7 +522,7 @@ STUB_EXEC = """\
 """
 
 
-def _generate(tmp_path, extra_vars, wikis=FARM, k8s=False, gitops=False, env_lines=()):
+def _generate(tmp_path, extra_vars, wikis=FARM, gitops=False, env_lines=()):
     root = tmp_path / "root"
     (root / "roles" / "common" / "tasks").mkdir(parents=True)
     (root / "roles" / "common" / "tasks" / "resolve_instance.yml").write_text(
@@ -540,11 +530,6 @@ def _generate(tmp_path, extra_vars, wikis=FARM, k8s=False, gitops=False, env_lin
     orch = root / "roles" / "orchestrator" / "tasks"
     orch.mkdir(parents=True)
     (orch / "exec.yml").write_text(STUB_EXEC)
-    for name in ("apply_config", "check_running"):
-        (orch / ("%s.yml" % name)).write_text(
-            "- ansible.builtin.lineinfile:\n"
-            "    path: \"{{ instance_path }}/exec.log\"\n"
-            "    line: %s\n    create: true\n" % name)
     gitops_tasks = root / "roles" / "gitops" / "tasks"
     gitops_tasks.mkdir(parents=True)
     (gitops_tasks / "capture_wikis_yaml.yml").write_text(
@@ -558,11 +543,7 @@ def _generate(tmp_path, extra_vars, wikis=FARM, k8s=False, gitops=False, env_lin
         line + "\n" for line in ("MW_SITE_SERVER=https://example.com",) + tuple(env_lines)))
     if gitops:
         (inst / ".gitops-host").write_text("")
-    play_vars = dict(instance_path=str(inst), canasta_root=str(root),
-                     instance_orchestrator="kubernetes" if k8s else "compose",
-                     **extra_vars)
-    if k8s:
-        play_vars["instance_is_k8s"] = True
+    play_vars = dict(instance_path=str(inst), canasta_root=str(root), **extra_vars)
     code, out = _play(tmp_path, [{"ansible.builtin.include_tasks": GENERATE}],
                       play_vars, roles_path=str(root / "roles"))
     log = inst / "exec.log"
@@ -634,7 +615,7 @@ class TestGenerate:
         assert "--fspath=/mediawiki/public_assets/en/sitemap " in call
         assert "--identifier=en " in call
         assert "--identifier=main " in _php_call(log, "main")
-        assert "apply_config" not in log and "captured" not in log
+        assert "captured" not in log
 
     def test_removes_the_files_of_other_identifiers_after_success(self, tmp_path):
         wikis = [dict(FARM[1], sitemap_identifier="mediawiki")]
@@ -660,13 +641,13 @@ class TestGenerate:
         assert sorted(os.listdir(tmp_path / "sm")) == [
             "notes.txt", "sitemap-index-mediawiki.xml", "sitemap-mediawiki-NS_0-0.xml.gz"]
 
-    def test_identifier_is_stored_applied_and_used(self, tmp_path):
+    def test_identifier_is_stored_captured_and_used(self, tmp_path):
         code, out, inst, log = _generate(tmp_path, {"wiki": "en", "identifier": "mediawiki"})
         assert code == 0, out
         stored = yaml.safe_load((inst / "config" / "wikis.yaml").read_text())["wikis"]
         assert stored[1]["sitemap_identifier"] == "mediawiki"
         assert "--identifier=mediawiki " in _php_call(log, "en")
-        assert log.index("captured") < log.index("apply_config") < log.index(_php_call(log, "en"))
+        assert log.index("captured") < log.index(_php_call(log, "en"))
 
     def test_identifier_needs_a_wiki(self, tmp_path):
         code, out, _, log = _generate(tmp_path, {"identifier": "mediawiki"})

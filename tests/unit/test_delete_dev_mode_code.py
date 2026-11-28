@@ -90,7 +90,6 @@ class TestDestroyRemovesDevModeCode:
         proc = _play(tmp_path, [{"ansible.builtin.include_tasks": DESTROY}], {
             "instance_path": str(inst),
             "instance_id": "inst",
-            "instance_is_k8s": False,
             "compose_command": str(stub) + " compose",
             "inspect_command": str(stub),
         })

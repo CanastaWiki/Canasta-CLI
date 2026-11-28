@@ -1,7 +1,7 @@
 """A skipped integration test must not leave CI green.
 
 Integration tests raise SkipTest when a prerequisite is missing: no
-cluster, no helm, no git-crypt, no Podman socket. On a developer machine
+git-crypt, no crontab, no rootless Podman socket. On a developer machine
 that is a reasonable outcome; on a CI runner that provisions every
 prerequisite it means the provisioning broke, and the run must fail.
 """
@@ -46,7 +46,7 @@ def run_tests(monkeypatch):
         pass
 
     def skips(inst):
-        raise module.SkipTest("helm not installed")
+        raise module.SkipTest("git-crypt not installed")
 
     monkeypatch.setattr(module, "ALL_TESTS", {
         "passes": passes, "skips": skips,
@@ -65,13 +65,13 @@ class TestNoSkipFlag:
     def test_skip_without_flag_exits_zero(self, run_tests, monkeypatch, capsys):
         assert _run(run_tests, monkeypatch) == 0
         out = capsys.readouterr().out
-        assert "SKIPPED: skips: helm not installed" in out
+        assert "SKIPPED: skips: git-crypt not installed" in out
         assert "1 passed, 0 failed, 1 skipped" in out
 
     def test_skip_with_flag_exits_nonzero(self, run_tests, monkeypatch, capsys):
         assert _run(run_tests, monkeypatch, "--no-skip") == 1
         out = capsys.readouterr().out
-        assert "SKIPPED: skips: helm not installed" in out
+        assert "SKIPPED: skips: git-crypt not installed" in out
         assert "counted as failures: skips" in out
 
     def test_flag_is_not_taken_as_a_test_name(self, run_tests, monkeypatch,

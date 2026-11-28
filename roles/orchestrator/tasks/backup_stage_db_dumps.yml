@@ -1,16 +1,10 @@
 ---
 # Stage each wiki's database dump for a backup snapshot.
 #
-# Compose: run mariadb-dump in the db container as root (the web
-# container for an external database, see db_admin.yml) and write its
-# output from the host into instance_path/config/backup. restic's
-# container mounts that host path, so the dumps appear in the snapshot.
-#
-# Kubernetes: no-op here. Writing into the live web pod's emptyDir is
-# useless — the separately-spawned restic Job mounts the web-config
-# ConfigMap, not the live pod's emptyDir, so the dumps would silently
-# vanish from on-demand snapshots. The K8s path does the dump as
-# an init container inside the restic Job itself — see k8s_run_backup.yml.
+# Run mariadb-dump in the db container as root (the web container for an
+# external database, see db_admin.yml) and write its output from the host
+# into instance_path/config/backup. restic's container mounts that host
+# path, so the dumps appear in the snapshot.
 #
 # One dump per wiki covers the wiki's own database and any extra
 # databases it declares, in a single invocation so they share one
@@ -23,27 +17,25 @@
 # broken database does not cost the others; those that still fail are
 # left out of the snapshot.
 #
-# Input: instance_path, instance_orchestrator,
+# Input: instance_path,
 #        _backup_wikis (db_groups)
 # Output: _backup_dump_failures - one "<db> [<db>...]: <error>" entry per
-#         group that could not be dumped (on K8s the Job reports these)
+#         group that could not be dumped
 
 - name: Start with no failed database dumps
   ansible.builtin.set_fact:
     _backup_dump_failures: []
 
-- name: Find where the database dumps run (Compose)
+- name: Find where the database dumps run
   ansible.builtin.include_tasks: db_admin.yml
-  when: not (instance_is_k8s | bool)
 
-- name: Find how long each database dump may run (Compose)
+- name: Find how long each database dump may run
   ansible.builtin.include_tasks: backup_time_limit.yml
-  when: not (instance_is_k8s | bool)
 
 # The dumps are written from the host, so the staging directory has to be
 # the host user's. A directory a previous run left from inside the web
 # container belongs to that container's root, so remove it first.
-- name: Remove a staging directory a previous run left (Compose)
+- name: Remove a staging directory a previous run left
   ansible.builtin.include_tasks:
     file: exec.yml
     apply:
@@ -51,16 +43,14 @@
   vars:
     exec_service: web
     exec_command: "rm -rf /mediawiki/config/backup"
-  when: not (instance_is_k8s | bool)
 
-- name: Create backup staging directory (Compose)
+- name: Create backup staging directory
   ansible.builtin.file:
     path: "{{ instance_path }}/config/backup"
     state: directory
     mode: "0700"
-  when: not (instance_is_k8s | bool)
 
-- name: Dump each wiki's database group (Compose)
+- name: Dump each wiki's database group
   ansible.builtin.include_tasks: backup_dump_db_group.yml
   vars:
     # A database that cannot be dumped leaves nothing behind, neither a
@@ -95,4 +85,3 @@
     label: >-
       {{ item.wiki }}{{ ' (+ ' ~ (item.databases[1:] | join(', ')) ~ ')'
                          if item.databases | length > 1 else '' }}
-  when: not (instance_is_k8s | bool)

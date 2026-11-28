@@ -1,16 +1,13 @@
 """`config set --secret` must refuse keys that belong in .env.
 
---secret skips .env validation and side effects, and on K8s writes
-config/secrets.env, which feeds only the sidecar app Secret. A recognized key
-written there is stored where nothing reads it while .env keeps its old
-value, so `RESTIC_PASSWORD=... --secret` reports success and the next backup
-still fails on the previous password.
+--secret skips .env validation and side effects, which a recognized key
+needs: `RESTIC_PASSWORD=... --secret` would report success while skipping
+what makes the next backup use the new password.
 
 "Recognized" is the set `config set` already accepts without --force:
 canasta_known_keys plus the canasta_secret_prefixes credential prefixes. The
 prefixes matter as much as the named keys — AWS_/B2_/RCLONE_ are backup
-backend credentials that restic reads from .env via --env-file on Compose and
-that k8s_apply_backup_env_secret.yml builds its Secret from on Kubernetes.
+backend credentials that restic reads from .env via --env-file.
 
 `config unset --secret` is the counterpart, and deliberately does not
 validate: a key misrouted before this guard existed has to be removable.
@@ -68,9 +65,9 @@ def test_rejection_precedes_the_write():
     """A guard after the write would leave the value stored."""
     tasks = _load(SET_SECRET)
     reject = _index(tasks, "Reject recognized .env keys")
-    store = _index(tasks, "Store the secrets for this orchestrator")
+    store = _index(tasks, "Store the secrets")
     assert 0 <= reject < store, (
-        "the rejection must come before any orchestrator stores the value")
+        "the rejection must come before the value is stored")
     assert all("Write" not in t.get("name", "") for t in tasks[:reject])
 
 
@@ -110,18 +107,21 @@ def test_backup_backends_are_prefix_recognized():
 
 # --- the unset counterpart --------------------------------------------------
 
-def test_unset_secret_clears_both_files():
+def test_unset_secret_clears_every_file():
     tasks = _load(UNSET_SECRET)
-    env = tasks[_index(tasks, "Remove each secret")]["canasta_env"]
+    env = tasks[_index(tasks, "Remove each secret from config/secrets.env")][
+        "canasta_env"]
     assert env["path"].endswith("config/secrets.env")
     assert env["state"] == "unset"
 
-    web = tasks[_index(tasks, "Stop exposing the keys")][
+    web = tasks[_index(tasks, "Remove each secret from config/secrets-web")][
         "ansible.builtin.lineinfile"]
     assert web["path"].endswith("config/secrets-web")
-    assert web["state"] == "absent", (
-        "a key left in secrets-web still renders as secretKeyRef env on the "
-        "web pods")
+    assert web["state"] == "absent"
+
+    env_file = tasks[_index(tasks, "Remove the secrets from .env")]
+    assert env_file["ansible.builtin.include_tasks"].strip().endswith(
+        "config_unset_secret.yml")
 
 
 def test_unset_secret_does_not_validate_keys():

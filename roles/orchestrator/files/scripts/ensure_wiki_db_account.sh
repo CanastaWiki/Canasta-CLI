@@ -5,9 +5,8 @@
 # db container, fed on stdin:
 #   sh -s -- <db> [<db>...] < ensure_wiki_db_account.sh
 # or in a container beside it with DB_HOST (and optionally DB_PORT) naming
-# the database server, which it then reaches over TCP (the Kubernetes web
-# pod's ensure-db-account init container, or the web container for an
-# external database). It reads WIKI_DB_USER, WIKI_DB_PASSWORD and the
+# the database server, which it then reaches over TCP (the web container
+# for an external database). It reads WIKI_DB_USER, WIKI_DB_PASSWORD and the
 # administrator's password from the container's environment, so no secret is
 # on a command line. The administrator is DB_ADMIN_USER with
 # DB_ADMIN_PASSWORD, or root with MYSQL_ROOT_PASSWORD when those are unset.

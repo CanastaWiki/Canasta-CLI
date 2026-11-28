@@ -9,7 +9,6 @@ import os
 import subprocess
 import sys
 
-import pytest
 import yaml
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -39,14 +38,13 @@ def _ignored(inst, path):
                           check=False).returncode == 0
 
 
-def _refresh(tmp_path, inst, k8s):
+def _refresh(tmp_path, inst):
     play = tmp_path / "play.yml"
     play.write_text(yaml.safe_dump([{
         "hosts": "localhost",
         "connection": "local",
         "gather_facts": False,
         "vars": {"instance_path": str(inst), "canasta_root": REPO_ROOT,
-                 "instance_is_k8s": k8s,
                  "ansible_python_interpreter": sys.executable},
         "tasks": [{"ansible.builtin.include_tasks": REFRESH}],
     }]))
@@ -66,10 +64,9 @@ def test_default_ignores_uploads_but_not_shipped_images(tmp_path):
         assert not _ignored(inst, path), path
 
 
-@pytest.mark.parametrize("k8s", [False])
-def test_refresh_replaces_the_unanchored_rule(tmp_path, k8s):
+def test_refresh_replaces_the_unanchored_rule(tmp_path):
     inst = _instance(tmp_path, ".env\nimages/\nmy-own-rule\n")
-    _refresh(tmp_path, inst, k8s)
+    _refresh(tmp_path, inst)
     lines = (inst / ".gitignore").read_text().splitlines()
     assert "images/" not in lines
     assert lines.count("/images/") == 1
@@ -78,5 +75,5 @@ def test_refresh_replaces_the_unanchored_rule(tmp_path, k8s):
     for path in SHIPPED:
         assert not _ignored(inst, path), path
     before = (inst / ".gitignore").read_text()
-    _refresh(tmp_path, inst, k8s)
+    _refresh(tmp_path, inst)
     assert (inst / ".gitignore").read_text() == before

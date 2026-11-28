@@ -19,7 +19,6 @@ REQUIREMENTS = os.path.join(REPO_ROOT, "requirements.yml")
 
 # Collection name -> the Dockerfile shell variable pinning its version.
 _VERSION_VARS = {
-    "kubernetes.core": "K8S_CORE_VERSION",
     "ansible.posix": "ANSIBLE_POSIX_VERSION",
 }
 
@@ -88,9 +87,9 @@ class TestDockerfileCollectionsMatchRequirements:
 
     def test_each_pinned_collection_is_actually_downloaded_and_installed(self):
         content = _read(DOCKERFILE)
+        pins = _dockerfile_pins()
         for name, var in _VERSION_VARS.items():
-            if name not in _dockerfile_pins():
-                continue
+            assert name in pins, "the Dockerfile no longer sets %s" % var
             assert "${%s}" % var in content, (
                 "%s is set but never interpolated into a download URL" % var
             )

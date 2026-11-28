@@ -1,8 +1,8 @@
 ---
-# GitOps push (Compose) — commit staged changes and push to remote.
+# GitOps push — commit staged changes and push to remote.
 # Push flow: validates role, accepts message, supports
 # the staged-changes-only model.
-# Requires: instance_path, instance_id (set by dispatcher)
+# Requires: instance_path, instance_id
 # Optional: message (commit message, defaults to 'Configuration update')
 
 # --- Fail fast on a locked git-crypt checkout ---

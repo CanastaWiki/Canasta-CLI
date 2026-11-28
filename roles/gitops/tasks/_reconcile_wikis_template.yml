@@ -7,10 +7,9 @@
 # tracked canonical source, so it survives the next render and reaches
 # other hosts, instead of being silently dropped.
 #
-# Only Compose gitops instances use wikis.yaml.template, so by default
-# this acts only when that template already exists (a no-op on K8s
-# gitops and non-gitops instances). Pass reconcile_create=true at init
-# time to create the template when it does not yet exist.
+# By default this acts only when that template already exists (a no-op
+# on non-gitops instances). Pass reconcile_create=true at init time to
+# create the template when it does not yet exist.
 #
 # Input: instance_path. Optional: reconcile_create (default false).
 # Output: _reconcile_wikis_write (the template copy result; only
